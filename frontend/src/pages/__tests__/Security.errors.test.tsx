@@ -121,7 +121,7 @@ describe('Security Error Handling Tests', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-waf'))
+      await screen.findByTestId('toggle-waf')
       await user.click(screen.getByTestId('toggle-waf'))
 
       await waitFor(() => {
@@ -138,7 +138,7 @@ describe('Security Error Handling Tests', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-waf'))
+      await screen.findByTestId('toggle-waf')
       await user.click(screen.getByTestId('toggle-waf'))
 
       await waitFor(() => {
@@ -153,7 +153,7 @@ describe('Security Error Handling Tests', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-waf'))
+      await screen.findByTestId('toggle-waf')
       await user.click(screen.getByTestId('toggle-waf'))
 
       await waitFor(() => {
@@ -172,7 +172,7 @@ describe('Security Error Handling Tests', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-crowdsec'))
+      await screen.findByTestId('toggle-crowdsec')
       await user.click(screen.getByTestId('toggle-crowdsec'))
 
       await waitFor(() => {
@@ -192,7 +192,7 @@ describe('Security Error Handling Tests', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-crowdsec'))
+      await screen.findByTestId('toggle-crowdsec')
       await user.click(screen.getByTestId('toggle-crowdsec'))
 
       await waitFor(() => {
@@ -210,7 +210,7 @@ describe('Security Error Handling Tests', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-waf'))
+      await screen.findByTestId('toggle-waf')
       await user.click(screen.getByTestId('toggle-waf'))
 
       await waitFor(() => {
@@ -227,7 +227,7 @@ describe('Security Error Handling Tests', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-rate-limit'))
+      await screen.findByTestId('toggle-rate-limit')
       await user.click(screen.getByTestId('toggle-rate-limit'))
 
       await waitFor(() => {
@@ -244,7 +244,7 @@ describe('Security Error Handling Tests', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-acl'))
+      await screen.findByTestId('toggle-acl')
       await user.click(screen.getByTestId('toggle-acl'))
 
       await waitFor(() => {
@@ -259,7 +259,7 @@ describe('Security Error Handling Tests', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-acl'))
+      await screen.findByTestId('toggle-acl')
       await user.click(screen.getByTestId('toggle-acl'))
 
       await waitFor(() => {
@@ -276,7 +276,7 @@ describe('Security Error Handling Tests', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-acl'))
+      await screen.findByTestId('toggle-acl')
       await user.click(screen.getByTestId('toggle-acl'))
 
       await waitFor(() => {
@@ -295,7 +295,7 @@ describe('Security Error Handling Tests', () => {
       await renderSecurityPage()
 
       // First failure
-      await waitFor(() => screen.getByTestId('toggle-waf'))
+      await screen.findByTestId('toggle-waf')
       await user.click(screen.getByTestId('toggle-waf'))
 
       await waitFor(() => {
@@ -319,7 +319,7 @@ describe('Security Error Handling Tests', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-waf'))
+      await screen.findByTestId('toggle-waf')
 
       // WAF is initially enabled
       const toggle = screen.getByTestId('toggle-waf')
@@ -348,7 +348,7 @@ describe('Security Error Handling Tests', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-crowdsec'))
+      await screen.findByTestId('toggle-crowdsec')
 
       // CrowdSec is initially disabled
       const toggle = screen.getByTestId('toggle-crowdsec')
@@ -377,7 +377,7 @@ describe('Security Error Handling Tests', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-crowdsec'))
+      await screen.findByTestId('toggle-crowdsec')
 
       // CrowdSec is initially enabled
       const toggle = screen.getByTestId('toggle-crowdsec')

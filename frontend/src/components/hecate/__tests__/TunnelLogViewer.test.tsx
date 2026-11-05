@@ -136,7 +136,7 @@ describe('TunnelLogViewer', () => {
       mockWs.onmessage?.(new MessageEvent('message', { data: 'line 1' }))
     })
 
-    await waitFor(() => expect(screen.getByText('line 1')).toBeInTheDocument())
+    expect(await screen.findByText('line 1')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: /clear/i }))
 

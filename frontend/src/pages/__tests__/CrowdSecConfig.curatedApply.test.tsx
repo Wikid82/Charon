@@ -104,7 +104,7 @@ const hubPreset = {
 
 const renderPage = async () => {
   const result = renderWithQueryClient(<CrowdSecConfig />)
-  await waitFor(() => screen.getByText('CrowdSec Configuration'))
+  await screen.findByText('CrowdSec Configuration')
   return result
 }
 

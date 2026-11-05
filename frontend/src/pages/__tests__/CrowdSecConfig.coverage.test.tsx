@@ -94,7 +94,7 @@ const defaultFileList = ['acquis.yaml', 'collections.yaml']
 
 const renderPage = async (client?: QueryClient) => {
   const result = renderWithQueryClient(<CrowdSecConfig />, { client })
-  await waitFor(() => screen.getByText('CrowdSec Configuration'))
+  await screen.findByText('CrowdSec Configuration')
   return result
 }
 

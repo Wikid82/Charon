@@ -740,7 +740,7 @@ describe('SecurityHeaders', () => {
     const openBtn = screen.getAllByRole('button', { name: /Create Profile/i })[0];
     fireEvent.click(openBtn);
 
-    await waitFor(() => screen.getByText(/Create Security Header Profile/i));
+    await screen.findByText(/Create Security Header Profile/i)
 
     // Fill required fields to enable submit
     const nameInput = screen.getByPlaceholderText(/e.g., Production Security Headers/i);
@@ -775,10 +775,10 @@ describe('SecurityHeaders', () => {
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });
 
-    await waitFor(() => screen.getByText('Edit Me'));
+    await screen.findByText('Edit Me')
     fireEvent.click(screen.getByRole('button', { name: /Edit/i }));
 
-    await waitFor(() => screen.getByText(/Edit Security Header Profile/i));
+    await screen.findByText(/Edit Security Header Profile/i)
 
     const submitButton = screen.getByRole('button', { name: /Save Profile/i });
     fireEvent.click(submitButton);
@@ -805,13 +805,13 @@ describe('SecurityHeaders', () => {
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });
 
-    await waitFor(() => screen.getByText('Delete Me'));
+    await screen.findByText('Delete Me')
 
     const buttons = screen.getAllByRole('button');
     const deleteButton = buttons.find(btn => btn.querySelector('.lucide-trash-2, .lucide-trash'));
     fireEvent.click(deleteButton!);
 
-    await waitFor(() => screen.getByText(/Confirm Deletion/i));
+    await screen.findByText(/Confirm Deletion/i)
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
 
     await waitFor(() => {
@@ -836,13 +836,13 @@ describe('SecurityHeaders', () => {
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });
 
-    await waitFor(() => screen.getByText('Delete Me'));
+    await screen.findByText('Delete Me')
 
     const buttons = screen.getAllByRole('button');
     const deleteButton = buttons.find(btn => btn.querySelector('.lucide-trash-2, .lucide-trash'));
     fireEvent.click(deleteButton!);
 
-    await waitFor(() => screen.getByText(/Confirm Deletion/i));
+    await screen.findByText(/Confirm Deletion/i)
     fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
 
     await waitFor(() => {
@@ -867,7 +867,7 @@ describe('SecurityHeaders', () => {
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });
 
-    await waitFor(() => screen.getByText('Weird Preset'));
+    await screen.findByText('Weird Preset')
     // Just ensuring render doesn't crash
   });
 
@@ -889,10 +889,10 @@ describe('SecurityHeaders', () => {
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });
 
-    await waitFor(() => screen.getByText('Edit Me'));
+    await screen.findByText('Edit Me')
     fireEvent.click(screen.getByRole('button', { name: /Edit/i }));
 
-    await waitFor(() => screen.getByText(/Edit Security Header Profile/i));
+    await screen.findByText(/Edit Security Header Profile/i)
 
     const cancelButton = screen.getByRole('button', { name: /Cancel/i });
     fireEvent.click(cancelButton);
@@ -920,16 +920,16 @@ describe('SecurityHeaders', () => {
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });
 
-    await waitFor(() => screen.getByText('Delete Me from Edit'));
+    await screen.findByText('Delete Me from Edit')
     fireEvent.click(screen.getByRole('button', { name: /Edit/i }));
 
-    await waitFor(() => screen.getByText(/Edit Security Header Profile/i));
+    await screen.findByText(/Edit Security Header Profile/i)
 
     const deleteButton = screen.getByRole('button', { name: /Delete Profile/i });
     expect(deleteButton).toBeInTheDocument();
 
     fireEvent.click(deleteButton);
 
-    await waitFor(() => screen.getByText(/Confirm Deletion/i));
+    await screen.findByText(/Confirm Deletion/i)
   });
 });

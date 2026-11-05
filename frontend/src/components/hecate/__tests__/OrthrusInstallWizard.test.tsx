@@ -146,7 +146,7 @@ describe('OrthrusInstallWizard', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Copy authentication key' }))
     // Copied! should show
-    await waitFor(() => expect(screen.getByText('Copied!')).toBeInTheDocument())
+    expect(await screen.findByText('Copied!')).toBeInTheDocument()
 
     rerender(<OrthrusInstallWizard {...defaultProps} open={false} />)
     rerender(<OrthrusInstallWizard {...defaultProps} open={true} />)

@@ -109,7 +109,7 @@ describe('Security Loading Overlay Tests', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-waf'))
+      await screen.findByTestId('toggle-waf')
       const toggle = screen.getByTestId('toggle-waf')
       await user.click(toggle)
 
@@ -131,7 +131,7 @@ describe('Security Loading Overlay Tests', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-crowdsec'))
+      await screen.findByTestId('toggle-crowdsec')
       const toggle = screen.getByTestId('toggle-crowdsec')
       await user.click(toggle)
 
@@ -153,7 +153,7 @@ describe('Security Loading Overlay Tests', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-crowdsec'))
+      await screen.findByTestId('toggle-crowdsec')
       const toggle = screen.getByTestId('toggle-crowdsec')
       await user.click(toggle)
 
@@ -172,7 +172,7 @@ describe('Security Loading Overlay Tests', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-waf'))
+      await screen.findByTestId('toggle-waf')
       await user.click(screen.getByTestId('toggle-waf'))
 
       await waitFor(() => {
@@ -189,7 +189,7 @@ describe('Security Loading Overlay Tests', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-rate-limit'))
+      await screen.findByTestId('toggle-rate-limit')
       await user.click(screen.getByTestId('toggle-rate-limit'))
 
       await waitFor(() => {
@@ -207,7 +207,7 @@ describe('Security Loading Overlay Tests', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-acl'))
+      await screen.findByTestId('toggle-acl')
       await user.click(screen.getByTestId('toggle-acl'))
 
       await waitFor(() => {
@@ -224,7 +224,7 @@ describe('Security Loading Overlay Tests', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-waf'))
+      await screen.findByTestId('toggle-waf')
       await user.click(screen.getByTestId('toggle-waf'))
 
       await waitFor(() => {
@@ -242,7 +242,7 @@ describe('Security Loading Overlay Tests', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-waf'))
+      await screen.findByTestId('toggle-waf')
       await user.click(screen.getByTestId('toggle-waf'))
 
       await waitFor(() => {
@@ -259,7 +259,7 @@ describe('Security Loading Overlay Tests', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-waf'))
+      await screen.findByTestId('toggle-waf')
       await user.click(screen.getByTestId('toggle-waf'))
 
       await waitFor(() => {
@@ -279,7 +279,7 @@ describe('Security Loading Overlay Tests', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-waf'))
+      await screen.findByTestId('toggle-waf')
 
       // The overlay might flash briefly and disappear, so we verify no overlay after completion
       await user.click(screen.getByTestId('toggle-waf'))

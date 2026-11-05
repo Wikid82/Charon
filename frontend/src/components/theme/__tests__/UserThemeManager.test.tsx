@@ -206,7 +206,7 @@ describe('UserThemeManager', () => {
     render(<UserThemeManager activeThemeId="dark" onActivate={vi.fn()} />)
 
     await userEvent.click(screen.getByRole('button', { name: /create new theme/i }))
-    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
 
     const nameInput = screen.getByLabelText('Theme Name') as HTMLInputElement
     await userEvent.type(nameInput, 'Midnight')
@@ -220,7 +220,7 @@ describe('UserThemeManager', () => {
     render(<UserThemeManager activeThemeId="dark" onActivate={vi.fn()} />)
 
     await userEvent.click(screen.getByRole('button', { name: /create new theme/i }))
-    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
 
     await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }))
 
@@ -235,7 +235,7 @@ describe('UserThemeManager', () => {
     render(<UserThemeManager activeThemeId="dark" onActivate={vi.fn()} />)
 
     await userEvent.click(screen.getByRole('button', { name: /create new theme/i }))
-    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
 
     await userEvent.type(screen.getByLabelText('Theme Name'), 'Midnight Blue')
     await userEvent.click(screen.getByRole('button', { name: /save theme/i }))
@@ -250,7 +250,7 @@ describe('UserThemeManager', () => {
     render(<UserThemeManager activeThemeId="dark" onActivate={vi.fn()} />)
 
     await userEvent.click(screen.getByRole('button', { name: /edit theme my dark theme/i }))
-    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
 
     const nameInput = screen.getByLabelText('Theme Name') as HTMLInputElement
     await userEvent.clear(nameInput)
@@ -270,7 +270,7 @@ describe('UserThemeManager', () => {
     render(<UserThemeManager activeThemeId="dark" onActivate={vi.fn()} />)
 
     await userEvent.click(screen.getByRole('button', { name: /edit theme my dark theme/i }))
-    await waitFor(() => expect(screen.getByRole('dialog')).toBeInTheDocument())
+    expect(await screen.findByRole('dialog')).toBeInTheDocument()
 
     const nameInput = screen.getByLabelText('Theme Name') as HTMLInputElement
     await userEvent.clear(nameInput)
@@ -290,7 +290,7 @@ describe('UserThemeManager', () => {
     render(<UserThemeManager activeThemeId="dark" onActivate={vi.fn()} />)
 
     await userEvent.click(screen.getByRole('button', { name: /delete theme my dark theme/i }))
-    await waitFor(() => expect(screen.getByText('Delete this theme? This cannot be undone.')).toBeInTheDocument())
+    expect(await screen.findByText('Delete this theme? This cannot be undone.')).toBeInTheDocument()
 
     const cancelBtn = screen.getAllByRole('button', { name: /^cancel$/i })[0]
     await userEvent.click(cancelBtn)
