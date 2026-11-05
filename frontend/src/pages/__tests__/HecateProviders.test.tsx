@@ -118,11 +118,9 @@ describe('HecateProviders', () => {
     const addBtns = await screen.findAllByRole('button', { name: 'hecate.providers.addTunnel' })
     await user.click(addBtns[2]) // NetBird is the 3rd provider card
 
-    await waitFor(() => {
-      const form = screen.getByTestId('tunnel-form')
-      expect(form).toBeInTheDocument()
-      expect(form).toHaveAttribute('data-provider', 'netbird')
-    })
+    const form = await screen.findByTestId('tunnel-form')
+    expect(form).toBeInTheDocument()
+    expect(form).toHaveAttribute('data-provider', 'netbird')
   })
 
   it('opens the tunnel form for Cloudflare when Cloudflare New Tunnel is clicked', async () => {

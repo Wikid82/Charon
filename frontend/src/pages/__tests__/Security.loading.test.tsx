@@ -6,7 +6,7 @@
  * and overlay blocks interactions.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BrowserRouter } from 'react-router'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -83,9 +83,7 @@ describe('Security Loading Overlay Tests', () => {
   )
 
   const renderSecurityPage = async () => {
-    await act(async () => {
-      render(<Security />, { wrapper })
-    })
+    render(<Security />, { wrapper })
   }
 
   describe('LS-01: Initial Page Load Shows Loading Text', () => {

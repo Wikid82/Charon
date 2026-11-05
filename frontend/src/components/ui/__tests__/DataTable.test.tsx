@@ -330,6 +330,7 @@ describe('DataTable', () => {
     const checkboxes = screen.getAllByRole('checkbox')
     // Should not throw
     fireEvent.click(checkboxes[0])
+    expect(checkboxes[0]).not.toBeChecked()
     fireEvent.click(checkboxes[1])
   })
 

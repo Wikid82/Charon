@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, render, screen } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import { BrowserRouter } from 'react-router'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -43,15 +43,13 @@ const renderPage = async (role: 'admin' | 'user' | null) => {
     user: role ? { user_id: 1, role } : null,
   } as unknown as AuthContextType)
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
-  await act(async () => {
-    render(
-      <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <Security />
-        </BrowserRouter>
-      </QueryClientProvider>
-    )
-  })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <Security />
+      </BrowserRouter>
+    </QueryClientProvider>
+  )
 }
 
 describe('Security page login protection card', () => {

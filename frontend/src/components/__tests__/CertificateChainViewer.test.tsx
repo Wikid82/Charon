@@ -54,7 +54,7 @@ describe('CertificateChainViewer', () => {
   it('displays formatted expiration dates', () => {
     render(<CertificateChainViewer chain={makeChain(1)} />)
     const dateStr = new Date('2026-06-01T00:00:00Z').toLocaleDateString()
-    expect(screen.getByText(new RegExp(dateStr))).toBeTruthy()
+    expect(screen.getByText(dateStr, { exact: false })).toBeTruthy()
   })
 
   it('uses list role with list items', () => {

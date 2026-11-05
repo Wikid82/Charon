@@ -1,5 +1,5 @@
 import { QueryClientProvider } from '@tanstack/react-query'
-import { cleanup, render, screen, waitFor  } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BrowserRouter } from 'react-router'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -198,13 +198,13 @@ describe('Security page', () => {
     vi.mocked(crowdsecApi.startCrowdsec).mockResolvedValue({ status: 'started', pid: 123, lapi_ready: true })
     vi.mocked(settingsApi.updateSetting).mockResolvedValue()
 
-    renderWithProviders(<Security />)
+    const view = renderWithProviders(<Security />)
     expect(await screen.findByText('Cerberus Dashboard')).toBeInTheDocument()
     const toggle = screen.getByTestId('toggle-crowdsec')
     await user.click(toggle)
     await waitFor(() => expect(crowdsecApi.startCrowdsec).toHaveBeenCalled())
 
-    cleanup()
+    view.unmount()
 
     const enabledStatus: SecurityStatus = { ...baseStatus, crowdsec: { enabled: true, mode: 'local' as const, api_url: '' } }
     vi.mocked(api.getSecurityStatus).mockResolvedValue(enabledStatus as SecurityStatus)

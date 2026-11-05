@@ -420,6 +420,7 @@ describe('ImportCaddy - Handlers and Interactions', () => {
 
       // The success modal component should be in the DOM
       // The actual visibility is controlled by the visible prop
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
     })
 
     it('clears commit result when success modal is closed', async () => {

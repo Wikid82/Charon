@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { type OrthrusAgent } from '../../../api/orthrus';
@@ -233,9 +233,7 @@ describe('AgentExternalProxyDialog', () => {
       const copyButton = screen.getByRole('button', {
         name: 'hecate.externalProxy.copyConnectionString',
       });
-      await act(async () => {
-        fireEvent.click(copyButton);
-      });
+      fireEvent.click(copyButton);
 
       await waitFor(() =>
         expect(writeText).toHaveBeenCalledWith('tcp://charon:2375'),

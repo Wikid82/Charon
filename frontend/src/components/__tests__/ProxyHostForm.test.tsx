@@ -1,7 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { act } from 'react'
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 
 import { testProxyHostConnection, type ProxyHost  } from '../../api/proxyHosts'
@@ -174,12 +173,6 @@ const renderWithClient = (ui: React.ReactElement) => {
   )
 }
 
-const renderWithClientAct = async (ui: React.ReactElement) => {
-  await act(async () => {
-    renderWithClient(ui)
-  })
-}
-
 const selectComboboxOption = async (label: string | RegExp, optionText: string) => {
   const trigger = screen.getByRole('combobox', { name: label })
   await userEvent.click(trigger)
@@ -214,7 +207,7 @@ describe('ProxyHostForm', () => {
       json: () => Promise.resolve({}),
     })
 
-    await renderWithClientAct(
+    renderWithClient(
       <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
     )
 
@@ -225,7 +218,7 @@ describe('ProxyHostForm', () => {
   })
 
   it('handles scheme selection', async () => {
-    await renderWithClientAct(
+    renderWithClient(
       <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
     )
 
@@ -237,7 +230,7 @@ describe('ProxyHostForm', () => {
   })
 
   it('prompts to save new base domain', async () => {
-    await renderWithClientAct(
+    renderWithClient(
       <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
     )
 
@@ -261,7 +254,7 @@ describe('ProxyHostForm', () => {
   })
 
   it('respects "Dont ask me again" for new domains', async () => {
-    await renderWithClientAct(
+    renderWithClient(
       <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
     )
 
@@ -296,7 +289,7 @@ describe('ProxyHostForm', () => {
   it('tests connection successfully', async () => {
     vi.mocked(testProxyHostConnection).mockResolvedValue()
 
-    await renderWithClientAct(
+    renderWithClient(
       <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
     )
 
@@ -316,7 +309,7 @@ describe('ProxyHostForm', () => {
   it('handles connection test failure', async () => {
     vi.mocked(testProxyHostConnection).mockRejectedValue(new Error('Connection failed'))
 
-    await renderWithClientAct(
+    renderWithClient(
       <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
     )
 
@@ -339,7 +332,7 @@ describe('ProxyHostForm', () => {
   })
 
   it('handles base domain selection', async () => {
-    await renderWithClientAct(
+    renderWithClient(
       <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
     )
 
@@ -361,7 +354,7 @@ describe('ProxyHostForm', () => {
   })
 
   it('keeps the selected container name displayed in the Containers dropdown after selection', async () => {
-    await renderWithClientAct(
+    renderWithClient(
       <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
     )
 
@@ -378,7 +371,7 @@ describe('ProxyHostForm', () => {
   // Application Preset Tests
   describe('Application Presets', () => {
     it('renders application preset dropdown with all options', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -399,7 +392,7 @@ describe('ProxyHostForm', () => {
     })
 
     it('defaults to none preset', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -408,7 +401,7 @@ describe('ProxyHostForm', () => {
     })
 
     it('enables websockets when selecting plex preset', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -426,7 +419,7 @@ describe('ProxyHostForm', () => {
     })
 
     it('shows plex config helper with external URL when preset is selected', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -444,7 +437,7 @@ describe('ProxyHostForm', () => {
     })
 
     it('shows the plex helper without an external URL when the first domain is blank', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -459,7 +452,7 @@ describe('ProxyHostForm', () => {
     })
 
     it('shows jellyfin config helper with internal IP', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -477,7 +470,7 @@ describe('ProxyHostForm', () => {
     })
 
     it('shows home assistant config helper with yaml snippet', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -496,7 +489,7 @@ describe('ProxyHostForm', () => {
     })
 
     it('shows nextcloud config helper with php snippet', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -515,7 +508,7 @@ describe('ProxyHostForm', () => {
     })
 
     it('shows vaultwarden helper text', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -574,7 +567,7 @@ describe('ProxyHostForm', () => {
     })
 
     it('auto-populates advanced_config when selecting plex preset and field empty', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -781,14 +774,12 @@ describe('ProxyHostForm', () => {
     })
 
     it('does not show config helper when preset is none', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
       // Fill in domain names
-      await act(async () => {
-        await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'test.mydomain.com')
-      })
+      await userEvent.type(screen.getByPlaceholderText('example.com, www.example.com'), 'test.mydomain.com')
 
       // Preset defaults to none, so no helper should be shown
       expect(screen.queryByText('Plex Remote Access Setup')).not.toBeInTheDocument()
@@ -908,7 +899,7 @@ describe('ProxyHostForm', () => {
 
   describe('Security Options', () => {
     it('toggles security options', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -944,7 +935,7 @@ describe('ProxyHostForm', () => {
     })
 
     it('submits updated hsts_subdomains flag', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -967,7 +958,7 @@ describe('ProxyHostForm', () => {
 
   describe('Access Control', () => {
     it('selects an access list', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -986,7 +977,7 @@ describe('ProxyHostForm', () => {
 
   describe('Wildcard Domains', () => {
     it('shows DNS provider selector for wildcard domains', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1025,7 +1016,7 @@ describe('ProxyHostForm', () => {
     })
 
     it('validates DNS provider requirement for wildcard domains', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1049,7 +1040,7 @@ describe('ProxyHostForm', () => {
 
   describe('Form Submission and Validation', () => {
     it('prevents submission without required fields', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1061,7 +1052,7 @@ describe('ProxyHostForm', () => {
     })
 
     it('submits form with all basic fields', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1086,7 +1077,7 @@ describe('ProxyHostForm', () => {
     })
 
     it('submits form with certificate selection', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1108,7 +1099,7 @@ describe('ProxyHostForm', () => {
     })
 
     it('submits form with security header profile selection', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1256,7 +1247,7 @@ describe('ProxyHostForm', () => {
         updated_at: '2025-01-01T00:00:00Z',
       }
 
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm host={existingHost} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1306,7 +1297,7 @@ describe('ProxyHostForm', () => {
         updated_at: '',
       }
 
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm host={existingHost} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1314,7 +1305,7 @@ describe('ProxyHostForm', () => {
     })
 
     it('renders title as Add for new proxy host', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1324,7 +1315,7 @@ describe('ProxyHostForm', () => {
 
   describe('Scheme Selection', () => {
     it('shows scheme options http and https', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1336,7 +1327,7 @@ describe('ProxyHostForm', () => {
     })
 
     it('accepts https scheme', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1347,7 +1338,7 @@ describe('ProxyHostForm', () => {
 
   describe('Cancel Operations', () => {
     it('calls onCancel when cancel button is clicked', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1360,7 +1351,7 @@ describe('ProxyHostForm', () => {
 
   describe('Advanced Config', () => {
     it('shows advanced config field for application presets', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1376,7 +1367,7 @@ describe('ProxyHostForm', () => {
     })
 
     it('allows manual advanced config input', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1400,7 +1391,7 @@ describe('ProxyHostForm', () => {
 
   describe('Port Input Handling', () => {
     it('shows required-port validation branch when submit is triggered with empty port', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1428,7 +1419,7 @@ describe('ProxyHostForm', () => {
     })
 
     it('validates port number range', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1449,7 +1440,7 @@ describe('ProxyHostForm', () => {
     })
 
     it('shows out-of-range validation branch when submit is triggered with invalid port', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1480,7 +1471,7 @@ describe('ProxyHostForm', () => {
 
   describe('Source Container Mapping', () => {
     it('allows selecting a remote docker source option', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1556,7 +1547,7 @@ describe('ProxyHostForm', () => {
         refetch: vi.fn(),
       })
 
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1571,7 +1562,7 @@ describe('ProxyHostForm', () => {
       localStorage.removeItem('charon_dont_ask_domain')
       localStorage.removeItem('cpmp_dont_ask_domain')
 
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1588,7 +1579,7 @@ describe('ProxyHostForm', () => {
 
   describe('Host and Port Combination', () => {
     it('accepts docker container IP', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1608,7 +1599,7 @@ describe('ProxyHostForm', () => {
     })
 
     it('accepts localhost IP', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1630,7 +1621,7 @@ describe('ProxyHostForm', () => {
 
   describe('Enabled/Disabled State', () => {
     it('toggles enabled state', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1655,7 +1646,7 @@ describe('ProxyHostForm', () => {
 
   describe('Standard Headers Option', () => {
     it('toggles standard headers option', async () => {
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1693,7 +1684,7 @@ describe('ProxyHostForm', () => {
         refetch: mockRefetch,
       })
 
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1725,7 +1716,7 @@ describe('ProxyHostForm', () => {
         refetch: vi.fn(),
       })
 
-      await renderWithClientAct(
+      renderWithClient(
         <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
       )
 
@@ -1751,7 +1742,7 @@ describe('ProxyHostForm', () => {
     } as const
 
     it('keeps Local enabled while the status is loading', async () => {
-      await renderWithClientAct(<ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+      renderWithClient(<ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
       await openSource()
       expect(await screen.findByRole('option', { name: 'Local (Docker Socket)' })).not.toHaveAttribute('aria-disabled', 'true')
       expect(screen.queryByRole('status')).not.toBeInTheDocument()
@@ -1759,7 +1750,7 @@ describe('ProxyHostForm', () => {
 
     it('disables Local and shows the Orthrus hint on available:false', async () => {
       mockDockerStatus(unavailable)
-      await renderWithClientAct(<ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+      renderWithClient(<ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
       expect(screen.getByRole('status')).toHaveTextContent(/Orthrus/)
       await openSource()
       expect(await screen.findByRole('option', { name: /Local \(Docker Socket\) \(unavailable\)/ })).toHaveAttribute('aria-disabled', 'true')
@@ -1771,7 +1762,7 @@ describe('ProxyHostForm', () => {
       ['error', { data: undefined, isLoading: false, error: new Error('404') }],
     ])('keeps Local enabled when status is %s', async (_name, result) => {
       mockDockerStatus(result as Partial<DockerStatusResult>)
-      await renderWithClientAct(<ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+      renderWithClient(<ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
       await openSource()
       expect(await screen.findByRole('option', { name: 'Local (Docker Socket)' })).not.toHaveAttribute('aria-disabled', 'true')
       expect(screen.queryByRole('status')).not.toBeInTheDocument()

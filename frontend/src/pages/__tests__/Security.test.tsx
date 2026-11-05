@@ -61,9 +61,7 @@ describe('Security', () => {
   )
 
   const renderSecurityPage = async () => {
-    await act(async () => {
-      render(<Security />, { wrapper })
-    })
+    render(<Security />, { wrapper })
   }
 
   const mockSecurityStatus = {
@@ -129,9 +127,7 @@ describe('Security', () => {
 
       await screen.findByTestId('toggle-waf')
       const toggle = screen.getByTestId('toggle-waf')
-      await act(async () => {
-        await user.click(toggle)
-      })
+      await user.click(toggle)
 
       await waitFor(() => expect(settingsApi.updateSetting).toHaveBeenCalledWith('security.waf.enabled', 'true', 'security', 'bool'))
     })
@@ -257,9 +253,7 @@ describe('Security', () => {
 
       await screen.findByTestId('toggle-crowdsec')
       const toggle = screen.getByTestId('toggle-crowdsec')
-      await act(async () => {
-        await user.click(toggle)
-      })
+      await user.click(toggle)
 
       await waitFor(() => {
         expect(settingsApi.updateSetting).not.toHaveBeenCalledWith('security.crowdsec.enabled', 'true', 'security', 'bool')
@@ -277,9 +271,7 @@ describe('Security', () => {
 
       await screen.findByTestId('toggle-crowdsec')
       const toggle = screen.getByTestId('toggle-crowdsec')
-      await act(async () => {
-        await user.click(toggle)
-      })
+      await user.click(toggle)
 
       await waitFor(() => {
         expect(settingsApi.updateSetting).not.toHaveBeenCalledWith('security.crowdsec.enabled', 'false', 'security', 'bool')

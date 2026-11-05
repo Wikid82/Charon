@@ -1,7 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { act } from 'react'
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 
 import type { ProxyHost } from '../../api/proxyHosts'
@@ -137,9 +136,7 @@ describe('ProxyHosts page - coverage targets (isolated)', () => {
 
     expect(await screen.findByText('staging.example.com')).toBeInTheDocument()
     const link = screen.getByText('staging.example.com').closest('a') as HTMLAnchorElement
-    await act(async () => {
-      await userEvent.click(link!)
-    })
+    await userEvent.click(link!)
 
     expect(openSpy).toHaveBeenCalled()
     openSpy.mockRestore()

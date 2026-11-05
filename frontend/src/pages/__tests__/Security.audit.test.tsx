@@ -77,9 +77,7 @@ describe('Security Page - QA Security Audit', () => {
   )
 
   const renderSecurityPage = async () => {
-    await act(async () => {
-      render(<Security />, { wrapper })
-    })
+    render(<Security />, { wrapper })
   }
 
   describe('Input Validation', () => {

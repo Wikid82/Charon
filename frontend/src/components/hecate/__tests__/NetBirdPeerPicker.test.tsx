@@ -53,6 +53,7 @@ describe('NetBirdPeerPicker', () => {
     renderPicker({ onClose })
 
     fireEvent.keyDown(document, { key: 'Escape' })
+    expect(onClose).toHaveBeenCalled()
   })
 
   it('shows loading state initially', () => {

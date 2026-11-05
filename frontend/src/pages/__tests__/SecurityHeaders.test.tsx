@@ -867,8 +867,7 @@ describe('SecurityHeaders', () => {
 
     render(<SecurityHeaders />, { wrapper: createWrapper() });
 
-    await screen.findByText('Weird Preset')
-    // Just ensuring render doesn't crash
+    expect(await screen.findByText('Weird Preset')).toBeInTheDocument()
   });
 
   it('should handle cancel in edit dialog', async () => {
