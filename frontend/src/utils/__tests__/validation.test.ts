@@ -87,3 +87,23 @@ describe('validation utils', () => {
     })
   })
 })
+
+describe('isIPv4 adversarial input', () => {
+  const LONG_INPUT_LENGTH = 100_000
+  // Generous ceiling: the pattern is linear, so a 100k-char near-miss runs in well under 1 ms.
+  const MAX_RUNTIME_MS = 200
+
+  it.each([
+    ['long digit run', '1'.repeat(LONG_INPUT_LENGTH)],
+    ['long digit run with trailing dot', `${'1'.repeat(LONG_INPUT_LENGTH)}.`],
+    ['many dotted octets', '1.'.repeat(LONG_INPUT_LENGTH / 2)],
+    ['valid prefix with long invalid tail', `1.1.1.${'1'.repeat(LONG_INPUT_LENGTH)}x`],
+  ])('rejects a %s in bounded time', (_label, input) => {
+    const start = performance.now()
+    const result = isIPv4(input)
+    const elapsed = performance.now() - start
+
+    expect(result).toBe(false)
+    expect(elapsed).toBeLessThan(MAX_RUNTIME_MS)
+  })
+})

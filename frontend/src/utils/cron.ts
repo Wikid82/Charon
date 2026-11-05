@@ -26,6 +26,7 @@ function isValidCronField(field: string, range: FieldRange): boolean {
   if (field.length === 0) return false
 
   return field.split(',').every((part) => {
+    // eslint-disable-next-line security/detect-unsafe-regex -- linear: every `\d+` is delimited by a literal `-`, `/` or the anchored end, so no two quantifiers can match the same characters; verified linear in cron.test.ts
     const match = part.match(/^(\*|\d+(?:-\d+)?)(\/(\d+))?$/)
     if (!match) return false
 

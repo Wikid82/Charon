@@ -16,7 +16,8 @@ describe('crowdsecPresets', () => {
 
   it('has well-formed metadata for each preset', () => {
     for (const preset of CROWDSEC_PRESETS) {
-      expect(preset.slug).toMatch(/^[a-z0-9]+(-[a-z0-9]+)*$/)
+      const segments = preset.slug.split('-')
+      expect(segments.every((segment) => /^[a-z0-9]+$/.test(segment))).toBe(true)
       expect(preset.title).toMatch(/^[A-Z]/)
       expect(preset.description.split(' ').length).toBeGreaterThan(5)
       expect(preset.tags?.length).toBeGreaterThan(0)
