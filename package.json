@@ -7,7 +7,7 @@
     "e2e:headed": "PLAYWRIGHT_COVERAGE=0 PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=firefox --headed",
     "e2e:ui:headless-server": "bash ./scripts/run-e2e-ui.sh",
     "e2e:report": "npx playwright show-report",
-    "lint:e2e": "eslint tests --max-warnings 1625",
+    "lint:e2e": "eslint tests --max-warnings 124",
     "lint:md": "markdownlint-cli2 '**/*.md' '#node_modules/**' '#.venv/**' '#test-results/**' '#codeql-db/**' '#codeql-agent-results/**'",
     "lint:md:fix": "markdownlint-cli2 --fix '**/*.md' '#node_modules/**' '#.venv/**' '#test-results/**' '#codeql-db/**' '#codeql-agent-results/**'"
   },

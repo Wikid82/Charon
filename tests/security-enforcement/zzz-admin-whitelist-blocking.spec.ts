@@ -60,7 +60,7 @@ test.describe.serial('Admin Whitelist IP Blocking (RUN LAST)', () => {
     }
   });
 
-  test('Test 1: should block non-whitelisted IP when Cerberus enabled', async () => {
+  test('should block non-whitelisted IP when Cerberus enabled', async () => {
     // Use a fake whitelist IP that will never match the test runner
     const fakeWhitelist = '192.0.2.1/32'; // RFC 5737 TEST-NET-1 (documentation only)
 
@@ -96,7 +96,7 @@ test.describe.serial('Admin Whitelist IP Blocking (RUN LAST)', () => {
     });
   });
 
-  test('Test 2: should allow whitelisted IP to enable Cerberus', async () => {
+  test('should allow whitelisted IP to enable Cerberus', async () => {
     // Use localhost/Docker network IP that will match test runner
     // In Docker compose, Playwright runs from host connecting to localhost:8080
     const testWhitelist = '127.0.0.1/32,172.16.0.0/12,192.168.0.0/16,10.0.0.0/8';
@@ -131,7 +131,7 @@ test.describe.serial('Admin Whitelist IP Blocking (RUN LAST)', () => {
     });
   });
 
-  test('Test 3: should allow emergency token to bypass admin whitelist', async ({ request }) => {
+  test('should allow emergency token to bypass admin whitelist', async ({ request }) => {
     await test.step('Configure admin whitelist with non-matching IP', async () => {
       // First disable ACL so we can change config
       await request.post('http://localhost:2020/emergency/security-reset', {

@@ -91,7 +91,7 @@ export async function waitForHealthyEnvironment(
           console.log(`   Status: ${health.status}, Database: ${health.database || 'unknown'}`);
         }
       }
-    } catch (error) {
+    } catch {
       // Service not ready yet - continue waiting
       if (verbose && Date.now() - startTime > 10000) {
         console.log(`   Still waiting... (${Math.round((Date.now() - startTime) / 1000)}s)`);
@@ -305,7 +305,7 @@ async function checkDockerAccessible(baseURL: string): Promise<PrerequisiteCheck
       passed: false,
       message: `HTTP ${response.status}`,
     };
-  } catch (error) {
+  } catch {
     // Docker check is optional - mark as passed with warning
     return {
       name: 'Docker Accessible',

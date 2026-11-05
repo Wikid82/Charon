@@ -156,8 +156,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
             await expect(firstRow).toBeVisible();
 
             // Check row has expected content patterns
-            const rowText = await firstRow.textContent();
-            expect(rowText).toBeTruthy();
+            await expect(firstRow).not.toBeEmpty();
           }
         }
       });
@@ -638,8 +637,7 @@ test.describe('SSL Certificates - CRUD Operations', () => {
         await expect(expiryCell).toBeVisible();
 
         // Should contain a date format
-        const expiryText = await expiryCell.textContent();
-        expect(expiryText).toBeTruthy();
+        await expect(expiryCell).not.toBeEmpty();
       });
     });
 
@@ -1062,8 +1060,7 @@ yRNV1UrzJGv5ZUVKq2kymBut
       });
 
       await test.step('Verify the row is unchanged client-side', async () => {
-        const rowsAfter = await page.locator('tbody tr').count();
-        expect(rowsAfter).toBe(rowsBefore);
+        await expect(page.locator('tbody tr')).toHaveCount(rowsBefore);
       });
 
       await test.step('Verify the certificate still exists server-side', async () => {
@@ -1216,8 +1213,7 @@ yRNV1UrzJGv5ZUVKq2kymBut
         const hasAlert = await alert.isVisible().catch(() => false);
 
         if (hasAlert) {
-          const alertText = await alert.textContent();
-          expect(alertText).toBeTruthy();
+          await expect(alert).not.toBeEmpty();
         }
       });
     });
@@ -1273,8 +1269,7 @@ yRNV1UrzJGv5ZUVKq2kymBut
         const dialog = page.getByRole('dialog');
         const nameInput = dialog.locator('input').first();
 
-        const placeholder = await nameInput.getAttribute('placeholder');
-        expect(placeholder).toBeTruthy();
+        await expect(nameInput).toHaveAttribute('placeholder', /.+/);
 
         await getCancelButton(page).click();
       });
@@ -1551,8 +1546,7 @@ yRNV1UrzJGv5ZUVKq2kymBut
         if (hasTable) {
           // Table should be in a styled card
           const container = table.locator('..');
-          const classes = await container.getAttribute('class');
-          expect(classes).toBeTruthy();
+          await expect(container).toHaveAttribute('class', /.+/);
         }
       });
     });

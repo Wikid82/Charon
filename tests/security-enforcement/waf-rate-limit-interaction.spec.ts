@@ -49,18 +49,18 @@ test.describe('WAF & Rate Limit Interaction', () => {
     const saveButton = page.getByRole('button', { name: 'Save', exact: true });
     await saveButton.click();
     await dismissDomainDialog(page);
-    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('dialog')).toBeHidden({ timeout: 15000 });
   };
 
   test.beforeEach(async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
   });
 
   test.afterEach(async ({ page }) => {
     // Cleanup: Delete test proxy
     try {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
+      await page.goto('/proxy-hosts');
       const proxyRow = page.locator(`text=${testProxy.domain}`).first();
       if (await proxyRow.isVisible()) {
         const deleteButton = proxyRow.locator('..').getByRole('button', { name: /delete/i }).first();
@@ -70,7 +70,7 @@ test.describe('WAF & Rate Limit Interaction', () => {
         if (await confirmButton.isVisible()) {
           await confirmButton.click();
         }
-        await page.waitForLoadState('networkidle');
+        await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
       }
     } catch {
       // Ignore cleanup errors
@@ -80,7 +80,7 @@ test.describe('WAF & Rate Limit Interaction', () => {
   // WAF blocks malicious request (403)
   test('WAF blocks malicious SQL injection payload', async ({ page }) => {
     await test.step('Create proxy with WAF enabled', async () => {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
+      await page.goto('/proxy-hosts');
 
       await openCreateProxyForm(page);
 
@@ -115,7 +115,7 @@ test.describe('WAF & Rate Limit Interaction', () => {
   // Rate limiting blocks excessive requests (429)
   test('Rate limiting blocks requests exceeding threshold', async ({ page }) => {
     await test.step('Create proxy with rate limiting enabled', async () => {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
+      await page.goto('/proxy-hosts');
 
       await openCreateProxyForm(page);
 
@@ -160,7 +160,7 @@ test.describe('WAF & Rate Limit Interaction', () => {
   // WAF and rate limit enforced independently
   test('WAF enforces regardless of rate limit status', async ({ page }) => {
     await test.step('Create proxy with both WAF and rate limiting', async () => {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
+      await page.goto('/proxy-hosts');
 
       await openCreateProxyForm(page);
 
@@ -213,7 +213,7 @@ test.describe('WAF & Rate Limit Interaction', () => {
   // Request within limit but triggers WAF
   test('Malicious request gets 403 (WAF) not 429 (rate limit)', async ({ page }) => {
     await test.step('Create proxy with both modules', async () => {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
+      await page.goto('/proxy-hosts');
 
       await openCreateProxyForm(page);
 
@@ -263,7 +263,7 @@ test.describe('WAF & Rate Limit Interaction', () => {
   // Request exceeds limit (429) without malicious content
   test('Clean request gets 429 when rate limit exceeded', async ({ page }) => {
     await test.step('Setup proxy with rate limiting', async () => {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
+      await page.goto('/proxy-hosts');
 
       await openCreateProxyForm(page);
 

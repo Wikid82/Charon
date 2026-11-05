@@ -227,7 +227,7 @@ test.describe('Proxy Host Drag-and-Drop Group Assignment', () => {
       await page.keyboard.press('Escape')
       // No success toast should appear (no API call was made).
       const toast = getToastLocator(page, /moved/i)
-      await expect(toast).not.toBeVisible()
+      await expect(toast).toBeHidden()
       await expect(handle).toBeVisible()
     })
 
@@ -238,9 +238,8 @@ test.describe('Proxy Host Drag-and-Drop Group Assignment', () => {
         return
       }
       // Verify that at least one drag handle has tabIndex 0 (keyboard-reachable).
-      const tabIndexAttr = await handles.first().getAttribute('tabindex')
       // useDraggable sets tabIndex="0" via the spread attributes.
-      expect(tabIndexAttr).toBe('0')
+      await expect(handles.first()).toHaveAttribute('tabindex', '0');
     })
   })
 

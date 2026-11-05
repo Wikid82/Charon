@@ -62,7 +62,7 @@ test.describe('Dashboard', () => {
       await page.goto('/');
       await waitForLoadingComplete(page);
       // Wait for network idle to ensure all assets are loaded in parallel runs
-      await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+      await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 }).catch(() => {});
 
       await test.step('Verify header/navigation exists', async () => {
         // Check for visible page structure elements
@@ -398,7 +398,7 @@ test.describe('Dashboard', () => {
     test('should have proper heading hierarchy', async ({ page }) => {
       // Note: beforeEach already navigated to dashboard and logged in
       // No need to navigate again - just wait for content to stabilize
-      await page.waitForLoadState('networkidle');
+      await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
       await waitForLoadingComplete(page);
 
       await test.step('Verify heading structure', async () => {

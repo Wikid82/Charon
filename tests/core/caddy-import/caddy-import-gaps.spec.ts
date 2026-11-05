@@ -159,7 +159,7 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
 
       await test.step('Verify navigation to proxy hosts page', async () => {
         await expect(page).toHaveURL(/\/proxy-hosts/);
-        await expect(page.getByTestId('import-success-modal')).not.toBeVisible();
+        await expect(page.getByTestId('import-success-modal')).toBeHidden();
       });
     });
 
@@ -177,7 +177,7 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
       await test.step('Verify navigation to dashboard', async () => {
         // Dashboard can be at / or /dashboard - check the pathname portion
         await expect(page).toHaveURL(/\/(dashboard)?$/);
-        await expect(page.getByTestId('import-success-modal')).not.toBeVisible();
+        await expect(page.getByTestId('import-success-modal')).toBeHidden();
       });
     });
 
@@ -405,7 +405,7 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
         const matchingHosts = allHosts.filter((h: { domain_names: string }) =>
           h.domain_names === namespacedDomain
         );
-        expect(matchingHosts.length).toBe(1);
+        expect(matchingHosts).toHaveLength(1);
       });
     });
   });
@@ -496,7 +496,7 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
         await expect(banner.getByRole('button', { name: /review.*changes/i })).toBeVisible();
 
         // Review table should NOT be visible initially (until clicking Review Changes)
-        await expect(page.getByTestId('import-review-table')).not.toBeVisible();
+        await expect(page.getByTestId('import-review-table')).toBeHidden();
       });
 
       await test.step('Cleanup mocked routes', async () => {

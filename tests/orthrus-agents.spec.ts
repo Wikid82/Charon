@@ -57,11 +57,11 @@ async function setupAgentPage(
 ) {
   await page.route(REMOTE_SERVERS_API, (route) => route.fulfill({ json: [] }));
   await page.route(HECATE_STATUS_API, (route) => route.fulfill({ json: [] }));
-  await page.route(ORTHRUS_AGENTS_API, (route) => {
+  await page.route(ORTHRUS_AGENTS_API, async (route) => {
     if (route.request().method() === 'GET') {
-      route.fulfill({ json: agents });
+      await route.fulfill({ json: agents });
     } else {
-      route.continue();
+      await route.continue();
     }
   });
   await page.goto('/hecate/agent');
@@ -99,7 +99,7 @@ test.describe('Orthrus Agent Manager', () => {
       page,
     }) => {
       await setupAgentPage(page, []);
-      await expect(page.getByRole('table')).not.toBeVisible();
+      await expect(page.getByRole('table')).toBeHidden();
     });
   });
 
@@ -157,7 +157,7 @@ test.describe('Orthrus Agent Manager', () => {
       await setupAgentPage(page, [MOCK_AGENT_ONLINE]);
       await expect(
         page.getByRole('table').getByText('PROXY'),
-      ).not.toBeVisible();
+      ).toBeHidden();
     });
   });
 
@@ -285,7 +285,7 @@ test.describe('Orthrus Agent Manager', () => {
       await page.getByRole('button', { name: 'Cancel rename' }).click();
       await expect(
         page.getByRole('textbox', { name: /new name for online-agent/i }),
-      ).not.toBeVisible();
+      ).toBeHidden();
     });
   });
 });

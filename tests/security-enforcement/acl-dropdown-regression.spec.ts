@@ -116,7 +116,7 @@ test.describe('ProxyHostForm ACL and Security Headers Dropdown Regression', () =
 
     await test.step('Navigate to Proxy Hosts', async () => {
       await page.goto('/proxy-hosts');
-      await page.waitForLoadState('networkidle');
+      await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
       await expect(page.getByRole('heading', { name: /proxy hosts/i }).first()).toBeVisible();
     });
 

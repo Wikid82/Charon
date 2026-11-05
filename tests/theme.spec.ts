@@ -36,7 +36,7 @@ async function loginWithStoredState(page: import('@playwright/test').Page): Prom
   // throwing (see 7503c01a / d537476f). gotoTolerant() tolerates the known
   // race-condition errors; waitForLoadState below confirms the app settled.
   await gotoTolerant(page, '/');
-  await page.waitForLoadState('networkidle');
+  await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
 }
 
 /**
@@ -45,7 +45,7 @@ async function loginWithStoredState(page: import('@playwright/test').Page): Prom
 async function goToAppearance(page: import('@playwright/test').Page): Promise<void> {
   // Same Firefox navigation-commit race as loginWithStoredState above.
   await gotoTolerant(page, '/settings/appearance');
-  await page.waitForLoadState('networkidle');
+  await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
   // Wait until the theme gallery radiogroup is visible
   await page.getByRole('radiogroup').waitFor({ state: 'visible', timeout: 15000 });
 }
@@ -85,7 +85,7 @@ test.describe('Theme System', () => {
 
       // Also navigate to a sub-page to confirm nav doesn't trigger it either
       await page.goto('/settings');
-      await page.waitForLoadState('networkidle');
+      await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
 
       expect(foucMessages, `FOUC warning(s) detected: ${foucMessages.join('\n')}`).toHaveLength(0);
     });
@@ -111,7 +111,7 @@ test.describe('Theme System', () => {
           localStorage.removeItem('theme');
         });
         await page.goto('/');
-        await page.waitForLoadState('networkidle');
+        await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
       });
 
       await test.step('html element has data-theme="dark"', async () => {
@@ -131,7 +131,7 @@ test.describe('Theme System', () => {
           localStorage.setItem('charon-theme', 'light');
         });
         await page.goto('/');
-        await page.waitForLoadState('networkidle');
+        await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
       });
 
       await test.step('html element has data-theme="light"', async () => {
@@ -187,7 +187,7 @@ test.describe('Theme System', () => {
           localStorage.setItem('charon-theme', 'system');
         });
         await page.goto('/');
-        await page.waitForLoadState('networkidle');
+        await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
       });
 
       await test.step('data-theme resolves to "dark" from system preference', async () => {
@@ -206,7 +206,7 @@ test.describe('Theme System', () => {
           localStorage.setItem('charon-theme', 'system');
         });
         await page.goto('/');
-        await page.waitForLoadState('networkidle');
+        await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
       });
 
       await test.step('data-theme resolves to "light" from system preference', async () => {
@@ -553,7 +553,7 @@ test.describe('Theme System', () => {
     test('appearance tab is accessible from settings navigation', async ({ page }) => {
       await test.step('Navigate to settings', async () => {
         await page.goto('/settings');
-        await page.waitForLoadState('networkidle');
+        await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
       });
 
       await test.step('Appearance navigation link is visible', async () => {

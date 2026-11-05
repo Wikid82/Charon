@@ -48,11 +48,11 @@ test.describe('CrowdSec IP Whitelist Management', () => {
       try {
         await test.step('Navigate to CrowdSec config page', async () => {
           await page.goto('/security/crowdsec');
-          await page.waitForLoadState('networkidle');
+          await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
         });
 
         await test.step('Verify whitelist tab is not present', async () => {
-          await expect(page.getByRole('tab', { name: 'Whitelist' })).not.toBeVisible();
+          await expect(page.getByRole('tab', { name: 'Whitelist' })).toBeHidden();
         });
       } finally {
         if (crowdsecWasEnabled) {
@@ -82,21 +82,6 @@ test.describe('CrowdSec IP Whitelist Management', () => {
       }
     });
 
-    test.afterAll(async () => {
-      // Remove any leftover test entries before restoring security state
-      const resp = await rc.get('/api/v1/admin/crowdsec/whitelist');
-      if (resp.ok()) {
-        const data = await resp.json();
-        for (const entry of (data.whitelist ?? []) as Array<{ uuid: string; ip_or_cidr: string }>) {
-          if (entry.ip_or_cidr.startsWith(TEST_IP_PREFIX)) {
-            await rc.delete(`/api/v1/admin/crowdsec/whitelist/${entry.uuid}`);
-          }
-        }
-      }
-      await cleanupSecurity?.();
-      await rc.dispose();
-    });
-
     test.beforeEach(async ({ page }) => {
       await test.step('Open CrowdSec Whitelist tab', async () => {
         // CrowdSec may take time to enter local mode after being enabled.
@@ -106,12 +91,12 @@ test.describe('CrowdSec IP Whitelist Management', () => {
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
           await page.goto('/security/crowdsec');
           // Wait for network to settle so React Query status fetch completes
-          await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+          await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 }).catch(() => {});
           const whitelistTab = page.getByRole('tab', { name: 'Whitelist' });
           const visible = await whitelistTab.isVisible().catch(() => false);
           if (visible) {
             await whitelistTab.click();
-            await page.waitForLoadState('networkidle', { timeout: 8000 }).catch(() => {});
+            await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 }).catch(() => {});
             tabFound = true;
             break;
           }
@@ -126,6 +111,21 @@ test.describe('CrowdSec IP Whitelist Management', () => {
           });
         }
       });
+    });
+
+    test.afterAll(async () => {
+      // Remove any leftover test entries before restoring security state
+      const resp = await rc.get('/api/v1/admin/crowdsec/whitelist');
+      if (resp.ok()) {
+        const data = await resp.json();
+        for (const entry of (data.whitelist ?? []) as Array<{ uuid: string; ip_or_cidr: string }>) {
+          if (entry.ip_or_cidr.startsWith(TEST_IP_PREFIX)) {
+            await rc.delete(`/api/v1/admin/crowdsec/whitelist/${entry.uuid}`);
+          }
+        }
+      }
+      await cleanupSecurity?.();
+      await rc.dispose();
     });
 
     test('displays empty state when no whitelist entries exist', async ({ page }) => {
@@ -337,7 +337,7 @@ test.describe('CrowdSec IP Whitelist Management', () => {
           expect(deleteResponse.ok()).toBeTruthy();
           addedUUID = null; // cleaned up by the UI action
 
-          await expect(page.getByRole('cell', { name: testIP, exact: true })).not.toBeVisible();
+          await expect(page.getByRole('cell', { name: testIP, exact: true })).toBeHidden();
           await expect(page.getByTestId('whitelist-empty')).toBeVisible();
         });
       } finally {
@@ -380,7 +380,7 @@ test.describe('CrowdSec IP Whitelist Management', () => {
 
         await test.step('Cancel and verify the entry is still present', async () => {
           await page.getByRole('button', { name: 'Cancel' }).click();
-          await expect(page.getByRole('dialog')).not.toBeVisible();
+          await expect(page.getByRole('dialog')).toBeHidden();
           await expect(page.getByRole('cell', { name: testIP, exact: true })).toBeVisible();
         });
       } finally {
@@ -435,7 +435,7 @@ test.describe('CrowdSec IP Whitelist Management', () => {
 
         await test.step('Verify the entry is listed and no error is shown', async () => {
           await expect(page.getByRole('cell', { name: testIP, exact: true })).toBeVisible({ timeout: 10_000 });
-          await expect(page.getByTestId('whitelist-ip-error')).not.toBeVisible();
+          await expect(page.getByTestId('whitelist-ip-error')).toBeHidden();
         });
       } finally {
         if (addedUUID) {

@@ -1,9 +1,9 @@
-import { test, expect, request as playwrightRequest } from '@playwright/test';
+import { test, expect, request as playwrightRequest, type APIRequestContext } from '@playwright/test';
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080';
 
 test.describe('Security Enforcement API', () => {
-  let unauthContext: any;
+  let unauthContext: APIRequestContext;
 
   test.beforeAll(async () => {
     unauthContext = await playwrightRequest.newContext({

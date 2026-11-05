@@ -182,8 +182,8 @@ export class NetworkInterceptor {
   /**
    * Export metrics in JSON format
    */
-  exportJSON(): any {
-    const data: any = {
+  exportJSON(): Record<string, unknown> {
+    const data: Record<string, unknown> = {
       summary: {
         totalRequests: this.requests.size,
         timestamp: new Date().toISOString(),

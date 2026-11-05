@@ -77,7 +77,8 @@ async function withRateLimitRetry<T extends { status(): number }>(send: () => Pr
 async function getStatus(context: APIRequestContext): Promise<Record<string, unknown>> {
   const response = await withRateLimitRetry(() => context.get(STATUS_PATH));
   expect(response.ok(), `GET ${STATUS_PATH} failed with ${response.status()}`).toBeTruthy();
-  const { config_apply: _configApply, ...flags } = (await response.json()) as Record<string, unknown>;
+  const flags = (await response.json()) as Record<string, unknown>;
+  delete flags.config_apply;
   return flags;
 }
 

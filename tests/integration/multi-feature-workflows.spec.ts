@@ -48,7 +48,7 @@ test.describe('Multi-Feature Workflows E2E', () => {
     }) => {
       await loginUser(page, adminUser);
 
-      await test.step('Step 1: Create access list for the host', async () => {
+      await test.step('Create access list for the host', async () => {
         const acl = generateAllowListForIPs(['192.168.1.0/24']);
         await testData.createAccessList(acl);
 
@@ -56,7 +56,7 @@ test.describe('Multi-Feature Workflows E2E', () => {
         await waitForResourceInUI(page, acl.name);
       });
 
-      await test.step('Step 2: Create proxy host', async () => {
+      await test.step('Create proxy host', async () => {
         const proxyInput = generateProxyHost();
         const proxy = await testData.createProxyHost({
           domain: proxyInput.domain,
@@ -68,7 +68,7 @@ test.describe('Multi-Feature Workflows E2E', () => {
         await waitForResourceInUI(page, proxy.domain);
       });
 
-      await test.step('Step 3: Verify dashboard shows the host', async () => {
+      await test.step('Verify dashboard shows the host', async () => {
         await page.goto('/');
         await waitForLoadingComplete(page);
         const content = page.locator('main, .content, h1').first();

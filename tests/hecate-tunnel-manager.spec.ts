@@ -43,11 +43,11 @@ test.describe('Hecate Tunnel Manager', () => {
 
   test.describe('Connection Column - Direct Server', () => {
     test('should show "Direct" badge for servers with direct connection type', async ({ page }) => {
-      await page.route(REMOTE_SERVERS_API, (route) => {
-        route.fulfill({ json: [DIRECT_SERVER] });
+      await page.route(REMOTE_SERVERS_API, async (route) => {
+        await route.fulfill({ json: [DIRECT_SERVER] });
       });
-      await page.route(HECATE_STATUS_API, (route) => {
-        route.fulfill({ json: [] });
+      await page.route(HECATE_STATUS_API, async (route) => {
+        await route.fulfill({ json: [] });
       });
 
       await page.goto('/hecate/remote-servers');
@@ -67,11 +67,11 @@ test.describe('Hecate Tunnel Manager', () => {
 
   test.describe('Connection Column - Orthrus/Tunnel Server', () => {
     test('should show TunnelStatusBadge for stopped tunnel server', async ({ page }) => {
-      await page.route(REMOTE_SERVERS_API, (route) => {
-        route.fulfill({ json: [ORTHRUS_SERVER] });
+      await page.route(REMOTE_SERVERS_API, async (route) => {
+        await route.fulfill({ json: [ORTHRUS_SERVER] });
       });
-      await page.route(HECATE_STATUS_API, (route) => {
-        route.fulfill({ json: [TUNNEL_STATUS_STOPPED] });
+      await page.route(HECATE_STATUS_API, async (route) => {
+        await route.fulfill({ json: [TUNNEL_STATUS_STOPPED] });
       });
 
       await page.goto('/hecate/remote-servers');
@@ -90,11 +90,11 @@ test.describe('Hecate Tunnel Manager', () => {
     });
 
     test('should show TunnelStatusBadge for connected tunnel server', async ({ page }) => {
-      await page.route(REMOTE_SERVERS_API, (route) => {
-        route.fulfill({ json: [ORTHRUS_SERVER] });
+      await page.route(REMOTE_SERVERS_API, async (route) => {
+        await route.fulfill({ json: [ORTHRUS_SERVER] });
       });
-      await page.route(HECATE_STATUS_API, (route) => {
-        route.fulfill({ json: [TUNNEL_STATUS_CONNECTED] });
+      await page.route(HECATE_STATUS_API, async (route) => {
+        await route.fulfill({ json: [TUNNEL_STATUS_CONNECTED] });
       });
 
       await page.goto('/hecate/remote-servers');
@@ -109,11 +109,11 @@ test.describe('Hecate Tunnel Manager', () => {
     });
 
     test('should show View Tunnel Logs button for orthrus server', async ({ page }) => {
-      await page.route(REMOTE_SERVERS_API, (route) => {
-        route.fulfill({ json: [ORTHRUS_SERVER] });
+      await page.route(REMOTE_SERVERS_API, async (route) => {
+        await route.fulfill({ json: [ORTHRUS_SERVER] });
       });
-      await page.route(HECATE_STATUS_API, (route) => {
-        route.fulfill({ json: [TUNNEL_STATUS_STOPPED] });
+      await page.route(HECATE_STATUS_API, async (route) => {
+        await route.fulfill({ json: [TUNNEL_STATUS_STOPPED] });
       });
 
       await page.goto('/hecate/remote-servers');
@@ -128,11 +128,11 @@ test.describe('Hecate Tunnel Manager', () => {
     });
 
     test('should show connection type badge when no tunnel status is available', async ({ page }) => {
-      await page.route(REMOTE_SERVERS_API, (route) => {
-        route.fulfill({ json: [ORTHRUS_SERVER] });
+      await page.route(REMOTE_SERVERS_API, async (route) => {
+        await route.fulfill({ json: [ORTHRUS_SERVER] });
       });
-      await page.route(HECATE_STATUS_API, (route) => {
-        route.fulfill({ json: [] });
+      await page.route(HECATE_STATUS_API, async (route) => {
+        await route.fulfill({ json: [] });
       });
 
       await page.goto('/hecate/remote-servers');
@@ -147,14 +147,14 @@ test.describe('Hecate Tunnel Manager', () => {
 
   test.describe('Add Source Form - Connection Type Selector', () => {
     test.beforeEach(async ({ page }) => {
-      await page.route(REMOTE_SERVERS_API, (route) => {
-        route.fulfill({ json: [] });
+      await page.route(REMOTE_SERVERS_API, async (route) => {
+        await route.fulfill({ json: [] });
       });
-      await page.route(HECATE_STATUS_API, (route) => {
-        route.fulfill({ json: [] });
+      await page.route(HECATE_STATUS_API, async (route) => {
+        await route.fulfill({ json: [] });
       });
-      await page.route(HECATE_TUNNELS_API, (route) => {
-        route.fulfill({ json: [] });
+      await page.route(HECATE_TUNNELS_API, async (route) => {
+        await route.fulfill({ json: [] });
       });
     });
 
@@ -203,8 +203,8 @@ test.describe('Hecate Tunnel Manager', () => {
     });
 
     test('should show agent dropdown when Agent radio is selected', async ({ page }) => {
-      await page.route(ORTHRUS_AGENTS_API, (route) => {
-        route.fulfill({ json: [] });
+      await page.route(ORTHRUS_AGENTS_API, async (route) => {
+        await route.fulfill({ json: [] });
       });
 
       await page.goto('/hecate/remote-servers');
@@ -277,11 +277,11 @@ test.describe('Hecate Tunnel Manager', () => {
 
   test.describe('TunnelLogViewer', () => {
     test('should open TunnelLogViewer dialog when View Tunnel Logs is clicked', async ({ page }) => {
-      await page.route(REMOTE_SERVERS_API, (route) => {
-        route.fulfill({ json: [ORTHRUS_SERVER] });
+      await page.route(REMOTE_SERVERS_API, async (route) => {
+        await route.fulfill({ json: [ORTHRUS_SERVER] });
       });
-      await page.route(HECATE_STATUS_API, (route) => {
-        route.fulfill({ json: [TUNNEL_STATUS_STOPPED] });
+      await page.route(HECATE_STATUS_API, async (route) => {
+        await route.fulfill({ json: [TUNNEL_STATUS_STOPPED] });
       });
 
       await page.goto('/hecate/remote-servers');
@@ -305,8 +305,7 @@ test.describe('Hecate Tunnel Manager', () => {
         await expect(logRegion).toBeVisible();
         const ariaLabel = await logRegion.getAttribute('aria-label');
         expect(ariaLabel).toMatch(new RegExp(ORTHRUS_SERVER.name, 'i'));
-        const ariaLive = await logRegion.getAttribute('aria-live');
-        expect(ariaLive).toBe('polite');
+        await expect(logRegion).toHaveAttribute('aria-live', 'polite');
       });
 
       await test.step('Verify Pause button is accessible', async () => {
@@ -323,11 +322,11 @@ test.describe('Hecate Tunnel Manager', () => {
     });
 
     test('Pause button toggles aria-pressed state', async ({ page }) => {
-      await page.route(REMOTE_SERVERS_API, (route) => {
-        route.fulfill({ json: [ORTHRUS_SERVER] });
+      await page.route(REMOTE_SERVERS_API, async (route) => {
+        await route.fulfill({ json: [ORTHRUS_SERVER] });
       });
-      await page.route(HECATE_STATUS_API, (route) => {
-        route.fulfill({ json: [TUNNEL_STATUS_STOPPED] });
+      await page.route(HECATE_STATUS_API, async (route) => {
+        await route.fulfill({ json: [TUNNEL_STATUS_STOPPED] });
       });
 
       await page.goto('/hecate/remote-servers');
@@ -362,11 +361,11 @@ test.describe('Hecate Tunnel Manager', () => {
 
   test.describe('Page Accessibility', () => {
     test('Sources page has proper heading structure', async ({ page }) => {
-      await page.route(REMOTE_SERVERS_API, (route) => {
-        route.fulfill({ json: [] });
+      await page.route(REMOTE_SERVERS_API, async (route) => {
+        await route.fulfill({ json: [] });
       });
-      await page.route(HECATE_STATUS_API, (route) => {
-        route.fulfill({ json: [] });
+      await page.route(HECATE_STATUS_API, async (route) => {
+        await route.fulfill({ json: [] });
       });
 
       await page.goto('/hecate/remote-servers');
@@ -383,11 +382,11 @@ test.describe('Hecate Tunnel Manager', () => {
     });
 
     test('Sources page with mixed server types has accessible connection badges', async ({ page }) => {
-      await page.route(REMOTE_SERVERS_API, (route) => {
-        route.fulfill({ json: [DIRECT_SERVER, ORTHRUS_SERVER] });
+      await page.route(REMOTE_SERVERS_API, async (route) => {
+        await route.fulfill({ json: [DIRECT_SERVER, ORTHRUS_SERVER] });
       });
-      await page.route(HECATE_STATUS_API, (route) => {
-        route.fulfill({ json: [TUNNEL_STATUS_STOPPED] });
+      await page.route(HECATE_STATUS_API, async (route) => {
+        await route.fulfill({ json: [TUNNEL_STATUS_STOPPED] });
       });
 
       await page.goto('/hecate/remote-servers');

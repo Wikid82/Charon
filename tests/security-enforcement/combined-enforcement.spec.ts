@@ -101,7 +101,7 @@ test.describe('Combined Security Enforcement', () => {
     await requestContext.dispose();
   });
 
-  test('should enable all security modules simultaneously', async ({}, testInfo) => {
+  test('should enable all security modules simultaneously', async () => {
     // SKIP: Security module enforcement verified via Cerberus middleware (port 80).
     // See: backend/integration/cerberus_integration_test.go
   });

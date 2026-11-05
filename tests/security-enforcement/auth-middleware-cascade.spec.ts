@@ -102,7 +102,7 @@ test.describe('Auth Middleware Cascade', () => {
   };
 
   test.beforeEach(async ({ page }) => {
-    await page.goto('/', { waitUntil: 'networkidle' });
+    await page.goto('/');
     // These tests exercise the full auth/ACL/WAF/rate-limit middleware
     // cascade, which is slower to settle than a plain page load - a flat
     // 5s waitForSelector was too tight under real CrowdSec/WAF runtime
@@ -191,7 +191,7 @@ test.describe('Auth Middleware Cascade', () => {
   // Bearer tokens at all for proxied traffic, so this can never be 401).
   test('Valid token passes ACL validation', async ({ page }) => {
     await test.step('Create proxy with ACL', async () => {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
+      await page.goto('/proxy-hosts');
 
       const addButton = page.getByRole('button', { name: /add|create/i }).first();
       await addButton.click();
@@ -204,7 +204,7 @@ test.describe('Auth Middleware Cascade', () => {
       const submitButton = page.getByRole('button', { name: 'Save', exact: true }).first();
       await dismissNewDomainPromptIfPresent(page);
       await submitButton.click();
-      await page.waitForLoadState('networkidle');
+      await expect(page.getByRole('dialog')).toBeHidden({ timeout: 15000 });
     });
 
     await test.step('Send request with valid token', async () => {
@@ -230,7 +230,7 @@ test.describe('Auth Middleware Cascade', () => {
   // Valid token / benign request passes through WAF layer for a proxied host
   test('Valid token passes WAF validation', async ({ page }) => {
     await test.step('Create proxy with WAF', async () => {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
+      await page.goto('/proxy-hosts');
 
       const addButton = page.getByRole('button', { name: /add|create/i }).first();
       await addButton.click();
@@ -251,7 +251,7 @@ test.describe('Auth Middleware Cascade', () => {
       const submitButton = page.getByRole('button', { name: 'Save', exact: true }).first();
       await dismissNewDomainPromptIfPresent(page);
       await submitButton.click();
-      await page.waitForLoadState('networkidle');
+      await expect(page.getByRole('dialog')).toBeHidden({ timeout: 15000 });
     });
 
     await test.step('Send valid request (passes auth, passes WAF)', async () => {
@@ -279,7 +279,7 @@ test.describe('Auth Middleware Cascade', () => {
   // Valid token / requests within budget pass through rate limiting for a proxied host
   test('Valid token passes rate limiting validation', async ({ page }) => {
     await test.step('Create proxy with rate limiting', async () => {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
+      await page.goto('/proxy-hosts');
 
       const addButton = page.getByRole('button', { name: /add|create/i }).first();
       await addButton.click();
@@ -305,7 +305,7 @@ test.describe('Auth Middleware Cascade', () => {
       const submitButton = page.getByRole('button', { name: 'Save', exact: true }).first();
       await dismissNewDomainPromptIfPresent(page);
       await submitButton.click();
-      await page.waitForLoadState('networkidle');
+      await expect(page.getByRole('dialog')).toBeHidden({ timeout: 15000 });
     });
 
     await test.step('Send multiple valid requests within limit', async () => {
@@ -333,7 +333,7 @@ test.describe('Auth Middleware Cascade', () => {
   // Valid token passes ALL middleware layers
   test('Valid token passes auth, ACL, WAF, and rate limiting', async ({ page }) => {
     await test.step('Create proxy with all protections', async () => {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
+      await page.goto('/proxy-hosts');
 
       const addButton = page.getByRole('button', { name: /add|create/i }).first();
       await addButton.click();
@@ -364,7 +364,7 @@ test.describe('Auth Middleware Cascade', () => {
       const submitButton = page.getByRole('button', { name: 'Save', exact: true }).first();
       await dismissNewDomainPromptIfPresent(page);
       await submitButton.click();
-      await page.waitForLoadState('networkidle');
+      await expect(page.getByRole('dialog')).toBeHidden({ timeout: 15000 });
     });
 
     await test.step('Send legitimate requests through full middleware stack', async () => {

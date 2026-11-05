@@ -53,11 +53,11 @@ function getTokenCacheDirCount(): number {
 }
 
 test.describe('Token Refresh for Long-Running Sessions', () => {
-  test('New token should be cached with expiry', async ({ adminUser, page }) => {
+  test('New token should be cached with expiry', async ({ adminUser }) => {
     const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080';
 
     // Get initial token
-    let token = adminUser.token;
+    const token = adminUser.token;
 
     // refresh should either return the same token or a new one
     const refreshedToken = await refreshTokenIfNeeded(baseURL, token);

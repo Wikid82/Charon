@@ -224,6 +224,7 @@ export async function refreshListAndWait(
 
   // If still not visible, wait for the page to stabilize with any content
   if (!isVisible) {
+    // eslint-disable-next-line playwright/no-networkidle -- fallback for pages with no table/grid: no concrete element to wait on
     await page.waitForLoadState('networkidle', { timeout });
   }
 

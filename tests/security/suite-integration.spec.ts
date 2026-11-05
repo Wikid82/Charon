@@ -103,7 +103,7 @@ test.describe('Security Suite Integration', () => {
       await test.step('Verify security content', async () => {
         // Wait for page load before checking main content
         await waitForLoadingComplete(page);
-        await page.waitForLoadState('networkidle', { timeout: 10000 });
+        await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
 
         const content = page.locator('main, .content, [role="main"]').first();
         await expect(content).toBeVisible({ timeout: 10000 });

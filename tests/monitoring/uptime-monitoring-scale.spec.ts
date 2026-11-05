@@ -240,7 +240,7 @@ test.describe('Uptime at scale: per-monitor interval floor', () => {
     await waitForLoadingComplete(page);
 
     await test.step('open the create-monitor form', async () => {
-      await page.click(SELECTORS.addMonitorButton);
+      await page.locator(SELECTORS.addMonitorButton).click();
     });
 
     await test.step('interval input advertises the 30s minimum with helper text', async () => {
@@ -251,8 +251,8 @@ test.describe('Uptime at scale: per-monitor interval floor', () => {
     });
 
     await test.step('a below-floor value is clamped to 30 on blur — never sent as 10', async () => {
-      await page.fill(SELECTORS.nameInput, 'Floor Test');
-      await page.fill(SELECTORS.urlInput, 'https://floor.example.test/health');
+      await page.locator(SELECTORS.nameInput).fill('Floor Test');
+      await page.locator(SELECTORS.urlInput).fill('https://floor.example.test/health');
       const interval = page.locator(SELECTORS.intervalInput);
       await interval.fill('10');
       await interval.blur();
@@ -269,7 +269,7 @@ test.describe('Uptime at scale: per-monitor interval floor', () => {
           r.url().includes('/api/v1/uptime/monitors') &&
           r.request().method() === 'POST',
       );
-      await page.click(SELECTORS.submitButton);
+      await page.locator(SELECTORS.submitButton).click();
       await posted;
 
       expect(createPayload).not.toBeNull();
