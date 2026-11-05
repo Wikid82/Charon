@@ -150,6 +150,22 @@ Request Body (example; only these two fields change):
 
 Response 200: `{ "config": { ... } }`. The `config` object is the stored row after the save, with every field.
 
+#### Allowed Values
+
+Every value is checked before anything is written. If a value in the request is outside its allowed range or format, the whole save is refused with `400`, the message names the setting that is wrong, and nothing is stored.
+
+- **`waf_paranoia_level`**: a whole number from `1` to `4`. `0` is not allowed.
+- **`rate_limit_requests`**: a whole number from `0` to `100000`.
+- **`rate_limit_burst`**: a whole number from `0` to `10000`.
+- **`rate_limit_window_sec`**: a whole number of seconds from `0` to `86400` (one day).
+- **`rate_limit_mode`**: exactly `""`, `disabled` or `enabled`, in lowercase. Other spellings, such as `Enabled`, are refused.
+- **`rate_limit_bypass_list`**: a comma-separated list of IP addresses or CIDR ranges (a range such as `203.0.113.0/24`). Blank entries are skipped. An empty value clears the list.
+- **`crowdsec_api_url`**: empty, or an absolute `http://` or `https://` address that includes a host name.
+
+For the three rate limit numbers, `0` means not set.
+
+A value that is already saved is accepted when it is sent back unchanged. A read, edit one field, and save cycle therefore works even when a stored value is outside the ranges above.
+
 #### Module Switches and Rule Sets
 
 The WAF and rate limit switches are set through the same save:
