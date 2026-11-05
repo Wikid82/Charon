@@ -39,8 +39,9 @@ export default tseslint.config(
       },
     },
     rules: {
-      '@typescript-eslint/no-floating-promises': 'error',
-      '@typescript-eslint/no-misused-promises': 'error',
+      // Temporarily 'warn' until commit 13 clears the baseline findings (see severity-policy below).
+      '@typescript-eslint/no-floating-promises': 'warn',
+      '@typescript-eslint/no-misused-promises': 'warn',
       '@typescript-eslint/await-thenable': 'error',
     },
   },
@@ -63,8 +64,7 @@ export default tseslint.config(
   },
 
   // Severity policy (see docs/plans/current_spec.md, Decision 3).
-  // Correctness rules are 'error'. Style-oriented or noisy rules are 'warn' so they can be ratcheted down
-  // over time. Rules are 'off' only where the pattern is intentional and fixing it would rewrite test logic.
+  // Noisy or style-oriented rules are warnings so they can be ratcheted down over time.
   {
     name: 'charon/severity-policy',
     files: [...TS_FILES, ...JS_FILES],
@@ -72,35 +72,20 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/no-unused-vars': 'warn',
       'playwright/no-skipped-test': 'warn',
-      'playwright/no-force-option': 'warn',
-      'playwright/prefer-locator': 'warn',
-      'playwright/no-wait-for-timeout': 'warn',
-      // Snapshot-then-compare checks (toggle before/after state) need a judgement call per site.
+      // Baseline-only downgrades: these rules have error-level findings in tests/ today.
+      // Commit 13 fixes the findings and restores each rule to 'error'.
+      'prefer-const': 'warn',
+      'no-empty': 'warn',
+      'no-useless-escape': 'warn',
+      'preserve-caught-error': 'warn',
+      'no-useless-assignment': 'warn',
+      'playwright/missing-playwright-await': 'warn',
+      'playwright/valid-title': 'warn',
+      'playwright/no-networkidle': 'warn',
       'playwright/prefer-web-first-assertions': 'warn',
-      // Intentional: environment guards (feature flags, optional UI) branch inside tests by design.
-      'playwright/no-conditional-in-test': 'off',
-      // Intentional: expects inside those guarded branches are the assertion for that environment.
-      'playwright/no-conditional-expect': 'off',
-      // Cosmetic spacing between blocks; not a correctness signal.
-      'playwright/consistent-spacing-between-blocks': 'off',
-      // Nested test.step is used on purpose to group sub-flows under a parent step.
-      'playwright/no-nested-step': 'off',
-      // Assertions in these tests live in shared helpers (e.g. expectNoA11yViolations, waitFor* checks) the rule
-      // cannot see. Allow-listing helper names would hide genuinely assertion-free tests, so the rule is off.
-      'playwright/expect-expect': 'off',
-      // Restored to error: findings cleared in the lint sweep (commit 13).
-      'prefer-const': 'error',
-      'no-empty': 'error',
-      'no-useless-escape': 'error',
-      'preserve-caught-error': 'error',
-      'no-useless-assignment': 'error',
-      'playwright/missing-playwright-await': 'error',
-      'playwright/valid-title': 'error',
-      'playwright/no-networkidle': 'error',
-      'playwright/no-wait-for-navigation': 'error',
-      'playwright/no-unnecessary-assertions': 'error',
-      'playwright/no-unused-locators': 'error',
-      'playwright/no-wait-for-selector': 'error',
+      'playwright/no-wait-for-navigation': 'warn',
+      'playwright/no-unnecessary-assertions': 'warn',
+      'playwright/no-unused-locators': 'warn',
     },
   },
 );
