@@ -239,6 +239,10 @@ func ReconcileWAFDetectionMode(db *gorm.DB) (int64, error) {
 //     them. The outcome is mixed: one part is restored and the other keeps the concurrent write.
 //  3. A concurrent admin write's own proxy apply may already have applied the failed writer's values to the proxy. The
 //     restore does not re-apply them; the next apply corrects the proxy.
+//  4. The row image holds only the columns in rowColumns. waf_paranoia_level and crowdsec_api_url are not imaged, so a
+//     refused apply does not restore them. This is pre-existing and unchanged by the restore.
+//  5. A row the writer created is deleted when every imaged column is still unchanged, even if a non-imaged column was
+//     changed by a concurrent write. That concurrent write is lost with the row.
 type ModuleStateSnapshot struct {
 	name      string
 	keys      []settingImage
@@ -421,9 +425,25 @@ func (s ModuleStateSnapshot) RestoreSettings(db *gorm.DB) error {
 			}
 			continue
 		}
-		// Assign keeps the pre-image UpdatedAt; Save would stamp the restore time over it.
+		// Every stored column is written explicitly: a struct Assign skips zero values, so a blank value or an empty type
+		// or category would keep the writer's value. UpdateColumns leaves updated_at to the pre-image value, so the
+		// restore time is not stamped over it.
 		restore := img.setting
-		if err := db.Where(Setting{Key: img.key}).Assign(restore).FirstOrCreate(&restore).Error; err != nil {
+		res := db.Model(&Setting{}).Where("key = ?", img.key).UpdateColumns(map[string]any{
+			"value":      restore.Value,
+			"category":   restore.Category,
+			"type":       restore.Type,
+			"updated_at": restore.UpdatedAt,
+		})
+		if res.Error != nil {
+			return fmt.Errorf("restore setting %s: %w", img.key, res.Error)
+		}
+		if res.RowsAffected > 0 {
+			continue
+		}
+		// The writer removed the key, so the pre-image record is inserted again under a fresh ID.
+		restore.ID = 0
+		if err := db.Create(&restore).Error; err != nil {
 			return fmt.Errorf("restore setting %s: %w", img.key, err)
 		}
 	}

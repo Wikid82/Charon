@@ -217,3 +217,56 @@ func TestRestore_RestoredSettingKeepsItsPreImageUpdatedAt(t *testing.T) {
 	assert.Equal(t, "false", restored.Value, "the pre-image value is written back")
 	assert.True(t, before.UpdatedAt.Equal(restored.UpdatedAt), "a restored key keeps its pre-image UpdatedAt: got %s want %s", restored.UpdatedAt, before.UpdatedAt)
 }
+
+func TestRestore_BlankPreImageValueIsWrittenBack(t *testing.T) {
+	db := newModuleTestDB(t)
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName, WAFMode: "disabled"}).Error)
+	require.NoError(t, db.Create(&models.Setting{Key: models.CerberusFeatureSettingKey, Value: "", Category: "feature", Type: "bool"}).Error)
+	snap, err := models.CaptureModuleState(db, models.DefaultSecurityConfigName, nil)
+	require.NoError(t, err)
+	require.NoError(t, models.EnableSecurityFramework(db))
+	require.NoError(t, snap.Seal(db))
+
+	require.NoError(t, snap.RestoreSettings(db))
+
+	value, found := readSettingValue(t, db, models.CerberusFeatureSettingKey)
+	assert.True(t, found)
+	assert.Equal(t, "", value, "a blank pre-image value is written back, not kept at the writer's value")
+}
+
+func TestRestore_EmptyTypeAndCategoryArePreImageValues(t *testing.T) {
+	db := newModuleTestDB(t)
+	require.NoError(t, db.Create(&models.Setting{Key: models.SecurityWAFEnabledSettingKey, Value: "false"}).Error)
+	snap, err := models.CaptureModuleState(db, models.DefaultSecurityConfigName, nil)
+	require.NoError(t, err)
+	require.NoError(t, models.SetModuleStateOpt(db, models.SecurityWAFEnabledSettingKey, true, "writer", false))
+	require.NoError(t, snap.Seal(db))
+
+	require.NoError(t, snap.RestoreSettings(db))
+
+	var restored models.Setting
+	require.NoError(t, db.Where("key = ?", models.SecurityWAFEnabledSettingKey).Take(&restored).Error)
+	assert.Equal(t, "false", restored.Value)
+	assert.Equal(t, "", restored.Category, "an empty pre-image category is written back")
+	assert.Equal(t, "", restored.Type, "an empty pre-image type is written back")
+}
+
+func TestRestore_RecreatedKeyKeepsItsPreImageValueAndUpdatedAt(t *testing.T) {
+	db := newModuleTestDB(t)
+	require.NoError(t, db.Create(&models.Setting{Key: models.SecurityWAFEnabledSettingKey, Value: "false", Category: "security", Type: "bool"}).Error)
+	var before models.Setting
+	require.NoError(t, db.Where("key = ?", models.SecurityWAFEnabledSettingKey).Take(&before).Error)
+	snap, err := models.CaptureModuleState(db, models.DefaultSecurityConfigName, nil)
+	require.NoError(t, err)
+	require.NoError(t, models.ClearModuleKey(db, models.SecurityWAFEnabledSettingKey, "writer"))
+	require.NoError(t, snap.Seal(db))
+
+	require.NoError(t, snap.RestoreSettings(db))
+
+	var restored models.Setting
+	require.NoError(t, db.Where("key = ?", models.SecurityWAFEnabledSettingKey).Take(&restored).Error)
+	assert.Equal(t, "false", restored.Value)
+	assert.Equal(t, "security", restored.Category)
+	assert.Equal(t, "bool", restored.Type)
+	assert.True(t, before.UpdatedAt.Equal(restored.UpdatedAt), "a recreated key keeps its pre-image UpdatedAt: got %s want %s", restored.UpdatedAt, before.UpdatedAt)
+}
