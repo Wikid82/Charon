@@ -202,7 +202,7 @@ func stepFeatureFlag(value bool) func(t *testing.T, db *gorm.DB, h *SecurityHand
 	}
 }
 
-// stepBreakGlassDisable calls the localhost /security/disable, which writes only the row.
+// stepBreakGlassDisable calls the localhost /security/disable, which writes the row and both Cerberus keys off.
 func stepBreakGlassDisable(t *testing.T, _ *gorm.DB, h *SecurityHandler) {
 	t.Helper()
 	w := serveDisable(t, h, "127.0.0.1:5000", `{}`)
@@ -262,21 +262,21 @@ var readerScenarios = []readerScenario{
 		want:   readerAnswers{proxy: true, status: true, middleware: true, presets: true},
 	},
 	{
-		// The break-glass disable writes only the row, so the stale key keeps the proxy and the status on.
+		// The break-glass disable switches the row and both keys off, so the stale keys no longer keep the proxy on.
 		name:   "row on then EnableCerberus then break-glass disable",
 		static: "off",
 		row:    "enabled",
 		steps: []func(*testing.T, *gorm.DB, *SecurityHandler){
 			stepEnableKey, stepBreakGlassDisable,
 		},
-		want: readerAnswers{proxy: true, status: true, middleware: false, presets: true},
+		want: readerAnswers{proxy: false, status: false, middleware: false, presets: false},
 	},
 	{
 		name:   "row on no keys then break-glass disable",
 		static: "off",
 		row:    "enabled",
 		steps:  []func(*testing.T, *gorm.DB, *SecurityHandler){stepBreakGlassDisable},
-		want:   readerAnswers{proxy: false, status: false, middleware: false, presets: true},
+		want:   readerAnswers{proxy: false, status: false, middleware: false, presets: false},
 	},
 	{
 		name:   "row on no keys static on",
@@ -367,8 +367,34 @@ func renderReaderLine(st readerState, a readerAnswers) string {
 		st.static, st.row, st.feature, st.legacy, st.env, a.proxy, a.status, a.middleware, a.presets)
 }
 
-// TestCerberusReaderMatrix records every stored state's answers and compares them with the golden file. Run with
-// CHARON_UPDATE_READER_MATRIX=1 to rewrite the golden file after an intended change.
+// readerPostDisablePrefix marks the golden rows recorded after a localhost break-glass Disable. They follow the stored
+// state rows, so every row above them is the state before any Disable.
+const readerPostDisablePrefix = "after-disable "
+
+// readerPostDisableLines runs a localhost break-glass Disable on each stored state of the no-env grid and records the
+// four answers afterwards.
+func readerPostDisableLines(t *testing.T) []string {
+	t.Helper()
+	var lines []string
+	for _, st := range readerMatrixStates() {
+		if st.env != "" {
+			continue
+		}
+		setReaderEnv(t, "")
+		db := seedReaderState(t, st.row, st.feature, st.legacy)
+		static := readerStatics[st.static]
+		h := NewSecurityHandler(static, db, nil)
+		w := serveDisable(t, h, "127.0.0.1:5000", `{}`)
+		require.Equal(t, http.StatusOK, w.Code)
+		h.Close()
+		lines = append(lines, readerPostDisablePrefix+renderReaderLine(st, readReaderAnswers(t, db, static)))
+	}
+	return lines
+}
+
+// TestCerberusReaderMatrix records every stored state's answers, then the answers after a break-glass Disable of each
+// state, and compares them with the golden file. Run with CHARON_UPDATE_READER_MATRIX=1 to rewrite the golden file
+// after an intended change.
 func TestCerberusReaderMatrix(t *testing.T) {
 	var lines []string
 	for _, st := range readerMatrixStates() {
@@ -376,6 +402,7 @@ func TestCerberusReaderMatrix(t *testing.T) {
 		db := seedReaderState(t, st.row, st.feature, st.legacy)
 		lines = append(lines, renderReaderLine(st, readReaderAnswers(t, db, readerStatics[st.static])))
 	}
+	lines = append(lines, readerPostDisableLines(t)...)
 	got := strings.Join(lines, "\n") + "\n"
 
 	if os.Getenv(readerUpdateEnv) == "1" {

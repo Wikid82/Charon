@@ -102,6 +102,12 @@ func (s *SecurityService) GetByName(name string) (*models.SecurityConfig, error)
 // Upsert replaces every column from cfg. Callers must pass a row they just read, with the fields they do not change
 // still set to their stored values. Request handlers must use ApplyUpdate, which writes only the fields a request carries.
 func (s *SecurityService) Upsert(cfg *models.SecurityConfig) error {
+	return UpsertSecurityConfig(s.db, cfg)
+}
+
+// UpsertSecurityConfig is Upsert on the given handle. A caller that writes inside its own write transaction passes that
+// transaction, so the row save and the caller's other writes commit or roll back together.
+func UpsertSecurityConfig(db *gorm.DB, cfg *models.SecurityConfig) error {
 	if err := ValidateAdminWhitelist(cfg.AdminWhitelist); err != nil {
 		return err
 	}
@@ -116,10 +122,10 @@ func (s *SecurityService) Upsert(cfg *models.SecurityConfig) error {
 
 	// Upsert behaviour: try to find existing record
 	var existing models.SecurityConfig
-	if err := s.db.Where("name = ?", cfg.Name).First(&existing).Error; err != nil {
+	if err := db.Where("name = ?", cfg.Name).First(&existing).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			// New record
-			return s.db.Create(cfg).Error
+			return db.Create(cfg).Error
 		}
 		return err
 	}
@@ -141,7 +147,7 @@ func (s *SecurityService) Upsert(cfg *models.SecurityConfig) error {
 	existing.RateLimitWindowSec = cfg.RateLimitWindowSec
 	existing.RateLimitBypassList = cfg.RateLimitBypassList
 
-	return s.db.Save(&existing).Error
+	return db.Save(&existing).Error
 }
 
 // GenerateBreakGlassToken generates a token, stores its bcrypt hash, and returns the plaintext token
