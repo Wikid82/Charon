@@ -4080,8 +4080,10 @@ func TestEnsureBouncerRegistration_ConcurrentCalls(t *testing.T) {
 	db := setupCrowdDB(t)
 	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	handler.CmdExec = mockCmdExec
+	// Key checks always address the local engine; send them to the mock LAPI so they answer at once
+	// instead of retrying a dead address for the full wait while the calls queue behind decisionMu.
+	redirectLocalKeyChecks(handler, lapiServer.URL)
 
-	// Create security config with mock LAPI URL
 	cfg := models.SecurityConfig{
 		UUID: "test-uuid",
 		Name: "default",
