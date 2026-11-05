@@ -23,7 +23,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
-const rulesetSkipWarning = "skipping WAF rule set that has no rules"
+const emptyRulesetLogMessage = "skipping WAF rule set that has no rules"
 
 // newRulesRequiredManager builds a manager against a mock Caddy admin API and a file-backed database that holds the
 // given rule sets. It returns the manager and the directory the rule set files are written to.
@@ -87,7 +87,7 @@ func TestManager_ApplyConfig_SkipsRulesetWithoutRules(t *testing.T) {
 	assert.Len(t, validFiles, 1, "the valid rule set must still be written")
 
 	// One Warn per skipped set per apply: two applies, one skipped set each.
-	assert.Equal(t, 2, strings.Count(logs.String(), rulesetSkipWarning))
+	assert.Equal(t, 2, strings.Count(logs.String(), emptyRulesetLogMessage))
 	assert.Contains(t, logs.String(), `"ruleset":"empty-crs"`)
 }
 
@@ -101,5 +101,5 @@ func TestManager_ApplyConfig_OnlyEmptyRulesetWritesNoFile(t *testing.T) {
 
 	entries, _ := os.ReadDir(rulesetDir)
 	assert.Empty(t, entries)
-	assert.Equal(t, 1, strings.Count(logs.String(), rulesetSkipWarning))
+	assert.Equal(t, 1, strings.Count(logs.String(), emptyRulesetLogMessage))
 }
