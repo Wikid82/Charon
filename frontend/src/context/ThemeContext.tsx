@@ -75,6 +75,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const { userThemes, isLoading } = useUserThemes()
 
+  // A user:* theme that no longer exists (deleted, or DB unavailable) is shown as dark.
+  // Derived rather than stored; the effect below persists the fallback. Waits for the
+  // user-theme query to settle before deciding the theme is missing.
+  const isMissingUserTheme =
+    isUserThemeId(theme as string) &&
+    !isLoading &&
+    !userThemes.some(t => `user:${t.id}` === theme)
+  const effectiveTheme: ThemeId = isMissingUserTheme ? 'dark' : theme
+
   // isFirstRender: on mount the inline script in index.html already set data-theme.
   // Skip the initial DOM write to avoid a redundant attribute mutation.
   const isFirstRender = useRef(true)
@@ -94,10 +103,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         document.documentElement.setAttribute('data-theme', 'custom')
         applyCustomTokens(ut.colors)
       } else {
-        // Theme was deleted or DB unavailable — fall back to dark
+        // Theme was deleted or DB unavailable — persist the dark fallback
         document.documentElement.setAttribute('data-theme', 'dark')
         clearCustomTokens()
-        setThemeState('dark')
         try { localStorage.setItem(THEME_STORAGE_KEY, 'dark') } catch { /* ignore */ }
       }
       return
@@ -158,9 +166,9 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const exportTheme = useCallback((): ThemeExport => ({
     version: 1,
     exportedAt: new Date().toISOString(),
-    theme,
-    customTheme: theme === 'custom' && customTheme ? customTheme : undefined,
-  }), [theme, customTheme])
+    theme: effectiveTheme,
+    customTheme: effectiveTheme === 'custom' && customTheme ? customTheme : undefined,
+  }), [effectiveTheme, customTheme])
 
   const importTheme = useCallback((data: ThemeExport) => {
     if (data.customTheme) {
@@ -174,15 +182,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     setThemeState(data.theme)
   }, [])
 
-  const resolvedTheme = resolveDataTheme(theme)
+  const resolvedTheme = resolveDataTheme(effectiveTheme)
 
-  const activeUserTheme: UserTheme | null = isUserThemeId(theme as string)
-    ? userThemes.find(t => `user:${t.id}` === theme) ?? null
+  const activeUserTheme: UserTheme | null = isUserThemeId(effectiveTheme as string)
+    ? userThemes.find(t => `user:${t.id}` === effectiveTheme) ?? null
     : null
 
   return (
     <ThemeContext.Provider value={{
-      theme,
+      theme: effectiveTheme,
       resolvedTheme,
       setTheme,
       customTheme,
