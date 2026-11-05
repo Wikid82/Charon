@@ -16,8 +16,10 @@ import {
   getSecurityStatus,
   setSecurityModuleEnabled,
   captureSecurityState,
+  captureCrowdsecEnabled,
+  restoreCrowdsecEnabled,
   restoreSecurityState,
-  CapturedSecurityState,
+  SecurityStateSnapshot,
 } from '../utils/security-helpers';
 import { restoreShippedCrowdsecConfig } from '../utils/crowdsec-shipped-config';
 
@@ -49,7 +51,8 @@ async function configureAdminWhitelist(requestContext: APIRequestContext) {
 
 test.describe('CrowdSec Enforcement', () => {
   let requestContext: APIRequestContext;
-  let originalState: CapturedSecurityState;
+  let originalState: SecurityStateSnapshot;
+  let originalCrowdsec: boolean | undefined;
 
   test.beforeAll(async () => {
     requestContext = await request.newContext({
@@ -70,6 +73,7 @@ test.describe('CrowdSec Enforcement', () => {
     // Capture original state
     try {
       originalState = await captureSecurityState(requestContext);
+      originalCrowdsec = await captureCrowdsecEnabled(requestContext);
     } catch (error) {
       console.error('Failed to capture original security state:', error);
     }
@@ -96,6 +100,9 @@ test.describe('CrowdSec Enforcement', () => {
     if (originalState) {
       try {
         await restoreSecurityState(requestContext, originalState);
+        if (originalCrowdsec !== undefined) {
+          await restoreCrowdsecEnabled(requestContext, originalCrowdsec);
+        }
         console.log('✓ Security state restored');
       } catch (error) {
         console.error('Failed to restore security state:', error);

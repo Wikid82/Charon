@@ -33,6 +33,14 @@
  */
 
 import { APIRequestContext } from '@playwright/test';
+import {
+  restoreSecurityState,
+  snapshotSecurityState,
+  type SecurityStateSnapshot,
+} from './security-settings-api';
+
+export { restoreSecurityState };
+export type { SecurityStateSnapshot };
 
 /**
  * Security module status from GET /api/v1/security/status
@@ -59,17 +67,6 @@ export interface SecurityModuleOptions {
   crowdsec?: boolean;
   /** Enable master Cerberus toggle (required for other modules) */
   cerberus?: boolean;
-}
-
-/**
- * Captured state for restoration
- */
-export interface CapturedSecurityState {
-  acl: boolean;
-  waf: boolean;
-  rateLimit: boolean;
-  crowdsec: boolean;
-  cerberus: boolean;
 }
 
 /**
@@ -153,48 +150,29 @@ export async function setSecurityModuleEnabled(
 }
 
 /**
- * Capture current security state for later restoration
+ * Capture the security state (stored config row, module switches, rule sets) for later restoration.
+ * Restore it with {@link restoreSecurityState}, which is re-exported from the shared settings helpers.
  * @param request - Playwright APIRequestContext (authenticated)
- * @returns Captured state object
  */
-export async function captureSecurityState(
-  request: APIRequestContext
-): Promise<CapturedSecurityState> {
-  const status = await getSecurityStatus(request);
+export const captureSecurityState = snapshotSecurityState;
 
-  return {
-    acl: status.acl.enabled,
-    waf: status.waf.enabled,
-    rateLimit: status.rate_limit.enabled,
-    crowdsec: status.crowdsec.enabled,
-    cerberus: status.cerberus.enabled,
-  };
+/**
+ * CrowdSec is not part of the shared snapshot, so its switch is captured and restored here.
+ * @param request - Playwright APIRequestContext (authenticated)
+ * @returns Whether CrowdSec is currently enabled
+ */
+export async function captureCrowdsecEnabled(request: APIRequestContext): Promise<boolean> {
+  return (await getSecurityStatus(request)).crowdsec.enabled;
 }
 
 /**
- * Restore security state to previously captured values
+ * Sets CrowdSec back to a value captured with {@link captureCrowdsecEnabled}, writing only when it differs.
  * @param request - Playwright APIRequestContext (authenticated)
- * @param state - Previously captured state
+ * @param enabled - The value to restore
  */
-export async function restoreSecurityState(
-  request: APIRequestContext,
-  state: CapturedSecurityState
-): Promise<void> {
-  const currentStatus = await getSecurityStatus(request);
-
-  // Restore in reverse dependency order (features before master toggle)
-  const modules: (keyof SecurityModuleOptions)[] = ['acl', 'waf', 'rateLimit', 'crowdsec', 'cerberus'];
-
-  for (const module of modules) {
-    const currentValue = module === 'rateLimit'
-      ? currentStatus.rate_limit.enabled
-      : module === 'crowdsec'
-      ? currentStatus.crowdsec.enabled
-      : currentStatus[module].enabled;
-
-    if (currentValue !== state[module]) {
-      await setSecurityModuleEnabled(request, module, state[module]);
-    }
+export async function restoreCrowdsecEnabled(request: APIRequestContext, enabled: boolean): Promise<void> {
+  if ((await captureCrowdsecEnabled(request)) !== enabled) {
+    await setSecurityModuleEnabled(request, 'crowdsec', enabled);
   }
 }
 
@@ -229,10 +207,11 @@ export async function withSecurityEnabled(
 ): Promise<() => Promise<void>> {
   // Capture original state BEFORE making any changes
   const originalState = await captureSecurityState(request);
+  const originalCrowdsec = await captureCrowdsecEnabled(request);
 
   // Enable Cerberus first (master toggle) if any security module is requested
   const needsCerberus = options.acl || options.waf || options.rateLimit || options.crowdsec;
-  if ((needsCerberus || options.cerberus) && !originalState.cerberus) {
+  if ((needsCerberus || options.cerberus) && !originalState.modules.effective['feature.cerberus.enabled']) {
     await setSecurityModuleEnabled(request, 'cerberus', true);
   }
 
@@ -254,6 +233,7 @@ export async function withSecurityEnabled(
   return async () => {
     try {
       await restoreSecurityState(request, originalState);
+      await restoreCrowdsecEnabled(request, originalCrowdsec);
     } catch (error) {
       // Log error but don't throw - cleanup should not fail tests
       console.error('Failed to restore security state:', error);
