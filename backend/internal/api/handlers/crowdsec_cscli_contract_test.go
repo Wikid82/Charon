@@ -735,7 +735,7 @@ func largeOutputScript(stream string) string {
 	if stream == "stderr" {
 		redirect = " >&2"
 	}
-	return "head -c 40000000 /dev/zero" + redirect + "; fx sleep 5"
+	return "head -c 40000000 /dev/zero" + redirect + "; exec sleep 60"
 }
 
 func TestRealCommandExecutor_Execute_CombinesStreams(t *testing.T) {
@@ -766,12 +766,15 @@ func TestRealCommandExecutor_Execute_OutputLimit(t *testing.T) {
 			t.Parallel()
 			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 			defer cancel()
-			start := time.Now()
 			out, err := (&RealCommandExecutor{}).Execute(ctx, "sh", "-c", largeOutputScript(stream))
 			require.Error(t, err)
 			assert.Contains(t, strings.ToLower(err.Error()), "output")
 			assert.Contains(t, strings.ToLower(err.Error()), "limit")
-			assert.Less(t, time.Since(start), 15*time.Second, "the command is killed, not waited for")
+			// ctx.Err() is the assertion that matters: CombinedOutputLimited returns ErrOutputLimit whenever the
+			// buffer overflowed, even if the context also expired (see crowdsec/cscli_exec.go:87-102). So if the
+			// executor did not kill the command, the sleeper outlives the 30s context and ctx.Err() is
+			// DeadlineExceeded, failing the test without a wall-clock bound.
+			require.NoError(t, ctx.Err(), "the command must be killed by the output limit, not by the context deadline")
 			assert.Less(t, len(out), 40_000_000, "the output kept is bounded")
 		})
 	}
