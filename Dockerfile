@@ -210,7 +210,7 @@ ARG CADDY_DNS_DNSIMPLE_GO_VERSION=10.0.0
 # CVE-2026-119591, CVE-2026-119372, CVE-2026-119378, CVE-2026-119375, CVE-2026-119371, CVE-2026-119376, CVE-2026-119377
 # Renovate tracking requires a matching rule for repology
 # renovate: datasource=repology depName=alpine_3_24/sqlite
-ARG SQLITE_VERSION=3.53.4
+ARG SQLITE_VERSION=3.53.4-r0
 
 # ---- Cross-Compilation Helpers ----
 # renovate: datasource=docker depName=tonistiigi/xx
