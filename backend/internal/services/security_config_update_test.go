@@ -98,7 +98,8 @@ var updateFieldCases = []struct {
 	{"waf_mode", "WAFMode", "block", ""},
 	{"waf_rules_source", "WAFRulesSource", "https://rules.example.com/custom.conf", ""},
 	{"waf_learning", "WAFLearning", true, false},
-	{"waf_paranoia_level", "WAFParanoiaLevel", 3, 0},
+	// Paranoia has no zero value: 1 is its floor, so the explicit-value run sends the floor (0 is refused, see the value checks).
+	{"waf_paranoia_level", "WAFParanoiaLevel", 3, 1},
 	{"waf_exclusions", "WAFExclusions", "[]", ""},
 	{"rate_limit_burst", "RateLimitBurst", 9, 0},
 	{"rate_limit_requests", "RateLimitRequests", 90, 0},
@@ -181,11 +182,11 @@ func TestApplyUpdate_RateLimitModeRule(t *testing.T) {
 		wantMode   string
 	}{
 		{"enable true gives enabled", `{"rate_limit_enable":true,"rate_limit_mode":"disabled"}`, false, "disabled", true, "enabled"},
-		{"enable false keeps a non-empty mode", `{"rate_limit_enable":false,"rate_limit_mode":"custom"}`, true, "enabled", false, "custom"},
+		{"enable false keeps a non-empty mode", `{"rate_limit_enable":false,"rate_limit_mode":"enabled"}`, true, "enabled", false, "enabled"},
 		{"enable false without a mode gives disabled", `{"rate_limit_enable":false}`, true, "enabled", false, "disabled"},
 		{"enable false with an empty mode gives disabled", `{"rate_limit_enable":false,"rate_limit_mode":""}`, true, "enabled", false, "disabled"},
 		{"enable false with a null mode gives disabled", `{"rate_limit_enable":false,"rate_limit_mode":null}`, true, "enabled", false, "disabled"},
-		{"mode only is applied and enable is kept", `{"rate_limit_mode":"custom"}`, true, "enabled", true, "custom"},
+		{"mode only is applied and enable is kept", `{"rate_limit_mode":"disabled"}`, true, "enabled", true, "disabled"},
 		{"empty mode only is stored as sent and enable is kept", `{"rate_limit_mode":""}`, true, "enabled", true, ""},
 		{"three numbers leave enable and mode untouched", `{"rate_limit_requests":20,"rate_limit_burst":4,"rate_limit_window_sec":30}`, true, "enabled", true, "enabled"},
 	}
@@ -315,19 +316,23 @@ func TestApplyUpdate_CreatesDefaultRowWhenNoneExists(t *testing.T) {
 	assert.Equal(t, got.UUID, loadUpdateTestRow(t, db).UUID)
 }
 
-// On the create path an explicit zero paranoia level is stored as the column default (1); on the update path
-// the explicit zero is written as sent.
-func TestApplyUpdate_ParanoiaLevelZeroOnCreateIsDefaulted(t *testing.T) {
+// A zero paranoia level is refused on a fresh row, and an echo of a zero already stored by an older release is kept as
+// it is (the echo rule), so the stored value is not rewritten to the default.
+func TestApplyUpdate_ParanoiaLevelZeroOnCreateIsRefused(t *testing.T) {
 	db := setupSecurityTestDB(t)
 	svc := newTestSecurityService(t, db)
 
 	created, _, err := svc.ApplyUpdate("test-actor", models.DefaultSecurityConfigName, decodeUpdateTestBody(t, `{"waf_paranoia_level":0}`))
-	require.NoError(t, err)
-	assert.Equal(t, 1, created.WAFParanoiaLevel)
+	require.Error(t, err)
+	assert.Nil(t, created)
 
-	updated, _, err := svc.ApplyUpdate("test-actor", models.DefaultSecurityConfigName, decodeUpdateTestBody(t, `{"waf_paranoia_level":0}`))
+	seedUpdateTestRow(t, db, fullUpdateTestRow())
+	// GORM's default:1 tag replaces a zero on create, so the legacy zero is written with an explicit column update.
+	require.NoError(t, db.Model(&models.SecurityConfig{}).Where("name = ?", models.DefaultSecurityConfigName).
+		UpdateColumn("waf_paranoia_level", 0).Error)
+	echoed, _, err := svc.ApplyUpdate("test-actor", models.DefaultSecurityConfigName, decodeUpdateTestBody(t, `{"waf_paranoia_level":0}`))
 	require.NoError(t, err)
-	assert.Equal(t, 0, updated.WAFParanoiaLevel)
+	assert.Equal(t, 0, echoed.WAFParanoiaLevel)
 	assert.Equal(t, 0, loadUpdateTestRow(t, db).WAFParanoiaLevel)
 }
 

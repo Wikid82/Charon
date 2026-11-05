@@ -465,12 +465,12 @@ func TestSecurityHandler_UpdateConfig_RateLimitBounds(t *testing.T) {
 		{
 			"negative_burst",
 			map[string]any{"rate_limit_requests": 100, "rate_limit_burst": -1},
-			true, // Backend accepts, frontend validates
+			false, // Backend refuses values outside its allowed range (burst 0..10000)
 		},
 		{
 			"huge_values",
 			map[string]any{"rate_limit_requests": 999999999, "rate_limit_burst": 999999999},
-			true, // Backend accepts (no upper bound validation currently)
+			false, // Backend refuses values above its ceilings (requests 100000, burst 10000)
 		},
 	}
 

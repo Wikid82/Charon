@@ -40,6 +40,30 @@ var ErrInvalidWAFMode = errors.New("waf_mode must be empty, disabled, monitor or
 // ErrWAFRulesSourceUnknown is returned for a waf_rules_source that is neither a URL nor an existing rule set name.
 var ErrWAFRulesSourceUnknown = errors.New("waf_rules_source names no rule set and is not a URL")
 
+// Allowed ranges for the numeric settings. Zero for a rate-limit number means not set. The ceilings are above the UI's
+// own limits (1000 requests, 100 burst, 3600 s window) so an API or script user is not boxed in.
+const (
+	MaxWAFParanoiaLevel    = 4
+	MaxRateLimitRequests   = 100000
+	MaxRateLimitBurst      = 10000
+	MaxRateLimitWindowSec  = 86400
+	minWAFParanoiaLevel    = 1
+	minRateLimitNumberSize = 0
+)
+
+// ErrInvalidRateLimitMode is returned for a rate_limit_mode that is not exactly "", "disabled" or "enabled".
+var ErrInvalidRateLimitMode = errors.New(`rate_limit_mode must be "", "disabled" or "enabled"`)
+
+// ErrInvalidRateLimitBypass is returned for a rate_limit_bypass_list with an entry that is not an IP address or CIDR.
+var ErrInvalidRateLimitBypass = errors.New("rate_limit_bypass_list must be a comma-separated list of IP addresses or CIDR ranges")
+
+// ErrInvalidCrowdSecAPIURL is returned for a crowdsec_api_url that is neither empty nor an absolute http or https URL.
+var ErrInvalidCrowdSecAPIURL = errors.New("crowdsec_api_url must be empty or an absolute http or https URL with a host")
+
+// validRateLimitModes are the stored rate-limit modes. The proxy compares the mode with ==, so only the exact lowercase
+// values are accepted.
+var validRateLimitModes = map[string]bool{"": true, "disabled": true, "enabled": true}
+
 // InvalidConfigError marks a config save refused by validation before or during its writes. The message is the
 // cause's message, and errors.Is and errors.As reach the cause.
 type InvalidConfigError struct {
@@ -92,6 +116,58 @@ func (u SecurityConfigUpdate) checkRulesSource(tx *gorm.DB, stored models.Securi
 		return &InvalidConfigError{Err: ErrWAFRulesSourceUnknown}
 	}
 	return nil
+}
+
+// checkValues refuses a value outside its allowed range or shape, inside the write transaction and before any column is
+// written. A field equal to its stored value is not checked (the echo rule), so a save that posts back the row it read,
+// or an unrelated save, never fails on a value that was already stored. stored is the row before the save, or the model
+// defaults for a missing row.
+func (u SecurityConfigUpdate) checkValues(stored models.SecurityConfig) error {
+	if u.WAFParanoiaLevel != nil {
+		if err := checkIntRange("waf_paranoia_level", *u.WAFParanoiaLevel, stored.WAFParanoiaLevel, minWAFParanoiaLevel, MaxWAFParanoiaLevel); err != nil {
+			return err
+		}
+	}
+	if u.RateLimitRequests != nil {
+		if err := checkIntRange("rate_limit_requests", *u.RateLimitRequests, stored.RateLimitRequests, minRateLimitNumberSize, MaxRateLimitRequests); err != nil {
+			return err
+		}
+	}
+	if u.RateLimitBurst != nil {
+		if err := checkIntRange("rate_limit_burst", *u.RateLimitBurst, stored.RateLimitBurst, minRateLimitNumberSize, MaxRateLimitBurst); err != nil {
+			return err
+		}
+	}
+	if u.RateLimitWindowSec != nil {
+		if err := checkIntRange("rate_limit_window_sec", *u.RateLimitWindowSec, stored.RateLimitWindowSec, minRateLimitNumberSize, MaxRateLimitWindowSec); err != nil {
+			return err
+		}
+	}
+	// The mode is checked whenever it is present, even when rate_limit_enable is also sent.
+	if u.RateLimitMode != nil && *u.RateLimitMode != stored.RateLimitMode && !validRateLimitModes[*u.RateLimitMode] {
+		return &InvalidConfigError{Err: ErrInvalidRateLimitMode}
+	}
+	if u.RateLimitBypassList != nil && *u.RateLimitBypassList != stored.RateLimitBypassList {
+		if err := validateAddressList(*u.RateLimitBypassList, ErrInvalidRateLimitBypass); err != nil {
+			return &InvalidConfigError{Err: err}
+		}
+	}
+	if u.CrowdSecAPIURL != nil {
+		value := *u.CrowdSecAPIURL
+		if value != stored.CrowdSecAPIURL && value != "" && !isHTTPURL(value) {
+			return &InvalidConfigError{Err: ErrInvalidCrowdSecAPIURL}
+		}
+	}
+	return nil
+}
+
+// checkIntRange refuses value when it is outside [minValue, maxValue] and differs from the stored value. The message
+// names the field and its range.
+func checkIntRange(field string, value, stored, minValue, maxValue int) error {
+	if value == stored || (value >= minValue && value <= maxValue) {
+		return nil
+	}
+	return &InvalidConfigError{Err: fmt.Errorf("%s must be between %d and %d", field, minValue, maxValue)}
 }
 
 // isHTTPURL reports whether value is an absolute http or https URL with a host.
@@ -277,6 +353,9 @@ func (s *SecurityService) ApplyUpdate(actor, name string, u SecurityConfigUpdate
 			return fmt.Errorf("capture security state %q: %w", name, err)
 		}
 
+		if err := u.checkValues(before); err != nil {
+			return err
+		}
 		if err := u.checkRulesSource(tx, before); err != nil {
 			return err
 		}
