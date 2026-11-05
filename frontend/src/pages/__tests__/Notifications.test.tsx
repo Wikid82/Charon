@@ -1,4 +1,4 @@
-import { screen, waitFor, within } from '@testing-library/react'
+import { act, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
@@ -616,6 +616,25 @@ describe('Notifications', () => {
 
     const payload = vi.mocked(notificationsApi.testProvider).mock.calls[0][0]
     expect(payload.type).toBe('discord')
+  })
+
+  it('clears a previous preview when the edited provider is refreshed from the server', async () => {
+    vi.mocked(notificationsApi.previewProvider).mockResolvedValue({ rendered: 'stale-preview-output' })
+    setupMocks([baseProvider])
+
+    const user = userEvent.setup({ delay: null })
+    const { queryClient } = renderWithQueryClient(<Notifications />)
+
+    const row = await screen.findByTestId(`provider-row-${baseProvider.id}`)
+    await user.click(within(row).getByRole('button', { name: /edit/i }))
+    await user.click(screen.getByTestId('provider-preview-btn'))
+    expect(await screen.findByText(/stale-preview-output/)).toBeInTheDocument()
+
+    // A refetch with changed data hands the edit form a new provider object
+    vi.mocked(notificationsApi.getProviders).mockResolvedValue([{ ...baseProvider, name: 'Renamed Provider' }])
+    await act(async () => { await queryClient.invalidateQueries({ queryKey: ['notificationProviders'] }) })
+
+    await waitFor(() => expect(screen.queryByText(/stale-preview-output/)).not.toBeInTheDocument())
   })
 
   it('shows token-stored indicator when editing provider with has_token=true', async () => {

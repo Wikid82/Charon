@@ -706,6 +706,44 @@ describe('ManualDNSChallenge', () => {
       expect(screen.getByText(/Last checked/i)).toBeInTheDocument()
     })
 
+    it('shows the elapsed seconds since the last check and keeps counting', () => {
+      vi.useFakeTimers({ shouldAdvanceTime: false, now: new Date('2026-01-01T00:00:00Z') })
+      vi.mocked(useChallengePoll).mockReturnValue({
+        data: {
+          status: 'pending',
+          dns_propagated: false,
+          last_check_at: '2025-12-31T23:59:50Z',
+        },
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as unknown as ReturnType<typeof useChallengePoll>)
+
+      renderComponent()
+      expect(screen.getByText('Last checked: 10 seconds ago')).toBeInTheDocument()
+
+      act(() => { vi.advanceTimersByTime(35_000) })
+      expect(screen.getByText('Last checked: 45 seconds ago')).toBeInTheDocument()
+    })
+
+    it('switches to minutes once the last check is over a minute old', () => {
+      vi.useFakeTimers({ shouldAdvanceTime: false, now: new Date('2026-01-01T00:00:00Z') })
+      vi.mocked(useChallengePoll).mockReturnValue({
+        data: {
+          status: 'pending',
+          dns_propagated: false,
+          last_check_at: '2025-12-31T23:59:50Z',
+        },
+        isLoading: false,
+        isError: false,
+        error: null,
+      } as unknown as ReturnType<typeof useChallengePoll>)
+
+      renderComponent()
+      act(() => { vi.advanceTimersByTime(110_000) })
+      expect(screen.getByText('Last checked: 2 minutes ago')).toBeInTheDocument()
+    })
+
     it('shows propagation status when not propagated', () => {
       renderComponent()
 

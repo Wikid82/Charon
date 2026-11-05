@@ -157,6 +157,19 @@ describe('CrowdSecConfig — isStartingUp banner suppression', () => {
     expect(screen.getByTestId('lapi-not-running-warning')).toBeInTheDocument()
   })
 
+  it('LAPI not-running banner appears once the 90-second starting window elapses', async () => {
+    renderWithSeed(
+      { isStarting: true, startedAt: Date.now() },
+      { running: false, lapi_ready: false }
+    )
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(3001) })
+    expect(screen.queryByTestId('lapi-not-running-warning')).not.toBeInTheDocument()
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(90_000) })
+    expect(screen.getByTestId('lapi-not-running-warning')).toBeInTheDocument()
+  })
+
   it('LAPI not-running banner shows when isStartingUp is false', async () => {
     renderWithSeed(
       { isStarting: false },

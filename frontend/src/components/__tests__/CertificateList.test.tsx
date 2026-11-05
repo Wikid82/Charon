@@ -6,7 +6,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { useCertificates, useDeleteCertificate, useBulkDeleteCertificates } from '../../hooks/useCertificates'
 import { createTestQueryClient } from '../../test/createTestQueryClient'
 import { isDeletable, isInUse } from '../../utils/certificateUtils'
-import CertificateList from '../CertificateList'
+import CertificateList, { SortIcon } from '../CertificateList'
 
 import type { Certificate } from '../../api/certificates'
 
@@ -547,5 +547,25 @@ describe('CertificateList', () => {
     expect(dialog).toBeInTheDocument()
     await user.click(within(dialog).getByRole('button', { name: 'common.cancel' }))
     await waitFor(() => expect(screen.queryByRole('dialog')).not.toBeInTheDocument())
+  })
+})
+
+describe('SortIcon', () => {
+  it('renders an ascending chevron for the active ascending column', () => {
+    render(<SortIcon column="name" sortColumn="name" sortDirection="asc" />)
+    expect(screen.getByTestId('sort-icon-asc')).toBeInTheDocument()
+    expect(screen.queryByTestId('sort-icon-desc')).not.toBeInTheDocument()
+  })
+
+  it('renders a descending chevron for the active descending column', () => {
+    render(<SortIcon column="expires" sortColumn="expires" sortDirection="desc" />)
+    expect(screen.getByTestId('sort-icon-desc')).toBeInTheDocument()
+    expect(screen.queryByTestId('sort-icon-asc')).not.toBeInTheDocument()
+  })
+
+  it('renders nothing for a column that is not being sorted', () => {
+    render(<SortIcon column="expires" sortColumn="name" sortDirection="asc" />)
+    expect(screen.queryByTestId('sort-icon-asc')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('sort-icon-desc')).not.toBeInTheDocument()
   })
 })

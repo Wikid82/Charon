@@ -53,16 +53,13 @@ export default tseslint.config(
     rules: {
       // ── React ──
       'react-refresh/only-export-components': 'warn',
-      // React Compiler diagnostics now ship with eslint-plugin-react-hooks
-      // (the standalone eslint-plugin-react-compiler is deprecated); keep
-      // them at 'warn' to match the old react-compiler/react-compiler rule.
+      // React Compiler diagnostics ship with eslint-plugin-react-hooks; every
+      // rule is an error so the cleared findings cannot regress.
       ...Object.fromEntries(
         Object.keys(reactHooks.configs['recommended-latest'].rules).map(
-          name => [name, 'warn']
+          name => [name, 'error']
         )
       ),
-      'react-hooks/rules-of-hooks': 'error',
-      'react-hooks/exhaustive-deps': 'warn',
 
       // ── TypeScript ──
       '@typescript-eslint/no-explicit-any': 'warn',

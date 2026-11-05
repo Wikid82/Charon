@@ -59,6 +59,27 @@ const UPTIME_BOUNDS: Record<string, { min: number; max: number }> = {
   [UPTIME_SETTING_KEYS.retention]: { min: 1, max: 3650 },
 }
 
+// Loading skeleton for settings
+const SettingsSkeleton = () => (
+  <div className="space-y-6">
+    <div className="flex items-center gap-3">
+      <Skeleton className="h-8 w-8" />
+      <Skeleton className="h-8 w-48" />
+    </div>
+    {[1, 2, 3].map((i) => (
+      <Card key={i} className="p-6">
+        <div className="space-y-4">
+          <Skeleton className="h-6 w-32" />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        </div>
+      </Card>
+    ))}
+  </div>
+)
+
 export default function SystemSettings() {
   const { t } = useTranslation()
   const { user } = useAuth()
@@ -340,27 +361,6 @@ export default function SystemSettings() {
   const { message, submessage } = updateFlagMutation.isPending
     ? { message: t('systemSettings.updatingFeatures'), submessage: t('systemSettings.applyingChanges') }
     : { message: t('common.loading'), submessage: t('systemSettings.pleaseWait') }
-
-  // Loading skeleton for settings
-  const SettingsSkeleton = () => (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <Skeleton className="h-8 w-8" />
-        <Skeleton className="h-8 w-48" />
-      </div>
-      {[1, 2, 3].map((i) => (
-        <Card key={i} className="p-6">
-          <div className="space-y-4">
-            <Skeleton className="h-6 w-32" />
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-            </div>
-          </div>
-        </Card>
-      ))}
-    </div>
-  )
 
   // Show skeleton while loading initial data
   if (!settings && !featureFlags) {

@@ -13,6 +13,7 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { useChallengePoll, useManualChallengeMutations } from '../../hooks/useManualChallenge'
+import { useNow } from '../../hooks/useNow'
 import { toast } from '../../utils/toast'
 import { Button, Card, CardHeader, CardContent, Progress, Alert } from '../ui'
 
@@ -139,6 +140,7 @@ export default function ManualDNSChallenge({
   const currentStatus: ChallengeStatus = pollData?.status || challenge.status
   const dnsPropagated = pollData?.dns_propagated ?? challenge.dns_propagated
   const lastCheckAt = pollData?.last_check_at ?? challenge.last_check_at
+  const now = useNow(1000, !isTerminal)
 
   // Update countdown timer
   useEffect(() => {
@@ -240,10 +242,10 @@ export default function ManualDNSChallenge({
   const statusConfig = STATUS_CONFIG[currentStatus]
   const StatusIcon = statusConfig.icon
 
-  // Format last check time
+  // Format last check time relative to the shared clock (ticks while the challenge is live)
   const getLastCheckText = (): string => {
     if (!lastCheckAt) return ''
-    const seconds = Math.floor((Date.now() - new Date(lastCheckAt).getTime()) / 1000)
+    const seconds = Math.floor((now - new Date(lastCheckAt).getTime()) / 1000)
     if (seconds < 60) return t('dnsProvider.manual.lastCheckSecondsAgo', { seconds })
     const minutes = Math.floor(seconds / 60)
     return t('dnsProvider.manual.lastCheckMinutesAgo', { minutes })

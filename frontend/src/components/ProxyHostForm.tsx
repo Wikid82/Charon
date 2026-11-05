@@ -241,6 +241,28 @@ function getEntityToken(entity: { id?: number; uuid?: string }): string | null {
 }
 
 /** Reads the "don't ask about new base domains" preference (legacy key still honored). */
+/**
+ * Returns a warning when the forward host looks like a Docker container IP or
+ * a private address, since those can change on container restart. Returns null
+ * when no warning applies.
+ */
+function getForwardHostWarning(forwardHost: string | undefined): string | null {
+  const host = forwardHost?.trim() || ''
+  if (isLikelyDockerContainerIP(host)) {
+    return (
+      'This looks like a Docker container IP address. Docker IPs can change when containers restart. ' +
+      'Consider using the container name (e.g., "my-app" or "my-app:8080") for more reliable connections.'
+    )
+  }
+  if (isPrivateOrDockerIP(host)) {
+    return (
+      'Using a private IP address. Make sure Charon can reach it (for example over your LAN or VPN). ' +
+      'If this is a Docker container, its IP may change on restart; container names are more reliable.'
+    )
+  }
+  return null
+}
+
 function readDontAskDomainPreference(): boolean {
   const stored = localStorage.getItem('charon_dont_ask_domain') ?? localStorage.getItem('cpmp_dont_ask_domain')
   return stored === 'true'
@@ -511,28 +533,12 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     }
   }
 
-  // Validate forward_host for IP address warnings
-  useEffect(() => {
-    const host = formData.forward_host?.trim() || ''
-    if (isLikelyDockerContainerIP(host)) {
-      setForwardHostWarning(
-        'This looks like a Docker container IP address. Docker IPs can change when containers restart. ' +
-        'Consider using the container name (e.g., "my-app" or "my-app:8080") for more reliable connections.'
-      )
-    } else if (isPrivateOrDockerIP(host)) {
-      setForwardHostWarning(
-        'Using a private IP address. Make sure Charon can reach it (for example over your LAN or VPN). ' +
-        'If this is a Docker container, its IP may change on restart; container names are more reliable.'
-      )
-    } else {
-      setForwardHostWarning(null)
-    }
-  }, [formData.forward_host])
+  // IP address warning for forward_host is derived from the current value
+  const forwardHostWarning = getForwardHostWarning(formData.forward_host)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [nameError, setNameError] = useState<string | null>(null)
-  const [forwardHostWarning, setForwardHostWarning] = useState<string | null>(null)
   const [addUptime, setAddUptime] = useState(false)
   const [uptimeInterval, setUptimeInterval] = useState(60)
   const [uptimeMaxRetries, setUptimeMaxRetries] = useState(3)

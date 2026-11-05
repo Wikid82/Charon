@@ -18,6 +18,25 @@ import { toast } from '../utils/toast'
 type SortColumn = 'name' | 'expires'
 type SortDirection = 'asc' | 'desc'
 
+/**
+ * Renders the direction chevron for the column currently being sorted; renders
+ * nothing for inactive columns.
+ */
+export function SortIcon({
+  column,
+  sortColumn,
+  sortDirection,
+}: {
+  column: SortColumn
+  sortColumn: SortColumn
+  sortDirection: SortDirection
+}) {
+  if (sortColumn !== column) return null
+  return sortDirection === 'asc'
+    ? <ChevronUp size={14} data-testid="sort-icon-asc" />
+    : <ChevronDown size={14} data-testid="sort-icon-desc" />
+}
+
 function daysUntilExpiry(expiresAt: string): number {
   const now = new Date()
   const expiry = new Date(expiresAt)
@@ -120,11 +139,6 @@ export default function CertificateList() {
     }
   }
 
-  const SortIcon = ({ column }: { column: SortColumn }) => {
-    if (sortColumn !== column) return null
-    return sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
-  }
-
   if (isLoading) return <LoadingSpinner />
   if (error) return <div className="text-red-500">Failed to load certificates</div>
 
@@ -176,7 +190,7 @@ export default function CertificateList() {
               >
                 <div className="flex items-center gap-1">
                   Name
-                  <SortIcon column="name" />
+                  <SortIcon column="name" sortColumn={sortColumn} sortDirection={sortDirection} />
                 </div>
               </th>
               <th className="px-6 py-3">Domain</th>
@@ -187,7 +201,7 @@ export default function CertificateList() {
               >
                 <div className="flex items-center gap-1">
                   Expires
-                  <SortIcon column="expires" />
+                  <SortIcon column="expires" sortColumn={sortColumn} sortDirection={sortDirection} />
                 </div>
               </th>
               <th className="px-6 py-3">Status</th>

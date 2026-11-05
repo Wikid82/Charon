@@ -35,6 +35,7 @@ import { CROWDSEC_PRESETS, type CrowdsecPreset } from '../data/crowdsecPresets'
 import { useConsoleStatus, useEnrollConsole, useClearConsoleEnrollment } from '../hooks/useConsoleEnrollment'
 import { useCrowdsecApplyJob } from '../hooks/useCrowdsecApplyJob'
 import { useWhitelistEntries, useAddWhitelist, useDeleteWhitelist, isWhitelistFieldError, whitelistAddErrorMessage } from '../hooks/useCrowdSecWhitelist'
+import { useNow } from '../hooks/useNow'
 import { SECURITY_STATUS_QUERY_KEY, useSecurityStatus } from '../hooks/useSecurity'
 import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
 import { sanitizeKeptFileName } from '../utils/keptFileNames'
@@ -139,9 +140,10 @@ export default function CrowdSecConfig() {
   // isStartingUp is true only while the mutation is genuinely running.
   // The 90-second cap guards against stale cache if Security.tsx onSuccess/onError
   // never fired (e.g., browser tab was closed mid-mutation).
+  const isStarting = crowdsecStartingCache?.isStarting === true
+  const now = useNow(1000, isStarting)
   const isStartingUp =
-    (crowdsecStartingCache?.isStarting === true) &&
-    Date.now() - (crowdsecStartingCache.startedAt ?? 0) < 90_000
+    isStarting && now - (crowdsecStartingCache.startedAt ?? 0) < 90_000
 
   const isLocalMode = !!status && status.crowdsec?.mode !== 'disabled'
   // Note: CrowdSec mode is now controlled via Security Dashboard toggle

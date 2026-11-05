@@ -2,7 +2,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { isAxiosError } from 'axios';
 import { Bell, BellRing, Plus, Trash2, Edit2, Send, Check, X, Loader2 } from 'lucide-react';
 import { useEffect, useState, type FC, type FormEvent } from 'react';
-import { useForm } from 'react-hook-form';
+import { useForm, useWatch } from 'react-hook-form';
 import { useTranslation } from 'react-i18next';
 
 import { getProviders, createProvider, updateProvider, deleteProvider, testProvider, getTemplates, previewProvider, type NotificationProvider, getExternalTemplates, previewExternalTemplate, type ExternalTemplate, createExternalTemplate, updateExternalTemplate, deleteExternalTemplate, type NotificationTemplate, SUPPORTED_NOTIFICATION_PROVIDER_TYPES, type SupportedNotificationProviderType, provisionWebPush, getWebPushVapidPublicKey, subscribeWebPush, listWebPushSubscriptions, unsubscribeWebPush, type WebPushSubscription } from '../api/notifications';
@@ -80,13 +80,23 @@ const ProviderForm: FC<{
   onSubmit: (data: Partial<NotificationProvider>) => void;
 }> = ({ initialData, onClose, onSubmit }) => {
   const { t } = useTranslation();
-  const { register, handleSubmit, watch, setValue, reset, formState: { errors } } = useForm({
+  const { register, handleSubmit, control, getValues, setValue, reset, formState: { errors } } = useForm({
     defaultValues: defaultProviderValues,
   });
 
   const [testStatus, setTestStatus] = useState<'idle' | 'success' | 'error'>('idle');
   const [previewContent, setPreviewContent] = useState<string | null>(null);
   const [previewError, setPreviewError] = useState<string | null>(null);
+
+  // Clear transient test/preview output when the edited provider changes. Done during
+  // render (guarded by the tracked previous value) rather than in an effect.
+  const [syncedInitialData, setSyncedInitialData] = useState(initialData);
+  if (syncedInitialData !== initialData) {
+    setSyncedInitialData(initialData);
+    setTestStatus('idle');
+    setPreviewContent(null);
+    setPreviewError(null);
+  }
 
   useEffect(() => {
     // Reset form state per open/edit to avoid event checkbox leakage between runs.
@@ -95,9 +105,6 @@ const ProviderForm: FC<{
       : defaultProviderValues;
 
     reset(normalizedInitialData);
-    setTestStatus('idle');
-    setPreviewContent(null);
-    setPreviewError(null);
   }, [initialData, reset]);
 
   const testMutation = useMutation({
@@ -114,7 +121,7 @@ const ProviderForm: FC<{
   });
 
   const handleTest = () => {
-    const formData = watch();
+    const formData = getValues();
     const currentType = normalizeProviderType(formData.type);
     if (!formData.id && currentType !== 'email') {
       toast.error(t('notificationProviders.saveBeforeTesting'));
@@ -124,7 +131,7 @@ const ProviderForm: FC<{
   };
 
   const handlePreview = async () => {
-    const formData = watch();
+    const formData = getValues();
     setPreviewContent(null);
     setPreviewError(null);
     try {
@@ -142,7 +149,10 @@ const ProviderForm: FC<{
     }
   };
 
-  const type = normalizeProviderType(watch('type'));
+  const watchedType = useWatch({ control, name: 'type' });
+  const watchedId = useWatch({ control, name: 'id' });
+  const template = useWatch({ control, name: 'template' });
+  const type = normalizeProviderType(watchedType);
   const isGotify = type === 'gotify';
   const isTelegram = type === 'telegram';
   const isEmail = type === 'email';
@@ -150,7 +160,7 @@ const ProviderForm: FC<{
   const isPushover = type === 'pushover';
   const isNtfy = type === 'ntfy';
   const isWebPush = type === 'webpush';
-  const isNew = !watch('id');
+  const isNew = !watchedId;
   useEffect(() => {
     if (type !== 'gotify' && type !== 'telegram' && type !== 'slack' && type !== 'pushover' && type !== 'ntfy') {
       setValue('gotify_token', '', { shouldDirty: false, shouldTouch: false });
@@ -159,7 +169,6 @@ const ProviderForm: FC<{
 
   const { data: builtins } = useQuery({ queryKey: ['notificationTemplates'], queryFn: getTemplates });
   const { data: externalTemplates } = useQuery({ queryKey: ['externalTemplates'], queryFn: getExternalTemplates });
-  const template = watch('template');
 
   const setTemplate = (templateStr: string, templateName?: string) => {
     // If templateName is provided, set template selection as well
@@ -433,7 +442,7 @@ const TemplateForm: FC<{
   onSubmit: (data: Partial<ExternalTemplate>) => void;
   }> = ({ initialData, onClose, onSubmit }) => {
     const { t } = useTranslation();
-    const { register, handleSubmit, watch } = useForm({
+    const { register, handleSubmit, getValues } = useForm({
     defaultValues: initialData || { template: 'custom', config: '' }
   });
 
@@ -443,7 +452,7 @@ const TemplateForm: FC<{
   const handlePreview = async () => {
     setPreview(null);
     setPreviewErr(null);
-    const form = watch();
+    const form = getValues();
     try {
       const res = await previewExternalTemplate(undefined, form.config, { Title: 'Preview Title', Message: 'Preview Message', Time: new Date().toISOString(), EventType: 'preview' });
       setPreview(res.parsed ? JSON.stringify(res.parsed, null, 2) : res.rendered);
