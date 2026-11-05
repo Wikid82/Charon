@@ -15,5 +15,5 @@ for MODULE in "${NPM_MODULES[@]}"; do
 
     cd "$MODULE" || exit 1
     rm -rf node_modules package-lock.json
-    npm install playwright @playwright/test --save-dev
+    npm install playwright@1.65.0 @playwright/test --save-dev
 done
