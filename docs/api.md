@@ -138,6 +138,7 @@ Only the fields present in the request body are changed. Every other stored sett
 - An explicit empty string (`""`), `0` or `false` is applied. Use these to clear a text setting or turn a setting off.
 - A body with no settable field (for example `{}`) changes nothing.
 - `crowdsec_mode` is accepted for compatibility and checked for a valid value, but it is not stored. Turn CrowdSec on or off with the CrowdSec switch instead.
+- Every value that is sent is checked before anything is saved. The allowed range for each setting is listed under [Allowed Values](#allowed-values) below.
 
 Request Body (example; only these two fields change):
 
@@ -1473,7 +1474,7 @@ Each message received from the WebSocket is a JSON-encoded `LogEntry`:
 
 - If upgrade fails, returns HTTP 400 with error message
 - Authentication required (when auth is implemented)
-- Rate limiting applies (when rate limiting is implemented)
+- Rate limiting: see the [Rate Limiting](features/rate-limiting.md) page for which limits apply to the management API.
 
 **Example: Filter for critical WAF events only**
 
