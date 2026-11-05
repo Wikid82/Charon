@@ -105,6 +105,11 @@
   "proxyHosts": {
     "title": "代理主机",
     "description": "管理您的反向代理配置",
+    "source": {
+      "local": "本地（Docker 套接字）",
+      "localUnavailable": "不可用",
+      "localUnavailableHint": "Charon 无法访问本地 Docker 套接字。请改用 Orthrus 代理（参见 Hecate → Agent）。"
+    },
     "addHost": "添加代理主机",
     "editHost": "编辑代理主机",
     "deleteHost": "删除代理主机",

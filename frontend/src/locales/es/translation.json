@@ -105,6 +105,11 @@
   "proxyHosts": {
     "title": "Hosts Proxy",
     "description": "Gestiona tus configuraciones de proxy inverso",
+    "source": {
+      "local": "Local (socket de Docker)",
+      "localUnavailable": "no disponible",
+      "localUnavailableHint": "El socket de Docker local no está disponible para Charon. Usa un agente de Orthrus en su lugar (consulta Hecate → Agent)."
+    },
     "addHost": "Añadir Host Proxy",
     "editHost": "Editar Host Proxy",
     "deleteHost": "Eliminar Host Proxy",
