@@ -379,8 +379,7 @@
         "/^Dockerfile$/"
       ],
       "matchStrings": [
-        "#\\s*renovate:\\s*datasource=go\\s+depName=github\\.com/caddyserver/caddy[^\\s]*\\s*\\nARG CADDY_VERSION=(?<currentValue>[^\\s]+)",
-        "#\\s*renovate:\\s*datasource=go\\s+depName=github\\.com/caddyserver/caddy[^\\s]*\\s*\\nARG CADDY_CANDIDATE_VERSION=(?<currentValue>[^\\s]+)"
+        "#\\s*renovate:\\s*datasource=go\\s+depName=github\\.com/caddyserver/caddy[^\\s]*\\s*\\nARG CADDY_VERSION=(?<currentValue>[^\\s]+)"
       ],
       "depNameTemplate": "github.com/caddyserver/caddy/v2",
       "datasourceTemplate": "go",

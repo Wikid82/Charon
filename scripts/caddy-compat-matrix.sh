@@ -219,8 +219,7 @@ build_image_for_cell() {
     --platform "$platform" \
     --load \
     --pull \
-    --build-arg CADDY_USE_CANDIDATE=1 \
-    --build-arg CADDY_CANDIDATE_VERSION="$CANDIDATE_VERSION" \
+    --build-arg CADDY_VERSION="$CANDIDATE_VERSION" \
     --build-arg CADDY_PATCH_SCENARIO="$scenario" \
     -t "$image_tag" \
     . >/dev/null

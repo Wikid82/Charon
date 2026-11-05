@@ -83,9 +83,6 @@ ARG NPM_VERSION=12.2.2
 ## If the requested tag isn't available, fall back to a known-good v2.11.6 build.
 # renovate: datasource=go depName=github.com/caddyserver/caddy/v2
 ARG CADDY_VERSION=2.11.9
-# renovate: datasource=go depName=github.com/caddyserver/caddy/v2
-ARG CADDY_CANDIDATE_VERSION=2.11.8
-ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
 ARG CADDY_SECURITY_VERSION=1.6.2
@@ -465,8 +462,6 @@ FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:d200d2dd76b03a
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
-ARG CADDY_CANDIDATE_VERSION
-ARG CADDY_USE_CANDIDATE
 ARG CADDY_PATCH_SCENARIO
 ARG CADDY_SECURITY_VERSION
 ARG CORAZA_CADDY_VERSION
@@ -564,17 +559,13 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
                 sed -i "s/IPEquals: value,/IPEquals: \&value,/g" "${_PF}"; \
             fi; \
         done; \
-        CADDY_TARGET_VERSION="${CADDY_VERSION}"; \
-        if [ "${CADDY_USE_CANDIDATE}" = "1" ]; then \
-            CADDY_TARGET_VERSION="${CADDY_CANDIDATE_VERSION}"; \
-        fi; \
-        echo "Using Caddy target version: v${CADDY_TARGET_VERSION}"; \
+        echo "Using Caddy target version: v${CADDY_VERSION}"; \
         echo "Using Caddy patch scenario: ${CADDY_PATCH_SCENARIO}"; \
         export XCADDY_SKIP_CLEANUP=1; \
         echo "Stage 1: Generate go.mod with xcaddy..."; \
         # Run xcaddy to generate the build directory and go.mod
-        _retry env GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_TARGET_VERSION} \
-            --with github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION} \
+        _retry env GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_VERSION} \
+            --with github.com/caddyserver/caddy/v2@v${CADDY_VERSION} \
             --with github.com/greenpau/caddy-security@v${CADDY_SECURITY_VERSION} \
             --with github.com/corazawaf/coraza-caddy/v2@v${CORAZA_CADDY_VERSION} \
             --with github.com/hslatman/caddy-crowdsec-bouncer@v0.12.1 \
@@ -702,7 +693,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
             exit 1; \
         fi; \
         # Final re-pin: enforce requested Caddy core version after plugin/security updates.
-        _retry go get github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION}; \
+        _retry go get github.com/caddyserver/caddy/v2@v${CADDY_VERSION}; \
         # Final re-pin: grpc-go (CVE-2026-84304). MUST come after the OpenTelemetry
         # go.get block above: `go get .../otlp*http@v0.19.0 / v1.43.0` is a *downgrade*,
         # and go get's downgrade cascade drags google.golang.org/grpc back down to the
@@ -756,8 +747,8 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         fi; \
         # Hard assertion: fail if module graph resolves to a different Caddy core version.
         ACTUAL_CADDY_VERSION="$(go list -m -f "{{.Version}}" github.com/caddyserver/caddy/v2)"; \
-        if [ "$ACTUAL_CADDY_VERSION" != "v${CADDY_TARGET_VERSION}" ]; then \
-            echo "ERROR: Resolved Caddy version ${ACTUAL_CADDY_VERSION} does not match target v${CADDY_TARGET_VERSION}"; \
+        if [ "$ACTUAL_CADDY_VERSION" != "v${CADDY_VERSION}" ]; then \
+            echo "ERROR: Resolved Caddy version ${ACTUAL_CADDY_VERSION} does not match target v${CADDY_VERSION}"; \
             exit 1; \
         fi; \
         echo "Verified Caddy module version: ${ACTUAL_CADDY_VERSION}"; \
