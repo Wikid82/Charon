@@ -20,7 +20,7 @@ import {
   setSecurityModuleEnabled,
   captureSecurityState,
   restoreSecurityState,
-  CapturedSecurityState,
+  SecurityStateSnapshot,
 } from '../utils/security-helpers';
 
 /**
@@ -63,7 +63,7 @@ async function configureAdminWhitelist(requestContext: APIRequestContext) {
 
 test.describe('Rate Limit Enforcement', () => {
   let requestContext: APIRequestContext;
-  let originalState: CapturedSecurityState;
+  let originalState: SecurityStateSnapshot;
 
   test.beforeAll(async () => {
     requestContext = await request.newContext({

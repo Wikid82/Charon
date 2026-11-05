@@ -105,6 +105,11 @@
   "proxyHosts": {
     "title": "Hôtes Proxy",
     "description": "Gérez vos configurations de proxy inverse",
+    "source": {
+      "local": "Local (socket Docker)",
+      "localUnavailable": "indisponible",
+      "localUnavailableHint": "Le socket Docker local n'est pas accessible par Charon. Utilisez plutôt un agent Orthrus (voir Hecate → Agent)."
+    },
     "addHost": "Ajouter un Hôte Proxy",
     "editHost": "Modifier l'Hôte Proxy",
     "deleteHost": "Supprimer l'Hôte Proxy",

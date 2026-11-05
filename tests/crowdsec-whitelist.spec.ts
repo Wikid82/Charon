@@ -2,7 +2,7 @@ import { test, expect, request as playwrightRequest } from '@playwright/test';
 import type { APIRequestContext } from '@playwright/test';
 import {
   withSecurityEnabled,
-  captureSecurityState,
+  captureCrowdsecEnabled,
   setSecurityModuleEnabled,
 } from './utils/security-helpers';
 import { getStorageStateAuthHeaders } from './utils/api-helpers';
@@ -40,8 +40,8 @@ test.describe('CrowdSec IP Whitelist Management', () => {
   test.describe('tab visibility', () => {
     test('whitelist tab is hidden when CrowdSec is disabled', async ({ page }) => {
       const rc = await createRequestContext();
-      const originalState = await captureSecurityState(rc);
-      if (originalState.crowdsec) {
+      const crowdsecWasEnabled = await captureCrowdsecEnabled(rc);
+      if (crowdsecWasEnabled) {
         await setSecurityModuleEnabled(rc, 'crowdsec', false);
       }
 
@@ -55,7 +55,7 @@ test.describe('CrowdSec IP Whitelist Management', () => {
           await expect(page.getByRole('tab', { name: 'Whitelist' })).not.toBeVisible();
         });
       } finally {
-        if (originalState.crowdsec) {
+        if (crowdsecWasEnabled) {
           await setSecurityModuleEnabled(rc, 'crowdsec', true);
         }
         await rc.dispose();

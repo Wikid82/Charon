@@ -160,7 +160,7 @@ If no database config exists, Charon reads from environment:
 
 **Status:** Active. The WAF uses the [Coraza](https://coraza.io/) engine with the selected rule set, which must contain at least one rule.
 
-Charon writes each rule set to a file. A header line in that file sets the engine mode: `SecRuleEngine On` for a rule set in Blocking mode, and `SecRuleEngine DetectionOnly` for one in Detection mode. A rule set with no mode of its own takes the saved WAF mode.
+Charon writes each rule set to a file. Unless the rule set already has its own `SecRuleEngine` line, Charon adds a header line that sets the engine mode: `SecRuleEngine On` for a rule set in Blocking mode, and `SecRuleEngine DetectionOnly` for one in Detection mode. A rule set with no mode of its own takes the saved WAF mode. A rule set that contains its own `SecRuleEngine` line keeps it, and that line decides whether matching requests are blocked, whatever Blocking or Detection mode is chosen.
 
 ### Rulesets
 
@@ -185,22 +185,22 @@ On the WAF page, pick a rule set from the list, or choose automatic selection. T
 ### How the Switch, the Saved Mode and the Rule Set Mode Combine
 
 - **The WAF switch** turns the WAF on or off. Turning it off never changes the rule sets or the saved mode.
-- **Each rule set has a mode**, Blocking or Detection, set on the WAF page. A rule set in Detection mode logs matching requests without stopping them. A rule set in Blocking mode stops them.
+- **Each rule set has a mode**, Blocking or Detection, set on the WAF page. A rule set in Detection mode logs matching requests without stopping them. A rule set in Blocking mode stops them, unless its content has its own `SecRuleEngine` line (see above).
 - **The saved WAF mode** (`monitor` or `block`) is used only for a rule set with no mode of its own. Its `monitor` value means Detection; any other value means Blocking.
 
 ### After Upgrading
 
-After upgrading, check the WAF page. With the WAF switched on and a rule set selected, each rule set's own mode applies: a rule set set to blocking blocks matching requests, and one set to detection only logs them. A rule set with no mode of its own follows the saved WAF mode (detection when it is set to monitor, blocking otherwise).
+After upgrading, check the WAF page. With the WAF switched on and a rule set selected, each rule set's own mode applies: a rule set set to blocking blocks matching requests, and one set to detection only logs them (in both cases unless the rule set contains its own `SecRuleEngine` line). A rule set with no mode of its own follows the saved WAF mode (detection when it is set to monitor, blocking otherwise).
 
 ### Prometheus Metrics
 
 ```text
-charon_waf_requests_total{mode="block|monitor"} — Total requests evaluated
-charon_waf_blocked_total{mode="block"} — Requests blocked
-charon_waf_monitored_total{mode="monitor"} — Requests logged but not blocked
+charon_waf_requests_total — Requests to Charon's own management API (`/api/v1`). Traffic to your proxied sites is not counted.
+charon_waf_blocked_total — Always 0 at present. Blocks on your proxied sites are not counted here.
+charon_waf_monitored_total — Always 0 at present.
 ```
 
-Scrape from `/metrics` endpoint (no auth required).
+Scrape from `/metrics` endpoint (no auth required). These three series do not have labels.
 
 ### Structured Logging
 
@@ -228,7 +228,7 @@ The **Rate Limiting** switch on the Security page turns on two limits. Both foll
 - **Proxy limit.** Limits how fast each visitor can send requests to your proxied sites. Its numbers are the ones on the Rate Limiting card.
 - **Management API limit.** Limits requests to Charon's own management interface. It does not read the numbers on the Rate Limiting card.
 
-**Standard numbers.** When the rate limit is turned on, any number that is not set is filled with the standard values: 100 requests, a 60 second window and a burst of 20. Numbers already sent in the same change are kept.
+**Standard numbers.** When the rate limit is turned on, any number that is not set is filled with the standard values: 100 requests, a 60 second window and a burst of 20. The burst applies only to the management API limit; the proxy limit uses the request count and the window. Numbers already sent in the same change are kept.
 
 **Unset numbers.** If the rate limit is already on but its request count or window is not set, Charon does not invent numbers. The Security page shows the rate limit as not applied with the reason `thresholds_unset` until you set the numbers.
 
@@ -873,11 +873,11 @@ annotations:
 
 | Phase | Feature | Status |
 | ------- | --------- | -------- |
-| 1 | WAF placeholder + metrics | ✅ Complete |
+| 1 | WAF (Coraza engine) + Prometheus metrics | ✅ Complete |
 | 2 | ACL implementation | ✅ Complete |
 | 3 | Break-glass token | ✅ Complete |
 | 4 | Coraza rule set support (paste in CRS-compatible rules) | ✅ Complete |
-| 5 | CrowdSec local agent | 📋 Planned |
+| 5 | CrowdSec local agent | ✅ Complete |
 | 6 | Rate limiting enforcement | ✅ Complete |
 | 7 | Adaptive learning/tuning | 🔮 Future |
 
@@ -887,7 +887,7 @@ annotations:
 
 ### Does the WAF really block attacks?
 
-Yes. Charon uses the Coraza engine with the rule sets you add, including OWASP Core Rule Set rules if you paste them in. Each rule set is either Detection (logs only) or Blocking (refuses matching requests).
+Yes. Charon uses the Coraza engine with the rule sets you add, including OWASP Core Rule Set rules if you paste them in. Each rule set is either Detection (logs only) or Blocking (refuses matching requests), unless the rule set contains its own `SecRuleEngine` line, which takes precedence.
 
 ### Can I use my own WAF rules?
 
@@ -899,7 +899,7 @@ Yes. For each proxied site, the block decisions, CrowdSec, WAF, rate limit and a
 
 ### Why does a rule set still block when the saved WAF mode is monitor?
 
-The saved WAF mode applies only to a rule set with no mode of its own. A rule set set to Blocking keeps blocking. Set it to Detection on the WAF page to log only.
+The saved WAF mode applies only to a rule set with no mode of its own. A rule set set to Blocking keeps blocking, unless its content sets its own `SecRuleEngine DetectionOnly` line. Set it to Detection on the WAF page to log only.
 
 ---
 
