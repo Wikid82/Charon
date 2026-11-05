@@ -49,8 +49,10 @@ suppressions:
       security hardening PRs shift the SetCookie sink between lines 187 and
       ~202 depending on merge state, so the entry is widened to a
       line_range; this is the only SetCookie call in the file.
+      Extended 2026-11-05: re-reviewed; behavior unchanged and still
+      intentional, in-source annotation still not honored by the CLI.
     added: "2026-08-04"
-    review_by: "2026-11-04"
+    review_by: "2026-12-05"
 
   - rule_id: go/log-injection
     path: backend/internal/api/handlers/remote_server_handler.go

@@ -165,6 +165,7 @@ func TestCoverageBoost_SecurityService_AdditionalPaths(t *testing.T) {
 		ruleset := &models.SecurityRuleSet{
 			Name:      "test-ruleset-new",
 			SourceURL: "https://example.com",
+			Content:   testRuleSetContent,
 		}
 		err := svc.UpsertRuleSet(ruleset)
 		assert.NoError(t, err)

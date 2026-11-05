@@ -425,6 +425,10 @@ func (s *SecurityService) UpsertRuleSet(r *models.SecurityRuleSet) error {
 	if len(r.Content) > 2*1024*1024 {
 		return fmt.Errorf("ruleset content too large")
 	}
+	// A rule set without a rule line would load as a WAF that blocks nothing, so it is refused on create and update.
+	if !models.HasRuleLines(r.Content) {
+		return ErrRuleSetEmpty
+	}
 	var existing models.SecurityRuleSet
 	if err := s.db.Where("name = ?", r.Name).First(&existing).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -447,6 +451,9 @@ func (s *SecurityService) UpsertRuleSet(r *models.SecurityRuleSet) error {
 
 // ErrRuleSetInUse is returned when a rule set is the one the WAF uses: the default row's waf_rules_source names it.
 var ErrRuleSetInUse = errors.New("rule set is the WAF rules source")
+
+// ErrRuleSetEmpty is returned when a rule set's content has no rule line (SecRule, SecAction or Include).
+var ErrRuleSetEmpty = errors.New("rule set has no rules")
 
 // DeleteRuleSet removes a ruleset by id. See deleteRuleSet.
 func (s *SecurityService) DeleteRuleSet(id uint) error {

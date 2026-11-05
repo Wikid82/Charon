@@ -23,6 +23,7 @@ describe('SecurityEnforcementNote', () => {
     ['waf', 'no_ruleset', 'The WAF is on, but no rule set is available to inspect requests. Add a rule set on the WAF page.'],
     ['waf', 'ruleset_not_selected', 'The WAF is on, but several rule sets exist and none is selected. Choose the rule set on the WAF page.'],
     ['waf', 'ruleset_unavailable', 'The WAF is on, but the selected rule set could not be loaded. Check it on the WAF page.'],
+    ['waf', 'ruleset_empty', 'The selected rule set has no rules, so it is not protecting anything yet. Add rules to it or choose another.'],
     ['rate_limit', 'thresholds_unset', 'Rate limiting is on, but no limits are set yet. Set the requests and window on the Rate Limiting page.'],
   ] as const)('renders the %s line for reason %s', (moduleName, reason, text) => {
     render(<SecurityEnforcementNote moduleName={moduleName} state={{ enforced: false, reason }} />)

@@ -113,7 +113,8 @@ The `reason` value is one of these:
 
 - `no_ruleset`: the WAF is on, but no rule set exists yet.
 - `ruleset_not_selected`: rule sets exist, but none is chosen for the host.
-- `ruleset_unavailable`: the chosen rule set has no file ready to load.
+- `ruleset_unavailable`: the chosen rule set has rules but no file ready to load.
+- `ruleset_empty`: the chosen rule set has no rules (for example, only comments), so nothing is loaded. Edit the rule set to add a rule.
 - `thresholds_unset`: the rate limit is on, but its request count or time window is not set. See the rate limit rules under Upsert below.
 
 #### Get Global Security Config
@@ -267,14 +268,27 @@ Payload:
 
 ```json
 {
-  "name": "owasp-crs-quick",
-  "source_url": "https://example.com/owasp-crs.txt",
-  "mode": "owasp",
-  "content": "# raw rules"
+  "name": "my-first-rules",
+  "source_url": "https://example.com/my-rules.txt",
+  "mode": "detection",
+  "content": "SecRule REQUEST_URI \"@contains /blocked-example\" \"id:100001,phase:1,deny,status:403\""
 }
 ```
 
+`content` must contain at least one rule line (a line that starts with `SecRule`, `SecAction` or `Include`). Empty content, or content with only comments or settings lines, is refused.
+
+`source_url` is optional. It is stored for reference only. Charon does not download it.
+
 Response 200: `{ "ruleset": { ... } }`
+
+Response 400 when the rule set has no rules:
+
+```json
+{
+  "error": "A rule set needs at least one rule. Add a SecRule line.",
+  "error_code": "ruleset_empty"
+}
+```
 
 #### Delete Ruleset
 

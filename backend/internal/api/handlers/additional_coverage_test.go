@@ -247,6 +247,7 @@ func TestSecurityHandler_UpsertRuleSet_Error(t *testing.T) {
 	body, _ := json.Marshal(map[string]any{
 		"name":    "test-ruleset",
 		"enabled": true,
+		"content": "SecRule ARGS x id:1,deny",
 	})
 
 	w := httptest.NewRecorder()

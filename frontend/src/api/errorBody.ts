@@ -80,6 +80,7 @@ const WAF_CODE_MESSAGE_KEYS = {
   waf_rules_source_unknown: 'wafConfig.errors.waf_rules_source_unknown',
   waf_ruleset_in_use: 'wafConfig.errors.waf_ruleset_in_use',
   invalid_waf_mode: 'wafConfig.errors.invalid_waf_mode',
+  ruleset_empty: 'wafConfig.errors.ruleset_empty',
 } as const
 
 type WafCodedMessage = keyof typeof WAF_CODE_MESSAGE_KEYS

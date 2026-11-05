@@ -505,7 +505,7 @@ jobs:
           # renovate: datasource=github-releases depName=golangci/golangci-lint
           version: v2.15.0
           working-directory: backend
-          args: --timeout=5m
+          args: --timeout=10m
 
   agent-quality:
     name: Agent (Go)
@@ -585,7 +585,7 @@ jobs:
           # renovate: datasource=github-releases depName=golangci/golangci-lint
           version: v2.15.0
           working-directory: agent
-          args: --config ../backend/.golangci.yml --timeout=5m
+          args: --config ../backend/.golangci.yml --timeout=10m
 
   frontend-quality:
     name: Frontend (React)

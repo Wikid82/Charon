@@ -53,7 +53,7 @@ func TestGenerateConfig_SecurityPipeline_Order_Locations(t *testing.T) {
 	host := models.ProxyHost{UUID: "pipeline2", DomainNames: "pipe-loc.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080, AccessListID: &acl.ID, AccessList: &acl, HSTSEnabled: true, BlockExploits: true, Locations: []models.Location{{Path: "/loc", ForwardHost: "app", ForwardPort: 9000}}}
 
 	// Provide rulesets and paths so WAF handler is created with directives
-	rulesets := []models.SecurityRuleSet{{Name: "owasp-crs"}}
+	rulesets := []models.SecurityRuleSet{{Name: "owasp-crs", Content: testRuleSetContent}}
 	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp.conf"}
 	// Set rate limit values so rate_limit handler is included (uses caddy-ratelimit format)
 	sec := &models.SecurityConfig{CrowdSecMode: "local", RateLimitRequests: 100, RateLimitWindowSec: 60}
@@ -184,7 +184,7 @@ func TestGenerateConfig_WAFModeAndRulesetReference(t *testing.T) {
 	}
 
 	// Now test with valid ruleset - WAF handler should be created
-	rulesets := []models.SecurityRuleSet{{Name: "owasp-crs"}}
+	rulesets := []models.SecurityRuleSet{{Name: "owasp-crs", Content: testRuleSetContent}}
 	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp.conf"}
 	sec2 := &models.SecurityConfig{WAFMode: "block", WAFLearning: true}
 	cfg2, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", rulesets, rulesetPaths, nil, sec2, nil)
@@ -214,7 +214,7 @@ func TestGenerateConfig_WAFModeDisabledSkipsHandler(t *testing.T) {
 
 func TestGenerateConfig_WAFSelectedSetsContentAndMode(t *testing.T) {
 	host := models.ProxyHost{UUID: "waf-2", DomainNames: "waf2.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080}
-	rs := models.SecurityRuleSet{Name: "owasp-crs", SourceURL: "http://example.com/owasp", Content: "rule 1"}
+	rs := models.SecurityRuleSet{Name: "owasp-crs", SourceURL: "http://example.com/owasp", Content: testRuleSetContent}
 	sec := &models.SecurityConfig{WAFMode: "block"}
 	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp-crs.conf"}
 	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", []models.SecurityRuleSet{rs}, rulesetPaths, nil, sec, nil)
@@ -271,7 +271,7 @@ func TestNormalizeHeaderOps_PreserveStringArray(t *testing.T) {
 func TestGenerateConfig_WAFUsesRuleSet(t *testing.T) {
 	// host + ruleset configured
 	host := models.ProxyHost{UUID: "waf-1", DomainNames: "waf.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080}
-	rs := models.SecurityRuleSet{Name: "owasp-crs", SourceURL: "http://example.com/owasp", Content: "rule 1"}
+	rs := models.SecurityRuleSet{Name: "owasp-crs", SourceURL: "http://example.com/owasp", Content: testRuleSetContent}
 	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp-crs.conf"}
 	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", []models.SecurityRuleSet{rs}, rulesetPaths, nil, nil, nil)
 	require.NoError(t, err)
@@ -295,7 +295,7 @@ func TestGenerateConfig_WAFUsesRuleSet(t *testing.T) {
 func TestGenerateConfig_WAFUsesRuleSetFromAdvancedConfig(t *testing.T) {
 	// host with AdvancedConfig selecting a custom ruleset
 	host := models.ProxyHost{UUID: "waf-host-adv", DomainNames: "waf-adv.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080, AdvancedConfig: "{\"handler\":\"waf\",\"ruleset_name\":\"host-rs\"}"}
-	rs := models.SecurityRuleSet{Name: "host-rs", SourceURL: "http://example.com/host-rs", Content: "rule X"}
+	rs := models.SecurityRuleSet{Name: "host-rs", SourceURL: "http://example.com/host-rs", Content: testRuleSetContent}
 	rulesetPaths := map[string]string{"host-rs": "/tmp/host-rs.conf"}
 	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", []models.SecurityRuleSet{rs}, rulesetPaths, nil, nil, nil)
 	require.NoError(t, err)
@@ -316,7 +316,7 @@ func TestGenerateConfig_WAFUsesRuleSetFromAdvancedConfig(t *testing.T) {
 func TestGenerateConfig_WAFUsesRuleSetFromAdvancedConfig_Array(t *testing.T) {
 	// host with AdvancedConfig as JSON array selecting a custom ruleset
 	host := models.ProxyHost{UUID: "waf-host-adv-arr", DomainNames: "waf-adv-arr.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080, AdvancedConfig: "[{\"handler\":\"waf\",\"ruleset_name\":\"host-rs-array\"}]"}
-	rs := models.SecurityRuleSet{Name: "host-rs-array", SourceURL: "http://example.com/host-rs-array", Content: "rule X"}
+	rs := models.SecurityRuleSet{Name: "host-rs-array", SourceURL: "http://example.com/host-rs-array", Content: testRuleSetContent}
 	rulesetPaths := map[string]string{"host-rs-array": "/tmp/host-rs-array.conf"}
 	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", []models.SecurityRuleSet{rs}, rulesetPaths, nil, nil, nil)
 	require.NoError(t, err)

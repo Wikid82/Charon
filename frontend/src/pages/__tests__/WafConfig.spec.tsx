@@ -251,7 +251,6 @@ describe('WafConfig page', () => {
     const urlRuleset: SecurityRuleSet = {
       ...mockRuleSet,
       source_url: 'https://example.com/rules.conf',
-      content: '',
     }
     const response: RuleSetsResponse = { rulesets: [urlRuleset] }
     vi.mocked(securityApi.getRuleSets).mockResolvedValue(response)
@@ -286,7 +285,7 @@ describe('WafConfig page', () => {
     expect(submitBtn).toBeDisabled()
   })
 
-  it('validates form - submit disabled without content or URL', async () => {
+  it('validates form - submit disabled without content', async () => {
     const response: RuleSetsResponse = { rulesets: [] }
     vi.mocked(securityApi.getRuleSets).mockResolvedValue(response)
 
@@ -298,14 +297,14 @@ describe('WafConfig page', () => {
 
     await userEvent.click(screen.getByTestId('create-ruleset-btn'))
 
-    // Only add name, no content or URL
+    // Only add name, no content
     await userEvent.type(screen.getByTestId('ruleset-name-input'), 'Test')
 
     const submitBtn = screen.getByRole('button', { name: 'Create Rule Set' })
     expect(submitBtn).toBeDisabled()
   })
 
-  it('allows form submission with URL instead of content', async () => {
+  it('keeps submit disabled when only a source URL is given', async () => {
     const response: RuleSetsResponse = { rulesets: [] }
     vi.mocked(securityApi.getRuleSets).mockResolvedValue(response)
     vi.mocked(securityApi.upsertRuleSet).mockResolvedValue({ id: 1 })
@@ -318,9 +317,52 @@ describe('WafConfig page', () => {
 
     await userEvent.click(screen.getByTestId('create-ruleset-btn'))
 
-    // Add name and URL, no content
+    // Name and URL, no rule content: the URL is stored for reference only
     await userEvent.type(screen.getByTestId('ruleset-name-input'), 'Remote Rules')
     await userEvent.type(screen.getByTestId('ruleset-url-input'), 'https://example.com/rules.conf')
+
+    const submitBtn = screen.getByRole('button', { name: 'Create Rule Set' })
+    expect(submitBtn).toBeDisabled()
+    expect(securityApi.upsertRuleSet).not.toHaveBeenCalled()
+  })
+
+  it('keeps submit disabled when content is only whitespace', async () => {
+    const response: RuleSetsResponse = { rulesets: [] }
+    vi.mocked(securityApi.getRuleSets).mockResolvedValue(response)
+
+    renderWithProviders(<WafConfig />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('create-ruleset-btn')).toBeInTheDocument()
+    })
+
+    await userEvent.click(screen.getByTestId('create-ruleset-btn'))
+
+    await userEvent.type(screen.getByTestId('ruleset-name-input'), 'Blank Rules')
+    await userEvent.type(screen.getByTestId('ruleset-content-input'), '   ')
+
+    expect(screen.getByRole('button', { name: 'Create Rule Set' })).toBeDisabled()
+  })
+
+  it('submits rule content together with a source URL', async () => {
+    const response: RuleSetsResponse = { rulesets: [] }
+    vi.mocked(securityApi.getRuleSets).mockResolvedValue(response)
+    vi.mocked(securityApi.upsertRuleSet).mockResolvedValue({ id: 1 })
+
+    renderWithProviders(<WafConfig />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('create-ruleset-btn')).toBeInTheDocument()
+    })
+
+    await userEvent.click(screen.getByTestId('create-ruleset-btn'))
+
+    await userEvent.type(screen.getByTestId('ruleset-name-input'), 'Remote Rules')
+    await userEvent.type(screen.getByTestId('ruleset-url-input'), 'https://example.com/rules.conf')
+    await userEvent.type(
+      screen.getByTestId('ruleset-content-input'),
+      'SecRule ARGS "@contains test" "id:1,phase:1,deny"'
+    )
 
     const submitBtn = screen.getByRole('button', { name: 'Create Rule Set' })
     expect(submitBtn).not.toBeDisabled()
@@ -332,10 +374,30 @@ describe('WafConfig page', () => {
         id: undefined,
         name: 'Remote Rules',
         source_url: 'https://example.com/rules.conf',
-        content: undefined,
+        content: 'SecRule ARGS "@contains test" "id:1,phase:1,deny"',
         mode: 'blocking',
       })
     })
+  })
+
+  it('marks rule content as required even when a source URL is set', async () => {
+    const response: RuleSetsResponse = { rulesets: [] }
+    vi.mocked(securityApi.getRuleSets).mockResolvedValue(response)
+
+    renderWithProviders(<WafConfig />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('create-ruleset-btn')).toBeInTheDocument()
+    })
+
+    await userEvent.click(screen.getByTestId('create-ruleset-btn'))
+
+    // The content label is the textarea's preceding sibling
+    const contentLabel = screen.getByTestId('ruleset-content-input').previousElementSibling
+    expect(contentLabel).toHaveTextContent('Rule Content *')
+
+    await userEvent.type(screen.getByTestId('ruleset-url-input'), 'https://example.com/rules.conf')
+    expect(contentLabel).toHaveTextContent('Rule Content *')
   })
 
   it('toggles between blocking and detection mode', async () => {
@@ -478,7 +540,7 @@ SecRule ARGS "@contains test3" "id:3,phase:1,deny"`,
     expect(screen.getByText('Choose a preset...')).toBeInTheDocument()
   })
 
-  it('auto-fills form when preset is selected', async () => {
+  it('offers only presets that carry rules', async () => {
     const response: RuleSetsResponse = { rulesets: [] }
     vi.mocked(securityApi.getRuleSets).mockResolvedValue(response)
 
@@ -490,15 +552,38 @@ SecRule ARGS "@contains test3" "id:3,phase:1,deny"`,
 
     await userEvent.click(screen.getByTestId('create-ruleset-btn'))
 
-    // Select OWASP CRS preset
-    const presetSelect = screen.getByTestId('preset-select')
-    await userEvent.selectOptions(presetSelect, 'OWASP Core Rule Set')
+    const optionLabels = within(screen.getByTestId('preset-select'))
+      .getAllByRole('option')
+      .map((option) => option.textContent)
+    expect(optionLabels).not.toContain('OWASP Core Rule Set')
+    expect(optionLabels).toEqual([
+      'Choose a preset...',
+      'Basic SQL Injection Protection',
+      'Basic XSS Protection',
+      'Common Bad Bots',
+    ])
+  })
 
-    // Verify form is auto-filled
-    expect(screen.getByTestId('ruleset-name-input')).toHaveValue('OWASP Core Rule Set')
-    expect(screen.getByTestId('ruleset-url-input')).toHaveValue(
-      'https://github.com/coreruleset/coreruleset/archive/refs/tags/v3.3.5.tar.gz'
-    )
+  it('auto-fills form when preset is selected and leaves the source URL alone', async () => {
+    const response: RuleSetsResponse = { rulesets: [] }
+    vi.mocked(securityApi.getRuleSets).mockResolvedValue(response)
+
+    renderWithProviders(<WafConfig />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('create-ruleset-btn')).toBeInTheDocument()
+    })
+
+    await userEvent.click(screen.getByTestId('create-ruleset-btn'))
+
+    await userEvent.type(screen.getByTestId('ruleset-url-input'), 'https://example.com/mine.conf')
+
+    const presetSelect = screen.getByTestId('preset-select')
+    await userEvent.selectOptions(presetSelect, 'Basic SQL Injection Protection')
+
+    expect(screen.getByTestId('ruleset-name-input')).toHaveValue('Basic SQL Injection Protection')
+    expect(screen.getByTestId('ruleset-url-input')).toHaveValue('https://example.com/mine.conf')
+    expect(screen.getByRole('button', { name: 'Create Rule Set' })).not.toBeDisabled()
   })
 
   it('auto-fills content for inline preset', async () => {

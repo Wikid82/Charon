@@ -144,14 +144,14 @@ func failSettingsQueries(db *gorm.DB) {
 }
 
 // TestEnforcementReport_ReasonsAndCounts describes the enforcement report the proxy stores after an apply:
-// reasons no_ruleset, ruleset_not_selected, ruleset_unavailable and thresholds_unset, counts for eligible
+// reasons no_ruleset, ruleset_not_selected, ruleset_unavailable, ruleset_empty and thresholds_unset, counts for eligible
 // and protected hosts, and zero eligible hosts (enforced omitted).
 func TestEnforcementReport_ReasonsAndCounts(t *testing.T) {
 	twoHosts := []models.ProxyHost{
 		enforcementTestHost("first", "first.example.com", false),
 		enforcementTestHost("second", "second.example.com", false),
 	}
-	owasp := []models.SecurityRuleSet{{Name: "owasp-crs"}}
+	owasp := []models.SecurityRuleSet{{Name: "owasp-crs", Content: testRuleSetContent}}
 	owaspPath := map[string]string{"owasp-crs": "/data/coraza/owasp-crs.conf"}
 	blockRow := &models.SecurityConfig{WAFMode: "block"}
 	thresholds := &models.SecurityConfig{WAFMode: "block", RateLimitRequests: 100, RateLimitWindowSec: 60, RateLimitBurst: 20}
@@ -175,7 +175,7 @@ func TestEnforcementReport_ReasonsAndCounts(t *testing.T) {
 		},
 		{
 			name: "ruleset not selected", hosts: twoHosts, wafOn: true, secCfg: blockRow,
-			rulesets: []models.SecurityRuleSet{{Name: "alpha"}, {Name: "beta"}},
+			rulesets: []models.SecurityRuleSet{{Name: "alpha", Content: testRuleSetContent}, {Name: "beta", Content: testRuleSetContent}},
 			paths:    map[string]string{"alpha": "/data/a.conf", "beta": "/data/b.conf"},
 			wantWAF:  ModuleEnforcement{Eligible: 2, Reason: ReasonRulesetNotSelected},
 		},
@@ -183,6 +183,18 @@ func TestEnforcementReport_ReasonsAndCounts(t *testing.T) {
 			name: "selected ruleset has no file", hosts: twoHosts, wafOn: true, secCfg: blockRow,
 			rulesets: owasp, paths: map[string]string{},
 			wantWAF: ModuleEnforcement{Eligible: 2, Reason: ReasonRulesetUnavailable},
+		},
+		{
+			name: "explicit empty rules source", hosts: twoHosts, wafOn: true,
+			secCfg:   &models.SecurityConfig{WAFMode: "block", WAFRulesSource: "blank"},
+			rulesets: []models.SecurityRuleSet{{Name: "blank", Content: "# no rules yet"}, owasp[0]},
+			paths:    owaspPath,
+			wantWAF:  ModuleEnforcement{Eligible: 2, Reason: ReasonRulesetEmpty},
+		},
+		{
+			name: "every candidate empty", hosts: twoHosts, wafOn: true, secCfg: blockRow,
+			rulesets: []models.SecurityRuleSet{{Name: "alpha", Content: ""}, {Name: "beta", Content: "SecRuleEngine On"}},
+			wantWAF:  ModuleEnforcement{Eligible: 2, Reason: ReasonRulesetEmpty},
 		},
 		{
 			name: "every host protected", hosts: twoHosts, wafOn: true, rlOn: true, secCfg: thresholds,
@@ -218,7 +230,7 @@ func TestEnforcementReport_ReasonsAndCounts(t *testing.T) {
 // TestEnforcementReport_WAFDisabledHostsNotEligible describes hosts with the WAF switched off for their own
 // entry: they are excluded from the WAF eligible count.
 func TestEnforcementReport_WAFDisabledHostsNotEligible(t *testing.T) {
-	owasp := []models.SecurityRuleSet{{Name: "owasp-crs"}}
+	owasp := []models.SecurityRuleSet{{Name: "owasp-crs", Content: testRuleSetContent}}
 	owaspPath := map[string]string{"owasp-crs": "/data/coraza/owasp-crs.conf"}
 	block := &models.SecurityConfig{WAFMode: "block"}
 
@@ -240,7 +252,7 @@ func TestEnforcementReport_WAFDisabledHostsNotEligible(t *testing.T) {
 // WAF key is on and the default row holds the disabled mode, with no row-mode gate.
 func TestBuildWAFHandler_KeyOnRowDisabledBuildsHandler(t *testing.T) {
 	host := &models.ProxyHost{UUID: "keyon-host"}
-	owasp := []models.SecurityRuleSet{{Name: "owasp-crs"}}
+	owasp := []models.SecurityRuleSet{{Name: "owasp-crs", Content: testRuleSetContent}}
 	paths := map[string]string{"owasp-crs": "/data/owasp-crs.conf"}
 
 	handler, reason := buildWAFHandlerWithReason(host, owasp, paths, &models.SecurityConfig{WAFMode: "disabled"})
@@ -319,13 +331,13 @@ func TestBuildRateLimitHandler_UnsetThresholdsReportsReason(t *testing.T) {
 func TestBuildWAFDirectives_UnresolvedRulesetReportsReason(t *testing.T) {
 	host := &models.ProxyHost{UUID: "reason-host"}
 	block := &models.SecurityConfig{WAFMode: "block"}
-	owasp := []models.SecurityRuleSet{{Name: "owasp-crs"}}
+	owasp := []models.SecurityRuleSet{{Name: "owasp-crs", Content: testRuleSetContent}}
 
 	handler, reason := buildWAFHandlerWithReason(host, nil, nil, block)
 	require.Nil(t, handler)
 	require.Equal(t, ReasonNoRuleset, reason)
 
-	two := []models.SecurityRuleSet{{Name: "alpha"}, {Name: "beta"}}
+	two := []models.SecurityRuleSet{{Name: "alpha", Content: testRuleSetContent}, {Name: "beta", Content: testRuleSetContent}}
 	handler, reason = buildWAFHandlerWithReason(host, two, map[string]string{"alpha": "/data/a.conf", "beta": "/data/b.conf"}, block)
 	require.Nil(t, handler)
 	require.Equal(t, ReasonRulesetNotSelected, reason)
@@ -333,6 +345,12 @@ func TestBuildWAFDirectives_UnresolvedRulesetReportsReason(t *testing.T) {
 	handler, reason = buildWAFHandlerWithReason(host, owasp, map[string]string{}, block)
 	require.Nil(t, handler)
 	require.Equal(t, ReasonRulesetUnavailable, reason)
+
+	// A chosen set whose content has no rule line is empty, whether or not a file exists for it.
+	empty := []models.SecurityRuleSet{{Name: "owasp-crs", Content: "# comment only"}}
+	handler, reason = buildWAFHandlerWithReason(host, empty, map[string]string{"owasp-crs": "/data/owasp-crs.conf"}, block)
+	require.Nil(t, handler)
+	require.Equal(t, ReasonRulesetEmpty, reason)
 
 	handler, reason = buildWAFHandlerWithReason(host, owasp, map[string]string{"owasp-crs": "/data/owasp-crs.conf"}, block)
 	require.NotNil(t, handler)

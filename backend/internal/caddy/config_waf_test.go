@@ -27,7 +27,7 @@ func TestBuildWAFHandler_RulesetSelectionPriority(t *testing.T) {
 		{
 			name:     "WAFRulesSource takes priority over owasp-crs",
 			host:     &models.ProxyHost{UUID: "test-host"},
-			rulesets: []models.SecurityRuleSet{{Name: "owasp-crs"}, {Name: "custom-xss"}},
+			rulesets: []models.SecurityRuleSet{{Name: "owasp-crs", Content: testRuleSetContent}, {Name: "custom-xss", Content: testRuleSetContent}},
 			rulesetPaths: map[string]string{
 				"owasp-crs":  "/app/data/rulesets/owasp-crs.conf",
 				"custom-xss": "/app/data/rulesets/custom-xss.conf",
@@ -42,7 +42,7 @@ func TestBuildWAFHandler_RulesetSelectionPriority(t *testing.T) {
 				UUID:           "test-host",
 				AdvancedConfig: `{"ruleset_name":"per-host-rules"}`,
 			},
-			rulesets: []models.SecurityRuleSet{{Name: "owasp-crs"}, {Name: "per-host-rules"}},
+			rulesets: []models.SecurityRuleSet{{Name: "owasp-crs", Content: testRuleSetContent}, {Name: "per-host-rules", Content: testRuleSetContent}},
 			rulesetPaths: map[string]string{
 				"owasp-crs":      "/app/data/rulesets/owasp-crs.conf",
 				"per-host-rules": "/app/data/rulesets/per-host-rules.conf",
@@ -57,7 +57,7 @@ func TestBuildWAFHandler_RulesetSelectionPriority(t *testing.T) {
 				UUID:        "test-host",
 				Application: "wordpress",
 			},
-			rulesets: []models.SecurityRuleSet{{Name: "owasp-crs"}, {Name: "wordpress"}},
+			rulesets: []models.SecurityRuleSet{{Name: "owasp-crs", Content: testRuleSetContent}, {Name: "wordpress", Content: testRuleSetContent}},
 			rulesetPaths: map[string]string{
 				"owasp-crs": "/app/data/rulesets/owasp-crs.conf",
 				"wordpress": "/app/data/rulesets/wordpress.conf",
@@ -69,7 +69,7 @@ func TestBuildWAFHandler_RulesetSelectionPriority(t *testing.T) {
 		{
 			name:     "owasp-crs used as fallback when no other match",
 			host:     &models.ProxyHost{UUID: "test-host"},
-			rulesets: []models.SecurityRuleSet{{Name: "owasp-crs"}, {Name: "unrelated-rules"}},
+			rulesets: []models.SecurityRuleSet{{Name: "owasp-crs", Content: testRuleSetContent}, {Name: "unrelated-rules", Content: testRuleSetContent}},
 			rulesetPaths: map[string]string{
 				"owasp-crs":       "/app/data/rulesets/owasp-crs.conf",
 				"unrelated-rules": "/app/data/rulesets/unrelated.conf",
@@ -84,7 +84,7 @@ func TestBuildWAFHandler_RulesetSelectionPriority(t *testing.T) {
 				UUID:        "test-host",
 				Application: "wordpress",
 			},
-			rulesets: []models.SecurityRuleSet{{Name: "owasp-crs"}, {Name: "wordpress"}, {Name: "global-custom"}},
+			rulesets: []models.SecurityRuleSet{{Name: "owasp-crs", Content: testRuleSetContent}, {Name: "wordpress", Content: testRuleSetContent}, {Name: "global-custom", Content: testRuleSetContent}},
 			rulesetPaths: map[string]string{
 				"owasp-crs":     "/app/data/rulesets/owasp-crs.conf",
 				"wordpress":     "/app/data/rulesets/wordpress.conf",
@@ -135,7 +135,7 @@ func TestBuildWAFHandler_NoDirectivesReturnsNil(t *testing.T) {
 		{
 			name:     "Ruleset exists but no path mapping returns nil",
 			host:     &models.ProxyHost{UUID: "test-host"},
-			rulesets: []models.SecurityRuleSet{{Name: "my-rules"}},
+			rulesets: []models.SecurityRuleSet{{Name: "my-rules", Content: testRuleSetContent}},
 			rulesetPaths: map[string]string{
 				"other-rules": "/path/to/other.conf", // Path for different ruleset
 			},
@@ -145,7 +145,7 @@ func TestBuildWAFHandler_NoDirectivesReturnsNil(t *testing.T) {
 		{
 			name:         "WAFRulesSource specified but not in rulesets or paths returns nil",
 			host:         &models.ProxyHost{UUID: "test-host"},
-			rulesets:     []models.SecurityRuleSet{{Name: "other-rules"}},
+			rulesets:     []models.SecurityRuleSet{{Name: "other-rules", Content: testRuleSetContent}},
 			rulesetPaths: map[string]string{},
 			secCfg:       &models.SecurityConfig{WAFMode: "block", WAFRulesSource: "nonexistent"},
 			wafEnabled:   true,
@@ -153,7 +153,7 @@ func TestBuildWAFHandler_NoDirectivesReturnsNil(t *testing.T) {
 		{
 			name:     "Empty path in rulesetPaths returns nil",
 			host:     &models.ProxyHost{UUID: "test-host"},
-			rulesets: []models.SecurityRuleSet{{Name: "owasp-crs"}},
+			rulesets: []models.SecurityRuleSet{{Name: "owasp-crs", Content: testRuleSetContent}},
 			rulesetPaths: map[string]string{
 				"owasp-crs": "", // Empty path
 			},
@@ -173,7 +173,7 @@ func TestBuildWAFHandler_NoDirectivesReturnsNil(t *testing.T) {
 // TestBuildWAFHandler_DisabledModes verifies the WAF key decides whether a handler is built: a key that is off gives no
 // handler whatever the row says, and a key that is on builds one even when the row holds the disabled mode.
 func TestBuildWAFHandler_DisabledModes(t *testing.T) {
-	rulesets := []models.SecurityRuleSet{{Name: "owasp-crs"}}
+	rulesets := []models.SecurityRuleSet{{Name: "owasp-crs", Content: testRuleSetContent}}
 	rulesetPaths := map[string]string{"owasp-crs": "/path/to/rules.conf"}
 	host := &models.ProxyHost{UUID: "test-host"}
 
@@ -212,7 +212,7 @@ func TestBuildWAFHandler_DisabledModes(t *testing.T) {
 // TestBuildWAFHandler_HandlerStructure verifies the JSON structure matches the Handoff Contract
 func TestBuildWAFHandler_HandlerStructure(t *testing.T) {
 	host := &models.ProxyHost{UUID: "test-host"}
-	rulesets := []models.SecurityRuleSet{{Name: "integration-xss"}}
+	rulesets := []models.SecurityRuleSet{{Name: "integration-xss", Content: testRuleSetContent}}
 	rulesetPaths := map[string]string{
 		"integration-xss": "/app/data/caddy/coraza/rulesets/integration-xss-a1b2c3d4.conf",
 	}
@@ -243,8 +243,8 @@ func TestBuildWAFHandler_HandlerStructure(t *testing.T) {
 // TestBuildWAFHandler_AdvancedConfigParsing verifies advanced_config JSON parsing
 func TestBuildWAFHandler_AdvancedConfigParsing(t *testing.T) {
 	rulesets := []models.SecurityRuleSet{
-		{Name: "owasp-crs"},
-		{Name: "custom-ruleset"},
+		{Name: "owasp-crs", Content: testRuleSetContent},
+		{Name: "custom-ruleset", Content: testRuleSetContent},
 	}
 	rulesetPaths := map[string]string{
 		"owasp-crs":      "/path/owasp.conf",
@@ -303,7 +303,7 @@ func TestBuildWAFHandler_AdvancedConfigParsing(t *testing.T) {
 func TestBuildWAFHandler_OWASPCRSNameVariantsResolve(t *testing.T) {
 	for _, name := range []string{"owasp-crs", "OWASP Core Rule Set", "OWASP CRS", "owasp_core_ruleset"} {
 		t.Run(name, func(t *testing.T) {
-			rulesets := []models.SecurityRuleSet{{Name: "Other"}, {Name: name}}
+			rulesets := []models.SecurityRuleSet{{Name: "Other", Content: testRuleSetContent}, {Name: name, Content: testRuleSetContent}}
 			paths := map[string]string{name: "/data/coraza/crs.conf", "Other": "/data/coraza/other.conf"}
 			h := buildWAFHandler(&models.ProxyHost{UUID: "h"}, rulesets, paths, &models.SecurityConfig{WAFMode: ""}, true)
 			require.NotNil(t, h)
@@ -313,14 +313,14 @@ func TestBuildWAFHandler_OWASPCRSNameVariantsResolve(t *testing.T) {
 }
 
 func TestBuildWAFHandler_SingleRulesetFallback(t *testing.T) {
-	rulesets := []models.SecurityRuleSet{{Name: "my-custom-rules"}}
+	rulesets := []models.SecurityRuleSet{{Name: "my-custom-rules", Content: testRuleSetContent}}
 	paths := map[string]string{"my-custom-rules": "/data/coraza/custom.conf"}
 	h := buildWAFHandler(&models.ProxyHost{UUID: "h"}, rulesets, paths, &models.SecurityConfig{}, true)
 	require.NotNil(t, h)
 	require.Contains(t, h["directives"], "/data/coraza/custom.conf")
 
 	// Two unrelated rulesets and no selection is ambiguous: still no handler.
-	rulesets = append(rulesets, models.SecurityRuleSet{Name: "more-rules"})
+	rulesets = append(rulesets, models.SecurityRuleSet{Name: "more-rules", Content: testRuleSetContent})
 	paths["more-rules"] = "/data/coraza/more.conf"
 	require.Nil(t, buildWAFHandler(&models.ProxyHost{UUID: "h"}, rulesets, paths, &models.SecurityConfig{}, true))
 }

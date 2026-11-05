@@ -226,7 +226,7 @@ func TestGenerateConfig_SecurityPipeline_Order(t *testing.T) {
 	host := models.ProxyHost{UUID: "pipeline1", DomainNames: "pipe.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080, AccessListID: &acl.ID, AccessList: &acl, HSTSEnabled: true, BlockExploits: true}
 
 	// Provide rulesets and paths so WAF handler is created with directives
-	rulesets := []models.SecurityRuleSet{{Name: "owasp-crs"}}
+	rulesets := []models.SecurityRuleSet{{Name: "owasp-crs", Content: testRuleSetContent}}
 	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp.conf"}
 	// Set rate limit values so rate_limit handler is included (uses caddy-ratelimit format)
 	secCfg := &models.SecurityConfig{CrowdSecMode: "local", RateLimitRequests: 100, RateLimitWindowSec: 60}

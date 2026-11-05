@@ -158,7 +158,7 @@ If no database config exists, Charon reads from environment:
 
 ### Current Implementation
 
-**Status:** Active. The WAF uses the [Coraza](https://coraza.io/) engine with the selected rule set (the OWASP Core Rule Set by default).
+**Status:** Active. The WAF uses the [Coraza](https://coraza.io/) engine with the selected rule set, which must contain at least one rule.
 
 Charon writes each rule set to a file. A header line in that file sets the engine mode: `SecRuleEngine On` for a rule set in Blocking mode, and `SecRuleEngine DetectionOnly` for one in Detection mode. A rule set with no mode of its own takes the saved WAF mode.
 
@@ -170,7 +170,7 @@ Charon writes each rule set to a file. A header line in that file sets the engin
 type SecurityRuleSet struct {
     ID         uint   `gorm:"primaryKey"`
     Name       string `json:"name"`
-    SourceURL  string `json:"source_url"`  // Optional URL for rule updates
+    SourceURL  string `json:"source_url"`  // Optional reference URL; stored, not fetched
     Mode       string `json:"mode"`        // blocking or detection (see below)
     Content    string `json:"content"`     // Raw rule text
 }
@@ -874,7 +874,7 @@ annotations:
 | 1 | WAF placeholder + metrics | ✅ Complete |
 | 2 | ACL implementation | ✅ Complete |
 | 3 | Break-glass token | ✅ Complete |
-| 4 | Coraza CRS integration | ✅ Complete |
+| 4 | Coraza rule set support (paste in CRS-compatible rules) | ✅ Complete |
 | 5 | CrowdSec local agent | 📋 Planned |
 | 6 | Rate limiting enforcement | ✅ Complete |
 | 7 | Adaptive learning/tuning | 🔮 Future |
@@ -885,7 +885,7 @@ annotations:
 
 ### Does the WAF really block attacks?
 
-Yes. Charon uses the Coraza engine with the OWASP Core Rule Set. Each rule set is either Detection (logs only) or Blocking (refuses matching requests).
+Yes. Charon uses the Coraza engine with the rule sets you add, including OWASP Core Rule Set rules if you paste them in. Each rule set is either Detection (logs only) or Blocking (refuses matching requests).
 
 ### Can I use my own WAF rules?
 

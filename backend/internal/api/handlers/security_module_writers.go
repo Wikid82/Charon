@@ -20,6 +20,8 @@ const (
 	msgWAFRulesSourceUnknown  = "That rule set does not exist. Choose one from the list."
 	codeWAFRulesetInUse       = "waf_ruleset_in_use"
 	msgWAFRulesetInUse        = "This rule set is the one the WAF uses. Choose another rule set first."
+	codeRulesetEmpty          = "ruleset_empty"
+	msgRulesetEmpty           = "A rule set needs at least one rule. Add a SecRule line."
 	msgModuleApplyFailed      = "Failed to reload configuration"
 	msgModuleWriteFailed      = "Failed to update security module"
 )

@@ -399,7 +399,7 @@ func TestSecurityHandler_UpsertRuleSet_XSSInContent(t *testing.T) {
 	router.GET("/api/v1/security/rulesets", h.ListRuleSets)
 
 	// Store content with XSS payload
-	xssPayload := `<script>alert('XSS')</script>`
+	xssPayload := `SecRule ARGS "<script>alert('XSS')</script>" "id:1,deny"`
 	payload := map[string]any{
 		"name":    "xss-test",
 		"content": xssPayload,

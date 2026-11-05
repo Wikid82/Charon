@@ -598,7 +598,7 @@ check.
 #### Security Suite (`internal/cerberus/`)
 
 - **ACL (Access Control Lists):** IP-based allow/deny rules, GeoIP blocking
-- **WAF (Web Application Firewall):** Coraza engine with OWASP CRS
+- **WAF (Web Application Firewall):** Coraza engine with user-provided rule sets (CRS-compatible)
 - **CrowdSec:** Behavior-based threat detection with global intelligence
 - **Rate Limiter:** Opt-in per-client API throttling (shared `internal/ratelimit` component)
 - **Login Protection:** Always-on per-client throttle in front of `/api/v1/auth/*` and every password-verifying route, independent of Cerberus settings
@@ -849,7 +849,7 @@ graph LR
     RateLimit -->|Throttled| CrowdSec[CrowdSec Bouncer]
     CrowdSec -->|Threat Intel| ACL[Access Control Lists]
     ACL -->|IP Whitelist| WAF[Web Application Firewall]
-    WAF -->|OWASP CRS| Caddy[Caddy Proxy]
+    WAF -->|User rule sets| Caddy[Caddy Proxy]
     Caddy -->|Proxied| Upstream[Upstream Server]
 
     style RateLimit fill:#f9f,stroke:#333,stroke-width:2px
@@ -1010,7 +1010,7 @@ pin (the stage already carries ~40 such pins).
 
 **Purpose:** Inspect HTTP requests for malicious payloads
 
-**Engine:** Coraza with OWASP Core Rule Set (CRS)
+**Engine:** Coraza with user-provided rule sets (CRS-compatible)
 
 **Detection Categories:**
 

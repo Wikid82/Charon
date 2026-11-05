@@ -72,7 +72,7 @@ ARG KLAUSPOST_COMPRESS_VERSION=1.20.3
 # renovate: datasource=go depName=google.golang.org/grpc
 ARG GRPC_VERSION=1.83.2
 # renovate: datasource=npm depName=npm
-ARG NPM_VERSION=12.2.1
+ARG NPM_VERSION=12.2.2
 
 # Allow pinning Caddy version - Renovate will update this
 # Build the most recent Caddy 2.x release (keeps major pinned under v3).
@@ -210,7 +210,7 @@ ARG CADDY_DNS_DNSIMPLE_GO_VERSION=10.0.0
 # CVE-2026-119591, CVE-2026-119372, CVE-2026-119378, CVE-2026-119375, CVE-2026-119371, CVE-2026-119376, CVE-2026-119377
 # Renovate tracking requires a matching rule for repology
 # renovate: datasource=repology depName=alpine_3_24/sqlite
-ARG SQLITE_VERSION=3.53.4
+ARG SQLITE_VERSION=3.53.4-r0
 
 # ---- Cross-Compilation Helpers ----
 # renovate: datasource=docker depName=tonistiigi/xx
@@ -280,7 +280,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
 FROM --platform=$BUILDPLATFORM node:26.13.0-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS frontend-builder
-RUN npm install -g npm@12.2.1 && npm cache clean --force
+RUN npm install -g npm@${NPM_VERSION} && npm cache clean --force
 WORKDIR /app/frontend
 
 # Copy frontend package files

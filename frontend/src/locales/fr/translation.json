@@ -596,7 +596,8 @@
       "waf": {
         "no_ruleset": "Le WAF est activé, mais aucun jeu de règles n'est disponible pour inspecter les requêtes. Ajoutez un jeu de règles sur la page du WAF.",
         "ruleset_not_selected": "Le WAF est activé, mais plusieurs jeux de règles existent et aucun n'est sélectionné. Choisissez le jeu de règles sur la page du WAF.",
-        "ruleset_unavailable": "Le WAF est activé, mais le jeu de règles sélectionné n'a pas pu être chargé. Vérifiez-le sur la page du WAF."
+        "ruleset_unavailable": "Le WAF est activé, mais le jeu de règles sélectionné n'a pas pu être chargé. Vérifiez-le sur la page du WAF.",
+        "ruleset_empty": "Le jeu de règles sélectionné ne contient aucune règle, il ne protège donc encore rien. Ajoutez-y des règles ou choisissez-en un autre."
       },
       "rate_limit": {
         "thresholds_unset": "La limitation de débit est activée, mais aucune limite n'est encore définie. Définissez les requêtes et la fenêtre sur la page de limitation de débit."
@@ -682,7 +683,7 @@
     "blockingDescription": "Les requêtes malveillantes seront bloquées avec HTTP 403",
     "detectionDescription": "Les requêtes malveillantes seront journalisées mais non bloquées",
     "sourceUrl": "URL Source (optionnel)",
-    "sourceUrlHelper": "URL pour récupérer les règles. Laissez vide pour utiliser le contenu en ligne.",
+    "sourceUrlHelper": "Facultatif. L'adresse est enregistrée à titre indicatif et n'est pas téléchargée.",
     "ruleContent": "Contenu des Règles",
     "ruleContentHelper": "Syntaxe de règles ModSecurity/Coraza. Chaque SecRule doit être sur sa propre ligne.",
     "source": "Source",
@@ -714,7 +715,8 @@
     "errors": {
       "waf_rules_source_unknown": "Ce jeu de règles n'existe pas. Choisissez-en un dans la liste.",
       "waf_ruleset_in_use": "Ce jeu de règles est celui utilisé par le WAF. Choisissez d'abord un autre jeu de règles.",
-      "invalid_waf_mode": "Le mode du WAF n'est pas valide. Rechargez la page et réessayez."
+      "invalid_waf_mode": "Le mode du WAF n'est pas valide. Rechargez la page et réessayez.",
+      "ruleset_empty": "Un jeu de règles doit contenir au moins une règle. Ajoutez une ligne SecRule."
     },
     "detectionMode": "Les jeux de règles sans mode propre ne journalisent les requêtes correspondantes que lorsque le mode WAF enregistré est la détection. Un jeu de règles réglé sur blocage bloque les requêtes correspondantes."
   },
