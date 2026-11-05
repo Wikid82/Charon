@@ -421,8 +421,9 @@ func (s ModuleStateSnapshot) RestoreSettings(db *gorm.DB) error {
 			}
 			continue
 		}
+		// Assign keeps the pre-image UpdatedAt; Save would stamp the restore time over it.
 		restore := img.setting
-		if err := db.Save(&restore).Error; err != nil {
+		if err := db.Where(Setting{Key: img.key}).Assign(restore).FirstOrCreate(&restore).Error; err != nil {
 			return fmt.Errorf("restore setting %s: %w", img.key, err)
 		}
 	}

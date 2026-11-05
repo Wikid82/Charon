@@ -200,3 +200,20 @@ func TestRestore_NoTouchedChangesIssueNoWrites(t *testing.T) {
 	require.NoError(t, snap.RestoreRow(db))
 	assert.Equal(t, "monitor", readDefaultRow(t, db).WAFMode)
 }
+
+func TestRestore_RestoredSettingKeepsItsPreImageUpdatedAt(t *testing.T) {
+	db := newModuleTestDB(t)
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName, WAFMode: "disabled"}).Error)
+	setModuleSetting(t, db, models.SecurityWAFEnabledSettingKey, "false")
+	var before models.Setting
+	require.NoError(t, db.Where("key = ?", models.SecurityWAFEnabledSettingKey).Take(&before).Error)
+
+	snap := captureWafWriterChange(t, db, readDefaultRow(t, db))
+	require.NoError(t, snap.Seal(db))
+	require.NoError(t, snap.RestoreSettings(db))
+
+	var restored models.Setting
+	require.NoError(t, db.Where("key = ?", models.SecurityWAFEnabledSettingKey).Take(&restored).Error)
+	assert.Equal(t, "false", restored.Value, "the pre-image value is written back")
+	assert.True(t, before.UpdatedAt.Equal(restored.UpdatedAt), "a restored key keeps its pre-image UpdatedAt: got %s want %s", restored.UpdatedAt, before.UpdatedAt)
+}
