@@ -78,6 +78,23 @@ setup() {
   [[ "$output" == *"review_by 2020-02-01 has passed"* ]]
 }
 
+@test "case 5b: expired suppression emits a GitHub annotation in CI" {
+  GITHUB_ACTIONS=true CODEQL_SUPPRESSIONS_FILE="$TESTDATA_DIR/case5-codeql-suppressions.yml" \
+    run "$SCRIPT_UNDER_TEST" "$TESTDATA_DIR/case5-ignorelist-expired.sarif" go
+
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"::error file="*",line="*",title=CodeQL: suppression expired::"* ]]
+  [[ "$output" == *"expired on 2020-02-01"* ]]
+}
+
+@test "case 5c: no GitHub annotation is emitted outside CI" {
+  GITHUB_ACTIONS= CODEQL_SUPPRESSIONS_FILE="$TESTDATA_DIR/case5-codeql-suppressions.yml" \
+    run "$SCRIPT_UNDER_TEST" "$TESTDATA_DIR/case5-ignorelist-expired.sarif" go
+
+  [ "$status" -ne 0 ]
+  [[ "$output" != *"::error"* ]]
+}
+
 @test "case 6: rule+path match with drifted line exits non-zero as LIKELY-STALE ENTRY" {
   CODEQL_SUPPRESSIONS_FILE="$TESTDATA_DIR/case6-codeql-suppressions.yml" \
     run "$SCRIPT_UNDER_TEST" "$TESTDATA_DIR/case6-ignorelist-stale-line.sarif" go
