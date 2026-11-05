@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-cedfb44e42fd053f
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:86fbe994bcce3d57f88ad97a02c5b64f20d2d871b85229451da754c49a8b1089
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-bce5079da99f35d0
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:2d9fddbd31beee92dea226cd3061d3f5f8a52d152c0a18cae22b28400ce9e989
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -321,7 +321,7 @@ RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
     npm run build
 
 # ---- Backend Builder ----
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS backend-builder
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:fa4881266890ef051f0ce63afdfaccb69bbe8186084387f4fafd60d7ecbabc71 AS backend-builder
 # Copy xx helpers for cross-compilation
 COPY --from=xx / /
 
@@ -875,7 +875,7 @@ RUN set -e; \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
     _retry go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.26; \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.91.1; \
+    _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.92.0; \
     _retry go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7; \
     _retry go get github.com/aws/aws-sdk-go-v2/service/s3@v1.102.1; \
     # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
