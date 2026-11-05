@@ -1,257 +1,335 @@
-# PRs 19 and 20: Security settings checks, and the CrowdSec-labelled leftovers
+# Lint Sweep: Frontend Backlog (#1743) and Root E2E Linting (#1716, #1820)
 
-**Base:** `development` @ `d36ded796` (the prior contents of this file, the PR 18 plan, shipped as #1838).
-**Source:** issues #1761, #1756, #1770, #1773, #1774, #1741, #1701 (read with `gh issue view`), plus the local batch 5 spec (`docs/plans/crowdsec_hardening_batch5_spec.md`, untracked, read-only; sections 3o/3p and the C4/U1 rows).
-**Authority:** the code at `d36ded796`. Every anchor below was re-read on 2026-11-05; the issue texts and the batch 5 spec were checked against it and the drift is listed in section 2.
+Status: DRAFT for supervisor review. Base: `development` @ 77fbbb656. Date: 2026-11-05.
+Branch: `chore/lint-sweep-1743` (one PR into `development`, ordered commits). No worktrees.
+Scope owner agents: `frontend-dev` (src), `playwright-dev` (root `tests/` findings), `devops` (Makefile, lefthook, CI).
 
-## 1. Introduction and decision
+## 1. Introduction
 
-Seven small findings remain from the CrowdSec hardening batches. They are all low severity, none is user-submitted, and none is critical or high. Two of them change backend behavior on a security surface (#1761 validation, #1756 the on/off decision); one narrows a rollback (#1770); four are tests, docs and locale text.
+### Goals
 
-**Decision: two PRs, merged in this order.** This is a deliberate exception to "one feature = one PR": these are independent bug fixes, not one feature, and they have different risk, different validation gates and different reviewers' attention.
+1. Take `cd frontend && npm run lint` from 1350 warnings to 0 outside the locale-sync category, fixing real
+   a11y, security-linter and React-correctness findings instead of waiving them (#1743).
+2. Give the root Playwright `tests/` tree a working ESLint step in lefthook and CI (#1716, #1820).
+3. Fix the Makefile `lint-backend` timeout (cold-cache exit 4) (#1820).
+4. Make new warnings fail CI so the backlog cannot regrow (`--max-warnings` ratchet).
 
-| PR | Branch (from `development` @ `d36ded796`) | Issues | Why it is its own PR |
-| --- | --- | --- | --- |
-| **PR 19** `fix: check security settings values and keep a refused change from overwriting newer ones` | `fix/security-settings-checks` | #1761, #1770, #1756 (reader behavior unchanged; see Q1) | Backend only, security surface, needs the container gate and the GORM scan (it touches `internal/models`). No frontend, no locale keys. |
-| **PR 20** `fix: tidy security test helpers, translations and docs` | `fix/security-settings-leftovers` (exists, clean at `d36ded796`) | #1773, #1741, #1701, #1774 | Test, JSON and Markdown only plus one test-script fix. Cheap gates; must not wait on, or be blocked by, the riskier PR. |
+### Non-goals
 
-Merging PR 20 first is also fine (disjoint files except `docs/api.md`, see risks); the recommended order is PR 19 then PR 20 so the PR 20 docs commit can describe the validated ranges as shipped.
+- No product behavior changes. The only behavior-adjacent edits are the React-compiler rule fixes
+  (Commit 9 to 11), which are isolated and individually tested.
+- No locale content edits (Crowdin owns `frontend/src/locales/**`).
+- No Go code changes besides the Makefile.
+- No new E2E specs: nothing user-visible is added, so the "E2E as `test.fixme`" step from the suggested
+  commit sequence is intentionally omitted. Existing component vitest files are the safety net; targeted
+  Playwright runs are only required for the a11y/hook commits that change rendered DOM (see gates).
 
-Not in either PR:
+## 2. Research Findings
 
-* **#1743** (1358 frontend lint warnings): its own sweep PR together with #1716 and #1820. It is a mechanical, wide-diff change and would bury these fixes.
-* **#1776**: no longer reproduces. Nothing to do; close it with a short comment when convenient.
-* **#1840** (status counts a host with its own WAF handler as unprotected): it does **not** fall out of #1756. #1756 is about the Cerberus on/off switch; #1840 is in the WAF eligibility count (`backend/internal/caddy/config.go:546-548`, `report.WAF.record(wafH != nil, reason)` fed by `buildWAFHandlerWithReason`, plus `enforcement_report.go:34`). Different code, different tests, a different container reproduction. Leave it open and schedule it right after PR 20 as its own small `fix:` (see section 3).
+Measured 2026-11-05 (`npm run lint`, JSON output): 0 errors, 1350 warnings, 219 auto-fixable, in 247 of 672 linted files (247 files carry at least one finding)
+(125 `import-x/order`, 42 `unicorn/prefer-ternary`, 21 `testing-library/prefer-find-by`, 16
+`unicorn/no-useless-undefined`, 12 `import-x/no-duplicates`, 1 each `sonarjs/prefer-immediate-return`,
+`testing-library/no-wait-for-multiple-assertions`, `unicorn/prefer-includes`).
 
-### Entities, actions, scenarios (EARS)
+Where the warnings live: ~1,000 of 1,350 are in test files (`src/pages/__tests__` 457,
+`src/components/__tests__` 315, `src/hooks/__tests__` 27, others small). Production files with the most:
+`components/dialogs` 81 (mostly `__tests__`), `components/hecate` 49, `components/theme` 48,
+`ProxyHostForm.tsx` 22, `ProxyHosts.tsx` 9, `Notifications.tsx` 8, `useProxyGroupDnD.ts` 8.
 
-* When an admin saves the security config with a value outside its allowed range, the API shall answer 400 with a plain message and shall store nothing (no row column, no module key).
-* When a save carries a value equal to the one already stored, the API shall accept it even if it is outside the new range, so an old stored value never blocks an unrelated save (same rule `checkRulesSource` uses).
-* When the proxy refuses a change and the writer restores, the restore shall write back only the settings keys and row columns the writer itself changed, and only where the current value is still the one the writer wrote; anything a concurrent admin write changed is kept.
-* When an admin presses Disable (the break-glass `/security/disable`), the switch shall be off for the proxy, the status and the management middleware alike, not only for the middleware (PR 19, write side). No reader's rule changes, so no existing instance's enforcement changes on upgrade.
+Existing config facts (`frontend/eslint.config.js`):
 
-## 2. Research findings (re-verified at `d36ded796`)
+- Every react-hooks recommended-latest rule is forced to `warn` (the React Compiler diagnostics:
+  `set-state-in-effect`, `static-components`, `immutability`, `purity`, `globals`, `incompatible-library`).
+- Test override block sets six `testing-library/*` rules and `vitest/expect-expect` to `warn`.
+- Locale block sets `i18n-json/identical-keys` to `warn` on purpose ("Missing keys are expected until
+  Crowdin catches up"); placeholders and JSON validity are `error`.
+- `npm run lint` is `eslint . --report-unused-disable-directives` (no `--max-warnings`).
+- CI: `quality-checks.yml` job `frontend-quality`, step "Run frontend lint" (line ~694) has
+  `continue-on-error: true`, so lint does not gate today.
+- Lefthook: `frontend-lint` runs `cd frontend && npm run lint` (whole project, not staged files) for any
+  `frontend/**/*.{ts,tsx,js,jsx}` change. With `--max-warnings 0` this blocks any frontend commit if the
+  tree has a stray warning (intended, but see Risks).
+- Vitest coverage gate: `lines` threshold 87 (`CHARON_MIN_COVERAGE`); lead reports branch coverage 85.6%
+  vs the 85% floor, so test rewrites must be behavior-preserving.
 
-### 2.1 #1761 validation gap
+Root tree: no root `eslint.config.*`, `tests/` has 192 `.ts`/`.js` files, no `tests/tsconfig.json`,
+root `package.json` already lists `eslint ^10.14.0` and `@playwright/test` but not `typescript-eslint`,
+`@eslint/js` or `eslint-plugin-playwright`. Root `typescript` is aliased to `@typescript/typescript6@^6`.
+A scratch run (typescript-eslint `recommended` only, config in the scratchpad, nothing committed) over
+`tests/**/*.{ts,js}` produced 77 findings: 45 `no-explicit-any`, 30 `no-unused-vars`, 2 `prefer-const`
+(plus 1 file that yielded a null-rule parse/config message to triage). `eslint-plugin-playwright` findings
+are unmeasured (plugin not installed); Commit 12 must measure them first.
 
-* `backend/internal/services/security_config_update.go:56-70` `validate()` checks only `admin_whitelist` (`ValidateAdminWhitelist`), `crowdsec_mode` (`ValidateCrowdSecMode`) and `waf_mode` (`validWAFModes`, `ErrInvalidWAFMode`). **`waf_mode` is already validated** (shipped in #1767); the issue's `waf_mode` item is done.
-* Not checked, and written straight to the row by `applyTo` (lines 179-228): `waf_paranoia_level`, `rate_limit_requests`, `rate_limit_burst`, `rate_limit_window_sec`, `rate_limit_bypass_list`, `crowdsec_api_url`. `rate_limit_mode` is also unchecked (`writeRateLimitModeKey` treats any non-empty value other than `enabled` as off).
-* The consumers already ignore bad values quietly: `caddy/config.go:1387-1388` falls back to paranoia 1 outside 1..4; `parseBypassCIDRs` (`config.go:1511-`) silently drops invalid entries and accepts a plain IP; `buildRateLimitHandler` returns nil while a proxy threshold is `<= 0` (reported as `thresholds_unset`). So **zero means "not set" and must stay valid**; the harm is that a typo is stored and silently does nothing, and a huge number is stored.
-* The handler path: `security_handler.go:302` `UpdateConfig` -> `h.svc.ApplyUpdate`; errors go through `respondConfigUpdateError` (`security_module_writers.go:70`), where any `*services.InvalidConfigError` becomes 400 `{"error": <message>}`.
-* The Rate Limiting page already limits its inputs to requests 1..1000, burst 1..100, window 1..3600 (`frontend/src/pages/RateLimiting.tsx:208-236`), so the backend ceilings below are looser than the UI and no UI change is needed.
-* Existing tests that pin today's acceptance and must change: `backend/internal/api/handlers/security_handler_audit_test.go:454-473` (`negative_burst` and `huge_values` expect 200 "Backend accepts"). The commit must grep for any other case that sends an out-of-range value (`security_config_partial_update_test.go`, `security_config_save_pins_test.go`, `security_settings_handling_test.go`).
-* Other writers of the same columns (`SecurityService.Upsert`, used by `Disable`, `settings_handler.go:782` and the legacy handlers) copy a row that was read from the database, so they introduce no new values; they stay out of scope.
-
-### 2.2 #1770 restore broader than the change
-
-* `models.CaptureModuleState` (`models/security_module_state.go:272-313`) images **every** module and Cerberus key plus ten row columns. `RestoreSettings`/`RestoreRow` (lines 316-358) write all of them back unconditionally.
-* `restoreModuleState` (`handlers/security_module_writers.go:54`) runs after the apply, outside the writer's transaction, in two separate write-locked transactions. A concurrent admin write that landed between the writer's commit and the restore is overwritten, while that admin got a 200.
-* Four writers use it: `security_handler.go:327` (config save) and `:1210` (module toggle), `settings_handler.go:442` and `:611`.
-* The older pair is separate: `snapshotSettings`/`restoreSettings`/`snapshotDefaultSecurityConfigState`/`restoreDefaultSecurityConfigState` (`security_handler.go:1226-1300`), used only by the CrowdSec Start revert (`crowdsec_handler.go:820-866`, `crowdsec_lifecycle.go:260`). That revert has its own rule: a row Start created is kept with seed values (`crowd_sec_mode` disabled, `enabled` false) instead of being deleted, and it restores `crowd_sec_mode`, which the newer snapshot does not image.
-
-### 2.3 #1756 the four readers (verified; they differ more than the issue says)
-
-| Reader | Where | Order | Accepted spellings | Nothing stored |
-| --- | --- | --- | --- | --- |
-| Proxy (reference) | `caddy/cerberus_decision.go:19` `CerberusEnabledForProxy`; also boot via `services.ProxyCerberusCheck` | static, then default row `Enabled`, then `feature.cerberus.enabled`, then legacy `security.cerberus.enabled` (only when the feature key is absent) | `true`, any case; an empty or other value is "off" | the row or static value |
-| Status | `handlers/security_handler.go:112-145` | static, row `Enabled`, feature key, legacy key | `true`, any case; an **empty value counts as absent** | the row or static value |
-| Management middleware | `cerberus/cerberus.go:114` `IsEnabled` | **row `Enabled == false` is a hard off**, then feature key, legacy key, then static, then static heuristics (`CrowdSecMode == local`, any static module on, all-zero static config means on) | `true`, any case | the static heuristics |
-| Presets and console gate | `handlers/crowdsec_handler.go:670` `isCerberusEnabled` (5 call sites in `crowdsec_preset_handler.go`, `crowdsec_apply_jobs_handler.go`) | feature key only, then env `FEATURE_CERBERUS_ENABLED`, then env `CERBERUS_ENABLED`, then **default true** | `true`, `1`, `yes`, trimmed, any case | **on** |
-
-Three facts decide the design:
-
-0. **Key-only enablement is real.** `POST /security/cerberus/enable|disable` (`toggleSecurityModule` -> `writeModuleToggle`, `security_module_writers.go:31-47`) and the Cerberus feature toggle in `frontend/src/pages/SystemSettings.tsx:309` write only `feature.cerberus.enabled` and `security.cerberus.enabled`, never the row. A fresh install seeds the row with `Enabled: false` (`models/seed.go:14-18`). So an instance that turned Cerberus on this way is **today** ON for the proxy and the status (key beats row) and OFF for the management middleware (row hard off). Any change that makes the readers follow the row would silently turn off enforcement on such instances at upgrade; that is certain, not a possibility.
-1. **Break-glass.** `Disable` / `persistDisabled` (`security_handler.go:585-620`) writes only the row (`Enabled = false`); it does not touch the keys. The emergency reset (`emergency_handler.go:262-269`) deliberately leaves the Cerberus keys alone. The "row false is a hard off" rule in `IsEnabled` is therefore the fail-safe that makes `/security/disable` work on the management API, and the comment at `cerberus.go:115-117` says so. The gap is on the write side: because `Disable` leaves the keys alone, a stale `feature.cerberus.enabled=true` keeps the proxy and the status ON after a break-glass disable. Making the middleware follow the proxy rule instead would leave the middleware on too.
-2. **The presets gate is a different question.** A fresh install seeds the default row with `Enabled: false` (`models/seed.go:14-18`) and no key, so `isCerberusEnabled` answers on (default true) while the proxy rule answers off. Presets and the console work before the suite is switched on; folding this reader into the proxy rule would make those endpoints refuse on a fresh install.
-
-### 2.4 #1773
-
-`tests/utils/security-helpers.ts:160-215` `captureSecurityState` records effective booleans from `/security/status`; `restoreSecurityState` (lines 179-215) writes a concrete `true`/`false` key through `setSecurityModuleEnabled` when the effective value differs, so a key that was absent before can remain after. `tests/utils/security-settings-api.ts` (#1767) already has the right helpers: `snapshotSecurityState` (261), `restoreSecurityState` (274, row first, switches via `restoreModuleSwitches`), `captureModuleSwitches` (137), `restoreModuleSwitches` (157), `expectModuleSwitchesRestored` (174). Importers of the old pair: `waf-`, `acl-`, `combined-`, `rate-limit-` and `crowdsec-enforcement.spec.ts` (each calls `captureSecurityState` in `beforeAll` and `restoreSecurityState` in `afterAll`), `zzzz-break-glass-recovery.spec.ts` and `tests/crowdsec-whitelist.spec.ts` import other names from the same file. `security-settings-api.ts` does not import `security-helpers.ts`, so there is no import cycle.
-
-### 2.5 #1774 docs (each statement verified against code)
-
-| Statement | Finding |
-| --- | --- |
-| `docs/cerberus.md:874` roadmap row 1 "WAF placeholder + metrics" | Stale: the WAF is the Coraza engine with rule sets (the page says so at line 161). Reword. |
-| `docs/cerberus.md:878` row 5 "CrowdSec local agent: Planned" | Stale: the local engine ships and is GUI-controlled (lines 144, 273). Mark complete. |
-| `docs/cerberus.md:195-203` Prometheus section | Only `IncWAFRequest` has a caller (`cerberus/cerberus.go:186`, inside the management API middleware), so `charon_waf_requests_total` counts requests to Charon's own API, not proxied traffic. `IncWAFBlocked` and `IncWAFMonitored` (`metrics/metrics.go:45-49`) have **no callers**, so the blocked and monitored series stay at 0. The section and its "Total requests evaluated" text are wrong. |
-| `docs/api.md:1460` "when rate limiting is implemented" | Stale: rate limiting is implemented. Verify what the live-log websocket route is actually subject to (the management API limiter, `internal/ratelimit/http.go`) and reword. |
-| Burst row in the rate-limiting table | `docs/features/rate-limiting.md:18` and `:45` already say the burst is for the management interface. `docs/cerberus.md:231` says "a burst of 20" without that qualifier. Verify and add the qualifier if missing; no change if the table is already correct. |
-| Rule set files with their own `SecRuleEngine` line | Confirmed in `caddy/manager.go:420-436`: the engine line (and `SecRequestBodyAccess`) is prepended only when the content has no `secruleengine` (case-insensitive), so a rule set carrying its own line keeps it whatever its mode or the saved WAF mode. `docs/cerberus.md:163,193` describe the mode as always governing. |
-| 429 response, and where detection hits are logged | Unverified in code (the rate limiter is a Caddy plugin; the log classification is `services/log_watcher.go:254`). Verified by the container gate below, not by reading. |
-
-### 2.6 #1741
-
-`proxyHosts.source.local`, `.localUnavailable`, `.localUnavailableHint` exist in `en` and are used by `frontend/src/components/ProxyHostForm.tsx:777,778,792`. They are missing in `de`, `es`, `fr`, `zh` (a script comparing the full `proxyHosts` subtree against `en` finds exactly these three keys in each, nothing else, and no extra keys). The parity test `frontend/src/__tests__/i18n.test.ts:68-98` has a root list (`it.each([...])`) that does not include `proxyHosts`; adding that one root closes the gap for the whole subtree.
-
-### 2.7 #1701
-
-`TestRealCommandExecutor_Execute_OutputLimit` (`backend/internal/api/handlers/crowdsec_cscli_contract_test.go:754`): the wall-clock bound was already widened from 4 s to 15 s in `1519c8c37`, so the flake the issue describes is mitigated but still a timing assertion. More importantly `largeOutputScript` (line 738) ends in `; fx sleep 5`. `fx` is not a shell command (`which fx` finds nothing), so the script exits with "not found" right after the output instead of idling, and the test cannot show that the executor's own limit (rather than the end of the command) stopped it, which is the stated intent of the helper comment. It looks like a typo for `exec sleep`.
-
-### 2.8 Drift against the batch 5 spec and the issues
-
-* #1761: `waf_mode` already validated (2.1). #1756: "a raw query where an empty value means absent" is the status handler (`security_handler.go:131`), and `cerberus_decision.go` exists as the issue says. #1741 and #1773 match. #1701's bound is already 15 s. Batch 5 C4/U1 rows describe the same four readers; its note (3n, M6) that the four reads are "not unified" is exactly this work.
+Open PRs: none (`gh pr list --state open` is empty). Remote branches ahead of `development` that touch
+affected paths: `origin/l10n_development` (Crowdin, 28 locale files; we do not edit locales, so no conflict)
+and `origin/chore/release-please-migration` (1 file in the watched set, stale since 2026-08-17).
+Every other remote branch is already merged or identical to development for these paths.
 
 ## 3. Priorities & Ordering
 
-No finding here is critical or high, and none is user-submitted, so the CLAUDE.md rules give: bug fixes before any `feat` (there is no `feat` in this work), medium/low items scheduled after, highest value first.
+Findings and what happens first:
 
-| Order | Item | Why this position |
+| # | Item | Class | Priority | Handling |
+| --- | ------ | ------- | ---------- | ---------- |
+| 1 | `security/detect-unsafe-regex` (3), `detect-non-literal-regexp` (4) | security linter | High within this PR | Fixed first among manual work (Commit 6), per #1743's own advice |
+| 2 | a11y: label association 45, interactions 27, autofocus 3, heading 2, aria props 2 | real user-facing defects | High | Fixed (Commit 7 and 8), not waived |
+| 3 | Makefile `--timeout=25m` | tooling bug (reproducible exit 4) | Medium, trivial | Commit 1, independent |
+| 4 | Root `tests/` has no lint | tooling gap, bug-fix class (#1716/#1820 are user-filed) | Medium | Commit 12 to 13 |
+| 5 | react-hooks compiler rules (53 total) | correctness, behavior-affecting | Medium, riskiest | Fixed last, one cluster per commit with tests (Commit 9 to 11) |
+| 6 | Mechanical style (import order, ternary, undefined, type imports) | style | Low | Auto-fix commits first (Commit 2 to 4) |
+| 7 | Test-hygiene rules (testing-library, vitest) | test quality | Low | Commit 5 plus the Decision 1 outcome |
+| 8 | 23 `identical-keys` | external sync (Crowdin) | Not a defect | Config split, Commit 14, no locale edits |
+
+Rule applied: this is our own tooling/quality work (the three issues are filed chores, not user-reported
+product bugs), and there is no new `feat`. There are no critical/high out-of-scope findings. No security
+advisory is implied: the regex findings are lint-level (validated input in `cron.ts`/`validation.ts`;
+Commit 6 measures them with an adversarial-input test before deciding fix vs. proof-of-safety). If that
+measurement shows a real ReDoS on user-controlled input, stop, file a private advisory per `SECURITY.md`
+and ship the fix as its own PR with a vague `fix(security):` subject.
+
+Out-of-scope findings discovered during the sweep: file a GitHub issue immediately (CLAUDE.md triage).
+Already known and to be filed if the user picks the matching option: the `no-node-access` residual
+(Decision 1, option B).
+
+## 4. Decisions and Recommendations
+
+### Decision 1: per-rule disposition
+
+| Rule (count) | Disposition | Rationale and evidence |
 | --- | --- | --- |
-| 1 | **#1761** value checks | The only real validation gap: an admin typo or a script is stored and silently does nothing (or stores 999999999). Smallest blast radius, clearest fix. |
-| 2 | **#1770** narrow the restore | A silent lost update: a concurrent admin write is overwritten while that admin saw 200. Rare (needs a refused apply plus a concurrent write) but data loss without any signal. |
-| 3 | **#1756** the suite switch | Pins, a shared value parser and the write-side Disable fix; no reader rule changes. The only behavior change is for an admin pressing Disable. |
-| 4 | **#1741** translations | User-visible (English fallback for four maintained locales) but cosmetic. |
-| 5 | **#1773** helper restore | Test hygiene; can leave a concrete key behind and make later specs order-dependent. |
-| 6 | **#1701** timing assertion and `fx` typo | Flake and a vacuous check. |
-| 7 | **#1774** docs | Last, because it describes the shipped code (including the PR 19 ranges). |
-| After | **#1840** WAF unprotected count | Low, WAF, a separate path; next small `fix:` after PR 20. |
-| Parked | #1743 (lint sweep with #1716, #1820); #1776 (does not reproduce) | Excluded as instructed. |
+| `import-x/order` (148), `import-x/no-duplicates` (24) | Auto-fix (125 + 12 fixable), hand-fix the remaining ~35 | Pure formatting; the unfixable ones are mostly type-import grouping |
+| `consistent-type-imports` (13) | Hand-fix (not auto-fixable here) | Mechanical |
+| `unicorn/prefer-ternary` (48), `no-useless-undefined` (16), `prefer-includes` (1), `sonarjs/prefer-immediate-return` (1) | Auto-fix, review diff | Touches production code, so vitest `related` must run |
+| `testing-library/prefer-find-by` (115) | Auto-fix 21, hand-fix ~94 | Real test hygiene: `await waitFor(() => getBy...)` to `await findBy...`; same semantics |
+| `testing-library/no-unnecessary-act` (18), `render-result-naming-convention` (15), `no-manual-cleanup` (2), `no-wait-for-multiple-assertions` (1), `vitest/expect-expect` (8) | Hand-fix | Small. `expect-expect`: add the missing assertion, or register the helper via `assertFunctionNames` if it wraps `expect` |
+| `testing-library/no-node-access` (734 in 84 files, with `no-container` 44) | **Recommended: option B, scope down for tests, with a tracking issue.** See below | |
+| `jsx-a11y/label-has-associated-control` (45) | Fix | Real defect: e.g. `ProxyHostForm.tsx:767` is a `<label>` with no `htmlFor`/nesting, so screen readers and `getByLabelText` cannot associate it. Fix with `htmlFor` + `id` (use `useId`) |
+| `no-static-element-interactions` (14), `click-events-have-key-events` (13) | Fix | e.g. `CertificateCleanupDialog.tsx:26-30`: modal backdrop `onClick={onCancel}` and an inner `stopPropagation` div. Fix by giving the overlay `role="presentation"`, the panel `role="dialog" aria-modal`, and Escape handling (check whether the repo already has a shared dialog primitive and reuse it, DRY) |
+| `jsx-a11y/no-autofocus` (3) | Fix | All in `CrowdSecConfig.tsx` modals (e.g. `:1756` ban-IP input). Replace the attribute with ref-based focus on open (`useEffect` + `ref.focus()`), preserving the focus-on-open UX |
+| `jsx-a11y/heading-has-content` (2), `role-has-required-aria-props` (2) | Fix | Real a11y |
+| `security/detect-unsafe-regex` (3) | Keep patterns, prove linear, reasoned inline disable (the one explicit exception to "no waivers") | `utils/cron.ts:29`, `utils/validation.ts:10`, test `crowdsecPresets.test.ts:19`. Add a long-adversarial-input test; if linear time, keep the pattern with a justified inline disable (preferred removal: rewrite with split/Number parsing, for `isIPv4` and cron fields) |
+| `security/detect-non-literal-regexp` (4) | Fix | All in tests/setup: escape input with a shared `escapeRegExp` helper (or use string matchers); 1 in `src/test/setup.ts` |
+| `react-hooks/set-state-in-effect` (37 findings in 27 files; only 4 in `src/hooks`: `useBackups` x3, `useMediaQuery` x1) | Fix (no waivers planned; `useMediaQuery` uses `useSyncExternalStore`) | Examples: `CertificateList.tsx:41` prunes `selectedIds` in an effect when `certificates` changes (derive instead); form components reset state from props (use `key` or derive during render). Each cluster gets tests. Last-resort inline disable only for a genuine external-system sync, listed in the PR description with a reason |
+| `react-hooks/static-components` (3), `immutability` (3), `purity` (2), `globals` (1, in test file `AuthContext.test.tsx:125`), `incompatible-library` (2), `exhaustive-deps` (1) | Fix | `CertificateList.tsx:185` component created in render (`SortIcon`), `CrowdSecConfig.tsx:128` and `ManualDNSChallenge.tsx:246` use `Date.now()` in render. For `incompatible-library` (TanStack/RHF style APIs), a one-line disable with reason is acceptable only if the library is the cause |
+| `promise/always-return` (2), `sonarjs/no-identical-functions` (2) | Fix | Trivial |
+| `i18n-json/identical-keys` (23) | See Decision 2 | |
 
-PR 19 carries 1-3, PR 20 carries 4-7. #1756's commits (4 to 6) are separable from the rest of PR 19; nothing else waits on them.
+**`no-node-access` evidence.** All 734 hits share one message. Samples:
 
-**Findings made while planning (not rolled into these PRs):**
+- `AccessListForm.test.tsx:102` `getAllByRole('button').find(b => b.querySelector('.lucide-x'))`: finding an
+  icon-only button by its SVG class. The correct fix is to give the button an accessible name
+  (`aria-label`), which is itself an a11y improvement, then `getByRole('button', {name})`. That edit touches
+  product code.
+- `ProxyHosts-coverage*.test.tsx` (54 hits in one file) are "coverage" tests that assert on DOM structure
+  and classes, not user behavior.
+- A hand rewrite of 734 sites across 84 files is realistically a multi-day, high-churn change whose payoff
+  is test style, with a real risk of weakening assertions and lowering branch coverage (85.6% vs 85%).
 
-* Unused metrics `IncWAFBlocked`/`IncWAFMonitored` and the two series they feed (2.5): low, file a GitHub issue after PR 20 (dead code vs documenting; Q3). PR 20 documents the truth without touching the metric surface.
-* `/security/disable` leaves the Cerberus keys untouched, so a stale key `true` keeps the proxy and the status on after a break-glass disable. This is an admin-only completeness gap with no external leverage (Supervisor judgment), fixed in PR 19 commit 6; no advisory.
+Options:
 
-## 4. Technical specification
+- A. Rewrite all 734 (plus 44 `no-container`) by hand over about 10 test-only commits. Cleanest end state,
+  highest risk and review cost, may also require product `aria-label` additions.
+- **B (recommended).** Turn `no-node-access` and `no-container` to `off` in the test override, with a
+  comment stating the rationale, and file one tracking issue listing the 84 files and the preferred
+  replacement patterns (accessible names, `within`, `getByLabelText`). Fix opportunistically any such hit
+  in a file that another commit in this PR already rewrites, then re-measure. Rationale: 84 files of
+  legacy structural tests are low-value to churn in a lint PR; the rule remains valuable for new tests, so
+  scope it with a path-based override (`warn` for everything outside a named legacy glob list generated
+  from the 84 files, `off` for those) rather than a global `off`. This keeps the signal for new test files
+  and lets the legacy list only shrink.
+- C. Leave at `warn` and absorb in the ratchet baseline. Rejected: it makes `--max-warnings 0` impossible.
 
-### 4.1 PR 19, #1761: value checks
+Decision (approved): option B. File the tracking issue at the start of the PR (Commit 1 time); generate the
+legacy glob list from the lint JSON rather than by hand.
 
-All in `backend/internal/services/security_config_update.go` plus a small helper move in `security_config_validation.go`.
+### Decision 2: the 23 `i18n-json/identical-keys` findings
 
-* Exported limits (so the tests and the docs quote one source): `MaxWAFParanoiaLevel = 4`, `MaxRateLimitRequests = 100000`, `MaxRateLimitBurst = 10000`, `MaxRateLimitWindowSec = 86400`. Minimum for the three rate-limit numbers is 0 (0 = not set, unchanged meaning); `waf_paranoia_level` is 1..4 (the model comment `models/security_config.go:32` and `caddy/config.go:1387` already say so). Ceilings are deliberately above the UI's (1000/100/3600) so an API or script user is not boxed in.
-* `rate_limit_bypass_list`: every comma-separated entry, trimmed, blank entries skipped, must be an IP or a CIDR. Extract the loop in `ValidateAdminWhitelist` into `validateAddressList(list string, errOnBad error) error` (DRY, second use) and add `ErrInvalidRateLimitBypass` ("rate_limit_bypass_list must be a comma-separated list of IP addresses or CIDR ranges"). The empty string stays valid and clears the list.
-* `crowdsec_api_url`: empty, or an absolute http/https URL with a host (reuse `isHTTPURL`, `security_config_update.go:98`). `ErrInvalidCrowdSecAPIURL`. Checked whether the value feeds outbound requests: it does not. The row column is only stored (`models/security_config.go:28`, copied in `Upsert`); the static `config.CrowdSecAPIURL` is documented "ignored: CrowdSec readers always use the local engine address" (`config/config.go:82`) and every CrowdSec client uses `crowdsec.LocalLAPIURL`. So the SSRF validator (`security/url_validator.go`) is not needed here, and `isHTTPURL` is the right size check (stored-value hygiene). A test pins that no code path reads the column for a request (grep result recorded in the commit message body, not a runtime test).
-* `rate_limit_mode` (decided, Q4): exactly the lowercase values `""`, `"disabled"`, `"enabled"`. The proxy compares with `==` (`caddy/manager.go:733`) while the resolver uses `EqualFold` (`models/security_modules.go:105`), so `Enabled` would be on in one and off in the other; accepting only lowercase removes that. The check runs on the incoming `RateLimitMode` **whenever it is present, whatever `rate_limit_enable` carries**: `applyTo` (lines 197-206) passes any non-empty mode through `ResolveRateLimitMode` when `rate_limit_enable` is false, so `{rate_limit_enable: false, rate_limit_mode: "garbage"}` would otherwise store garbage. Test that exact payload.
-* The new numeric/URL/list checks run in a `checkValues(stored models.SecurityConfig)` method called next to `u.checkRulesSource(tx, before)` (line ~283), inside the write transaction and before any column is written, so a refused save stores nothing. For each field: skip the check when the incoming value equals the stored value (the echo rule), so a row that already holds an old out-of-range value never makes an unrelated or echoed save fail. **New row rule:** when the row does not exist (`!exists`, `before = newSecurityConfigRow(name)`, paranoia 1, everything else zero), the stored values are those defaults, so a first save of `waf_paranoia_level: 0` is refused (0 is not 1, and not equal to the default 1), while `rate_limit_*: 0` equal the zero defaults and pass. Test both on a missing row.
-* **Second writer check (done):** `settings_handler.go` (~372 and ~577) writes only `admin_whitelist`, through `syncAdminWhitelist` -> `SecurityService.Upsert` on a row it just read, so it cannot introduce a rate-limit, paranoia, bypass-list or URL value. `ApplyUpdate` is the only writer of those columns that takes new values.
-* Errors are wrapped in `*InvalidConfigError`, so `respondConfigUpdateError` already answers 400 `{"error": "<message>"}`; no new response codes, no frontend change, no locale keys (this is why PR 19 has no frontend or translation work and the frontend coverage margin is untouched).
+Investigated. They are not typos or stray keys. `en/translation.json` has 2215 leaf keys; 23 of the 27
+other locales have 2143 (exactly 72 keys behind, identical gap in every one), and `de`, `es`, `fr`, `zh`
+are complete. A key diff of `en` vs `af` shows the 72 are all present in `en` only (CrowdSec hub install
+progress, `wafConfig.rulesSource`, `security.enforcement.*`, `crowdsec.errors.*`, etc.): new English
+strings added by recent features that Crowdin has not translated yet. There are no extra keys in any
+locale. i18next falls back to `en`, so this is intended behavior and the config comment already says so.
 
-### 4.2 PR 19, #1770: restore only what the writer touched
+Recommendation: do not touch locale files (Crowdin would see copied English as "translated"; the open
+`l10n_development` branch edits these files). Split locale linting from code linting:
 
-Models change (`backend/internal/models/security_module_state.go`):
+- `lint` script: `eslint . --ignore-pattern 'src/locales/**' --max-warnings 0 --report-unused-disable-directives`.
+- New `lint:locales`: `eslint src/locales` (JSON validity and placeholder parity stay `error` and blocking;
+  `identical-keys` stays `warn` and informational, never gating).
+- CI and lefthook run both; only `lint:locales` errors fail. The finding count is one per locale file, so it
+  does not grow as more English keys are added, and it falls to 0 as Crowdin catches up.
 
-* Add `func (s *ModuleStateSnapshot) Seal(tx *gorm.DB) error`: called by each writer inside its transaction after its writes, it reads the current value of every imaged key and the row, stores that as the after-image, and records which keys/columns differ from the before-image (the touched set).
-* `RestoreSettings` and `RestoreRow` become compare-and-restore: for each touched key, restore the before-image only when the key's current value still equals the after-image (a key that did not exist before is deleted only if it still holds the after-image); for the row, update only the touched columns whose current value still equals the after-image. A skipped key/column logs one Warn naming the key (log-injection safe, use `logValue`).
-  * **Compare unit:** for a settings key, `Value` and `Category` only (not `ID`, `UpdatedAt` or `Type`, which a rewrite of the same value would change); for a row column, the column value.
-  * **Accepted limits, stated in the code comment and the PR body:** (1) a concurrent write that stores *the same value* as the after-image is indistinguishable from the writer's own and is overwritten by the restore; (2) the two restore transactions (settings, then row) are separate, so a concurrent write can win on the settings and lose on the row or the reverse (a mixed outcome); (3) a concurrent admin write's own proxy apply may already have applied the failed writer's values to the proxy, and the restore does not re-apply (the next apply corrects it). A test covers (2) explicitly: a concurrent write to a touched key lands between the two restore transactions and the final state is the documented mixed result.
-  * **No writer touches `crowd_sec_mode`:** `ApplyUpdate` validates `crowdsec_mode` but never stores it (`applyTo` has no such column, `security_config_update.go:14-17`), the module toggles and the settings writers do not write it, and only the CrowdSec Start path changes it. So no touched set in commits 2 contains it; commit 3 adds it to the image only for the Start revert.
-  * **Query-count pin:** I found no query-count pin for the writers. The nearest pin on a path `Seal` could affect is the apply-path default-row read count in `backend/internal/caddy/manager_cerberus_decision_test.go`; `Seal` runs in the writers' transactions, not in the apply, so it must leave that file passing unchanged. Commit 2 adds its own test that `Seal` issues one read per imaged key plus one for the row. Both still run under `services.WithWriteLock` as today, so check and write are atomic.
-* Fold the two restore transactions in `restoreModuleState` only if the existing tests allow; the comment at `security_module_writers.go:51-53` says they are separate so one failure does not undo the other, keep that.
-* Call `Seal` at the four writer sites (`security_config_update.go` end of `ApplyUpdate`'s transaction, `security_handler.go:1195` module toggle, `settings_handler.go:423` and `:535` sites).
+### Decision 3: root `tests/` linting
 
-Unifying the two helper pairs: replace `snapshotCrowdsecStart`/`revertCrowdsecStart` internals with `CaptureModuleState` (extra key `models.CrowdSecEnabledSettingKey`) and the same compare-and-restore, keep Start's special rule (a row that Start created is kept with seed values, not deleted) as an explicit option on the restore, and image `crowd_sec_mode` (add it to `securityConfigColumns`; `ApplyUpdate` never changes it, so it is never in a config-save touched set). Delete `snapshotSettings`, `restoreSettings`, `snapshotDefaultSecurityConfigState`, `restoreDefaultSecurityConfigState`, `defaultSecurityConfigSnapshot`, `settingSnapshot` when unused (CLAUDE.md: delete dead code). This is the riskiest sub-step (Start is an engine lifecycle path); it is its own commit so it can be dropped without losing the rest (Q5).
+- New standalone root `eslint.config.js` (ESM; root `package.json` has `"type": "module"`), scoped to
+  `tests/**/*.{ts,js}`. Do not extend `frontend/eslint.config.js`: it is React, testing-library, vitest,
+  CSS/JSON/markdown oriented, resolves plugins from `frontend/node_modules`, and uses
+  `import.meta.dirname` paths for locales. Sharing it would couple unrelated toolchains.
+- Plugins (new root devDependencies, exact versions pinned by `frontend-dev`/`devops` against what
+  `frontend/package.json` already uses for `@eslint/js` and `typescript-eslint`): `@eslint/js`,
+  `typescript-eslint`, `eslint-plugin-playwright` (flat `recommended`).
+- Typed linting: add `tests/tsconfig.json` (noEmit, includes `tests/**/*`, Playwright types) and enable
+  `projectService` so `@typescript-eslint/no-floating-promises` and `await-thenable` run. Missing `await` on
+  Playwright calls is the highest-value bug class in E2E code. Typed linting is the decision (the `typescript-eslint` peer range covers TypeScript 6.0.x and
+  the frontend already uses the same alias, so no peer-conflict contingency is planned). `tests/example.spec.js`
+  gets `disableTypeChecked` (or `allowJs`), and root `playwright.config.js` sits outside `tests/` and is
+  linted untyped or ignored explicitly.
+- Severity policy: correctness rules are `error` (`missing-playwright-await`, `no-focused-test`,
+  `valid-expect`, `no-floating-promises`, `no-unused-vars`, `prefer-const`); style-ish and noisy rules are
+  `warn` first (`no-explicit-any`, `playwright/no-conditional-in-test`, `no-wait-for-timeout`,
+  `no-force-option`, `no-skipped-test`, `expect-expect`). Baseline after the first run drives which warn
+  rules get fixed vs. downgraded; target is 0 errors and a stable warning budget.
+- Findings treatment: fix `unused-vars`, `prefer-const`, `any` where a real type is available (replace with
+  `unknown` + narrowing or the Playwright types); anything requiring Playwright/test-semantics judgement
+  goes to `playwright-dev`. Do not skip or delete tests; anything un-fixable gets a per-line disable with a
+  reason. Code bugs found in specs are reported back, not fixed by `playwright-dev`.
+- Wiring: root script `"lint:e2e": "eslint tests --max-warnings <N>"`; lefthook step `e2e-lint`
+  (`glob: "tests/**/*.{ts,js}"`, runs `npx eslint {staged_files}` from repo root); new CI job `e2e-lint` in
+  `quality-checks.yml` (path-filtered to `tests/**`, `eslint.config.js`, root `package.json`/lockfile),
+  root `npm ci --ignore-scripts`, `npm run lint:e2e`. Blocking from day one (note: a path-filtered job cannot be marked a required status check without an always-run wrapper job; if branch protection should require it, add that wrapper) (the same commit fixes the
+  findings), unlike frontend's historical `continue-on-error`.
+- Housekeeping: `.dockerignore` already excludes `tests/`; add `eslint.config.js` at root to
+  `.dockerignore` if it is not covered; verify `.gitignore` and `.codecov.yml` need no change.
 
-### 4.3 PR 19, #1756: shared parser, pin matrix, and the write-side fix (Q1)
+### Decision 4: `--max-warnings` ratchet
 
-**Decision (Q1, revised after review): reader behavior does not change.** The four readers keep their orders. Three things ship instead:
+- Frontend `lint` ships with `--max-warnings 0` in the last code commit, and the CI step loses
+  `continue-on-error: true` in the same commit. Because everything else in the PR drives code warnings to
+  0, no residual baseline number is needed. If Decision 1 option B is chosen, the path-scoped `warn` for
+  new test files provides the forward signal and the legacy list is `off`, so the count still reaches 0.
+- Avoiding blocking other work: there are no open PRs now; nothing else needs rebasing when this lands.
+  Any branch cut before merge that adds warnings will fail lint after rebase, which is the intent; the PR
+  description tells contributors to run `npm run lint -- --fix` after rebasing. If the sweep ends with a
+  non-zero residual (e.g. a deferred cluster), set the ratchet to that exact count, not 0, and file the
+  follow-up issue; never merge with the ratchet below the actual count.
+- The two-state ratchet (frontend and root `lint:e2e`) is stored in `package.json` scripts, so tightening is
+  a one-line change reviewed in a PR.
 
-1. **Pin matrix (no behavior change).** A table-driven test that sets up each stored state and records the answer of all four readers in one place: static on/off, no row, row on/off; feature key absent/`true`/`false`/`TRUE`/`1`/`yes`/empty/garbage; legacy key likewise; both keys together. The matrix also includes the **key-only paths**: the state after `EnableCerberus` (`POST /security/cerberus/enable`, both keys true, row untouched, so a fresh install has row `Enabled=false`) and after the Cerberus feature-flag toggle that `SystemSettings.tsx:309` drives, and the same for `DisableCerberus`. Whatever it shows is committed as current behavior, including the disagreements, and the matrix documents that key-only instances are proxy ON, status ON, middleware OFF today.
-2. **Shared value parser.** One function in `models` (`parseModuleSetting` is the existing recognizer; export a Cerberus-key variant that trims and matches `true` case-insensitively) used by the proxy, status and `IsEnabled` readers for the key value. Orders, defaults and the presets gate's `1`/`yes`/env/default-on behavior stay exactly as pinned; if the shared parser would change an answer in the matrix, the parser adapts, not the reader.
-3. **Write-side completeness fix.** `Disable` / `persistDisabled` (`security_handler.go:585-640`) also writes `feature.cerberus.enabled` and `security.cerberus.enabled` to `false` (reuse `writeModuleToggle(tx, models.CerberusFeatureSettingKey, false, actor)`, the same writes `POST /security/cerberus/disable` already makes) in the same write-locked transaction as the row save, with the `CaptureModuleState`/`Seal` snapshot and `restoreModuleState` if the proxy apply fails (so it benefits from #1770). Test: stale key `true` plus Disable leaves both keys `false`, proxy decision off, status off, middleware off; a rejected apply restores keys and row. Also the localhost-without-token path and the token path.
+### Decision 5: Makefile timeout
 
-**Effect, stated plainly.** The only behavior change is for an admin pressing Disable: it now really disables the suite instead of leaving the proxy and the status on when a key says on. No reader rule changes, so **no existing instance's enforcement turns off on upgrade**, including key-only-enabled instances. An instance that already has a stale key `true` after an earlier Disable stays as it is until its admin presses Disable again.
+`lint-backend` (Makefile line 199) uses `--timeout=5m`; change to `--timeout=25m` per #1820 evidence for the
+pinned image on a cold cache. Apply the same to `lint-agent` (line 204), which has the identical failure mode,
+(DRY: define a `GOLANGCI_TIMEOUT ?= 25m` variable used by both). CI already uses 10m in the action
+(agent job `quality-checks.yml:587-588`, `--timeout=10m`) with a warm cache; leave it, and note in the commit body that CI is unaffected.
+Validation: `make -n lint-backend lint-agent` shows the new flag; actual cold-cache run is optional and
+long, run it foreground if executed.
 
-**Rejected options, kept for the record.**
-
-* (A) Row `Enabled=false` is a hard off in every reader: **rejected**, because it is a certain silent downgrade for instances enabled through the key-only paths (proxy and status go from on to off at upgrade, with no admin action). The fail-safe it was meant to give is delivered by the write-side fix instead.
-* (B) The proxy rule everywhere (key beats row): **rejected**, because it can leave the management middleware on after a break-glass disable when a stale key says on, which defeats the lockout protection `cerberus.go:115-117` documents, and it turns the middleware ON for key-only instances at upgrade.
-* The presets/console gate (`isCerberusEnabled`) stays as is (Q2): keep the name, fix its comment, pin it, share only the parser.
-* Optional, per the issue: the settings API accepts only `true`/`false` (any case) for the two Cerberus keys. Check `settings_handler.go` first; add it only if it does not already, and only as a refusal of new garbage (existing stored values keep their pinned meaning).
-
-### 4.4 PR 20
-
-* **#1773**: in `tests/utils/security-helpers.ts` make `captureSecurityState` return the `SecurityStateSnapshot` from `security-settings-api.ts` (`snapshotSecurityState`) and delete the local `restoreSecurityState`, re-exporting the shared one so the five specs keep their imports; `withSecurityEnabled` restores through it. Remove `CapturedSecurityState` if unused. Keep `setSecurityModuleEnabled` (still used to turn modules on). Add a short spec (or an assertion in `waf-enforcement.spec.ts` `afterAll`) that starts with a module key absent, runs enable then cleanup, and calls `expectModuleSwitchesRestored` to prove the key is gone again.
-* **#1741**: add the three keys to `frontend/src/locales/{de,es,fr,zh}/translation.json` under `proxyHosts.source` with real translations (the English hint contains an arrow, "Hecate -> Agent", keep the product names untranslated and the arrow); add `'proxyHosts'` to the `it.each` root list in `frontend/src/__tests__/i18n.test.ts:80`.
-* **#1701**: in `crowdsec_cscli_contract_test.go` fix `fx sleep 5` to `exec sleep 60` (exec so the kill reaches the sleeper) and keep the 30 s test context. Drop the `time.Since(start)` assertion and the unused `start`. Add `require.NoError(t, ctx.Err())` right after `Execute`: if the executor's own limit did not kill the command, the sleeper outlives the 30 s context and `ctx.Err()` is `DeadlineExceeded`, so the test fails deterministically with no wall-clock bound. Note that the error text cannot tell the two cases apart: `CombinedOutputLimited` returns `ErrOutputLimit` whenever the buffer overflowed (`crowdsec/cscli_exec.go:87-102`), even if the context also expired, which is why the `ctx.Err()` check is the assertion that matters. Keep the error-message and `len(out) < 40_000_000` assertions.
-* **#1774**: edit `docs/cerberus.md` (roadmap rows 1 and 5, Prometheus section, burst qualifier at 231 if missing, the `SecRuleEngine` note at 163/193), `docs/api.md:1460`, and `docs/api.md` near `POST /security/config` (line 131) to state the PR 19 ranges. The 429 and log statements are written from what the container gate observes. Edits are in existing files, so `docs-site` needs no manifest or nav change; never edit `docs-site/docs/`.
-
-## 5. Implementation plan and Commit Slicing Strategy
-
-Each PR is a merge commit (not squash). Commit subjects are plain; no breaking markers, no ids of advisories or findings. Dev agents run scoped tests only and in the foreground; "whole package" means the full `go test` of that package, not the repo. Cross-cutting changes (a function signature in `models`, a handler used in several files) run every package that imports the changed one (the PR 17 lesson).
-
-### PR 19 commits
-
-| # | Subject | Scope and files | Depends on | Scoped gate (foreground) |
-| --- | --- | --- | --- | --- |
-| 1 | `fix: reject out-of-range security settings values` | `services/security_config_update.go`, `security_config_validation.go`, new errors; tests in `services/security_config_update_test.go`, `handlers/security_config_partial_update_test.go`; update `handlers/security_handler_audit_test.go:454-473` and any other pin found by grep. Echo-rule cases, boundary cases (0, max, max+1, -1), bypass list (plain IP, CIDR, blank entry, bad entry), URL (empty, http, https, ftp, no host), nothing stored on refusal. | none | `go test ./internal/services/... ./internal/api/handlers/...` (whole packages: `ApplyUpdate` is used by several handler test files) |
-| 2 | `fix: restore only the settings a refused change touched` | `models/security_module_state.go` (`Seal`, compare-and-restore), four writer sites, `handlers/security_module_writers.go`; tests: touched-only restore, concurrent write to an untouched key and to a touched key kept, absent key restored by deletion, row columns, Warn logged. | 1 (same files in `ApplyUpdate`) | `go test ./internal/models/... ./internal/services/... ./internal/api/handlers/...` and `./scripts/scan-gorm-security.sh --check` (models changed) |
-| 3 | `refactor: use one snapshot for the CrowdSec start revert` | `handlers/crowdsec_handler.go`, `crowdsec_lifecycle.go`, `security_handler.go` (delete the old pair), `models` (`crowd_sec_mode` in the image, keep-created-row option). Drop if Q5 says so. | 2 | whole packages `./internal/api/handlers/... ./internal/models/... ./internal/services/... ./internal/crowdsec/...` (the Start revert is exercised from the lifecycle and the startup reconcile in `services`); the existing Start-failure and revert tests must pass unchanged |
-| 4 | `test: pin how each reader decides the security suite is on` | the matrix test (4.3 item 1) in `internal/api/handlers` (or a small helper package if the import graph needs it), including the `EnableCerberus`/`DisableCerberus` key-only paths and the feature-flag toggle; no production change | none (can precede 1) | the new test; no behavior change, so the other packages need not rerun |
-| 5 | `refactor: read the security suite switch value one way` | `models/security_modules.go` (exported Cerberus-key value parser), `caddy/cerberus_decision.go`, `handlers/security_handler.go` status, `cerberus/cerberus.go`, comment on `crowdsec_handler.go:669`. Orders and defaults unchanged; the commit 4 matrix passes unmodified. | 4 | `go test ./internal/... ./cmd/...` (`Cerberus.IsEnabled` and `ProxyCerberusCheck` are used from `cmd/api/main.go:249`, `services/crowdsec_startup.go` and the handlers, so every importer runs) |
-| 6 | `fix: make the break-glass disable switch the security suite off everywhere` | `handlers/security_handler.go` (`Disable`, `persistDisabled`: also write the two Cerberus keys false in the same write-locked transaction, snapshot and restore on a failed apply); tests per 4.3 item 3; the matrix gains the post-Disable rows. | 2, 4, 5 | `go test ./internal/... ./cmd/...` (same reason as commit 5) |
-| 7 | `docs: describe the allowed security settings values` | `docs/api.md` ranges; `docs/cerberus.md` one sentence that Disable now also switches the Cerberus keys off | 1, 6 | `npm run lint:md` on the touched files |
-
-Suggested order of execution: 1, 2, 3, 4, 5, 6, 7. Commit 4 is independent and may go first if the matrix should be reviewed before any change. Commit 3 is droppable (Q5); if it is dropped, nothing after it changes.
-
-**PR 19 definition-of-done and container gate (run once by `qa-security`, not by the dev agents):** full backend suite and `scripts/go-test-coverage.sh` (85%), `scripts/local-patch-report.sh`, GORM scan (models changed), lefthook, `go build ./...`. The change adds validation but no new endpoint or UI, so the local CodeQL/Trivy scans are deferred to CI (`fix:` scope, no new feature surface). Container gate on a throwaway container built from the branch image (unique container and network names, never the live `charon`, own data volume): (a) `POST /security/config` with `waf_paranoia_level` 0, 5, 99, `rate_limit_requests` -1 and 100001, `rate_limit_burst` -1, `rate_limit_window_sec` 86401, `rate_limit_bypass_list` `not-an-ip`, `crowdsec_api_url` `ftp://x` -> each 400, row unchanged (read with `docker exec ... sqlite3 -readonly`); (b) boundary and ordinary values 200; the Rate Limiting page save at 1000/100/3600 still works in the UI; (c) a save that echoes the row read from `GET /security/config` returns 200; (d) failed-apply restore, with the proxy rejection **forced explicitly**: create a proxy host whose `advanced_config` carries a handler name Caddy's config load refuses (for example `[{"handler":"charon_no_such_handler"}]`), after setting it through the API if the API accepts it; if the API validates that field, fall back to making the Caddy admin endpoint unreachable by stopping the Caddy process inside the throwaway container just before the save (restart it afterwards). Use whichever the PR 17 container gate used (see `docs/reports/qa_report.md` history) and record the method in the gate output. Then change one module through `POST /security/config` and confirm the response is the apply failure (500) and that only that module's key (and only its touched row columns) returned to the prior state, while a second write made through a parallel request before the restore is kept; (e) if commit 3 is in: CrowdSec Start with the engine binary unable to start reverts the row and keys as before (compare against the base image run); (f) upgrade scenarios, run on the base image and on the branch image with the same data volume and compare: (i) fresh install; (ii) suite enabled through the key-only paths (`POST /security/cerberus/enable`, and the Cerberus feature toggle on the System Settings page), which leaves the row `Enabled=false`: the status and a proxied request (an ACL or WAF block) must be identical on both images (proxy ON, status ON, management middleware OFF today), proving no enforcement turns off on upgrade; (iii) suite enabled through the Security page (row and keys true); (iv) stale key `true` with row `Enabled=false`, then `/security/disable` from localhost: on the base image the proxy keeps enforcing, on the branch image the proxy stops enforcing, the status shows off and the keys read `false`; (v) the same Disable with a rejected apply (method from (d)): keys and row return to the prior state; (vi) emergency reset: unchanged on both images.
-
-### PR 20 commits
-
-| # | Subject | Scope and files | Depends on | Scoped gate (foreground) |
-| --- | --- | --- | --- | --- |
-| 1 | `test: stop a timing check and a typo from weakening the output limit test` | `crowdsec_cscli_contract_test.go` (4.4) | none | `go test ./internal/api/handlers -run 'TestRealCommandExecutor_Execute_OutputLimit' -count=5`, then the whole package once |
-| 2 | `fix: add the missing local-host labels to the German, Spanish, French and Chinese translations` | four `translation.json` files, `i18n.test.ts` (add `proxyHosts` root) | none | `cd frontend && npx vitest run src/__tests__/i18n.test.ts`; the test fails before the JSON change, passes after; `npm run type-check` |
-| 3 | `test: restore security module keys exactly after enforcement specs` | `tests/utils/security-helpers.ts`, the five enforcement specs' imports only if needed, the absent-key assertion | none | targeted, firefox only: `npx playwright test tests/security-enforcement/waf-enforcement.spec.ts --project=firefox`, then `rate-limit-enforcement.spec.ts`, then `acl-enforcement.spec.ts` (one spec per command; against a rebuilt e2e container via the `docker-rebuild-e2e` skill); no full-suite or multi-browser run locally |
-| 4 | `docs: correct the rate limiting, metrics and WAF notes` | the doc edits in 4.4, each verified as below | PR 19 merged (for the ranges) | `npm run lint:md`; `bash docs-site/scripts/sync-docs.sh && cd docs-site && zensical build --strict` when Zensical is installed locally, otherwise left to CI |
-
-**PR 20 verification for the docs commit (container, throwaway, from the PR 19 image):** (a) set rate limit 2 requests per 60 s on a proxied host, send 3: record the status of the third (expected 429) and its headers, and find where it is logged (Caddy access log, and whether `log_watcher` classifies it as `ratelimit`); (b) a rule set in Blocking mode whose content starts with its own `SecRuleEngine DetectionOnly`: send the attack request and record whether it is blocked, to confirm "keeps its own line"; (c) scrape `/metrics` after a WAF block on a proxied host and confirm `charon_waf_requests_total` does not move (only API requests count) and the blocked/monitored series stay 0. Write the docs from those observations; if an observation contradicts section 2.5, the observation wins.
-
-**PR 20 definition of done (qa-security):** frontend coverage script run once; expected unchanged because only JSON and a test file change, but the branch margin is thin (85.1% against a floor of 85%), so the QA run must report the actual number and the PR must not merge below 85. Full `vitest` run (not just the i18n file) is part of that single QA run. Backend: the handlers package once. Markdownlint clean on every touched `.md`.
-
-### Rollback and contingency
-
-* Each PR is a merge commit and each commit builds on its own, so a revert of the PR is clean. PR 19 commits 1, 2 and 6 are independent in behavior: reverting 6 restores the old Disable, reverting 3 restores the old CrowdSec revert helpers, reverting 1 relaxes validation.
-* If commit 3 shows any difference in the Start-failure behavior that the existing tests do not pin, drop it from the PR and file it as an issue instead of widening the PR.
-* Commits 5 and 6 are independent of 1-3: reverting 6 restores the old Disable, reverting 5 restores the old per-reader parsing. If Q1's recommendation is not accepted, ship 1-4 and 7 without 5 and 6.
-
-## 6. Risks and mitigations
+## 5. Risks and Mitigations
 
 | Risk | Mitigation |
 | --- | --- |
-| Validation rejects a value a real instance already stores (for example paranoia 0 from an old seed) and bricks saves | Echo rule: a value equal to the stored one is accepted; only changed values are checked. Test with a stored out-of-range row. Ceilings are above the UI's. |
-| Rate-limit zeros are valid (not set) | Minimum is 0 for the three numbers; a test pins that 0 is accepted and that `thresholds_unset` behavior is untouched. |
-| `Seal` adds queries to every module write | Two small reads per writer inside the existing transaction; no new transaction. A test pins the query count if the existing query-count pin tests exist (batch 5 "r7" mentions one for the apply path). |
-| Compare-and-restore skips a restore the user expected (concurrent write won) | Intended and logged at Warn; the response is still the apply failure, and the stored state is the newer admin write, which the issue asks for. |
-| Replacing the CrowdSec Start revert helpers changes engine lifecycle behavior | Own commit, existing revert tests unchanged, container gate (e), droppable. |
-| Changing a reader's rule would silently turn off enforcement on key-only-enabled instances (certain, not a possibility) | No reader rule changes (Q1). The matrix pins the key-only states; container gate (f)(ii) compares base and branch on the same data volume. |
-| Disable now writes the keys, so a later admin sees the suite off in more places | Intended: it is what Disable means. Only an admin pressing Disable is affected; no upgrade-time change. Documented in `docs/cerberus.md`. |
-| Folding the presets gate into the proxy rule would refuse presets on a fresh install | Not folded (Q2). |
-| `docs/api.md` is edited by PR 19 commit 6 and PR 20 commit 4 | Different sections; merge PR 19 first and rebase PR 20. |
-| Frontend branch coverage margin is thin (85.1% against 85%) | PR 19 touches no frontend. PR 20 touches no instrumented source. QA reports the real number; no frontend source change is planned, and any that creeps in must come with tests. |
-| New locale text is machine-quality | Short labels; ask a native-speaker review in the PR description is not required, but the strings reuse terms already in each locale file (for example the translation of "Docker", "Agent"). |
-| The Playwright helper change breaks the other importers | Keep the exported names; run the three specs listed, and let CI run the full suite. |
+| Frontend branch coverage 85.6% vs 85% floor; test rewrites could drop it | Test rewrites are mechanical (`findBy`, `act` removal, renames); each commit's gate runs only the touched vitest files, and `qa-security` runs the full coverage script once at the end. Any commit that deletes assertions is rejected in review. Do not remove tests or `.skip` anything |
+| Sweep touches ~250 files; review fatigue | Slice by rule group and directory (Section 7), mostly mechanical commits with the exact `eslint --fix` command recorded in the commit body so a reviewer can reproduce the diff |
+| `--fix` changes semantics (`prefer-ternary` on side-effecting branches, `no-useless-undefined` on explicit `undefined` args) | Review diffs; `vitest related` on changed source files; `tsc --noEmit` |
+| React-compiler fixes alter render timing | Isolated commits, one component cluster each, with new/extended tests asserting the previous behavior (selection pruning, form reset on prop change, countdown/starting-cache timing) and targeted Playwright runs for `ProxyHostForm`, `CertificateList`, `UsersPage` flows |
+| Lefthook `frontend-lint` lints the whole tree, so a single stray warning blocks every frontend commit once `--max-warnings 0` lands | Intended post-sweep; release note in PR; Renovate `deps:` PRs touching frontend run the same check in CI |
+| `eslint --fix` import reorder fights `prettier` or editorconfig | Run `npx prettier --check` on touched files if the repo gates on it; otherwise none |
+| Merge conflicts | None open. `l10n_development` only edits locales, which this PR does not touch. Keep the PR short-lived and rebase on `development` before each remaining commit |
+| Autofocus fix regresses modal focus UX | Test that the input is focused after open (RTL `toHaveFocus`) and a targeted Playwright run on the CrowdSec ban modal if a spec exists |
 
-## 7. Open questions (with recommendations)
+## 6. Technical Specifications (per area)
 
-* **Q1 (decided in review, confirm). #1756 without changing any reader.** The row `Enabled=false` hard off exists only in the management middleware, and instances enabled through key-only paths (`POST /security/cerberus/enable`, the System Settings toggle) have the row off today, so making readers follow the row (A) or the key (B) is a certain silent change in enforcement at upgrade. **Recommendation: change no reader.** Ship the pin matrix, the shared value parser, and make `/security/disable` also write the two Cerberus keys false so the break-glass reaches the proxy and the status. Only an admin pressing Disable sees a change (it now really disables); no existing instance's enforcement turns off on upgrade. A and B are documented as rejected in 4.3.
-* **Q2. Is the presets/console gate part of the unification?** **Recommendation: no.** It answers a different question (the suite is not explicitly switched off) and defaults to on, so presets and console work on a fresh install before the suite is on. Keep it, fix its comment, pin it, share only the parser. Tell me if you want it folded; the cost is that presets refuse until the suite is on.
-* **Q3. The never-incremented `IncWAFBlocked` / `IncWAFMonitored` series.** **Recommendation:** document that they stay at 0 in PR 20 and file a low issue to remove or really wire them; do not change the metric surface in these PRs.
-* **Q4 (decided). `rate_limit_mode`:** exact lowercase empty/`disabled`/`enabled`, validated whenever the field is present (including with `rate_limit_enable: false`). Listed so the decision is visible; no action needed from you.
-* **Q5. Fold the CrowdSec Start revert onto the shared snapshot (PR 19 commit 3)?** The issue asks for it and it deletes ~80 lines of duplicate code, but it touches engine lifecycle. **Recommendation: yes, as its own droppable commit** with the container check; drop it if anything differs.
-* **Q6. Backend ceilings (100000 requests, 10000 burst, 86400 s window).** **Recommendation:** keep them generous and above the UI; tell me if you prefer them equal to the UI's 1000/100/3600.
-* **Q7. Two PRs or one?** **Recommendation: two** (section 1). One PR would put a security-surface change and eight low-risk test/doc/locale edits behind the same container gate and review.
+No API, DB or schema changes. File-level contract changes:
 
-## 8. Public Text
+- `frontend/eslint.config.js`: test override gains `assertFunctionNames` if needed; Decision 1 option B
+  adds a legacy-glob override; locales block unchanged (`warn` for identical-keys); `react-hooks` map stays
+  `warn` until Commit 11 flips the cleared rules to `error` so they cannot regress.
+- `frontend/package.json`: `lint`, `lint:locales` scripts (Decision 2 and 4).
+- Root: `eslint.config.js`, `tests/tsconfig.json`, `package.json` (`lint:e2e` + devDeps) and lockfile,
+  `lefthook.yml` (`e2e-lint`, `frontend-lint` also runs `lint:locales`), `.github/workflows/quality-checks.yml`
+  (new `e2e-lint` job; frontend lint blocking), `Makefile`.
+- Possible new shared test helper `frontend/src/test/escapeRegExp.ts` (Commit 6) and, if no shared dialog
+  primitive exists, a small `useDialogA11y` style helper (decided by `frontend-dev` after a code search;
+  reuse before adding, per DRY).
+- Docs: `CONTRIBUTING`/`docs/` lint section if one exists (search `docs/` for "npm run lint"); no
+  `ARCHITECTURE.md` change expected unless the directory/CI structure statement mentions lint steps.
 
-Neutral, plain subjects; no breaking markers; no advisory or finding ids; nothing that describes a weakness.
+## 7. Implementation Plan: Commit Slicing Strategy
 
-**PR 19 title:** `fix: check security settings values and keep a refused change from overwriting newer ones`
-**PR 19 body:** Admin-saved security settings now have allowed ranges (WAF paranoia level, rate limit numbers, the bypass list, the CrowdSec API address). A value already stored is still accepted when it is saved back unchanged. When the proxy refuses a security change, only the settings that change touched are put back, and a newer change made in the meantime is kept. Pressing Disable now switches the security suite off for the proxy and the status as well as the management interface. Includes tests and the container checks listed in the plan.
+Decision: single PR (`chore/lint-sweep-1743` into `development`), ordered logical commits. Commit prefixes
+(approved): `fix:` for Commits 7 and 8a (real a11y defects; and Commit 6 only if a pattern changes behavior);
+`refactor:` for 3, 9, 10a, 10b, 11; `test(frontend):` for 4 and 5; `chore:` for the Makefile, root lint
+config, CI/lefthook and docs. None qualify for `(security)`. No session ID or attribution lines in commit
+messages or PR body.
 
-Commit subjects (section 5): `fix: reject out-of-range security settings values`; `fix: restore only the settings a refused change touched`; `refactor: use one snapshot for the CrowdSec start revert`; `test: pin how each reader decides the security suite is on`; `refactor: read the security suite switch value one way`; `fix: make the break-glass disable switch the security suite off everywhere`; `docs: describe the allowed security settings values`.
+Dev-agent rules for every commit: run commands foreground and blocking; run only scoped tests. Gate
+pattern (unless stated): `cd frontend && npx eslint <touched paths> --max-warnings 0 --rule` check that the
+targeted rule count in those paths is 0; `npm run type-check`; `npx vitest run --changed` or
+`npx vitest related <touched src files>` (explicit file list); no full suite, no coverage script. The
+orchestrator commits. Record the before/after count per rule in each commit body.
 
-**PR 20 title:** `fix: tidy security test helpers, translations and docs`
-**PR 20 body:** Adds the missing local-host labels to the German, Spanish, French and Chinese translations and extends the translation parity test; makes the security end-to-end helpers restore settings exactly; removes a timing assertion and a typo from a command-output test; corrects the rate limiting, metrics and WAF notes in the docs.
+Phase 1 (E2E specs as fixme): intentionally empty, see Non-goals.
 
-Commit subjects (section 5): `test: stop a timing check and a typo from weakening the output limit test`; `fix: add the missing local-host labels to the German, Spanish, French and Chinese translations`; `test: restore security module keys exactly after enforcement specs`; `docs: correct the rate limiting, metrics and WAF notes`.
+| # | Commit | Scope and files | Depends on | Validation gate |
+| --- | -------- | ----------------- | ------------ | ----------------- |
+| 1 | `chore: raise golangci-lint timeout for local lint targets` | `Makefile` only (`GOLANGCI_TIMEOUT ?= 25m` used by `lint-backend` line 199 and `lint-agent` line 204). **At this point the orchestrator also files the `no-node-access`/`no-container` legacy tracking issue** (see Decision 1) with the file list generated from the lint JSON | none | `make -n lint-backend lint-agent` shows `--timeout=25m`; no Go changes; issue URL recorded in the PR body |
+| 2 | `chore(frontend): auto-fix import order and duplicates` | `eslint . --fix` limited to `import-x/order` (148; 70 in non-test source, 78 in tests), `import-x/no-duplicates` (24; 22 in non-test source); hand-fix the residual and the 13 `consistent-type-imports`. Split 2a non-test source / 2b `**/__tests__` if the diff exceeds ~80 files | 1 | those 3 rules at 0 repo-wide; `npm run type-check`; `npm run build`; `vitest related` over touched non-test sources |
+| 3 | `refactor(frontend): apply unicorn and sonar auto-fixes` | `prefer-ternary` 48, `no-useless-undefined` 16, `prefer-includes`, `prefer-immediate-return`. Mostly `Notifications.tsx`, `UsersPage.tsx`, `Uptime.tsx`, `ProxyHostForm.tsx`, `CertificateList.tsx`, `useImport.test.tsx`. **Adds tests for any new branch an auto-fix introduces** (e.g. both arms of a converted ternary) | 2 | rules at 0; `npm run type-check`; `vitest related` on each touched source file (explicit list); diff reviewed for side-effecting branches |
+| 4 | `test(frontend): migrate waitFor+getBy to findBy` | `prefer-find-by` 115 (21 auto-fix, rest hand). Split by directory: 4a `pages/__tests__` (Security*, SecurityHeaders ... ~65 hits), 4b `components/**/__tests__` and `hooks/__tests__` | 2 | rule at 0 in scope; edited specs green (explicit list); **`expect(` count before vs. after the diff is equal or higher** (record both in the commit body) |
+| 5 | `test(frontend): fix remaining testing-library and vitest hygiene` | `no-unnecessary-act` 18, `render-result-naming-convention` 15, `no-manual-cleanup` 2, `no-wait-for-multiple-assertions` 1, `vitest/expect-expect` 8 | 4 | rules at 0; edited specs green; same `expect(` count diff check as Commit 4 |
+| 6 | `chore(frontend): resolve regex lint findings` (becomes `fix:` only if a pattern's behavior actually changes) | `utils/cron.ts:29`, `utils/validation.ts:10` (`isIPv4`): measured as linear-time (no ReDoS), so **keep the patterns**, add an adversarial long-input test for each (bounded runtime assertion) and a reasoned inline `eslint-disable-next-line security/detect-unsafe-regex` comment. This is the one explicit exception to "no waivers" in this plan. `crowdsecPresets.test.ts:19`: same treatment or a literal-safe rewrite. The 4 `detect-non-literal-regexp` test/setup sites are fixed (shared `src/test/escapeRegExp.ts` or string matchers), not waived | none | rules at 0 (or only the reasoned disables); `vitest run src/utils src/data` plus edited specs; if any measurement unexpectedly shows super-linear behavior, STOP per Section 3 |
+| 7 | `fix: associate form labels with their controls` | `label-has-associated-control` 45 (`AuditLogs.tsx` 15, `SecurityHeaderProfileForm.tsx` 15, `ProxyHostForm.tsx` 11, `UsersPage.tsx` 2, `PermissionsPolicyBuilder.tsx`); `htmlFor` + `useId`. Add or update `getByLabelText` assertions in their specs | none | rule at 0; those components' specs green (explicit list); targeted `npx playwright test <specs for proxy hosts / audit logs / security headers> --project=firefox` |
+| 8a | `fix: make clickable overlays keyboard and screen-reader accessible` | Minimal per-overlay change: `role` + Escape + keyboard handlers for `no-static-element-interactions` 14, `click-events-have-key-events` 13, `no-autofocus` 3 (ref-based focus), `heading-has-content` 2, `role-has-required-aria-props` 2: `CertificateCleanupDialog`, `UsersPage`, `CrowdSecConfig`, `WafConfig`, `Uptime`, `ProxyHostForm`, others. **Preserve the CrowdSec modal's three-layer pointer-events structure and its existing Escape / Ctrl+Enter handling** (do not restructure). Tests cover each new branch: Escape closes, Enter/Space activates, `toHaveFocus` on open, Ctrl+Enter still submits | 7 | rules at 0; edited components' specs green; targeted Playwright (firefox) for the CrowdSec ban modal and certificate cleanup if specs exist. **`qa-security` runs `scripts/frontend-test-coverage.sh` after this commit** |
+| 8b | (OUT OF THIS PR) migrate overlays to `src/components/ui/Dialog.tsx` | The shared `Dialog` primitive already exists; moving the ad-hoc overlays onto it is a refactor with wider blast radius. Default decision: not done here; **file a follow-up issue** listing the overlays migrated in 8a | n/a | n/a |
+| 9 | `refactor(frontend): remove effect-driven state sync in hooks and theme context` | Re-derived from the lint JSON: `src/hooks/useBackups.ts` x3, `src/hooks/useMediaQuery.ts` x1 (4 in `src/hooks`) and `src/context/ThemeContext.tsx` x1. `useMediaQuery` moves to `useSyncExternalStore` (subscribe to `matchMedia`, server snapshot = false); a reasoned inline disable only if that is demonstrably wrong. `useBackups` and `ThemeContext`: derive or initialise lazily. New/extended hook tests for every new branch (initial value, change event, unmount cleanup) | none | rule at 0 in these files; `vitest run src/hooks src/context` plus the specs of consumers of `useMediaQuery`/`ThemeContext` (explicit list); **targeted firefox Playwright smoke** (theme toggle plus a responsive layout spec, since both are global). Only the 4 hooks files plus ThemeContext: not `useProxyGroupDnD` or `useStats*` (they have no `set-state-in-effect` findings) |
+| 10a | `refactor(frontend): derive form state from props instead of effects` | The 37 `set-state-in-effect` findings span 27 files; hooks/context are in Commit 9. Forms/dialogs here: `ProxyHostForm.tsx` x4, `DNSProviderForm`, `RedirectionHostForm`, `RemoteServerForm`, `ProxyGroupForm`, `CredentialManager`, `CSPBuilder`, `PermissionsPolicyBuilder`, `CrowdSecKeyWarning`, `backups/RemoteTargetFormDialog`, `backups/RestoreDialog`, `hecate/AgentExternalProxyDialog`, `hecate/AgentWriteModeDialog`, `hecate/OrthrusInstallWizard`. Use `key` resets or derive during render. Tests for each new branch | 9 | rule at 0 in these files; each component's specs green; targeted Playwright (firefox) for proxy-host create/edit |
+| 10b | `refactor(frontend): derive list and page state instead of syncing in effects` | `CertificateList.tsx` (**first add a test pinning the current `selectedIds` retain/prune behavior when `certificates` changes, then change it; prefer a derived-at-use filter over state** so the effect disappears), `crowdsec/AlertsList`, pages: `UsersPage` x4, `CrowdSecConfig` x2, `Logs` x2, `EncryptionManagement`, `RateLimiting`, `SMTPSettings`, `Setup`, `SystemSettings`. Tests for each new branch | 10a | rule at 0 repo-wide (`set-state-in-effect`); specs green; targeted Playwright (firefox) for certificate list and users flows |
+| 11 | `refactor(frontend): resolve remaining React compiler diagnostics` | `static-components` 3 (`CertificateList` `SortIcon` x2, `SystemSettings`), `immutability` 3 (`CredentialManager`, `DNSProviderForm`, `ProxyHostForm`), `purity` 2 (`CrowdSecConfig.tsx:128`, `ManualDNSChallenge.tsx:246`), `incompatible-library` 2 (`Notifications.tsx`), `exhaustive-deps` 1 (`ProxyHostForm`), and `globals` 1, which is in the test file `context/__tests__/AuthContext.test.tsx:125`. Then in `eslint.config.js` flip the cleared compiler rules from `warn` to `error`. Tests for each new branch; timing specs use fake timers | 10b | all `react-hooks/*` at 0; affected specs green; `npm run type-check`; `npm run build`. **`qa-security` runs `scripts/frontend-test-coverage.sh` after this commit** (branch coverage must stay at or above the 85% floor) |
+| 12 | `chore: add root ESLint config for Playwright tests` | root `eslint.config.js`, `tests/tsconfig.json`, root `package.json` + lockfile (devDeps, `lint:e2e`), measure and record the baseline (TS + Playwright rules) in the commit body; severities per Decision 3; set `--max-warnings` to the measured count. Handle `tests/example.spec.js` (apply `tseslint.configs.disableTypeChecked` to `*.js`, or enable `allowJs` in the tests tsconfig) and the root-level `playwright.config.js` (outside `tests/`: lint it with the untyped config or ignore it explicitly) | none | `npx eslint tests` exits 0 against the committed baseline from the repo root; `npx playwright test --list` still parses |
+| 13 | `chore: clear root E2E lint findings` | `playwright-dev`: fix `no-unused-vars` 30, `prefer-const` 2, `any` 45 (types), Playwright-plugin findings, the one parse-message file; then lower `--max-warnings` to the new count (0 target). Anything needing logic judgement is reported back, not guessed | 12 | `npm run lint:e2e` green; a targeted run of up to three edited specs `--project=firefox` (only specs whose logic lines changed); no tests skipped or deleted |
+| 14 | `chore: enforce lint in lefthook and CI` | `frontend/package.json` (`lint` with `--max-warnings 0` + `--ignore-pattern 'src/locales/**'`, `lint:locales`), `lefthook.yml` (`e2e-lint`, locales step), `quality-checks.yml` (frontend lint step blocking, locales step, new `e2e-lint` job), `.dockerignore` if needed | 2 to 13 | `cd frontend && npm run lint` = 0 warnings and `npm run lint:locales` = 0 errors; `npm run lint:e2e` green; `lefthook run pre-commit` on staged frontend and tests files (foreground) passes; `actionlint` if available |
+| 15 | `docs: note lint policy` | brief note in the contributing/testing docs listing the three commands and the ratchet policy; PR description includes before/after counts. No `docs-site` edit unless a manifested page changes | 14 | markdownlint (`lefthook` runs it) |
 
-**`(security)` scope: not used, and no private advisory.** The Supervisor judged all of this admin-only with no external leverage: the validation (#1761) is input hygiene, the restore (#1770) is a consistency fix, and #1756's Disable fix completes an admin action rather than closing a hole an outside party can use. None is a vulnerability fix or a new protective mechanism, so by CLAUDE.md they stay plain `fix:`/`refactor:`. The subject of commit 6 is deliberately plain and says what Disable now does; keep the PR body to that and do not add language about lockouts or about the readers disagreeing.
+Per-commit sizing note: Commits 2 and 4 are the largest (dozens of files, mechanical); 2a/2b and 4a/4b
+split them if needed. All commits 2 to 11 are independent of each other except where "Depends on" says so,
+so `frontend-dev` can parallelize 6, 7, 8 only when they touch disjoint files (7 and 8 both touch
+`ProxyHostForm.tsx`, `UsersPage.tsx`, `CrowdSecConfig.tsx`: run sequentially). Do not run `qa-security` while
+any dev agent is still editing the same files.
 
-## 9. Acceptance criteria
+Rollback and contingency: every commit is independently revertable (`git revert <sha>`); mechanical commits
+leave no schema or API traces. If Commit 10 or 11 exposes a behavior regression that cannot be fixed in two
+attempts, drop that cluster from the PR, re-add the corresponding rule at `warn`, set the ratchet to the
+exact residual count, and file an issue (a decision for the user, not the dev agent). The Makefile commit can ship on its own via `development` if the rest stalls (it is independent).
 
-* PR 19: every out-of-range value in 4.1 returns 400 with nothing stored; boundary and echoed values return 200; a failed apply restores only touched keys/columns and keeps a concurrent write (tested); the CrowdSec Start failure revert behaves as before; the pin matrix passes unmodified after the parser refactor, key-only-enabled instances are identical on the base and branch images, and Disable with a stale key `true` stops the proxy enforcing; backend coverage at least 85%; GORM scan clean; container gate (a)-(f) recorded.
-* PR 20: the i18n parity test covers `proxyHosts` and passes with the three new keys in all four locales; the three enforcement specs pass on firefox and leave module keys exactly as found; the output-limit test no longer measures wall-clock time, runs `exec sleep 60` and asserts `ctx.Err()` is nil; each changed doc statement has a code or container observation behind it; frontend coverage still at least 85% in the single QA run; `npm run lint:md` clean.
-* Both: no commit contains a session id or link; Definition of Done from CLAUDE.md run once by `qa-security`.
+## 8. Final Verification (Definition of Done, run once by `qa-security` / orchestrator)
+
+1. Targeted Playwright (firefox): specs covering ProxyHostForm, CertificateList, UsersPage, CrowdSec ban
+   modal, security headers / audit logs forms. No full-suite or cross-browser runs locally.
+2. GORM scan, backend coverage: N/A (no backend change). Make sure `git diff --stat` shows only
+   `Makefile` as a non-frontend, non-tests, non-config change.
+3. Mid-PR checkpoints: `qa-security` runs `scripts/frontend-test-coverage.sh` after Commit 8a and after
+   Commit 11 (not only at the end), failing back to the dev agent with uncovered files. At the end,
+   `bash scripts/local-patch-report.sh` then `scripts/frontend-test-coverage.sh` (line and branch >=85%;
+   investigate any drop vs. the 85.6% branch baseline).
+4. Security scans (CodeQL/Trivy): deferred to CI (no new feature surface; `chore:`/`fix:` only).
+5. `lefthook run pre-commit`, `cd frontend && npm run type-check && npm run build`,
+   `npm run lint` (0 warnings), `npm run lint:locales`, `npm run lint:e2e`.
+6. Clean up: no stray `eslint-disable` without a reason comment; grep the diff for new `eslint-disable`,
+   count must be justified in the PR body.
+
+## 9. Acceptance Criteria
+
+- `cd frontend && npm run lint` reports 0 errors and 0 warnings (locale sync excluded and reported
+  separately by `npm run lint:locales`, 0 errors).
+- `npm run lint:e2e` from the repo root lints `tests/**` and passes; lefthook runs it on staged `tests/` files.
+- CI: frontend lint and the new `e2e-lint` job are blocking; `--max-warnings` is 0 (or the exact documented
+  residual).
+- `make lint-backend` and `make lint-agent` use a 25m timeout.
+- All real a11y, security-linter and react-hooks findings are fixed; any inline disable has a reason and is
+  listed in the PR body.
+- Frontend branch coverage did not drop below the 85% floor; all vitest and targeted Playwright runs green.
+- Issues #1743, #1716, #1820 are closed by the PR (PR body: `Closes #1743, closes #1716, closes #1820`).
+
+## 10. Resolved Decisions (user approved the plan with these recommendations)
+
+1. `no-node-access` / `no-container`: option B (path-scoped legacy list, rule kept for new tests). The
+   tracking issue is filed at the start of the PR (Commit 1 time), with the glob list generated from the lint
+   JSON (`jq` over `testing-library/no-node-access` and `no-container` file paths, unique, sorted).
+2. Locales: `lint` (gating) split from `lint:locales` (informational `identical-keys`).
+3. Root linting is typed (`tests/tsconfig.json` + `no-floating-promises`).
+4. Root `e2e-lint` job is blocking immediately.
+5. Commit prefixes as listed in Section 7.
+6. Commit 8b (migrating overlays to `src/components/ui/Dialog.tsx`) is a filed follow-up issue, not in this PR.
+
+Remaining small open item: none blocking.
