@@ -126,18 +126,19 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		// Check runtime setting overrides from settings table (priority 1 - highest)
 		var setting struct{ Value string }
 
-		// Cerberus enabled override
+		// Cerberus enabled override. A blank stored value has no opinion here, so the legacy key and then the row
+		// decide; any other stored value is read by the shared Cerberus switch parser.
 		cerberusOverrideApplied := false
-		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "feature.cerberus.enabled").Scan(&setting).Error; err == nil && setting.Value != "" {
-			enabled = strings.EqualFold(setting.Value, "true")
+		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", models.CerberusFeatureSettingKey).Scan(&setting).Error; err == nil && setting.Value != "" {
+			enabled = models.CerberusSwitchFromSetting(setting.Value, true) == models.CerberusSwitchOn
 			cerberusOverrideApplied = true
 		}
 
 		// Backward-compatible Cerberus enabled override
 		if !cerberusOverrideApplied {
 			setting = struct{ Value string }{}
-			if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.cerberus.enabled").Scan(&setting).Error; err == nil && setting.Value != "" {
-				enabled = strings.EqualFold(setting.Value, "true")
+			if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", models.CerberusLegacySettingKey).Scan(&setting).Error; err == nil && setting.Value != "" {
+				enabled = models.CerberusSwitchFromSetting(setting.Value, true) == models.CerberusSwitchOn
 			}
 		}
 

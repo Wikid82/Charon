@@ -667,6 +667,8 @@ func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir
 }
 
 // isCerberusEnabled returns true when Cerberus is enabled via DB or env flag.
+// This presets gate is deliberately not the shared reader: it accepts "1" and "yes" and trims spaces, and it does
+// not fall through to the legacy key. The reading every other reader uses is models.CerberusSwitchFromSetting.
 func (h *CrowdsecHandler) isCerberusEnabled() bool {
 	if h.DB != nil && h.DB.Migrator().HasTable(&models.Setting{}) {
 		var s models.Setting

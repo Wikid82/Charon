@@ -84,6 +84,37 @@ func parseModuleSetting(value string) (on, recognised bool) {
 	}
 }
 
+// CerberusSwitch is the state a stored Cerberus switch key (feature.cerberus.enabled or security.cerberus.enabled)
+// expresses.
+type CerberusSwitch int
+
+const (
+	// CerberusSwitchAbsent means the key is not stored, so the reader falls through to its next source.
+	CerberusSwitchAbsent CerberusSwitch = iota
+	// CerberusSwitchOn means the stored value is "true" (any case).
+	CerberusSwitchOn
+	// CerberusSwitchOff means the key is stored with any other value.
+	CerberusSwitchOff
+)
+
+// CerberusSwitchFromSetting is the one reading of a Cerberus switch key shared by the proxy, the status endpoint and
+// the middleware. The caller looks the key up and passes stored=false when no row exists. A stored value is On only
+// when it equals "true" ignoring case; every other stored value, blank included, is Off. The value is not trimmed,
+// so padded input is Off.
+//
+// Readers differ on some values and handle those before calling this: the status endpoint treats a blank value as
+// no opinion, and the presets gate (CrowdsecHandler.isCerberusEnabled) also accepts "1" and "yes" and trims spaces.
+func CerberusSwitchFromSetting(value string, stored bool) CerberusSwitch {
+	switch {
+	case !stored:
+		return CerberusSwitchAbsent
+	case !strings.EqualFold(value, "true"):
+		return CerberusSwitchOff
+	default:
+		return CerberusSwitchOn
+	}
+}
+
 // wrapModuleError adds the setting key to a resolution error. A nil error stays nil.
 func wrapModuleError(key string, err error) error {
 	if err == nil {
