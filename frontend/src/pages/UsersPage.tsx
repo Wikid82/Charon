@@ -339,6 +339,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
                             className="flex items-center gap-3 p-3 hover:bg-gray-800/50 cursor-pointer border-b border-gray-800 last:border-0"
                           >
                             <input
+                              aria-label={host.name || host.domain_names}
                               type="checkbox"
                               checked={selectedHosts.includes(
                                 parseInt(host.uuid.split('-')[0], 16) || 0
@@ -522,6 +523,7 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
                     className="flex items-center gap-3 p-3 hover:bg-gray-800/50 cursor-pointer border-b border-gray-800 last:border-0"
                   >
                     <input
+                      aria-label={host.name || host.domain_names}
                       type="checkbox"
                       checked={selectedHosts.includes(
                         parseInt(host.uuid.split('-')[0], 16) || 0

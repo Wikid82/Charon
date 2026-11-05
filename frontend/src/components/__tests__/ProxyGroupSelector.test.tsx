@@ -45,6 +45,23 @@ const mockGroups: ProxyGroup[] = [
 ];
 
 describe('ProxyGroupSelector', () => {
+  it('applies the id prop to the trigger so an external label can target it', () => {
+    vi.mocked(useProxyGroupsHook.useProxyGroups).mockReturnValue({
+      data: mockGroups,
+    } as unknown as ReturnType<typeof useProxyGroupsHook.useProxyGroups>);
+
+    const Wrapper = createWrapper();
+    render(
+      <Wrapper>
+        <label htmlFor="group-picker">Group</label>
+        <ProxyGroupSelector id="group-picker" value={null} onChange={vi.fn()} />
+      </Wrapper>
+    );
+
+    expect(screen.getByLabelText('Group')).toBe(screen.getByRole('combobox', { name: /Proxy Group/i }));
+    expect(screen.getByRole('combobox', { name: /Proxy Group/i })).toHaveAttribute('id', 'group-picker');
+  });
+
   it('renders the "No Group" sentinel plus one option per group', async () => {
     vi.mocked(useProxyGroupsHook.useProxyGroups).mockReturnValue({
       data: mockGroups,

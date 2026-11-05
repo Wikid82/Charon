@@ -262,7 +262,7 @@ export function PermissionsPolicyBuilder({ value, onChange }: PermissionsPolicyB
       {/* Policy String Preview */}
       {showPreview && policyString && (
         <div className="space-y-2">
-          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Generated Permissions-Policy Header:</label>
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Generated Permissions-Policy Header:</span>
           <pre className="p-3 bg-gray-900 dark:bg-gray-950 text-green-400 rounded-lg overflow-x-auto text-xs font-mono">
             {policyString || '(empty)'}
           </pre>

@@ -229,6 +229,25 @@ describe('ProxyHostForm', () => {
     await selectComboboxOption('Scheme', 'HTTPS')
   })
 
+  it('associates labels with their form controls', async () => {
+    renderWithClient(
+      <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Add Proxy Host')).toBeInTheDocument()
+    })
+
+    expect(screen.getByLabelText('Scheme')).toBe(screen.getByRole('combobox', { name: 'Scheme' }))
+    expect(screen.getByLabelText('Base Domain (Auto-fill)')).toBe(
+      screen.getByRole('combobox', { name: 'Base Domain (Auto-fill)' })
+    )
+    expect(screen.getByLabelText('SSL Certificate')).toBe(screen.getByRole('combobox', { name: 'SSL Certificate' }))
+    expect(screen.getByLabelText(/Proxy Group/)).toHaveAttribute('role', 'combobox')
+    expect(screen.getByLabelText(/Security Headers/)).toHaveAttribute('role', 'combobox')
+    expect(screen.getByLabelText(/Application Preset/)).toHaveAttribute('role', 'combobox')
+  })
+
   it('prompts to save new base domain', async () => {
     renderWithClient(
       <ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />

@@ -1,5 +1,5 @@
 import { CircleHelp, AlertCircle, Check, X, Loader2, Copy, Info, AlertTriangle, RefreshCw } from 'lucide-react'
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useId } from 'react'
 import { toast } from 'react-hot-toast'
 import { useTranslation } from 'react-i18next'
 import { parse } from 'tldts'
@@ -242,6 +242,8 @@ function getEntityToken(entity: { id?: number; uuid?: string }): string | null {
 
 export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFormProps) {
   const { t } = useTranslation()
+  const idPrefix = useId()
+  const fieldId = (name: string) => `${idPrefix}-${name}`
   type ProxyHostFormState = Omit<Partial<ProxyHost>, 'access_list_id' | 'security_header_profile_id' | 'certificate_id' | 'proxy_group_id'> & {
     access_list_id?: number | string | null
     security_header_profile_id?: number | string | null
@@ -746,7 +748,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Docker Container Quick Select */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label htmlFor="connection-source" className="block text-sm font-medium text-gray-300 mb-2">
                 Source
               </label>
               <Select value={connectionSource} onValueChange={setConnectionSource}>
@@ -777,7 +779,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label htmlFor="quick-select-docker" className="block text-sm font-medium text-gray-300 mb-2">
                 Containers
               </label>
 
@@ -838,11 +840,11 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
           <div className="space-y-4">
             {safeDomains.length > 0 && (
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
+                <label htmlFor={fieldId('base-domain')} className="block text-sm font-medium text-gray-300 mb-2">
                   Base Domain (Auto-fill)
                 </label>
                 <Select value={selectedDomain} onValueChange={handleBaseDomainChange}>
-                  <SelectTrigger className="w-full bg-gray-900 border-gray-700 text-white" aria-label="Base Domain (Auto-fill)">
+                  <SelectTrigger id={fieldId('base-domain')} className="w-full bg-gray-900 border-gray-700 text-white" aria-label="Base Domain (Auto-fill)">
                     <SelectValue placeholder="Select a base domain" />
                   </SelectTrigger>
                   <SelectContent>
@@ -875,9 +877,9 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
           {/* Forward Details */}
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Scheme</label>
+              <label htmlFor={fieldId('scheme')} className="block text-sm font-medium text-gray-300 mb-2">Scheme</label>
               <Select value={formData.forward_scheme} onValueChange={scheme => setFormData(prev => ({ ...prev, forward_scheme: scheme }))}>
-                <SelectTrigger className="w-full bg-gray-900 border-gray-700 text-white" aria-label="Scheme">
+                <SelectTrigger id={fieldId('scheme')} className="w-full bg-gray-900 border-gray-700 text-white" aria-label="Scheme">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -933,14 +935,14 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
           {/* SSL Certificate Selection */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label htmlFor={fieldId('ssl-certificate')} className="block text-sm font-medium text-gray-300 mb-2">
               SSL Certificate
             </label>
             <Select
               value={resolveSelectToken(formData.certificate_id as number | string | null | undefined)}
               onValueChange={token => setFormData(prev => ({ ...prev, certificate_id: resolveTokenToFormValue(token) }))}
             >
-              <SelectTrigger className="w-full bg-gray-900 border-gray-700 text-white" aria-label="SSL Certificate">
+              <SelectTrigger id={fieldId('ssl-certificate')} className="w-full bg-gray-900 border-gray-700 text-white" aria-label="SSL Certificate">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1008,11 +1010,11 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
           {/* Proxy Group */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label htmlFor={fieldId('proxy-group')} className="block text-sm font-medium text-gray-300 mb-2">
               Proxy Group
               <span className="text-gray-500 font-normal ml-2">(Optional)</span>
             </label>
-            <ProxyGroupSelector
+            <ProxyGroupSelector id={fieldId('proxy-group')}
               value={formData.proxy_group_id ?? null}
               onChange={(uuid) => setFormData(prev => ({ ...prev, proxy_group_id: uuid }))}
             />
@@ -1023,7 +1025,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
           {/* Security Headers Profile */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label htmlFor={fieldId('security-headers')} className="block text-sm font-medium text-gray-300 mb-2">
               Security Headers
               <span className="text-gray-500 font-normal ml-2">(Optional)</span>
             </label>
@@ -1037,7 +1039,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 }))
               }}
             >
-              <SelectTrigger className="w-full bg-gray-900 border-gray-700 text-white" aria-label="Security Headers">
+              <SelectTrigger id={fieldId('security-headers')} className="w-full bg-gray-900 border-gray-700 text-white" aria-label="Security Headers">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1137,7 +1139,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
           {/* Application Preset */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label htmlFor="application-preset" className="block text-sm font-medium text-gray-300 mb-2">
               Application Preset
               <span className="text-gray-500 font-normal ml-2">(Optional)</span>
             </label>
@@ -1484,8 +1486,8 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
             {addUptime && (
               <div className="grid grid-cols-2 gap-4 mt-3">
                 <div>
-                  <label className="block text-sm text-gray-400 mb-1">Check Interval (seconds)</label>
-                  <input
+                  <label htmlFor={fieldId('uptime-interval')} className="block text-sm text-gray-400 mb-1">Check Interval (seconds)</label>
+                  <input id={fieldId('uptime-interval')}
                     type="number"
                     min={10}
                     value={uptimeInterval}
@@ -1494,8 +1496,8 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                   />
                 </div>
                 <div>
-                  <label className="block text-sm text-gray-400 mb-1">Max Retries</label>
-                  <input
+                  <label htmlFor={fieldId('uptime-max-retries')} className="block text-sm text-gray-400 mb-1">Max Retries</label>
+                  <input id={fieldId('uptime-max-retries')}
                     type="number"
                     min={1}
                     value={uptimeMaxRetries}
@@ -1613,7 +1615,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
             <p className="text-gray-400 text-sm mb-4">A backup of your existing configuration will be created when the host is saved.</p>
 
             <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-300 mb-2">Preset Preview</label>
+              <span className="block text-sm font-medium text-gray-300 mb-2">Preset Preview</span>
               <pre className="bg-gray-900 px-3 py-2 rounded text-sm text-green-400 font-mono overflow-x-auto whitespace-pre-wrap">
                 {PRESET_ADVANCED_CONFIG[pendingPreset]}
               </pre>

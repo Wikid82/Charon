@@ -164,6 +164,24 @@ describe('<AuditLogs />', () => {
     expect(screen.getByPlaceholderText('Filter by action...')).toBeInTheDocument()
   })
 
+  it('associates each filter label with its control', async () => {
+    vi.spyOn(auditLogsApi, 'getAuditLogs').mockResolvedValue({
+      audit_logs: [],
+      pagination: { page: 1, limit: 50, total: 0, total_pages: 0 },
+    })
+
+    renderWithProviders(<AuditLogs />)
+
+    fireEvent.click(screen.getByRole('button', { name: /Filters/i }))
+
+    expect(await screen.findByLabelText('Category')).toHaveAttribute('role', 'combobox')
+    expect(screen.getByLabelText('Actor')).toBe(screen.getByPlaceholderText('Filter by actor...'))
+    expect(screen.getByLabelText('Action')).toBe(screen.getByPlaceholderText('Filter by action...'))
+    expect(screen.getByLabelText('Start Date')).toHaveAttribute('type', 'datetime-local')
+    expect(screen.getByLabelText('End Date')).toHaveAttribute('type', 'datetime-local')
+    expect(screen.getByLabelText('Resource UUID')).toBe(screen.getByPlaceholderText('Filter by resource...'))
+  })
+
   it('clears all filters', async () => {
     vi.spyOn(auditLogsApi, 'getAuditLogs').mockResolvedValue({
       audit_logs: [],

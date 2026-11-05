@@ -185,6 +185,7 @@ export default function RateLimiting() {
               </p>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
+              <span className="sr-only">{t('rateLimiting.enableRateLimiting')}</span>
               <input
                 type="checkbox"
                 checked={enabled}
