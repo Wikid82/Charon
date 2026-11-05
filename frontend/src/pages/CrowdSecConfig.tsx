@@ -21,10 +21,10 @@ import {
   type CrowdsecPresetErrorCode,
 } from '../api/presets'
 import { getMyIP } from '../api/system'
-import { CrowdSecBouncerKeyDisplay } from '../components/CrowdSecBouncerKeyDisplay'
-import { ListErrorNote } from '../components/crowdsec/ListErrorNote'
 import HubItemsRestorePanel from '../components/crowdsec/HubItemsRestorePanel'
+import { ListErrorNote } from '../components/crowdsec/ListErrorNote'
 import { PresetInstallProgress } from '../components/crowdsec/PresetInstallProgress'
+import { CrowdSecBouncerKeyDisplay } from '../components/CrowdSecBouncerKeyDisplay'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'

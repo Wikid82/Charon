@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import { OrthrusInstallWizard } from '../OrthrusInstallWizard'
+
 import type { InstallSnippets } from '../../../api/orthrus'
 
 const mockSnippets: InstallSnippets = {

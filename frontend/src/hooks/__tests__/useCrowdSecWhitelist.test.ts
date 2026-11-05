@@ -5,8 +5,8 @@ import React from 'react'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 
 import * as crowdsecApi from '../../api/crowdsec'
-import * as toastUtil from '../../utils/toast'
 import { createTestQueryClient } from '../../test/createTestQueryClient'
+import * as toastUtil from '../../utils/toast'
 import { isWhitelistFieldError, useWhitelistEntries, useAddWhitelist, useDeleteWhitelist } from '../useCrowdSecWhitelist'
 
 import type { CrowdSecWhitelistEntry } from '../../api/crowdsec'

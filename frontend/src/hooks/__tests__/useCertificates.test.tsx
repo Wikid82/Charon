@@ -3,7 +3,6 @@ import { renderHook, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import * as api from '../../api/certificates';
-import type { Certificate, CertificateDetail } from '../../api/certificates';
 import {
   useCertificates,
   useCertificateDetail,
@@ -14,6 +13,8 @@ import {
   useValidateCertificate,
   useBulkDeleteCertificates,
 } from '../useCertificates';
+
+import type { Certificate, CertificateDetail } from '../../api/certificates';
 
 vi.mock('../../api/certificates');
 

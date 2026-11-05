@@ -4,7 +4,10 @@ import userEvent from '@testing-library/user-event'
 import { BrowserRouter } from 'react-router'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+import { useHecate } from '../../hooks/useHecate'
 import HecateProviders from '../HecateProviders'
+
+import type { TunnelConfig, TunnelStatus } from '../../api/hecate'
 
 vi.mock('../../hooks/useHecate', () => ({
   useHecate: vi.fn(),
@@ -42,13 +45,12 @@ vi.mock('react-i18next', () => ({
   }),
 }))
 
-import { useHecate } from '../../hooks/useHecate'
 
 const mockUseHecate = vi.mocked(useHecate)
 
 const baseMockHecate = {
-  tunnels: [] as import('../../api/hecate').TunnelConfig[],
-  statuses: [] as import('../../api/hecate').TunnelStatus[],
+  tunnels: [] as TunnelConfig[],
+  statuses: [] as TunnelStatus[],
   loadingTunnels: false,
   loadingStatus: false,
   error: null,

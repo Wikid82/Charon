@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { MemoryRouter } from 'react-router'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+import { useHecate } from '../../../hooks/useHecate'
+import { useAgentList } from '../../../hooks/useOrthrus'
 import { ConnectionTypeSelector, type ConnectionTypeSelectorProps } from '../ConnectionTypeSelector'
 
 vi.mock('../ProviderDevicePicker', () => ({
@@ -17,8 +19,6 @@ vi.mock('../../../hooks/useOrthrus', () => ({
   useAgentList: vi.fn(),
 }))
 
-import { useHecate } from '../../../hooks/useHecate'
-import { useAgentList } from '../../../hooks/useOrthrus'
 
 const mockTunnels = [
   { uuid: 'tunnel-1', name: 'My Tunnel', provider: 'cloudflare', is_active: true, created_at: '', updated_at: '' },

@@ -2,10 +2,11 @@ import { QueryClientProvider } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-import type { Certificate, CertificateDetail } from '../../../api/certificates'
 import { useCertificateDetail } from '../../../hooks/useCertificates'
 import { createTestQueryClient } from '../../../test/createTestQueryClient'
 import CertificateDetailDialog from '../CertificateDetailDialog'
+
+import type { Certificate, CertificateDetail } from '../../../api/certificates'
 
 const mockDetail: CertificateDetail = {
   uuid: 'cert-1',

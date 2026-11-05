@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import { connectStatsWebSocket } from '../api/stats';
-import type { StatsPushMessage, StatsSummary } from '../api/stats';
+import { connectStatsWebSocket, type StatsPushMessage, type StatsSummary} from '../api/stats';
 
 export interface UseStatsWebSocketResult {
   connected: boolean;

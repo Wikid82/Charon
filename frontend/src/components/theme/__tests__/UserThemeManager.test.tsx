@@ -1,8 +1,10 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+import { useUserThemes } from '../../../hooks/useUserThemes'
 import { UserThemeManager } from '../UserThemeManager'
+
 import type { UserTheme, CustomThemeColors } from '../../../context/ThemeContextValue'
 
 // Mock the useUserThemes hook
@@ -10,7 +12,6 @@ vi.mock('../../../hooks/useUserThemes', () => ({
   useUserThemes: vi.fn(),
 }))
 
-import { useUserThemes } from '../../../hooks/useUserThemes'
 
 const mockUseUserThemes = vi.mocked(useUserThemes)
 

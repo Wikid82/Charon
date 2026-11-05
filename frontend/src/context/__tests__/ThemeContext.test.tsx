@@ -2,9 +2,9 @@ import { act, render, renderHook, screen } from '@testing-library/react'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 import { useTheme } from '../../hooks/useTheme'
+import { useUserThemes } from '../../hooks/useUserThemes'
 import { ThemeProvider } from '../ThemeContext'
 import { THEME_STORAGE_KEY, CUSTOM_THEME_STORAGE_KEY, type CustomThemeColors, type ThemeExport, type UserTheme } from '../ThemeContextValue'
-import { useUserThemes } from '../../hooks/useUserThemes'
 
 // ThemeProvider calls useUserThemes internally; stub it so tests don't need QueryClientProvider
 vi.mock('../../hooks/useUserThemes', () => ({

@@ -1,5 +1,4 @@
 import { useProxyGroups } from '../hooks/useProxyGroups';
-
 import {
   Select,
   SelectContent,

@@ -4,8 +4,8 @@ import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import { createTestQueryClient } from '../../../test/createTestQueryClient'
-import CertificateUploadDialog from '../CertificateUploadDialog'
 import { toast } from '../../../utils/toast'
+import CertificateUploadDialog from '../CertificateUploadDialog'
 
 const uploadMutateFn = vi.fn()
 const validateMutateFn = vi.fn()

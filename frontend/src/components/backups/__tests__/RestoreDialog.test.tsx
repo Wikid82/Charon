@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import { RestoreDialog } from '../RestoreDialog'
+
+import type * as useBackupsModule from '../../../hooks/useBackups'
 import type { BackupFile } from '../../../hooks/useBackups'
 
 const mockValidateMutate = vi.fn()
@@ -15,7 +17,7 @@ let restorePending = false
 let restoreJob: { stage?: string } | undefined
 
 vi.mock('../../../hooks/useBackups', async () => {
-  const actual = await vi.importActual<typeof import('../../../hooks/useBackups')>('../../../hooks/useBackups')
+  const actual = await vi.importActual<typeof useBackupsModule>('../../../hooks/useBackups')
   return {
     ...actual,
     useValidateBackup: () => ({

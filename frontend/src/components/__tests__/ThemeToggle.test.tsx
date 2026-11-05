@@ -2,6 +2,7 @@ import { render, screen, fireEvent } from '@testing-library/react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import '@testing-library/jest-dom/vitest'
+import { useTheme } from '../../hooks/useTheme'
 import { ThemeToggle } from '../ThemeToggle'
 
 const mockNavigate = vi.fn()
@@ -18,7 +19,6 @@ vi.mock('../../hooks/useTheme', () => ({
   }),
 }))
 
-import { useTheme } from '../../hooks/useTheme'
 const mockUseTheme = vi.mocked(useTheme)
 
 describe('ThemeToggle', () => {

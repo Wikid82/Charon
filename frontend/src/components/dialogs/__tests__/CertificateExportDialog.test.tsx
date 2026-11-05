@@ -3,9 +3,10 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-import type { Certificate } from '../../../api/certificates'
 import { createTestQueryClient } from '../../../test/createTestQueryClient'
 import CertificateExportDialog from '../CertificateExportDialog'
+
+import type { Certificate } from '../../../api/certificates'
 
 const exportMutateFn = vi.fn()
 

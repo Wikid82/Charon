@@ -5,7 +5,6 @@ import { useTranslation } from 'react-i18next'
 import { useAlerts } from '../../hooks/useCrowdsecDashboard'
 import { formatAbsoluteTime, formatRelativeTime } from '../../utils/formatRelativeTime'
 import { Skeleton } from '../ui'
-
 import { ListErrorNote } from './ListErrorNote'
 
 import type { TimeRange } from '../../api/crowdsecDashboard'

@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { AgentProviderAssignDialog } from '../AgentProviderAssignDialog';
 
+import type * as reactqueryModule from '@tanstack/react-query'
+
 const mockPatch = vi.fn();
 const mockTunnels = [
   { uuid: 'cf-uuid', name: 'CF Tunnel', provider: 'cloudflare' },
@@ -26,7 +28,7 @@ vi.mock('../../../hooks/useOrthrus', () => ({
 }));
 
 vi.mock('@tanstack/react-query', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@tanstack/react-query')>();
+  const actual = await importOriginal<typeof reactqueryModule>();
   return {
     ...actual,
     useQuery: vi.fn().mockReturnValue({ data: [] }),

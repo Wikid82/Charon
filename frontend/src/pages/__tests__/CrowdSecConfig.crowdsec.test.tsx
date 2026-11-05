@@ -5,12 +5,13 @@ import { MemoryRouter } from 'react-router'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import * as crowdsecApi from '../../api/crowdsec'
-import type { CrowdSecStatus } from '../../api/crowdsec'
 import * as featureFlagsApi from '../../api/featureFlags'
 import * as presetsApi from '../../api/presets'
 import * as securityApi from '../../api/security'
 import { toast } from '../../utils/toast'
 import CrowdSecConfig from '../CrowdSecConfig'
+
+import type { CrowdSecStatus } from '../../api/crowdsec'
 
 const BUSY_TEXT = 'CrowdSec is busy installing a preset. Try again when it finishes.'
 

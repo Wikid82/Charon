@@ -12,8 +12,8 @@ import { useDeleteProxyGroup, useProxyGroups } from '../../hooks/useProxyGroups'
 import { useProxyHosts } from '../../hooks/useProxyHosts'
 import ProxyHosts from '../ProxyHosts'
 
-import type { ProxyHost } from '../../api/proxyHosts'
 import type { ProxyGroup } from '../../api/proxyGroups'
+import type { ProxyHost } from '../../api/proxyHosts'
 
 vi.mock('../../hooks/useProxyHosts', () => ({ useProxyHosts: vi.fn() }))
 vi.mock('../../hooks/useCertificates', () => ({ useCertificates: vi.fn() }))

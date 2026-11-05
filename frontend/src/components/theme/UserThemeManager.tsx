@@ -1,12 +1,10 @@
+import { Check, Pencil, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
-import { Check, Pencil, Trash2 } from 'lucide-react'
 
-import { useUserThemes } from '../../hooks/useUserThemes'
 import { CustomColorPicker } from './CustomColorPicker'
+import { useUserThemes } from '../../hooks/useUserThemes'
 import { Button } from '../ui/Button'
-import { Input } from '../ui/Input'
-import { Label } from '../ui/Label'
 import {
   Dialog,
   DialogContent,
@@ -14,6 +12,8 @@ import {
   DialogTitle,
   DialogFooter,
 } from '../ui/Dialog'
+import { Input } from '../ui/Input'
+import { Label } from '../ui/Label'
 
 import type { ThemeId, UserTheme, CustomThemeColors } from '../../context/ThemeContextValue'
 

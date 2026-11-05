@@ -3,10 +3,11 @@ import { Loader2 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import type { HubItem, ImportHubItems, RestoreHubItemsResult } from '../../api/crowdsec'
 import { crowdsecBusyMessage } from '../../api/errorBody'
 import { useRestoreHubItems } from '../../hooks/useCrowdsecHubItems'
 import { Button } from '../ui/Button'
+
+import type { HubItem, ImportHubItems, RestoreHubItemsResult } from '../../api/crowdsec'
 
 interface HubItemsRestorePanelProps {
   hubItems: ImportHubItems

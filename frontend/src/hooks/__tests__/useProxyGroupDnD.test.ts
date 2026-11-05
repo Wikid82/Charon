@@ -4,10 +4,11 @@ import React from 'react'
 import { toast } from 'react-hot-toast'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ProxyGroup } from '../../api/proxyGroups'
-import type { ProxyHost } from '../../api/proxyHosts'
 import { useProxyGroupDnD } from '../useProxyGroupDnD'
 import { QUERY_KEY } from '../useProxyHosts'
+
+import type { ProxyGroup } from '../../api/proxyGroups'
+import type { ProxyHost } from '../../api/proxyHosts'
 
 vi.mock('react-hot-toast', () => ({
   toast: { success: vi.fn(), error: vi.fn() },

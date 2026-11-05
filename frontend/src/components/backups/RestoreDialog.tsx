@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { useRestoreBackup, useValidateBackup, type BackupFile } from '../../hooks/useBackups'
-import { Alert, Button, Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, Input } from '../ui'
 import { toast } from '../../utils/toast'
+import { Alert, Button, Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, Input } from '../ui'
 
 export interface RestoreDialogProps {
   backup: BackupFile | null

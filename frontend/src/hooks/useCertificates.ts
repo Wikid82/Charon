@@ -7,10 +7,9 @@ import {
   updateCertificate,
   deleteCertificate,
   exportCertificate,
-  validateCertificate,
+  validateCertificate, type CertificateDetail
 } from '../api/certificates'
 
-import type { CertificateDetail } from '../api/certificates'
 
 interface UseCertificatesOptions {
   refetchInterval?: number | false

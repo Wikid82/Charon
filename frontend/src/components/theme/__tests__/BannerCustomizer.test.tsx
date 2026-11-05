@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+import { useAuth } from '../../../hooks/useAuth'
 import { BannerCustomizer } from '../BannerCustomizer'
 
 // Mock useAuth hook
@@ -9,7 +10,6 @@ vi.mock('../../../hooks/useAuth', () => ({
   useAuth: vi.fn(),
 }))
 
-import { useAuth } from '../../../hooks/useAuth'
 
 const mockUseAuth = vi.mocked(useAuth)
 

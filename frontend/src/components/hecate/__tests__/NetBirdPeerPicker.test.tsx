@@ -1,15 +1,15 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+import { listNetBirdPeers } from '../../../api/hecate'
 import { NetBirdPeerPicker } from '../NetBirdPeerPicker'
 
 vi.mock('../../../api/hecate', () => ({
   listNetBirdPeers: vi.fn(),
 }))
 
-import { listNetBirdPeers } from '../../../api/hecate'
 
 const mockPeers = [
   { id: 'peer-1', name: 'Server A', ip: '100.64.0.1', os: 'linux', connection_state: 'connected', last_seen: '2024-01-01T00:00:00Z', online: true },

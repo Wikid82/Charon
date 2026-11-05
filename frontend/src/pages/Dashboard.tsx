@@ -4,7 +4,6 @@ import { useMemo, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { checkHealth } from '../api/health'
-import type { StatsPeriod, StatsBucket } from '../api/stats'
 import { PageShell } from '../components/layout/PageShell'
 import {
   RequestCountWidget,
@@ -31,8 +30,9 @@ import {
   useStatsHealth,
 } from '../hooks/useStats'
 import { useStatsWebSocket } from '../hooks/useStatsWebSocket'
-import { useWidgetVisibility } from '../hooks/useWidgetVisibility'
-import type { WidgetKey } from '../hooks/useWidgetVisibility'
+import { useWidgetVisibility, type WidgetKey} from '../hooks/useWidgetVisibility'
+
+import type { StatsPeriod, StatsBucket } from '../api/stats'
 
 function StatsCardSkeleton() {
   return (

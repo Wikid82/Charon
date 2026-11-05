@@ -1,3 +1,4 @@
+import { useQuery } from '@tanstack/react-query'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -41,7 +42,6 @@ vi.mock('../ZeroTierMemberPicker', () => ({
     ) : null,
 }))
 
-import { useQuery } from '@tanstack/react-query'
 
 const mockTunnels = [
   { uuid: 'cf-1', name: 'CF Tunnel', provider: 'cloudflare' as const, configuration: '', is_active: true, created_at: '', updated_at: '' },

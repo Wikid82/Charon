@@ -1,7 +1,8 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import type { ValidationResult } from '../../api/certificates'
+import { useUploadCertificate, useValidateCertificate } from '../../hooks/useCertificates'
+import { toast } from '../../utils/toast'
 import CertificateValidationPreview from '../CertificateValidationPreview'
 import {
   Button,
@@ -14,8 +15,8 @@ import {
 } from '../ui'
 import { FileDropZone } from '../ui/FileDropZone'
 
-import { useUploadCertificate, useValidateCertificate } from '../../hooks/useCertificates'
-import { toast } from '../../utils/toast'
+
+import type { ValidationResult } from '../../api/certificates'
 
 interface CertificateUploadDialogProps {
   open: boolean

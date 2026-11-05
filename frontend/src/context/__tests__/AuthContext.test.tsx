@@ -3,8 +3,8 @@ import { toast } from 'react-hot-toast'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 import client, { setAuthToken, setAuthErrorHandler } from '../../api/client'
-import { AuthProvider } from '../AuthContext'
 import { useAuth } from '../../hooks/useAuth'
+import { AuthProvider } from '../AuthContext'
 
 const TOKEN_KEY = 'charon_auth_token'
 

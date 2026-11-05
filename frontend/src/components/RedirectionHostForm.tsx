@@ -18,13 +18,14 @@ import {
   SelectValue,
   Switch,
 } from './ui'
-import type { Certificate } from '../api/certificates'
 import {
   REDIRECT_STATUS_CODES,
   type RedirectionHost,
   type RedirectStatusCode,
 } from '../api/redirectionHosts'
 import { useCertificates } from '../hooks/useCertificates'
+
+import type { Certificate } from '../api/certificates'
 
 interface RedirectionHostFormProps {
   host?: RedirectionHost

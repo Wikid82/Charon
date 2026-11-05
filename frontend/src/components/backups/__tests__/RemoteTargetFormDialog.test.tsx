@@ -4,6 +4,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import { RemoteTargetFormDialog } from '../RemoteTargetFormDialog'
 
+import type * as useRemoteTargetsModule from '../../../hooks/useRemoteTargets'
 import type { RemoteTarget } from '../../../hooks/useRemoteTargets'
 
 const mockCreateMutate = vi.fn()
@@ -18,7 +19,7 @@ let testDraftPending = false
 let startOAuthPending = false
 
 vi.mock('../../../hooks/useRemoteTargets', async () => {
-  const actual = await vi.importActual<typeof import('../../../hooks/useRemoteTargets')>('../../../hooks/useRemoteTargets')
+  const actual = await vi.importActual<typeof useRemoteTargetsModule>('../../../hooks/useRemoteTargets')
   return {
     ...actual,
     useCreateRemoteTarget: () => ({ mutate: mockCreateMutate, isPending: createPending }),

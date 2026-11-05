@@ -1,9 +1,10 @@
 import { useTranslation } from 'react-i18next'
 
-import type { UseBackupSettingsFormResult } from '../../hooks/useBackups'
+import { toast } from '../../utils/toast'
 import { Button, Card, CardHeader, CardTitle, CardContent, Input, Label, Switch } from '../ui'
 import { NativeSelect } from '../ui/NativeSelect'
-import { toast } from '../../utils/toast'
+
+import type { UseBackupSettingsFormResult } from '../../hooks/useBackups'
 
 const DAYS_OF_WEEK = [
   { value: '0', labelKey: 'sunday' },

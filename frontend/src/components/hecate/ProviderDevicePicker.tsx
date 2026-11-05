@@ -2,6 +2,9 @@ import { useQuery } from '@tanstack/react-query'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { NetBirdPeerPicker } from './NetBirdPeerPicker'
+import { TailscaleDevicePicker } from './TailscaleDevicePicker'
+import { ZeroTierMemberPicker } from './ZeroTierMemberPicker'
 import {
   listTailscaleDevices,
   type NetBirdPeer,
@@ -11,9 +14,6 @@ import {
   type ZeroTierMember,
   type ZeroTierNetwork,
 } from '../../api/hecate'
-import { NetBirdPeerPicker } from './NetBirdPeerPicker'
-import { TailscaleDevicePicker } from './TailscaleDevicePicker'
-import { ZeroTierMemberPicker } from './ZeroTierMemberPicker'
 
 export interface ProviderDevicePickerProps {
   selectedTunnelUUID: string | null
