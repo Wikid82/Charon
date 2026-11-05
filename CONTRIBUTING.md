@@ -335,6 +335,25 @@ export function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFormProps) 
 - Keep custom CSS minimal
 - Use semantic color names from the theme
 
+### Lint Policy
+
+Charon checks code style with ESLint. Three commands cover it:
+
+| Command | What it checks | Rule |
+| --- | --- | --- |
+| `cd frontend && npm run lint` | Frontend code | Must finish with 0 warnings |
+| `cd frontend && npm run lint:locales` | Translation JSON files in `src/locales/` | Key-mismatch warnings are informational only, because untranslated keys wait on Crowdin |
+| `npm run lint:e2e` (from the repo root) | Playwright tests in `tests/` | Warning limit is set in the root `package.json` and can only go down |
+
+**Ratchet rules:**
+
+- Never raise `--max-warnings`. Fix the warnings instead.
+- New files must be lint-clean with no exceptions.
+
+**Legacy testing-library exemptions:** `frontend/eslint.config.js` lists files in `LEGACY_TESTING_LIBRARY_FILES` that are temporarily allowed to skip two testing-library rules. Tracking issue: GH #1853. When you fix one of these files, remove it from the list. Do not add new files to the list.
+
+**Config files:** the lint rules for the repo root live in `eslint.config.js`. The TypeScript settings for the E2E tests live in `tests/tsconfig.json`.
+
 ## Testing Guidelines
 
 ### Testing Against Nightly Builds
