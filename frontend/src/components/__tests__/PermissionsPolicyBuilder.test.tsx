@@ -129,4 +129,30 @@ describe('PermissionsPolicyBuilder', () => {
     await user.click(screen.getByText('Hide Preview'));
     expect(screen.queryByText('Generated Permissions-Policy Header:')).not.toBeInTheDocument();
   });
+  describe("value prop sync", () => {
+    const withFeature = (feature: string) => JSON.stringify([{ feature, allowlist: [] }]);
+
+    it("parses policies from the initial value", () => {
+      render(<PermissionsPolicyBuilder {...defaultProps} value={withFeature("camera")} />);
+      expect(screen.getByText("camera", { selector: "span" })).toBeInTheDocument();
+    });
+
+    it("replaces the policy list when the value prop changes", () => {
+      const { rerender } = render(<PermissionsPolicyBuilder {...defaultProps} value={withFeature("camera")} />);
+      rerender(<PermissionsPolicyBuilder {...defaultProps} value={withFeature("geolocation")} />);
+      expect(screen.getByText("geolocation", { selector: "span" })).toBeInTheDocument();
+      expect(screen.queryByText("camera", { selector: "span" })).not.toBeInTheDocument();
+    });
+
+    it("clears policies when the value prop becomes empty or invalid JSON", () => {
+      const { rerender } = render(<PermissionsPolicyBuilder {...defaultProps} value={withFeature("camera")} />);
+      rerender(<PermissionsPolicyBuilder {...defaultProps} value="" />);
+      expect(screen.queryByText("camera", { selector: "span" })).not.toBeInTheDocument();
+      expect(screen.getByText(/No permissions policies configured/)).toBeInTheDocument();
+
+      rerender(<PermissionsPolicyBuilder {...defaultProps} value={withFeature("camera")} />);
+      rerender(<PermissionsPolicyBuilder {...defaultProps} value="{not json" />);
+      expect(screen.getByText(/No permissions policies configured/)).toBeInTheDocument();
+    });
+  });
 });

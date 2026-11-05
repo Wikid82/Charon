@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import DNSProviderSelector from './DNSProviderSelector'
 import {
@@ -110,10 +110,13 @@ export default function RedirectionHostForm({ host, onSubmit, onCancel }: Redire
   const [loading, setLoading] = useState(false)
   const { certificates } = useCertificates()
 
-  useEffect(() => {
+  // Re-seed when the parent passes a different host (adjust-during-render, no effect).
+  const [seenHost, setSeenHost] = useState(host)
+  if (seenHost !== host) {
+    setSeenHost(host)
     setFormData(buildInitialFormData(host))
     setError(null)
-  }, [host])
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

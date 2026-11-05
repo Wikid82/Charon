@@ -462,3 +462,31 @@ describe('RemoteTargetFormDialog', () => {
     expect(mockCreateMutate).not.toHaveBeenCalled()
   })
 })
+
+describe('RemoteTargetFormDialog re-seeding', () => {
+  it('re-seeds the form when the target changes while open', () => {
+    const { rerender } = render(<RemoteTargetFormDialog open target={nas} onClose={vi.fn()} />)
+    expect(screen.getByLabelText(/^name/i)).toHaveValue('Home NAS')
+
+    rerender(<RemoteTargetFormDialog open target={b2} onClose={vi.fn()} />)
+    expect(screen.getByLabelText(/^name/i)).toHaveValue('Backblaze B2')
+  })
+
+  it('discards unsaved edits when reopened for the same target', async () => {
+    const user = userEvent.setup()
+    const { rerender } = render(<RemoteTargetFormDialog open target={nas} onClose={vi.fn()} />)
+    await user.clear(screen.getByLabelText(/^name/i))
+    await user.type(screen.getByLabelText(/^name/i), 'Edited')
+
+    rerender(<RemoteTargetFormDialog open={false} target={nas} onClose={vi.fn()} />)
+    rerender(<RemoteTargetFormDialog open target={nas} onClose={vi.fn()} />)
+    expect(screen.getByLabelText(/^name/i)).toHaveValue('Home NAS')
+  })
+
+  it('does not re-seed while closed', () => {
+    const { rerender } = render(<RemoteTargetFormDialog open={false} target={nas} onClose={vi.fn()} />)
+    rerender(<RemoteTargetFormDialog open={false} target={b2} onClose={vi.fn()} />)
+    rerender(<RemoteTargetFormDialog open target={b2} onClose={vi.fn()} />)
+    expect(screen.getByLabelText(/^name/i)).toHaveValue('Backblaze B2')
+  })
+})

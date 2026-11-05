@@ -1,5 +1,5 @@
 import { ChevronDown, ChevronUp, ExternalLink, CheckCircle, XCircle, Settings } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import CredentialManager from './CredentialManager'
@@ -46,31 +46,19 @@ export default function DNSProviderForm({
   const enableMultiCredsMutation = useEnableMultiCredentials()
   const { data: existingCredentials } = useCredentials(provider?.uuid || '')
 
-  const [name, setName] = useState('')
-  const [providerType, setProviderType] = useState<string>('')
+  // Initial values mirror the seeding applied when the dialog opens for a provider.
+  const [name, setName] = useState(provider?.name ?? '')
+  const [providerType, setProviderType] = useState<string>(provider?.provider_type ?? '')
   const [credentials, setCredentials] = useState<Record<string, string>>({})
-  const [propagationTimeout, setPropagationTimeout] = useState(120)
-  const [pollingInterval, setPollingInterval] = useState(5)
-  const [isDefault, setIsDefault] = useState(false)
-  const [useMultiCredentials, setUseMultiCredentials] = useState(false)
+  const [propagationTimeout, setPropagationTimeout] = useState(provider?.propagation_timeout ?? 120)
+  const [pollingInterval, setPollingInterval] = useState(provider?.polling_interval ?? 5)
+  const [isDefault, setIsDefault] = useState(provider?.is_default ?? false)
+  const [useMultiCredentials, setUseMultiCredentials] = useState(
+    (provider as { use_multi_credentials?: boolean } | null)?.use_multi_credentials || false
+  )
   const [showAdvanced, setShowAdvanced] = useState(false)
   const [showCredentialManager, setShowCredentialManager] = useState(false)
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null)
-
-  // Populate form when editing
-  useEffect(() => {
-    if (provider) {
-      setName(provider.name)
-      setProviderType(provider.provider_type)
-      setPropagationTimeout(provider.propagation_timeout)
-      setPollingInterval(provider.polling_interval)
-      setIsDefault(provider.is_default)
-      setUseMultiCredentials((provider as { use_multi_credentials?: boolean }).use_multi_credentials || false)
-      setCredentials({}) // Don't pre-fill credentials (they're encrypted)
-    } else {
-      resetForm()
-    }
-  }, [provider, open])
 
   const resetForm = () => {
     setName('')
@@ -83,6 +71,24 @@ export default function DNSProviderForm({
     setShowAdvanced(false)
     setShowCredentialManager(false)
     setTestResult(null)
+  }
+
+  // Re-seed when the dialog opens or the provider changes (adjust-during-render,
+  // replacing the former effect). Closing alone does not reseed.
+  const [seededFor, setSeededFor] = useState({ open, provider })
+  if (seededFor.open !== open || seededFor.provider !== provider) {
+    setSeededFor({ open, provider })
+    if (provider) {
+      setName(provider.name)
+      setProviderType(provider.provider_type)
+      setPropagationTimeout(provider.propagation_timeout)
+      setPollingInterval(provider.polling_interval)
+      setIsDefault(provider.is_default)
+      setUseMultiCredentials((provider as { use_multi_credentials?: boolean }).use_multi_credentials || false)
+      setCredentials({}) // Don't pre-fill credentials (they're encrypted)
+    } else {
+      resetForm()
+    }
   }
 
   const getSelectedProviderInfo = (): DNSProviderTypeInfo | undefined => {

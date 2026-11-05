@@ -233,4 +233,31 @@ describe('CSPBuilder', () => {
       expect(screen.getByText('CSP configuration looks good!')).toBeInTheDocument();
     });
   });
+  describe("value prop sync", () => {
+    const withDirective = (directive: string) =>
+      JSON.stringify([{ directive, values: ["'self'"] }]);
+
+    it("parses directives from the initial value", () => {
+      render(<CSPBuilder {...defaultProps} value={withDirective("img-src")} />);
+      expect(screen.getByText("img-src", { selector: "span" })).toBeInTheDocument();
+    });
+
+    it("replaces the directive list when the value prop changes", () => {
+      const { rerender } = render(<CSPBuilder {...defaultProps} value={withDirective("img-src")} />);
+      rerender(<CSPBuilder {...defaultProps} value={withDirective("font-src")} />);
+      expect(screen.getByText("font-src", { selector: "span" })).toBeInTheDocument();
+      expect(screen.queryByText("img-src", { selector: "span" })).not.toBeInTheDocument();
+    });
+
+    it("clears directives when the value prop becomes empty or invalid JSON", () => {
+      const { rerender } = render(<CSPBuilder {...defaultProps} value={withDirective("img-src")} />);
+      rerender(<CSPBuilder {...defaultProps} value="" />);
+      expect(screen.queryByText("img-src", { selector: "span" })).not.toBeInTheDocument();
+
+      rerender(<CSPBuilder {...defaultProps} value={withDirective("img-src")} />);
+      expect(screen.getByText("img-src", { selector: "span" })).toBeInTheDocument();
+      rerender(<CSPBuilder {...defaultProps} value="{not json" />);
+      expect(screen.queryByText("img-src", { selector: "span" })).not.toBeInTheDocument();
+    });
+  });
 });

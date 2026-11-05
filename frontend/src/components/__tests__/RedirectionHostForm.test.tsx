@@ -380,3 +380,34 @@ describe('RedirectionHostForm', () => {
     })
   })
 })
+
+describe('RedirectionHostForm re-seeding', () => {
+  const tree = (host: RedirectionHost | undefined) => (
+    <QueryClientProvider client={queryClient}>
+      <RedirectionHostForm host={host} onSubmit={vi.fn()} onCancel={vi.fn()} />
+    </QueryClientProvider>
+  )
+
+  it('re-seeds the form when the host prop changes to a different host', () => {
+    const { rerender } = render(tree(sampleHost()))
+    rerender(tree(sampleHost({ uuid: 'rh-2', domain_names: 'other.example.com' })))
+    expect(screen.getByLabelText(/domain names/i)).toHaveValue('other.example.com')
+  })
+
+  it('keeps unsaved edits when re-rendered with the same host object', async () => {
+    const host = sampleHost()
+    const { rerender } = render(tree(host))
+    const domainInput = screen.getByLabelText(/domain names/i)
+    await userEvent.clear(domainInput)
+    await userEvent.type(domainInput, 'edited.example.com')
+
+    rerender(tree(host))
+    expect(screen.getByLabelText(/domain names/i)).toHaveValue('edited.example.com')
+  })
+
+  it('resets to blank create defaults when the host prop is cleared', () => {
+    const { rerender } = render(tree(sampleHost()))
+    rerender(tree(undefined))
+    expect(screen.getByLabelText(/domain names/i)).toHaveValue('')
+  })
+})

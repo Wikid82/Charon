@@ -1,5 +1,5 @@
 import { Check, CircleHelp, Loader2, X } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { type RemoteServer, testCustomRemoteServerConnection } from '../api/remoteServers'
@@ -18,29 +18,34 @@ interface Props {
   onCancel: () => void
 }
 
-export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) {
-  const { t } = useTranslation()
+function resolveConnectionMode(server?: RemoteServer): ConnectionMode {
+  if (!server?.connection_type || server.connection_type === 'direct') return 'direct'
+  if (server.connection_type === 'orthrus') return 'agent'
+  return 'provider'
+}
 
-  const resolveConnectionMode = (): ConnectionMode => {
-    if (!server?.connection_type || server.connection_type === 'direct') return 'direct'
-    if (server.connection_type === 'orthrus') return 'agent'
-    return 'provider'
-  }
-
-  const [formData, setFormData] = useState({
+/** Form state for a create (undefined server) or edit of an existing server. */
+function buildFormData(server?: RemoteServer) {
+  return {
     name: server?.name || '',
     provider: server?.provider || 'generic',
     host: server?.host || '',
     port: server?.port ?? 22,
     username: server?.username || '',
     enabled: server?.enabled ?? true,
-    connection_mode: resolveConnectionMode() as ConnectionMode,
+    connection_mode: resolveConnectionMode(server),
     connection_type: (server?.connection_type ?? 'direct') as ConnectionType,
     orthrus_agent_uuid: server?.orthrus_agent_uuid ?? '',
     hecate_tunnel_uuid: server?.hecate_tunnel_uuid ?? '',
     device_id: '',
     resolved_address: '',
-  })
+  }
+}
+
+export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) {
+  const { t } = useTranslation()
+
+  const [formData, setFormData] = useState(() => buildFormData(server))
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -54,23 +59,12 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
     Boolean(formData.orthrus_agent_uuid) &&
     !selectedAgent?.resolved_address
 
-  useEffect(() => {
-    setFormData({
-      name: server?.name || '',
-      provider: server?.provider || 'generic',
-      host: server?.host || '',
-      port: server?.port ?? 22,
-      username: server?.username || '',
-      enabled: server?.enabled ?? true,
-      connection_mode: resolveConnectionMode(),
-      connection_type: (server?.connection_type ?? 'direct') as ConnectionType,
-      orthrus_agent_uuid: server?.orthrus_agent_uuid ?? '',
-      hecate_tunnel_uuid: server?.hecate_tunnel_uuid ?? '',
-      device_id: '',
-      resolved_address: '',
-    })
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [server])
+  // Re-seed when the parent passes a different server (adjust-during-render, no effect).
+  const [seenServer, setSeenServer] = useState(server)
+  if (seenServer !== server) {
+    setSeenServer(server)
+    setFormData(buildFormData(server))
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

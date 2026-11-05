@@ -264,3 +264,39 @@ describe('AgentWriteModeDialog', () => {
     });
   });
 });
+
+describe('AgentWriteModeDialog re-seeding', () => {
+  const dialog = (agent: OrthrusAgent, open: boolean) => (
+    <MemoryRouter>
+      <AgentWriteModeDialog agent={agent} open={open} onClose={vi.fn()} />
+    </MemoryRouter>
+  );
+  const confirmLabel = 'hecate.writeMode.confirmPrompt:Test Agent';
+
+  it('clears toggle state and typed confirmation when reopened', () => {
+    const { rerender } = render(dialog(baseAgent, true));
+    fireEvent.click(screen.getByRole('switch'));
+    fireEvent.change(screen.getByLabelText(confirmLabel), { target: { value: 'Test Agent' } });
+
+    rerender(dialog(baseAgent, false));
+    rerender(dialog(baseAgent, true));
+    expect(screen.getByRole('switch')).not.toBeChecked();
+
+    fireEvent.click(screen.getByRole('switch'));
+    expect(screen.getByLabelText(confirmLabel)).toHaveValue('');
+  });
+
+  it('re-seeds the toggle when agent.write_enabled changes while open', () => {
+    const { rerender } = render(dialog(baseAgent, true));
+    expect(screen.getByRole('switch')).not.toBeChecked();
+    rerender(dialog({ ...baseAgent, write_enabled: true }, true));
+    expect(screen.getByRole('switch')).toBeChecked();
+  });
+
+  it('does not re-seed while closed', () => {
+    const { rerender } = render(dialog(baseAgent, false));
+    rerender(dialog({ ...baseAgent, write_enabled: true }, false));
+    rerender(dialog({ ...baseAgent, write_enabled: false }, true));
+    expect(screen.getByRole('switch')).not.toBeChecked();
+  });
+});

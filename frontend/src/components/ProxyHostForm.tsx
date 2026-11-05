@@ -240,6 +240,12 @@ function getEntityToken(entity: { id?: number; uuid?: string }): string | null {
   return null
 }
 
+/** Reads the "don't ask about new base domains" preference (legacy key still honored). */
+function readDontAskDomainPreference(): boolean {
+  const stored = localStorage.getItem('charon_dont_ask_domain') ?? localStorage.getItem('cpmp_dont_ask_domain')
+  return stored === 'true'
+}
+
 export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFormProps) {
   const { t } = useTranslation()
   const idPrefix = useId()
@@ -255,9 +261,12 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   }
   const [formData, setFormData] = useState<ProxyHostFormState>(buildInitialFormData(host))
 
-  useEffect(() => {
+  // Re-seed when the edited host changes (adjust-during-render, replacing an effect).
+  const [seededHostUuid, setSeededHostUuid] = useState(host?.uuid)
+  if (seededHostUuid !== host?.uuid) {
+    setSeededHostUuid(host?.uuid)
     setFormData(buildInitialFormData(host))
-  }, [host?.uuid])
+  }
 
   // Charon internal IP for config helpers (previously CPMP internal IP)
   const [charonInternalIP, setCharonInternalIP] = useState<string>('')
@@ -325,6 +334,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   // Auto-select suggested provider if confidence is high
   useEffect(() => {
     if (detectionResult?.suggested_provider && detectionResult.confidence === 'high' && !manualProviderSelection && !formData.dns_provider_id) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- auto-select reacts to an async detection result and must also toast in the same step; a derived value would move the toast into render
       setFormData(prev => ({ ...prev, dns_provider_id: detectionResult.suggested_provider!.uuid }))
       toast.success(`Auto-selected: ${detectionResult.suggested_provider.name}`)
     }
@@ -395,11 +405,14 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   const { data: dockerStatus } = useDockerStatus()
   const localDockerUnavailable = dockerStatus?.available === false
 
-  useEffect(() => {
+  // Fall back from Local to Custom when Docker becomes unavailable (adjust-during-render).
+  const [prevDockerUnavailable, setPrevDockerUnavailable] = useState(localDockerUnavailable)
+  if (prevDockerUnavailable !== localDockerUnavailable) {
+    setPrevDockerUnavailable(localDockerUnavailable)
     if (localDockerUnavailable) {
       setConnectionSource(current => (current === 'local' ? 'custom' : current))
     }
-  }, [localDockerUnavailable])
+  }
 
   const [selectedDomain, setSelectedDomain] = useState('')
   const [selectedContainerId, setSelectedContainerId] = useState<string>('')
@@ -407,14 +420,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   // New Domain Popup State
   const [showDomainPrompt, setShowDomainPrompt] = useState(false)
   const [pendingDomain, setPendingDomain] = useState('')
-  const [dontAskAgain, setDontAskAgain] = useState(false)
-
-  useEffect(() => {
-    const stored = localStorage.getItem('charon_dont_ask_domain') ?? localStorage.getItem('cpmp_dont_ask_domain')
-    if (stored === 'true') {
-      setDontAskAgain(true)
-    }
-  }, [])
+  const [dontAskAgain, setDontAskAgain] = useState(readDontAskDomainPreference)
 
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
   const [showPresetConfirmModal, setShowPresetConfirmModal] = useState(false)

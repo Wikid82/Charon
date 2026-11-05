@@ -1596,6 +1596,29 @@ describe('ProxyHostForm', () => {
     })
   })
 
+  describe('dont-ask-domain preference', () => {
+    afterEach(() => {
+      localStorage.removeItem('charon_dont_ask_domain');
+      localStorage.removeItem('cpmp_dont_ask_domain');
+    });
+
+    it.each(['charon_dont_ask_domain', 'cpmp_dont_ask_domain'])(
+      'does not prompt for a new base domain when %s is stored as true',
+      async (storageKey) => {
+        localStorage.setItem(storageKey, 'true');
+        renderWithClient(<ProxyHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />);
+
+        const domainInput = screen.getByPlaceholderText('example.com, www.example.com');
+        await userEvent.type(domainInput, 'brandnewdomain.com');
+        await userEvent.tab();
+
+        await waitFor(() => {
+          expect(screen.queryByText('New Base Domain Detected')).not.toBeInTheDocument();
+        });
+      },
+    );
+  });
+
   describe('Host and Port Combination', () => {
     it('accepts docker container IP', async () => {
       renderWithClient(

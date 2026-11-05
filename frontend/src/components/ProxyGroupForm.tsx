@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import {
@@ -35,23 +35,27 @@ interface ProxyGroupFormProps {
 
 export function ProxyGroupForm({ open, onClose, group }: ProxyGroupFormProps) {
   const { t } = useTranslation();
-  const [name, setName] = useState('');
-  const [description, setDescription] = useState('');
-  const [color, setColor] = useState(COLOR_PRESETS[0]);
+  const [name, setName] = useState(() => group?.name ?? '');
+  const [description, setDescription] = useState(() => group?.description ?? '');
+  const [color, setColor] = useState(() => group?.color ?? COLOR_PRESETS[0]);
+
+  // Re-seed when the dialog opens or the group changes. Adjusting state during
+  // render replaces the former effect; closing alone never reseeds.
+  const [seededFor, setSeededFor] = useState({ open, group });
+  if (seededFor.open !== open || seededFor.group !== group) {
+    setSeededFor({ open, group });
+    if (open) {
+      setName(group?.name ?? '');
+      setDescription(group?.description ?? '');
+      setColor(group?.color ?? COLOR_PRESETS[0]);
+    }
+  }
 
   const createGroup = useCreateProxyGroup();
   const updateGroup = useUpdateProxyGroup();
 
   const isEdit = !!group;
   const isPending = createGroup.isPending || updateGroup.isPending;
-
-  useEffect(() => {
-    if (open) {
-      setName(group?.name ?? '');
-      setDescription(group?.description ?? '');
-      setColor(group?.color ?? COLOR_PRESETS[0]);
-    }
-  }, [open, group]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
