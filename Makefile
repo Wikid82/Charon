@@ -193,15 +193,18 @@ security-scan-deps:
 # Quality Assurance targets
 # Full golangci-lint config (backend/.golangci.yml) is shared by backend and agent.
 # The version pin below is tracked by Renovate and must match .github/workflows/quality-checks.yml.
+# A cold cache needs far longer than the CI default; override with GOLANGCI_TIMEOUT=... if needed.
+GOLANGCI_TIMEOUT ?= 25m
+
 lint-backend:
 	@echo "Running golangci-lint (full config) on backend..."
 	@# renovate: datasource=github-releases depName=golangci/golangci-lint
-	docker run --rm -v $(PWD):/app -w /app/backend golangci/golangci-lint:v2.15.0 golangci-lint run -v --timeout=5m ./...
+	docker run --rm -v $(PWD):/app -w /app/backend golangci/golangci-lint:v2.15.0 golangci-lint run -v --timeout=$(GOLANGCI_TIMEOUT) ./...
 
 lint-agent:
 	@echo "Running golangci-lint (full config, shared from backend/) on agent..."
 	@# renovate: datasource=github-releases depName=golangci/golangci-lint
-	docker run --rm -v $(PWD):/app -w /app/agent golangci/golangci-lint:v2.15.0 golangci-lint run -v --timeout=5m --config ../backend/.golangci.yml ./...
+	docker run --rm -v $(PWD):/app -w /app/agent golangci/golangci-lint:v2.15.0 golangci-lint run -v --timeout=$(GOLANGCI_TIMEOUT) --config ../backend/.golangci.yml ./...
 
 lint-fast:
 	@echo "Running fast linters (staticcheck, govet, errcheck, ineffassign, unused) — backend + agent..."
