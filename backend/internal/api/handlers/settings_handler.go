@@ -423,7 +423,10 @@ func (h *SettingsHandler) writeModuleSwitchSetting(c *gin.Context, key, value st
 		if snapshot, err = models.CaptureModuleState(tx, models.DefaultSecurityConfigName, row, key); err != nil {
 			return err
 		}
-		return models.SetModuleState(tx, key, on, actor)
+		if err := models.SetModuleState(tx, key, on, actor); err != nil {
+			return err
+		}
+		return snapshot.Seal(tx)
 	})
 	if err != nil {
 		if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
@@ -572,7 +575,7 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 			}
 		}
 
-		return nil
+		return snapshot.Seal(tx)
 	}); err != nil {
 		if errors.Is(err, services.ErrInvalidAdminCIDR) || strings.Contains(err.Error(), "invalid admin_whitelist") {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid admin_whitelist"})

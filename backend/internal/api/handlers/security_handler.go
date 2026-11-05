@@ -126,18 +126,19 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		// Check runtime setting overrides from settings table (priority 1 - highest)
 		var setting struct{ Value string }
 
-		// Cerberus enabled override
+		// Cerberus enabled override. A blank stored value has no opinion here, so the legacy key and then the row
+		// decide; any other stored value is read by the shared Cerberus switch parser.
 		cerberusOverrideApplied := false
-		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "feature.cerberus.enabled").Scan(&setting).Error; err == nil && setting.Value != "" {
-			enabled = strings.EqualFold(setting.Value, "true")
+		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", models.CerberusFeatureSettingKey).Scan(&setting).Error; err == nil && setting.Value != "" {
+			enabled = models.CerberusSwitchFromSetting(setting.Value, true) == models.CerberusSwitchOn
 			cerberusOverrideApplied = true
 		}
 
 		// Backward-compatible Cerberus enabled override
 		if !cerberusOverrideApplied {
 			setting = struct{ Value string }{}
-			if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.cerberus.enabled").Scan(&setting).Error; err == nil && setting.Value != "" {
-				enabled = strings.EqualFold(setting.Value, "true")
+			if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", models.CerberusLegacySettingKey).Scan(&setting).Error; err == nil && setting.Value != "" {
+				enabled = models.CerberusSwitchFromSetting(setting.Value, true) == models.CerberusSwitchOn
 			}
 		}
 
@@ -590,13 +591,7 @@ func (h *SecurityHandler) Disable(c *gin.Context) {
 	// Allow requests from localhost to disable without token
 	clientIP := c.ClientIP()
 	if clientIP == "127.0.0.1" || clientIP == "::1" {
-		cfg, _ := h.svc.Get()
-		if cfg == nil {
-			cfg = &models.SecurityConfig{Name: models.DefaultSecurityConfigName, Enabled: false}
-		} else {
-			cfg.Enabled = false
-		}
-		h.persistDisabled(c, cfg)
+		h.persistDisabled(c)
 		return
 	}
 	cfg, err := h.svc.Get()
@@ -613,19 +608,49 @@ func (h *SecurityHandler) Disable(c *gin.Context) {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "break glass token invalid"})
 		return
 	}
-	cfg.Enabled = false
-	h.persistDisabled(c, cfg)
+	h.persistDisabled(c)
 }
 
-// persistDisabled stores cfg and applies the proxy configuration, answering 500
-// when either step fails so the response never reports a state that was not saved.
-func (h *SecurityHandler) persistDisabled(c *gin.Context, cfg *models.SecurityConfig) {
-	if err := h.svc.Upsert(cfg); err != nil {
+// persistDisabled switches the default row and both Cerberus switch keys off in one write-locked transaction, then
+// applies the proxy configuration. A failed apply restores the values the write changed, so the state a 500 leaves
+// behind is the state before the request. It answers 500 when either step fails.
+func (h *SecurityHandler) persistDisabled(c *gin.Context) {
+	actor := auditActor(c)
+	var snapshot models.ModuleStateSnapshot
+	err := services.WithWriteLock(h.db, &models.Setting{}, func(tx *gorm.DB) error {
+		row, err := models.ReadModuleRow(tx, models.DefaultSecurityConfigName)
+		if err != nil {
+			return err
+		}
+		if snapshot, err = models.CaptureModuleState(tx, models.DefaultSecurityConfigName, row); err != nil {
+			return err
+		}
+		if err := writeModuleToggle(tx, models.CerberusFeatureSettingKey, false, actor); err != nil {
+			return err
+		}
+		if row == nil {
+			row = &models.SecurityConfig{Name: models.DefaultSecurityConfigName}
+		}
+		row.Enabled = false
+		if err := services.UpsertSecurityConfig(tx, row); err != nil {
+			return err
+		}
+		return snapshot.Seal(tx)
+	})
+	if err != nil {
+		log.WithError(err).Error("Failed to disable Cerberus")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to disable Cerberus"})
 		return
 	}
+
+	if h.cerberus != nil {
+		h.cerberus.InvalidateCache()
+	}
+
 	if h.caddyManager != nil {
 		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
+			log.WithError(err).Warn("Failed to reload Caddy config after Cerberus was disabled")
+			restoreModuleState(h.db, h.cerberus, snapshot)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "saved, but applying the configuration failed"})
 			return
 		}
@@ -1192,7 +1217,10 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 		if snapshot, err = models.CaptureModuleState(tx, models.DefaultSecurityConfigName, row, settingKey); err != nil {
 			return err
 		}
-		return writeModuleToggle(tx, settingKey, enabled, actor)
+		if err := writeModuleToggle(tx, settingKey, enabled, actor); err != nil {
+			return err
+		}
+		return snapshot.Seal(tx)
 	})
 	if err != nil {
 		log.WithError(err).Errorf("Failed to update security module setting %s", settingKey)

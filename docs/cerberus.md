@@ -716,6 +716,8 @@ type SecurityDecision struct {
 3. Token can be used in `POST /api/v1/security/disable` to turn off Cerberus
 4. Token expires after first use
 
+An emergency Disable also switches the Cerberus on/off settings off, so the proxy stops enforcing its security rules and the status shows Cerberus as off.
+
 **Storage:** Tokens are hashed in database using bcrypt.
 
 ### Localhost Bypass

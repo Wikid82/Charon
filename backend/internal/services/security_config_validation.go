@@ -18,16 +18,22 @@ func ValidateCrowdSecMode(mode string) error {
 // An empty list is valid and clears the allow-list. Blank entries are skipped. Any malformed entry refuses the
 // whole list with ErrInvalidAdminCIDR.
 func ValidateAdminWhitelist(whitelist string) error {
-	if whitelist == "" {
+	return validateAddressList(whitelist, ErrInvalidAdminCIDR)
+}
+
+// validateAddressList checks a comma-separated list of IP addresses and CIDR ranges. The empty list is valid, blank
+// entries are skipped, and any malformed entry refuses the whole list with errOnBad.
+func validateAddressList(list string, errOnBad error) error {
+	if list == "" {
 		return nil
 	}
-	for _, part := range strings.Split(whitelist, ",") {
+	for _, part := range strings.Split(list, ",") {
 		entry := strings.TrimSpace(part)
 		if entry == "" {
 			continue
 		}
 		if !isValidCIDR(entry) {
-			return ErrInvalidAdminCIDR
+			return errOnBad
 		}
 	}
 	return nil

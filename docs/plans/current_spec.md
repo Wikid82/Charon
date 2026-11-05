@@ -1,218 +1,257 @@
-# PR 18: A WAF rule set must have rules
+# PRs 19 and 20: Security settings checks, and the CrowdSec-labelled leftovers
 
-**Branch:** `fix/waf-rule-sets-need-rules`, cut from `development` @ `41b4a0c6b`
-**Type:** plain `fix:` (no new feature surface, no `(security)` scope, see Public Text)
-**Source:** local spec `docs/plans/crowdsec_hardening_batch5_spec.md` (D4, 3x.14 R2/R3/R4, "PR 18 commit table", Q-X9). The prior contents of this file (the PR 17 plan) shipped as #1836.
-**Anchors:** every `file:line` below was re-read on 2026-11-04 against `41b4a0c6b`. Where the batch 5 spec drifted, the "Drift" table says so.
+**Base:** `development` @ `d36ded796` (the prior contents of this file, the PR 18 plan, shipped as #1838).
+**Source:** issues #1761, #1756, #1770, #1773, #1774, #1741, #1701 (read with `gh issue view`), plus the local batch 5 spec (`docs/plans/crowdsec_hardening_batch5_spec.md`, untracked, read-only; sections 3o/3p and the C4/U1 rows).
+**Authority:** the code at `d36ded796`. Every anchor below was re-read on 2026-11-05; the issue texts and the batch 5 spec were checked against it and the drift is listed in section 2.
 
-## 1. Introduction
+## 1. Introduction and decision
 
-A WAF rule set can be saved today with no rules in it: `UpsertRuleSet` only checks the name and a 2 MB cap, the web form accepts "a source URL and no content", and the default "OWASP Core Rule Set" preset in the form is exactly that (empty content plus a tarball URL that nothing fetches). `Manager.ApplyConfig` then writes the file, prepends `SecRuleEngine On` and `SecRequestBodyAccess On`, and `GenerateConfig` emits a WAF handler that loads a file with no detection rules. The Security page reports the WAF as applied while it blocks nothing.
+Seven small findings remain from the CrowdSec hardening batches. They are all low severity, none is user-submitted, and none is critical or high. Two of them change backend behavior on a security surface (#1761 validation, #1756 the on/off decision); one narrows a rollback (#1770); four are tests, docs and locale text.
 
-Goal: a rule set must contain at least one rule line to be saved or to be applied, and the user is told passively when a stored rule set has none.
+**Decision: two PRs, merged in this order.** This is a deliberate exception to "one feature = one PR": these are independent bug fixes, not one feature, and they have different risk, different validation gates and different reviewers' attention.
+
+| PR | Branch (from `development` @ `d36ded796`) | Issues | Why it is its own PR |
+| --- | --- | --- | --- |
+| **PR 19** `fix: check security settings values and keep a refused change from overwriting newer ones` | `fix/security-settings-checks` | #1761, #1770, #1756 (reader behavior unchanged; see Q1) | Backend only, security surface, needs the container gate and the GORM scan (it touches `internal/models`). No frontend, no locale keys. |
+| **PR 20** `fix: tidy security test helpers, translations and docs` | `fix/security-settings-leftovers` (exists, clean at `d36ded796`) | #1773, #1741, #1701, #1774 | Test, JSON and Markdown only plus one test-script fix. Cheap gates; must not wait on, or be blocked by, the riskier PR. |
+
+Merging PR 20 first is also fine (disjoint files except `docs/api.md`, see risks); the recommended order is PR 19 then PR 20 so the PR 20 docs commit can describe the validated ranges as shipped.
+
+Not in either PR:
+
+* **#1743** (1358 frontend lint warnings): its own sweep PR together with #1716 and #1820. It is a mechanical, wide-diff change and would bury these fixes.
+* **#1776**: no longer reproduces. Nothing to do; close it with a short comment when convenient.
+* **#1840** (status counts a host with its own WAF handler as unprotected): it does **not** fall out of #1756. #1756 is about the Cerberus on/off switch; #1840 is in the WAF eligibility count (`backend/internal/caddy/config.go:546-548`, `report.WAF.record(wafH != nil, reason)` fed by `buildWAFHandlerWithReason`, plus `enforcement_report.go:34`). Different code, different tests, a different container reproduction. Leave it open and schedule it right after PR 20 as its own small `fix:` (see section 3).
 
 ### Entities, actions, scenarios (EARS)
 
-* When an admin saves a rule set whose content has no rule line, the API shall refuse it with HTTP 400 and `error_code: ruleset_empty`, and shall store nothing.
-* When the proxy config is applied and a stored rule set has no rule line, the manager shall skip it (no file, no path), and log one Warn naming the rule set.
-* While the selected rule set has no rule line and the WAF is on, the enforcement report shall give the reason `ruleset_empty` and the Security page shall show one passive line. No banner, no toast, no migration.
-* When the user opens the WAF form, the form shall require rule content and shall not offer a preset that has none.
-* Rows that are already empty are kept. They stop activating and explain why.
+* When an admin saves the security config with a value outside its allowed range, the API shall answer 400 with a plain message and shall store nothing (no row column, no module key).
+* When a save carries a value equal to the one already stored, the API shall accept it even if it is outside the new range, so an old stored value never blocks an unrelated save (same rule `checkRulesSource` uses).
+* When the proxy refuses a change and the writer restores, the restore shall write back only the settings keys and row columns the writer itself changed, and only where the current value is still the one the writer wrote; anything a concurrent admin write changed is kept.
+* When an admin presses Disable (the break-glass `/security/disable`), the switch shall be off for the proxy, the status and the management middleware alike, not only for the middleware (PR 19, write side). No reader's rule changes, so no existing instance's enforcement changes on upgrade.
 
-## 2. Research Findings
+## 2. Research findings (re-verified at `d36ded796`)
 
-### Verified anchors (current development)
+### 2.1 #1761 validation gap
 
-| Area | Anchor | Fact |
-| --- | --- | --- |
-| Model | `backend/internal/models/security_ruleset.go:8` | `SecurityRuleSet`, no validation, `Content` is `type:text`. New predicate goes here (imported by `services` and `caddy` without a cycle). |
-| Save | `backend/internal/services/security_service.go:415-445` | `UpsertRuleSet`: nil returns nil, name required, `len(Content) > 2 MiB` refused, then create or update. `ErrRuleSetInUse` sentinel lives at `:448-449`. New sentinel goes beside it. |
-| Handler | `backend/internal/api/handlers/security_handler.go:430-460` | Any service error becomes a bare 500 `failed to upsert ruleset` (`:445-448`). Needs an `errors.Is` branch. |
-| Coded errors | `backend/internal/api/handlers/security_module_writers.go:16-25`, delete path `security_handler.go:488-489` | `codeXxx`/`msgXxx` const pairs answered with `respondCoded(c, status, code, msg, nil)`. New pair: `codeRulesetEmpty = "ruleset_empty"`. |
-| Manager | `backend/internal/caddy/manager.go:390-451` | `rulesetPaths` map built in `for _, rs := range rulesets` at `:397`; the engine-directive prepend is at `:411-428`; path recorded at `:443`; stale-file cleanup follows (`:448+`) and removes files not in `rulesetPaths`, so a skipped set's old file is cleaned up for free. |
-| Reasons | `backend/internal/caddy/enforcement_report.go:6-14` | `ReasonNoRuleset`, `ReasonRulesetNotSelected`, `ReasonRulesetUnavailable` (`:11`), `ReasonThresholdsUnset`. |
-| Classification | `backend/internal/caddy/config.go:1272-1296` | `buildWAFHandlerWithReason` returns `nil, unresolvedRulesetReason(rulesets, selected)` when `directives == ""` (`:1276-1279`). `unresolvedRulesetReason` is at `:1289-1302`: `selected != nil` gives `ReasonRulesetUnavailable`. |
-| Existing reason test | `backend/internal/caddy/security_module_resolution_test.go:319-343` | `owasp := []SecurityRuleSet{{Name: "owasp-crs"}}` (empty content) with empty paths expects `ReasonRulesetUnavailable`. This fixture will now classify as `ruleset_empty` and must get a rule line. |
-| Frontend note | `frontend/src/components/SecurityEnforcementNote.tsx:10-13` | `KNOWN_REASONS.waf = ['no_ruleset','ruleset_not_selected','ruleset_unavailable']`; key `security.enforcement.waf.<reason>`. Test table at `frontend/src/components/__tests__/SecurityEnforcementNote.test.tsx:25`. |
-| Preset | `frontend/src/pages/WafConfig.tsx:24-30` | `WAF_PRESETS[0]` is `OWASP Core Rule Set`, `content: ''`, tarball `url`. `handlePresetChange` (`:135-145`) copies `name`, `url`, `content`. |
-| Form validity | `frontend/src/pages/WafConfig.tsx:157` | `isValid` is true when the name is set and either content or a source URL is set. Submit sends `source_url` and `content` (`:149-152`). Source URL field at `:234-238`; content label asterisk at `:244` is hidden when a URL is set. |
-| Error mapping | `frontend/src/api/errorBody.ts:77-84` | `WAF_CODE_MESSAGE_KEYS` with three entries (`waf_rules_source_unknown`, `waf_ruleset_in_use`, `invalid_waf_mode`). |
-| Locales | `frontend/src/locales/*/translation.json` | 29 locale files. `wafConfig.sourceUrlHelper` exists in all 29 (en `:690`). The coded `wafConfig.errors.*` keys (en `:721`) and `security.enforcement.waf.*` (en `:604`) exist only in **en, de, es, fr, zh**; the rest fall back to English. Parity test: `frontend/src/__tests__/i18n.test.ts:68`. |
-| Docs | `docs/api.md:116` (reason list), `:262-271` (POST body `"content": "# raw rules"`), `:285` (delete 409 text); `docs/cerberus.md:168-174` (`SourceURL // Optional URL for rule updates`); `docs/features/waf.md:33-37` | |
+* `backend/internal/services/security_config_update.go:56-70` `validate()` checks only `admin_whitelist` (`ValidateAdminWhitelist`), `crowdsec_mode` (`ValidateCrowdSecMode`) and `waf_mode` (`validWAFModes`, `ErrInvalidWAFMode`). **`waf_mode` is already validated** (shipped in #1767); the issue's `waf_mode` item is done.
+* Not checked, and written straight to the row by `applyTo` (lines 179-228): `waf_paranoia_level`, `rate_limit_requests`, `rate_limit_burst`, `rate_limit_window_sec`, `rate_limit_bypass_list`, `crowdsec_api_url`. `rate_limit_mode` is also unchecked (`writeRateLimitModeKey` treats any non-empty value other than `enabled` as off).
+* The consumers already ignore bad values quietly: `caddy/config.go:1387-1388` falls back to paranoia 1 outside 1..4; `parseBypassCIDRs` (`config.go:1511-`) silently drops invalid entries and accepts a plain IP; `buildRateLimitHandler` returns nil while a proxy threshold is `<= 0` (reported as `thresholds_unset`). So **zero means "not set" and must stay valid**; the harm is that a typo is stored and silently does nothing, and a huge number is stored.
+* The handler path: `security_handler.go:302` `UpdateConfig` -> `h.svc.ApplyUpdate`; errors go through `respondConfigUpdateError` (`security_module_writers.go:70`), where any `*services.InvalidConfigError` becomes 400 `{"error": <message>}`.
+* The Rate Limiting page already limits its inputs to requests 1..1000, burst 1..100, window 1..3600 (`frontend/src/pages/RateLimiting.tsx:208-236`), so the backend ceilings below are looser than the UI and no UI change is needed.
+* Existing tests that pin today's acceptance and must change: `backend/internal/api/handlers/security_handler_audit_test.go:454-473` (`negative_burst` and `huge_values` expect 200 "Backend accepts"). The commit must grep for any other case that sends an out-of-range value (`security_config_partial_update_test.go`, `security_config_save_pins_test.go`, `security_settings_handling_test.go`).
+* Other writers of the same columns (`SecurityService.Upsert`, used by `Disable`, `settings_handler.go:782` and the legacy handlers) copy a row that was read from the database, so they introduce no new values; they stay out of scope.
 
-### Drift from the batch 5 spec
+### 2.2 #1770 restore broader than the change
 
-| Spec says | Reality at `41b4a0c6b` |
+* `models.CaptureModuleState` (`models/security_module_state.go:272-313`) images **every** module and Cerberus key plus ten row columns. `RestoreSettings`/`RestoreRow` (lines 316-358) write all of them back unconditionally.
+* `restoreModuleState` (`handlers/security_module_writers.go:54`) runs after the apply, outside the writer's transaction, in two separate write-locked transactions. A concurrent admin write that landed between the writer's commit and the restore is overwritten, while that admin got a 200.
+* Four writers use it: `security_handler.go:327` (config save) and `:1210` (module toggle), `settings_handler.go:442` and `:611`.
+* The older pair is separate: `snapshotSettings`/`restoreSettings`/`snapshotDefaultSecurityConfigState`/`restoreDefaultSecurityConfigState` (`security_handler.go:1226-1300`), used only by the CrowdSec Start revert (`crowdsec_handler.go:820-866`, `crowdsec_lifecycle.go:260`). That revert has its own rule: a row Start created is kept with seed values (`crowd_sec_mode` disabled, `enabled` false) instead of being deleted, and it restores `crowd_sec_mode`, which the newer snapshot does not image.
+
+### 2.3 #1756 the four readers (verified; they differ more than the issue says)
+
+| Reader | Where | Order | Accepted spellings | Nothing stored |
+| --- | --- | --- | --- | --- |
+| Proxy (reference) | `caddy/cerberus_decision.go:19` `CerberusEnabledForProxy`; also boot via `services.ProxyCerberusCheck` | static, then default row `Enabled`, then `feature.cerberus.enabled`, then legacy `security.cerberus.enabled` (only when the feature key is absent) | `true`, any case; an empty or other value is "off" | the row or static value |
+| Status | `handlers/security_handler.go:112-145` | static, row `Enabled`, feature key, legacy key | `true`, any case; an **empty value counts as absent** | the row or static value |
+| Management middleware | `cerberus/cerberus.go:114` `IsEnabled` | **row `Enabled == false` is a hard off**, then feature key, legacy key, then static, then static heuristics (`CrowdSecMode == local`, any static module on, all-zero static config means on) | `true`, any case | the static heuristics |
+| Presets and console gate | `handlers/crowdsec_handler.go:670` `isCerberusEnabled` (5 call sites in `crowdsec_preset_handler.go`, `crowdsec_apply_jobs_handler.go`) | feature key only, then env `FEATURE_CERBERUS_ENABLED`, then env `CERBERUS_ENABLED`, then **default true** | `true`, `1`, `yes`, trimmed, any case | **on** |
+
+Three facts decide the design:
+
+0. **Key-only enablement is real.** `POST /security/cerberus/enable|disable` (`toggleSecurityModule` -> `writeModuleToggle`, `security_module_writers.go:31-47`) and the Cerberus feature toggle in `frontend/src/pages/SystemSettings.tsx:309` write only `feature.cerberus.enabled` and `security.cerberus.enabled`, never the row. A fresh install seeds the row with `Enabled: false` (`models/seed.go:14-18`). So an instance that turned Cerberus on this way is **today** ON for the proxy and the status (key beats row) and OFF for the management middleware (row hard off). Any change that makes the readers follow the row would silently turn off enforcement on such instances at upgrade; that is certain, not a possibility.
+1. **Break-glass.** `Disable` / `persistDisabled` (`security_handler.go:585-620`) writes only the row (`Enabled = false`); it does not touch the keys. The emergency reset (`emergency_handler.go:262-269`) deliberately leaves the Cerberus keys alone. The "row false is a hard off" rule in `IsEnabled` is therefore the fail-safe that makes `/security/disable` work on the management API, and the comment at `cerberus.go:115-117` says so. The gap is on the write side: because `Disable` leaves the keys alone, a stale `feature.cerberus.enabled=true` keeps the proxy and the status ON after a break-glass disable. Making the middleware follow the proxy rule instead would leave the middleware on too.
+2. **The presets gate is a different question.** A fresh install seeds the default row with `Enabled: false` (`models/seed.go:14-18`) and no key, so `isCerberusEnabled` answers on (default true) while the proxy rule answers off. Presets and the console work before the suite is switched on; folding this reader into the proxy rule would make those endpoints refuse on a fresh install.
+
+### 2.4 #1773
+
+`tests/utils/security-helpers.ts:160-215` `captureSecurityState` records effective booleans from `/security/status`; `restoreSecurityState` (lines 179-215) writes a concrete `true`/`false` key through `setSecurityModuleEnabled` when the effective value differs, so a key that was absent before can remain after. `tests/utils/security-settings-api.ts` (#1767) already has the right helpers: `snapshotSecurityState` (261), `restoreSecurityState` (274, row first, switches via `restoreModuleSwitches`), `captureModuleSwitches` (137), `restoreModuleSwitches` (157), `expectModuleSwitchesRestored` (174). Importers of the old pair: `waf-`, `acl-`, `combined-`, `rate-limit-` and `crowdsec-enforcement.spec.ts` (each calls `captureSecurityState` in `beforeAll` and `restoreSecurityState` in `afterAll`), `zzzz-break-glass-recovery.spec.ts` and `tests/crowdsec-whitelist.spec.ts` import other names from the same file. `security-settings-api.ts` does not import `security-helpers.ts`, so there is no import cycle.
+
+### 2.5 #1774 docs (each statement verified against code)
+
+| Statement | Finding |
 | --- | --- |
-| Classification at `caddy/config.go:1297-1299` | `unresolvedRulesetReason`, `config.go:1289-1302`. |
-| Locale keys "in all locale files (parity test)" | New `wafConfig.errors.ruleset_empty` and `security.enforcement.waf.ruleset_empty` go in the 5 locales that carry the sibling keys (en, de, es, fr, zh), following the existing precedent. Only the reworded `sourceUrlHelper` touches all 29 (see Q2). |
-| `tests/security/waf-config.spec.ts` "any step using the OWASP preset or URL-only create" | No step uses the preset or a URL-only create (the file only has a loose `/ruleset\|rules\|owasp\|crs/i` text check at `:95-97`). The E2E work is therefore new coverage, not a fix. |
-| `docs/cerberus.md:173` | Anchor re-checked: still `:173` (`SourceURL  string ... // Optional URL for rule updates`). No drift. |
-| Many fixtures are not empty but have no rule line, and many are empty | Rule instead of a hand list: grep `SecurityRuleSet{`, `UpsertRuleSet` and `security/rulesets` across `backend/`, and fix each hit that goes through a save or apply path (service, handler, manager) or that expects `ruleset_unavailable` for empty content. Known hits, not exhaustive. caddy: `config_waf_test.go` (about 15 empty `owasp-crs` fixtures), `config_waf_security_test.go`, `config_test.go`, `config_generate_test.go`, `config_generate_additional_test.go`, `config_extra_test.go`, `config_bouncer_key_path_test.go`, `manager_test.go`, `manager_additional_test.go` (`"rules"`, `"test-rule-content"`, the `ruleContent` fixtures), `manager_patch_coverage_test.go`, `manager_enforcement_test.go`, `security_module_resolution_test.go` (fixture at `:154`, table case at `:185` expecting `ReasonRulesetUnavailable` for empty content, and `:319-343`). handlers: `security_handler_authz_test.go`, `security_handler_coverage_test.go`, `security_settings_handling_test.go`, `security_module_writers_test.go`, `additional_coverage_test.go`, `benchmark_test.go`, `perf_assert_test.go`, `proxy_apply_detached_test.go`, `crowdsec_stop_apply_test.go`, `security_handler_rules_decisions_test.go` (`"content":"test"` at `:91,:186`), `security_handler_audit_test.go` (`:386`). services: `security_service_test.go` (`"rule: 1"`, `:1034`), `coverage_boost_test.go:169`, `security_module_writers_test.go`. Also `api/routes/routes_test.go` and `cmd/api/main_test.go`. Tests that call `GenerateConfig` or `buildWAFHandler` directly with a hand-made `rulesetPaths` do not go through the manager skip, but the selection change (tiers 2-5, section 3.2) affects them when the set is empty, so they are in scope too. |
+| `docs/cerberus.md:874` roadmap row 1 "WAF placeholder + metrics" | Stale: the WAF is the Coraza engine with rule sets (the page says so at line 161). Reword. |
+| `docs/cerberus.md:878` row 5 "CrowdSec local agent: Planned" | Stale: the local engine ships and is GUI-controlled (lines 144, 273). Mark complete. |
+| `docs/cerberus.md:195-203` Prometheus section | Only `IncWAFRequest` has a caller (`cerberus/cerberus.go:186`, inside the management API middleware), so `charon_waf_requests_total` counts requests to Charon's own API, not proxied traffic. `IncWAFBlocked` and `IncWAFMonitored` (`metrics/metrics.go:45-49`) have **no callers**, so the blocked and monitored series stay at 0. The section and its "Total requests evaluated" text are wrong. |
+| `docs/api.md:1460` "when rate limiting is implemented" | Stale: rate limiting is implemented. Verify what the live-log websocket route is actually subject to (the management API limiter, `internal/ratelimit/http.go`) and reword. |
+| Burst row in the rate-limiting table | `docs/features/rate-limiting.md:18` and `:45` already say the burst is for the management interface. `docs/cerberus.md:231` says "a burst of 20" without that qualifier. Verify and add the qualifier if missing; no change if the table is already correct. |
+| Rule set files with their own `SecRuleEngine` line | Confirmed in `caddy/manager.go:420-436`: the engine line (and `SecRequestBodyAccess`) is prepended only when the content has no `secruleengine` (case-insensitive), so a rule set carrying its own line keeps it whatever its mode or the saved WAF mode. `docs/cerberus.md:163,193` describe the mode as always governing. |
+| 429 response, and where detection hits are logged | Unverified in code (the rate limiter is a Caddy plugin; the log classification is `services/log_watcher.go:254`). Verified by the container gate below, not by reading. |
 
-### Design decisions (carried from 3x.14, unchanged)
+### 2.6 #1741
 
-* **One predicate** `HasRuleLines(content string) bool` in `models`: true when some line, after trimming whitespace, is not a `#` comment and its first word, lowercased, is exactly `secrule`, `secaction` or `include` (word boundary: the first word ends at a space, tab or end of line, so `SecRuleEngine`, `SecRuleRemoveById 1`, `SecRuleUpdateTargetById`, `SecDefaultAction`, `SecMarker`, `Includes foo` are not rule lines). Decisions: (a) a leading UTF-8 BOM is stripped before the first line is read; (b) a comment line is a comment even if it ends in a backslash, so a `\`-continued comment does not swallow the next line: `# note \` followed by `SecRule ...` counts as a rule (the continuation rule applies only to non-comment lines, where a `\`-continued line counts as its first line); (c) an indented comment is a comment; (d) `\r\n` and `\n` both split; (e) **no per-line size limit**: use `strings.Split`/`strings.FieldsFunc` or a scanner with a raised buffer, never the default 64 KiB scanner (legacy rows may exceed the save cap). Note: `Include` lets an admin include arbitrary files; that is pre-existing behavior and out of scope here.
-* **Skip rather than delete.** Existing empty rows stay in the database.
-* **Selection skips empty sets in the fallback tiers.** In `buildWAFHandlerWithReason` (`config.go:1206+`) tiers 2 to 5 (host `ruleset_name` match, application match, `owaspFallback`, the lone-ruleset fallback) only consider sets for which `HasRuleLines` is true, so a legacy empty row never hides a valid set. Tier 1 (the explicit `waf_rules_source`) stays strict: if the chosen set is empty, no handler is built and the reason is `ruleset_empty`. The lone-ruleset case with one empty set therefore yields `ruleset_empty` (selected stays nil but all sets are empty): decide the classification in code so that "every candidate is empty" reports `ruleset_empty`, not `ruleset_not_selected`.
-* **`advanced_config.ruleset_name` path** (`config.go:634-636` and `:652-654`): when the named set was skipped (no path), the handler is left untouched, exactly as today when a path is missing: no directives-less handler is appended. Add a test.
-* **`ApplyConfig` skipping never errors.** The skip logs one Warn and continues; it never returns an error and never fails the apply. The Warn is the only apply-time signal; the passive reason is the user-facing one. Test: a legacy empty row plus a valid set still applies and writes the valid file.
-* **Reason, not a new JSON field.** `ruleset_empty` rides the existing enforcement `reason` string. No schema change, no migration, no new response field.
-* **The classification tests the content, not the file.** With the manager skip, a selected empty rule set has no path, so without the new branch it would be reported as `ruleset_unavailable`.
-* **Remove the placeholder preset** rather than make it fetch anything (a real CRS import needs download, verification and includes: a `feat`, out of scope).
+`proxyHosts.source.local`, `.localUnavailable`, `.localUnavailableHint` exist in `en` and are used by `frontend/src/components/ProxyHostForm.tsx:777,778,792`. They are missing in `de`, `es`, `fr`, `zh` (a script comparing the full `proxyHosts` subtree against `en` finds exactly these three keys in each, nothing else, and no extra keys). The parity test `frontend/src/__tests__/i18n.test.ts:68-98` has a root list (`it.each([...])`) that does not include `proxyHosts`; adding that one root closes the gap for the whole subtree.
 
-## 3. Technical Specifications
+### 2.7 #1701
 
-### 3.1 API contract
+`TestRealCommandExecutor_Execute_OutputLimit` (`backend/internal/api/handlers/crowdsec_cscli_contract_test.go:754`): the wall-clock bound was already widened from 4 s to 15 s in `1519c8c37`, so the flake the issue describes is mitigated but still a timing assertion. More importantly `largeOutputScript` (line 738) ends in `; fx sleep 5`. `fx` is not a shell command (`which fx` finds nothing), so the script exits with "not found" right after the output instead of idling, and the test cannot show that the executor's own limit (rather than the end of the command) stopped it, which is the stated intent of the helper comment. It looks like a typo for `exec sleep`.
 
-`POST /api/v1/security/rulesets` (admin only, unchanged route `routes.go:990`).
+### 2.8 Drift against the batch 5 spec and the issues
 
-| Case | Status | Body |
+* #1761: `waf_mode` already validated (2.1). #1756: "a raw query where an empty value means absent" is the status handler (`security_handler.go:131`), and `cerberus_decision.go` exists as the issue says. #1741 and #1773 match. #1701's bound is already 15 s. Batch 5 C4/U1 rows describe the same four readers; its note (3n, M6) that the four reads are "not unified" is exactly this work.
+
+## 3. Priorities & Ordering
+
+No finding here is critical or high, and none is user-submitted, so the CLAUDE.md rules give: bug fixes before any `feat` (there is no `feat` in this work), medium/low items scheduled after, highest value first.
+
+| Order | Item | Why this position |
 | --- | --- | --- |
-| `content` has at least one rule line | 200 | `{"ruleset": {...}}` (unchanged) |
-| `content` empty, whitespace, comments only, only engine directives, or only a `source_url` | 400 | `{"error": "A rule set needs at least one rule. Add a SecRule line.", "error_code": "ruleset_empty"}` |
-| name missing | 400 | unchanged (`name required`) |
-| content over 2 MiB | unchanged | generic error today; not part of this PR |
+| 1 | **#1761** value checks | The only real validation gap: an admin typo or a script is stored and silently does nothing (or stores 999999999). Smallest blast radius, clearest fix. |
+| 2 | **#1770** narrow the restore | A silent lost update: a concurrent admin write is overwritten while that admin saw 200. Rare (needs a refused apply plus a concurrent write) but data loss without any signal. |
+| 3 | **#1756** the suite switch | Pins, a shared value parser and the write-side Disable fix; no reader rule changes. The only behavior change is for an admin pressing Disable. |
+| 4 | **#1741** translations | User-visible (English fallback for four maintained locales) but cosmetic. |
+| 5 | **#1773** helper restore | Test hygiene; can leave a concrete key behind and make later specs order-dependent. |
+| 6 | **#1701** timing assertion and `fx` typo | Flake and a vacuous check. |
+| 7 | **#1774** docs | Last, because it describes the shipped code (including the PR 19 ranges). |
+| After | **#1840** WAF unprotected count | Low, WAF, a separate path; next small `fix:` after PR 20. |
+| Parked | #1743 (lint sweep with #1716, #1820); #1776 (does not reproduce) | Excluded as instructed. |
 
-The check runs in the service (single source of truth) and the handler maps `errors.Is(err, services.ErrRuleSetEmpty)` to `respondCoded(c, http.StatusBadRequest, codeRulesetEmpty, msgRulesetEmpty, nil)`. The check is placed after the name check and the size check, and before the database read, so nothing is written. An update that blanks the content of an existing set is refused the same way (the stored content is not overwritten).
+PR 19 carries 1-3, PR 20 carries 4-7. #1756's commits (4 to 6) are separable from the rest of PR 19; nothing else waits on them.
 
-Message wording stays neutral: describe the behavior only.
+**Findings made while planning (not rolled into these PRs):**
 
-### 3.2 Backend signatures
+* Unused metrics `IncWAFBlocked`/`IncWAFMonitored` and the two series they feed (2.5): low, file a GitHub issue after PR 20 (dead code vs documenting; Q3). PR 20 documents the truth without touching the metric surface.
+* `/security/disable` leaves the Cerberus keys untouched, so a stale key `true` keeps the proxy and the status on after a break-glass disable. This is an admin-only completeness gap with no external leverage (Supervisor judgment), fixed in PR 19 commit 6; no advisory.
 
-* `models.HasRuleLines(content string) bool` in a new file `backend/internal/models/security_ruleset_rules.go` (or beside the struct). Pure function, no allocation beyond `strings.Split`/`bufio.Scanner`. Use a scanner with an enlarged buffer or `strings.Split` (content is capped at 2 MiB at save time but legacy rows may be larger, so do not rely on `bufio.Scanner` defaults).
-* `services.ErrRuleSetEmpty = errors.New("rule set has no rules")` in `security_service.go` beside `ErrRuleSetInUse`.
-* `SecurityService.UpsertRuleSet`: add `if !models.HasRuleLines(r.Content) { return ErrRuleSetEmpty }` after the size check.
-* `handlers`: const pair `codeRulesetEmpty`/`msgRulesetEmpty` in `security_module_writers.go`; in `security_handler.go:445` add `errors.Is(err, services.ErrRuleSetEmpty)` -> `respondCoded(... 400 ...)` **before** the generic 500 branch. A nil payload stays a no-op (`UpsertRuleSet(nil)` returns nil, keep the existing assertion) and gets an explicit test.
-* `caddy.Manager.ApplyConfig` (`manager.go:397`): at the top of the loop, `if !models.HasRuleLines(rs.Content) { logger.Log().WithField("ruleset", rs.Name).Warn("skipping WAF rule set that has no rules"); continue }`. Exactly one Warn per skipped rule set per apply. The skip must come before the engine-directive prepend, which is what makes an otherwise empty file look non-empty.
-* `caddy.ReasonRulesetEmpty = "ruleset_empty"` in `enforcement_report.go`.
-* `unresolvedRulesetReason`: in the `selected != nil` branch, return `ReasonRulesetEmpty` when `!models.HasRuleLines(selected.Content)`, otherwise `ReasonRulesetUnavailable`; when `selected == nil` and every ruleset is empty, return `ReasonRulesetEmpty`.
+## 4. Technical specification
 
-### 3.3 Frontend
+### 4.1 PR 19, #1761: value checks
 
-* `WafConfig.tsx`: delete the `OWASP Core Rule Set` entry from `WAF_PRESETS`; **drop the `url` property from every preset and the `setSourceUrl(preset.url)` call in `handlePresetChange`** (no dead code; selecting a preset leaves the source URL field untouched); `isValid` becomes `name.trim().length > 0 && content.trim().length > 0`; the content label asterisk is always shown; `source_url` stays as an optional reference field. In `WafConfig.spec.tsx` the `source_url` cases (`:139`, `:250-254`, `:334`) are **replaced, not removed**: keep the link-display and payload assertions using content-bearing fixtures, and add a test that a URL-only form keeps submit disabled.
-* `errorBody.ts`: add `ruleset_empty: 'wafConfig.errors.ruleset_empty'` to `WAF_CODE_MESSAGE_KEYS`.
-* `SecurityEnforcementNote.tsx`: add `'ruleset_empty'` to `KNOWN_REASONS.waf`.
-* Locales: `wafConfig.errors.ruleset_empty` and `security.enforcement.waf.ruleset_empty` in en, de, es, fr, zh (the precedent). `wafConfig.sourceUrlHelper` is reworded properly in en, de, es, fr, zh, and the **English text is copied into the other 24 locales by an uncommitted one-off node script** (no Python). The PR body and QA report say the 24 are English placeholders, not translations, and make no claim about translation quality.
+All in `backend/internal/services/security_config_update.go` plus a small helper move in `security_config_validation.go`.
 
-Suggested English text (neutral, behavior only):
+* Exported limits (so the tests and the docs quote one source): `MaxWAFParanoiaLevel = 4`, `MaxRateLimitRequests = 100000`, `MaxRateLimitBurst = 10000`, `MaxRateLimitWindowSec = 86400`. Minimum for the three rate-limit numbers is 0 (0 = not set, unchanged meaning); `waf_paranoia_level` is 1..4 (the model comment `models/security_config.go:32` and `caddy/config.go:1387` already say so). Ceilings are deliberately above the UI's (1000/100/3600) so an API or script user is not boxed in.
+* `rate_limit_bypass_list`: every comma-separated entry, trimmed, blank entries skipped, must be an IP or a CIDR. Extract the loop in `ValidateAdminWhitelist` into `validateAddressList(list string, errOnBad error) error` (DRY, second use) and add `ErrInvalidRateLimitBypass` ("rate_limit_bypass_list must be a comma-separated list of IP addresses or CIDR ranges"). The empty string stays valid and clears the list.
+* `crowdsec_api_url`: empty, or an absolute http/https URL with a host (reuse `isHTTPURL`, `security_config_update.go:98`). `ErrInvalidCrowdSecAPIURL`. Checked whether the value feeds outbound requests: it does not. The row column is only stored (`models/security_config.go:28`, copied in `Upsert`); the static `config.CrowdSecAPIURL` is documented "ignored: CrowdSec readers always use the local engine address" (`config/config.go:82`) and every CrowdSec client uses `crowdsec.LocalLAPIURL`. So the SSRF validator (`security/url_validator.go`) is not needed here, and `isHTTPURL` is the right size check (stored-value hygiene). A test pins that no code path reads the column for a request (grep result recorded in the commit message body, not a runtime test).
+* `rate_limit_mode` (decided, Q4): exactly the lowercase values `""`, `"disabled"`, `"enabled"`. The proxy compares with `==` (`caddy/manager.go:733`) while the resolver uses `EqualFold` (`models/security_modules.go:105`), so `Enabled` would be on in one and off in the other; accepting only lowercase removes that. The check runs on the incoming `RateLimitMode` **whenever it is present, whatever `rate_limit_enable` carries**: `applyTo` (lines 197-206) passes any non-empty mode through `ResolveRateLimitMode` when `rate_limit_enable` is false, so `{rate_limit_enable: false, rate_limit_mode: "garbage"}` would otherwise store garbage. Test that exact payload.
+* The new numeric/URL/list checks run in a `checkValues(stored models.SecurityConfig)` method called next to `u.checkRulesSource(tx, before)` (line ~283), inside the write transaction and before any column is written, so a refused save stores nothing. For each field: skip the check when the incoming value equals the stored value (the echo rule), so a row that already holds an old out-of-range value never makes an unrelated or echoed save fail. **New row rule:** when the row does not exist (`!exists`, `before = newSecurityConfigRow(name)`, paranoia 1, everything else zero), the stored values are those defaults, so a first save of `waf_paranoia_level: 0` is refused (0 is not 1, and not equal to the default 1), while `rate_limit_*: 0` equal the zero defaults and pass. Test both on a missing row.
+* **Second writer check (done):** `settings_handler.go` (~372 and ~577) writes only `admin_whitelist`, through `syncAdminWhitelist` -> `SecurityService.Upsert` on a row it just read, so it cannot introduce a rate-limit, paranoia, bypass-list or URL value. `ApplyUpdate` is the only writer of those columns that takes new values.
+* Errors are wrapped in `*InvalidConfigError`, so `respondConfigUpdateError` already answers 400 `{"error": "<message>"}`; no new response codes, no frontend change, no locale keys (this is why PR 19 has no frontend or translation work and the frontend coverage margin is untouched).
 
-| Key | Text |
+### 4.2 PR 19, #1770: restore only what the writer touched
+
+Models change (`backend/internal/models/security_module_state.go`):
+
+* Add `func (s *ModuleStateSnapshot) Seal(tx *gorm.DB) error`: called by each writer inside its transaction after its writes, it reads the current value of every imaged key and the row, stores that as the after-image, and records which keys/columns differ from the before-image (the touched set).
+* `RestoreSettings` and `RestoreRow` become compare-and-restore: for each touched key, restore the before-image only when the key's current value still equals the after-image (a key that did not exist before is deleted only if it still holds the after-image); for the row, update only the touched columns whose current value still equals the after-image. A skipped key/column logs one Warn naming the key (log-injection safe, use `logValue`).
+  * **Compare unit:** for a settings key, `Value` and `Category` only (not `ID`, `UpdatedAt` or `Type`, which a rewrite of the same value would change); for a row column, the column value.
+  * **Accepted limits, stated in the code comment and the PR body:** (1) a concurrent write that stores *the same value* as the after-image is indistinguishable from the writer's own and is overwritten by the restore; (2) the two restore transactions (settings, then row) are separate, so a concurrent write can win on the settings and lose on the row or the reverse (a mixed outcome); (3) a concurrent admin write's own proxy apply may already have applied the failed writer's values to the proxy, and the restore does not re-apply (the next apply corrects it). A test covers (2) explicitly: a concurrent write to a touched key lands between the two restore transactions and the final state is the documented mixed result.
+  * **No writer touches `crowd_sec_mode`:** `ApplyUpdate` validates `crowdsec_mode` but never stores it (`applyTo` has no such column, `security_config_update.go:14-17`), the module toggles and the settings writers do not write it, and only the CrowdSec Start path changes it. So no touched set in commits 2 contains it; commit 3 adds it to the image only for the Start revert.
+  * **Query-count pin:** I found no query-count pin for the writers. The nearest pin on a path `Seal` could affect is the apply-path default-row read count in `backend/internal/caddy/manager_cerberus_decision_test.go`; `Seal` runs in the writers' transactions, not in the apply, so it must leave that file passing unchanged. Commit 2 adds its own test that `Seal` issues one read per imaged key plus one for the row. Both still run under `services.WithWriteLock` as today, so check and write are atomic.
+* Fold the two restore transactions in `restoreModuleState` only if the existing tests allow; the comment at `security_module_writers.go:51-53` says they are separate so one failure does not undo the other, keep that.
+* Call `Seal` at the four writer sites (`security_config_update.go` end of `ApplyUpdate`'s transaction, `security_handler.go:1195` module toggle, `settings_handler.go:423` and `:535` sites).
+
+Unifying the two helper pairs: replace `snapshotCrowdsecStart`/`revertCrowdsecStart` internals with `CaptureModuleState` (extra key `models.CrowdSecEnabledSettingKey`) and the same compare-and-restore, keep Start's special rule (a row that Start created is kept with seed values, not deleted) as an explicit option on the restore, and image `crowd_sec_mode` (add it to `securityConfigColumns`; `ApplyUpdate` never changes it, so it is never in a config-save touched set). Delete `snapshotSettings`, `restoreSettings`, `snapshotDefaultSecurityConfigState`, `restoreDefaultSecurityConfigState`, `defaultSecurityConfigSnapshot`, `settingSnapshot` when unused (CLAUDE.md: delete dead code). This is the riskiest sub-step (Start is an engine lifecycle path); it is its own commit so it can be dropped without losing the rest (Q5).
+
+### 4.3 PR 19, #1756: shared parser, pin matrix, and the write-side fix (Q1)
+
+**Decision (Q1, revised after review): reader behavior does not change.** The four readers keep their orders. Three things ship instead:
+
+1. **Pin matrix (no behavior change).** A table-driven test that sets up each stored state and records the answer of all four readers in one place: static on/off, no row, row on/off; feature key absent/`true`/`false`/`TRUE`/`1`/`yes`/empty/garbage; legacy key likewise; both keys together. The matrix also includes the **key-only paths**: the state after `EnableCerberus` (`POST /security/cerberus/enable`, both keys true, row untouched, so a fresh install has row `Enabled=false`) and after the Cerberus feature-flag toggle that `SystemSettings.tsx:309` drives, and the same for `DisableCerberus`. Whatever it shows is committed as current behavior, including the disagreements, and the matrix documents that key-only instances are proxy ON, status ON, middleware OFF today.
+2. **Shared value parser.** One function in `models` (`parseModuleSetting` is the existing recognizer; export a Cerberus-key variant that trims and matches `true` case-insensitively) used by the proxy, status and `IsEnabled` readers for the key value. Orders, defaults and the presets gate's `1`/`yes`/env/default-on behavior stay exactly as pinned; if the shared parser would change an answer in the matrix, the parser adapts, not the reader.
+3. **Write-side completeness fix.** `Disable` / `persistDisabled` (`security_handler.go:585-640`) also writes `feature.cerberus.enabled` and `security.cerberus.enabled` to `false` (reuse `writeModuleToggle(tx, models.CerberusFeatureSettingKey, false, actor)`, the same writes `POST /security/cerberus/disable` already makes) in the same write-locked transaction as the row save, with the `CaptureModuleState`/`Seal` snapshot and `restoreModuleState` if the proxy apply fails (so it benefits from #1770). Test: stale key `true` plus Disable leaves both keys `false`, proxy decision off, status off, middleware off; a rejected apply restores keys and row. Also the localhost-without-token path and the token path.
+
+**Effect, stated plainly.** The only behavior change is for an admin pressing Disable: it now really disables the suite instead of leaving the proxy and the status on when a key says on. No reader rule changes, so **no existing instance's enforcement turns off on upgrade**, including key-only-enabled instances. An instance that already has a stale key `true` after an earlier Disable stays as it is until its admin presses Disable again.
+
+**Rejected options, kept for the record.**
+
+* (A) Row `Enabled=false` is a hard off in every reader: **rejected**, because it is a certain silent downgrade for instances enabled through the key-only paths (proxy and status go from on to off at upgrade, with no admin action). The fail-safe it was meant to give is delivered by the write-side fix instead.
+* (B) The proxy rule everywhere (key beats row): **rejected**, because it can leave the management middleware on after a break-glass disable when a stale key says on, which defeats the lockout protection `cerberus.go:115-117` documents, and it turns the middleware ON for key-only instances at upgrade.
+* The presets/console gate (`isCerberusEnabled`) stays as is (Q2): keep the name, fix its comment, pin it, share only the parser.
+* Optional, per the issue: the settings API accepts only `true`/`false` (any case) for the two Cerberus keys. Check `settings_handler.go` first; add it only if it does not already, and only as a refusal of new garbage (existing stored values keep their pinned meaning).
+
+### 4.4 PR 20
+
+* **#1773**: in `tests/utils/security-helpers.ts` make `captureSecurityState` return the `SecurityStateSnapshot` from `security-settings-api.ts` (`snapshotSecurityState`) and delete the local `restoreSecurityState`, re-exporting the shared one so the five specs keep their imports; `withSecurityEnabled` restores through it. Remove `CapturedSecurityState` if unused. Keep `setSecurityModuleEnabled` (still used to turn modules on). Add a short spec (or an assertion in `waf-enforcement.spec.ts` `afterAll`) that starts with a module key absent, runs enable then cleanup, and calls `expectModuleSwitchesRestored` to prove the key is gone again.
+* **#1741**: add the three keys to `frontend/src/locales/{de,es,fr,zh}/translation.json` under `proxyHosts.source` with real translations (the English hint contains an arrow, "Hecate -> Agent", keep the product names untranslated and the arrow); add `'proxyHosts'` to the `it.each` root list in `frontend/src/__tests__/i18n.test.ts:80`.
+* **#1701**: in `crowdsec_cscli_contract_test.go` fix `fx sleep 5` to `exec sleep 60` (exec so the kill reaches the sleeper) and keep the 30 s test context. Drop the `time.Since(start)` assertion and the unused `start`. Add `require.NoError(t, ctx.Err())` right after `Execute`: if the executor's own limit did not kill the command, the sleeper outlives the 30 s context and `ctx.Err()` is `DeadlineExceeded`, so the test fails deterministically with no wall-clock bound. Note that the error text cannot tell the two cases apart: `CombinedOutputLimited` returns `ErrOutputLimit` whenever the buffer overflowed (`crowdsec/cscli_exec.go:87-102`), even if the context also expired, which is why the `ctx.Err()` check is the assertion that matters. Keep the error-message and `len(out) < 40_000_000` assertions.
+* **#1774**: edit `docs/cerberus.md` (roadmap rows 1 and 5, Prometheus section, burst qualifier at 231 if missing, the `SecRuleEngine` note at 163/193), `docs/api.md:1460`, and `docs/api.md` near `POST /security/config` (line 131) to state the PR 19 ranges. The 429 and log statements are written from what the container gate observes. Edits are in existing files, so `docs-site` needs no manifest or nav change; never edit `docs-site/docs/`.
+
+## 5. Implementation plan and Commit Slicing Strategy
+
+Each PR is a merge commit (not squash). Commit subjects are plain; no breaking markers, no ids of advisories or findings. Dev agents run scoped tests only and in the foreground; "whole package" means the full `go test` of that package, not the repo. Cross-cutting changes (a function signature in `models`, a handler used in several files) run every package that imports the changed one (the PR 17 lesson).
+
+### PR 19 commits
+
+| # | Subject | Scope and files | Depends on | Scoped gate (foreground) |
+| --- | --- | --- | --- | --- |
+| 1 | `fix: reject out-of-range security settings values` | `services/security_config_update.go`, `security_config_validation.go`, new errors; tests in `services/security_config_update_test.go`, `handlers/security_config_partial_update_test.go`; update `handlers/security_handler_audit_test.go:454-473` and any other pin found by grep. Echo-rule cases, boundary cases (0, max, max+1, -1), bypass list (plain IP, CIDR, blank entry, bad entry), URL (empty, http, https, ftp, no host), nothing stored on refusal. | none | `go test ./internal/services/... ./internal/api/handlers/...` (whole packages: `ApplyUpdate` is used by several handler test files) |
+| 2 | `fix: restore only the settings a refused change touched` | `models/security_module_state.go` (`Seal`, compare-and-restore), four writer sites, `handlers/security_module_writers.go`; tests: touched-only restore, concurrent write to an untouched key and to a touched key kept, absent key restored by deletion, row columns, Warn logged. | 1 (same files in `ApplyUpdate`) | `go test ./internal/models/... ./internal/services/... ./internal/api/handlers/...` and `./scripts/scan-gorm-security.sh --check` (models changed) |
+| 3 | `refactor: use one snapshot for the CrowdSec start revert` | `handlers/crowdsec_handler.go`, `crowdsec_lifecycle.go`, `security_handler.go` (delete the old pair), `models` (`crowd_sec_mode` in the image, keep-created-row option). Drop if Q5 says so. | 2 | whole packages `./internal/api/handlers/... ./internal/models/... ./internal/services/... ./internal/crowdsec/...` (the Start revert is exercised from the lifecycle and the startup reconcile in `services`); the existing Start-failure and revert tests must pass unchanged |
+| 4 | `test: pin how each reader decides the security suite is on` | the matrix test (4.3 item 1) in `internal/api/handlers` (or a small helper package if the import graph needs it), including the `EnableCerberus`/`DisableCerberus` key-only paths and the feature-flag toggle; no production change | none (can precede 1) | the new test; no behavior change, so the other packages need not rerun |
+| 5 | `refactor: read the security suite switch value one way` | `models/security_modules.go` (exported Cerberus-key value parser), `caddy/cerberus_decision.go`, `handlers/security_handler.go` status, `cerberus/cerberus.go`, comment on `crowdsec_handler.go:669`. Orders and defaults unchanged; the commit 4 matrix passes unmodified. | 4 | `go test ./internal/... ./cmd/...` (`Cerberus.IsEnabled` and `ProxyCerberusCheck` are used from `cmd/api/main.go:249`, `services/crowdsec_startup.go` and the handlers, so every importer runs) |
+| 6 | `fix: make the break-glass disable switch the security suite off everywhere` | `handlers/security_handler.go` (`Disable`, `persistDisabled`: also write the two Cerberus keys false in the same write-locked transaction, snapshot and restore on a failed apply); tests per 4.3 item 3; the matrix gains the post-Disable rows. | 2, 4, 5 | `go test ./internal/... ./cmd/...` (same reason as commit 5) |
+| 7 | `docs: describe the allowed security settings values` | `docs/api.md` ranges; `docs/cerberus.md` one sentence that Disable now also switches the Cerberus keys off | 1, 6 | `npm run lint:md` on the touched files |
+
+Suggested order of execution: 1, 2, 3, 4, 5, 6, 7. Commit 4 is independent and may go first if the matrix should be reviewed before any change. Commit 3 is droppable (Q5); if it is dropped, nothing after it changes.
+
+**PR 19 definition-of-done and container gate (run once by `qa-security`, not by the dev agents):** full backend suite and `scripts/go-test-coverage.sh` (85%), `scripts/local-patch-report.sh`, GORM scan (models changed), lefthook, `go build ./...`. The change adds validation but no new endpoint or UI, so the local CodeQL/Trivy scans are deferred to CI (`fix:` scope, no new feature surface). Container gate on a throwaway container built from the branch image (unique container and network names, never the live `charon`, own data volume): (a) `POST /security/config` with `waf_paranoia_level` 0, 5, 99, `rate_limit_requests` -1 and 100001, `rate_limit_burst` -1, `rate_limit_window_sec` 86401, `rate_limit_bypass_list` `not-an-ip`, `crowdsec_api_url` `ftp://x` -> each 400, row unchanged (read with `docker exec ... sqlite3 -readonly`); (b) boundary and ordinary values 200; the Rate Limiting page save at 1000/100/3600 still works in the UI; (c) a save that echoes the row read from `GET /security/config` returns 200; (d) failed-apply restore, with the proxy rejection **forced explicitly**: create a proxy host whose `advanced_config` carries a handler name Caddy's config load refuses (for example `[{"handler":"charon_no_such_handler"}]`), after setting it through the API if the API accepts it; if the API validates that field, fall back to making the Caddy admin endpoint unreachable by stopping the Caddy process inside the throwaway container just before the save (restart it afterwards). Use whichever the PR 17 container gate used (see `docs/reports/qa_report.md` history) and record the method in the gate output. Then change one module through `POST /security/config` and confirm the response is the apply failure (500) and that only that module's key (and only its touched row columns) returned to the prior state, while a second write made through a parallel request before the restore is kept; (e) if commit 3 is in: CrowdSec Start with the engine binary unable to start reverts the row and keys as before (compare against the base image run); (f) upgrade scenarios, run on the base image and on the branch image with the same data volume and compare: (i) fresh install; (ii) suite enabled through the key-only paths (`POST /security/cerberus/enable`, and the Cerberus feature toggle on the System Settings page), which leaves the row `Enabled=false`: the status and a proxied request (an ACL or WAF block) must be identical on both images (proxy ON, status ON, management middleware OFF today), proving no enforcement turns off on upgrade; (iii) suite enabled through the Security page (row and keys true); (iv) stale key `true` with row `Enabled=false`, then `/security/disable` from localhost: on the base image the proxy keeps enforcing, on the branch image the proxy stops enforcing, the status shows off and the keys read `false`; (v) the same Disable with a rejected apply (method from (d)): keys and row return to the prior state; (vi) emergency reset: unchanged on both images.
+
+### PR 20 commits
+
+| # | Subject | Scope and files | Depends on | Scoped gate (foreground) |
+| --- | --- | --- | --- | --- |
+| 1 | `test: stop a timing check and a typo from weakening the output limit test` | `crowdsec_cscli_contract_test.go` (4.4) | none | `go test ./internal/api/handlers -run 'TestRealCommandExecutor_Execute_OutputLimit' -count=5`, then the whole package once |
+| 2 | `fix: add the missing local-host labels to the German, Spanish, French and Chinese translations` | four `translation.json` files, `i18n.test.ts` (add `proxyHosts` root) | none | `cd frontend && npx vitest run src/__tests__/i18n.test.ts`; the test fails before the JSON change, passes after; `npm run type-check` |
+| 3 | `test: restore security module keys exactly after enforcement specs` | `tests/utils/security-helpers.ts`, the five enforcement specs' imports only if needed, the absent-key assertion | none | targeted, firefox only: `npx playwright test tests/security-enforcement/waf-enforcement.spec.ts --project=firefox`, then `rate-limit-enforcement.spec.ts`, then `acl-enforcement.spec.ts` (one spec per command; against a rebuilt e2e container via the `docker-rebuild-e2e` skill); no full-suite or multi-browser run locally |
+| 4 | `docs: correct the rate limiting, metrics and WAF notes` | the doc edits in 4.4, each verified as below | PR 19 merged (for the ranges) | `npm run lint:md`; `bash docs-site/scripts/sync-docs.sh && cd docs-site && zensical build --strict` when Zensical is installed locally, otherwise left to CI |
+
+**PR 20 verification for the docs commit (container, throwaway, from the PR 19 image):** (a) set rate limit 2 requests per 60 s on a proxied host, send 3: record the status of the third (expected 429) and its headers, and find where it is logged (Caddy access log, and whether `log_watcher` classifies it as `ratelimit`); (b) a rule set in Blocking mode whose content starts with its own `SecRuleEngine DetectionOnly`: send the attack request and record whether it is blocked, to confirm "keeps its own line"; (c) scrape `/metrics` after a WAF block on a proxied host and confirm `charon_waf_requests_total` does not move (only API requests count) and the blocked/monitored series stay 0. Write the docs from those observations; if an observation contradicts section 2.5, the observation wins.
+
+**PR 20 definition of done (qa-security):** frontend coverage script run once; expected unchanged because only JSON and a test file change, but the branch margin is thin (85.1% against a floor of 85%), so the QA run must report the actual number and the PR must not merge below 85. Full `vitest` run (not just the i18n file) is part of that single QA run. Backend: the handlers package once. Markdownlint clean on every touched `.md`.
+
+### Rollback and contingency
+
+* Each PR is a merge commit and each commit builds on its own, so a revert of the PR is clean. PR 19 commits 1, 2 and 6 are independent in behavior: reverting 6 restores the old Disable, reverting 3 restores the old CrowdSec revert helpers, reverting 1 relaxes validation.
+* If commit 3 shows any difference in the Start-failure behavior that the existing tests do not pin, drop it from the PR and file it as an issue instead of widening the PR.
+* Commits 5 and 6 are independent of 1-3: reverting 6 restores the old Disable, reverting 5 restores the old per-reader parsing. If Q1's recommendation is not accepted, ship 1-4 and 7 without 5 and 6.
+
+## 6. Risks and mitigations
+
+| Risk | Mitigation |
 | --- | --- |
-| `wafConfig.errors.ruleset_empty` | "A rule set needs at least one rule. Add a SecRule line." |
-| `security.enforcement.waf.ruleset_empty` | "The WAF is on, but the selected rule set has no rules. Add rules on the WAF page." |
-| `wafConfig.sourceUrlHelper` | "Optional. The address is stored for reference and is not downloaded." |
+| Validation rejects a value a real instance already stores (for example paranoia 0 from an old seed) and bricks saves | Echo rule: a value equal to the stored one is accepted; only changed values are checked. Test with a stored out-of-range row. Ceilings are above the UI's. |
+| Rate-limit zeros are valid (not set) | Minimum is 0 for the three numbers; a test pins that 0 is accepted and that `thresholds_unset` behavior is untouched. |
+| `Seal` adds queries to every module write | Two small reads per writer inside the existing transaction; no new transaction. A test pins the query count if the existing query-count pin tests exist (batch 5 "r7" mentions one for the apply path). |
+| Compare-and-restore skips a restore the user expected (concurrent write won) | Intended and logged at Warn; the response is still the apply failure, and the stored state is the newer admin write, which the issue asks for. |
+| Replacing the CrowdSec Start revert helpers changes engine lifecycle behavior | Own commit, existing revert tests unchanged, container gate (e), droppable. |
+| Changing a reader's rule would silently turn off enforcement on key-only-enabled instances (certain, not a possibility) | No reader rule changes (Q1). The matrix pins the key-only states; container gate (f)(ii) compares base and branch on the same data volume. |
+| Disable now writes the keys, so a later admin sees the suite off in more places | Intended: it is what Disable means. Only an admin pressing Disable is affected; no upgrade-time change. Documented in `docs/cerberus.md`. |
+| Folding the presets gate into the proxy rule would refuse presets on a fresh install | Not folded (Q2). |
+| `docs/api.md` is edited by PR 19 commit 6 and PR 20 commit 4 | Different sections; merge PR 19 first and rebase PR 20. |
+| Frontend branch coverage margin is thin (85.1% against 85%) | PR 19 touches no frontend. PR 20 touches no instrumented source. QA reports the real number; no frontend source change is planned, and any that creeps in must come with tests. |
+| New locale text is machine-quality | Short labels; ask a native-speaker review in the PR description is not required, but the strings reuse terms already in each locale file (for example the translation of "Docker", "Agent"). |
+| The Playwright helper change breaks the other importers | Keep the exported names; run the three specs listed, and let CI run the full suite. |
 
-### 3.4 Data flow
+## 7. Open questions (with recommendations)
 
-Entry: WAF form submit -> `POST /security/rulesets` -> handler -> `SecurityService.UpsertRuleSet` (predicate, 400) -> DB -> `applyProxyConfigDetached` -> `Manager.ApplyConfig` (predicate again, skip + Warn, so a legacy empty row never produces a file) -> `GenerateConfig` (no path for the set; `unresolvedRulesetReason` names `ruleset_empty`) -> enforcement report -> `/security/status` -> `SecurityEnforcementNote`.
+* **Q1 (decided in review, confirm). #1756 without changing any reader.** The row `Enabled=false` hard off exists only in the management middleware, and instances enabled through key-only paths (`POST /security/cerberus/enable`, the System Settings toggle) have the row off today, so making readers follow the row (A) or the key (B) is a certain silent change in enforcement at upgrade. **Recommendation: change no reader.** Ship the pin matrix, the shared value parser, and make `/security/disable` also write the two Cerberus keys false so the break-glass reaches the proxy and the status. Only an admin pressing Disable sees a change (it now really disables); no existing instance's enforcement turns off on upgrade. A and B are documented as rejected in 4.3.
+* **Q2. Is the presets/console gate part of the unification?** **Recommendation: no.** It answers a different question (the suite is not explicitly switched off) and defaults to on, so presets and console work on a fresh install before the suite is on. Keep it, fix its comment, pin it, share only the parser. Tell me if you want it folded; the cost is that presets refuse until the suite is on.
+* **Q3. The never-incremented `IncWAFBlocked` / `IncWAFMonitored` series.** **Recommendation:** document that they stay at 0 in PR 20 and file a low issue to remove or really wire them; do not change the metric surface in these PRs.
+* **Q4 (decided). `rate_limit_mode`:** exact lowercase empty/`disabled`/`enabled`, validated whenever the field is present (including with `rate_limit_enable: false`). Listed so the decision is visible; no action needed from you.
+* **Q5. Fold the CrowdSec Start revert onto the shared snapshot (PR 19 commit 3)?** The issue asks for it and it deletes ~80 lines of duplicate code, but it touches engine lifecycle. **Recommendation: yes, as its own droppable commit** with the container check; drop it if anything differs.
+* **Q6. Backend ceilings (100000 requests, 10000 burst, 86400 s window).** **Recommendation:** keep them generous and above the UI; tell me if you prefer them equal to the UI's 1000/100/3600.
+* **Q7. Two PRs or one?** **Recommendation: two** (section 1). One PR would put a security-surface change and eight low-risk test/doc/locale edits behind the same container gate and review.
 
-### 3.5 Edge cases
+## 8. Public Text
 
-* Legacy empty row selected as `waf_rules_source`: stays selected, WAF handler is not generated for hosts that resolve to it, reason `ruleset_empty`. Deleting it still hits the existing 409 `waf_ruleset_in_use`; the user fixes it by editing the content (allowed, because the new content has rules) or choosing another source.
-* Content that is only `SecRuleEngine On` or `SecRequestBodyAccess On`: refused (not rule lines).
-* `Include` of a file that does not exist: counts as a rule line by design (the predicate cannot know). Out of scope.
-* Two hosts, one with an empty set via `advanced_config.ruleset_name`: the report keeps the first unprotected host's reason, existing behavior.
-* Name with only an empty-content duplicate of an OWASP-named set: `owaspFallback` selection picks by name, then the content check reports `ruleset_empty`. Covered by the manager/report test.
-* The 400 happens before `applyProxyConfigDetached`, so no Caddy reload on a refused save.
+Neutral, plain subjects; no breaking markers; no advisory or finding ids; nothing that describes a weakness.
 
-## 4. Priorities & Ordering
+**PR 19 title:** `fix: check security settings values and keep a refused change from overwriting newer ones`
+**PR 19 body:** Admin-saved security settings now have allowed ranges (WAF paranoia level, rate limit numbers, the bypass list, the CrowdSec API address). A value already stored is still accepted when it is saved back unchanged. When the proxy refuses a security change, only the settings that change touched are put back, and a newer change made in the meantime is kept. Pressing Disable now switches the security suite off for the proxy and the status as well as the management interface. Includes tests and the container checks listed in the plan.
 
-| Order | Item | Why |
-| --- | --- | --- |
-| 1 | This PR: WAF rule sets need rules (Aikido finding 782255504). | Our own finding, fix (not `feat`), reachable from the main WAF screen in two clicks; already the sequenced PR 18 after #1836. |
-| 2 | Neutral enhancement issue: real OWASP CRS import (download, verification, includes). | Out of scope for this PR (a `feat`); filed as a GitHub issue per CLAUDE.md, scheduled after the user's WAF work. Wording must not mention the finding. |
-| 3 | Findings from the next CrowdSec/WAF PR | Merge into the hardening spec ranked by importance (project convention). |
+Commit subjects (section 5): `fix: reject out-of-range security settings values`; `fix: restore only the settings a refused change touched`; `refactor: use one snapshot for the CrowdSec start revert`; `test: pin how each reader decides the security suite is on`; `refactor: read the security suite switch value one way`; `fix: make the break-glass disable switch the security suite off everywhere`; `docs: describe the allowed security settings values`.
 
-No critical or high out-of-scope finding is known that must precede this PR. The Aikido reply text for 504 / 782255504 is local only, for the user's console: it never goes in a commit, comment, issue, PR or doc.
+**PR 20 title:** `fix: tidy security test helpers, translations and docs`
+**PR 20 body:** Adds the missing local-host labels to the German, Spanish, French and Chinese translations and extends the translation parity test; makes the security end-to-end helpers restore settings exactly; removes a timing assertion and a typo from a command-output test; corrects the rate limiting, metrics and WAF notes in the docs.
 
-## 5. Implementation Plan
+Commit subjects (section 5): `test: stop a timing check and a typo from weakening the output limit test`; `fix: add the missing local-host labels to the German, Spanish, French and Chinese translations`; `test: restore security module keys exactly after enforcement specs`; `docs: correct the rate limiting, metrics and WAF notes`.
 
-### Commit Slicing Strategy
+**`(security)` scope: not used, and no private advisory.** The Supervisor judged all of this admin-only with no external leverage: the validation (#1761) is input hygiene, the restore (#1770) is a consistency fix, and #1756's Disable fix completes an admin action rather than closing a hole an outside party can use. None is a vulnerability fix or a new protective mechanism, so by CLAUDE.md they stay plain `fix:`/`refactor:`. The subject of commit 6 is deliberately plain and says what Disable now does; keep the PR body to that and do not add language about lockouts or about the readers disagreeing.
 
-Decision: **one PR, six ordered logical commits**. Q-X9 (Option B) already made this its own PR. Dev agents run scoped tests only and leave changes in the working tree. Only the main session commits, pushes and opens the PR. All commands run in the foreground and block until they finish.
+## 9. Acceptance criteria
 
-| # | Subject | Scope | Files | Depends on | Scoped validation gate |
-| --- | --- | --- | --- | --- | --- |
-| 1 | `test: pin the rule set fixtures that carry real rules` | Move every existing test fixture that has no rule line (list in Drift table; grep `SecurityRuleSet{`, `UpsertRuleSet(`, JSON `"content"` in handler tests) onto a real `SecRule` line. Add no new behavior. Green before and after. | `services/security_service_test.go`, `services/coverage_boost_test.go`, `handlers/security_handler_rules_decisions_test.go`, `handlers/security_handler_audit_test.go`, `caddy/manager_additional_test.go`, `caddy/config_generate_additional_test.go`, `caddy/security_module_resolution_test.go` (only the fixtures that must stay "unavailable" keep a rule line plus empty paths) | none | Gate G1 (below), whole packages, green |
-| 2 | `fix: refuse a WAF rule set without rules` | `HasRuleLines` + table test; `ErrRuleSetEmpty`; `UpsertRuleSet` check; handler const pair + 400 branch; manager skip with one Warn. Tests: predicate table (blank, spaces, comment-only, indented comment, comment ending in a backslash followed by `SecRule`, `\r\n`, UTF-8 BOM before `SecRule`, `SecRuleEngine On`, `SecRuleRemoveById 1`, `SecRuleUpdateTargetById` (all not rule lines), `SecRule`/`secrule` mixed case, `SecAction`, `SecAction<tab>`, `Include<tab>`, `Includes foo` (not), continued line, leading whitespace, a single line over 1 MiB), selection (legacy empty row plus a valid unselected set -> the valid one is used; explicit empty `waf_rules_source` -> `ruleset_empty`), `advanced_config.ruleset_name` naming a skipped set leaves the handler untouched, ApplyConfig with an empty row plus a valid set still applies the valid file with no error, handler nil-payload no-op, service refuses blank/comment/URL-only and an update that blanks content (stored row unchanged), handler 400 `error_code: ruleset_empty` with nothing stored and no Caddy apply, manager skips an empty row (no file, absent from `ruleset_paths`, one Warn, stale file removed) while a real set still gets its file. | `backend/internal/models/security_ruleset.go` (or new file) + `_test.go`, `services/security_service.go` + test, `handlers/security_module_writers.go`, `handlers/security_handler.go` + test, `caddy/manager.go` + test | 1 | Gate G2 (below), whole packages |
-| 3 | `fix: explain a selected WAF rule set that has no rules` | `ReasonRulesetEmpty`; `unresolvedRulesetReason` branch (content, not file); update the `:319` reason test (empty content -> `ruleset_empty`, rule line + empty paths -> `ruleset_unavailable`); a manager-level test that a seeded empty selected row yields `ruleset_empty` in the enforcement report and `/security/status`; frontend `KNOWN_REASONS`, locale keys (5 locales), Vitest row in `SecurityEnforcementNote.test.tsx`; `docs/api.md:116` reason list entry. | `caddy/enforcement_report.go`, `caddy/config.go`, `caddy/security_module_resolution_test.go`, `caddy/manager_enforcement_test.go`, `handlers` status test if one asserts reasons, `frontend/src/components/SecurityEnforcementNote.tsx`, its test, `frontend/src/locales/{en,de,es,fr,zh}/translation.json`, `docs/api.md` | 2 | Gate G3 (below) |
-| 4 | `fix: remove the WAF preset that has no rules and require rules in the form` | `WafConfig.tsx` preset removal, `isValid`, asterisk, hint wording; `errorBody.ts` mapping; `wafConfig.errors.ruleset_empty` (5 locales) and reworded `sourceUrlHelper` (see Q2); Vitest updates and additions; Playwright. | `frontend/src/pages/WafConfig.tsx`, `frontend/src/api/errorBody.ts` + its test, `frontend/src/pages/__tests__/WafConfig.spec.tsx` (the preset test at `:493-498` switches to a remaining preset; the URL-only cases at `:139`, `:250-254`, `:334` are revisited), `WafConfig.pending.test.tsx`, `WafConfig.rulesSource.test.tsx` (only if fixtures break), locale files, `tests/security/waf-config.spec.ts` | 3 | Gate G4 (below) |
-| 5 | `docs: say that a WAF rule set needs rules` | `docs/api.md` POST example uses a real `SecRule` line and gets a 400 `ruleset_empty` row; `docs/cerberus.md:171` comment becomes "stored for reference, not fetched"; `docs/features/waf.md` adds that a rule set needs rules, that existing empty sets are kept but inactive (they are not deleted and can be edited), and what the Security page says when it has none; `docs/features.md` only if it describes presets. Neutral wording. Run markdownlint on the touched files. | `docs/api.md`, `docs/cerberus.md`, `docs/features/waf.md`, possibly `docs/features.md` | 4 | `npx markdownlint-cli2 <touched files>` (or the repo's lefthook markdownlint hook); docs-site sync check only if a new nav entry were added (none is) |
-| 6 | `docs: add the QA report for the WAF rule set fix` | `docs/reports/qa_report.md` written by `qa-security`. Not a dev-agent commit. | `docs/reports/qa_report.md` | 5 | the container gates below |
-
-The suggested sequence (tests first, foundation, backend, frontend, docs) is kept, with the predicate living in commit 2 because it has no standalone behavior.
-
-Per-commit scoped gates (foreground, scoped tests only; the regexes are passed to `-run`):
-
-* G1 (commit 1): `cd backend && go test ./internal/models/ ./internal/services/ ./internal/caddy/ ./internal/api/handlers/ ./internal/api/routes/ ./cmd/api/ -count=1`. Whole affected packages, no `-run` filter: the fixture sweep touches tests all over those packages.
-* G2 (commit 2): the same command as G1.
-* G3: `cd backend && go test ./internal/caddy/ ./internal/api/handlers/ -count=1 -run 'Enforcement|Status|Unresolved'`, then `cd frontend && npx vitest run src/components/__tests__/SecurityEnforcementNote.test.tsx src/api/__tests__/errorBody.test.ts src/__tests__/i18n.test.ts`.
-* G4: `cd frontend && npx vitest run src/pages/__tests__/WafConfig src/components/__tests__/SecurityEnforcementNote.test.tsx src/api src/__tests__/i18n.test.ts`, `npm run type-check`, then `cd /projects/Charon && npx playwright test tests/security/waf-config.spec.ts --project=firefox`. The `errorBody` test lives under `src/api` (locate it with `ls`; adjust the path if it sits elsewhere).
-
-Playwright additions in commit 4 (`tests/security/waf-config.spec.ts`, Firefox only, seeded via the API fixtures already in that file): (a) creating with only a URL is blocked client-side (submit disabled) and the preset list has no "OWASP Core Rule Set"; (b) a direct API `POST` with a comment-only body returns 400 `ruleset_empty` (via `request`); (c) a seeded empty row, selected as the WAF source with the WAF on, shows the `waf-enforcement-note` containing the new text. Item (c) needs the seed to bypass the new check (write through the test DB seeding or via a legacy path); if no such seed exists in the E2E harness, cover (c) in Vitest and the Go report test only and say so.
-
-### Test inventory (new code must be covered)
-
-* Go: `HasRuleLines` table; service refusal; handler 400 body and "nothing stored, no apply"; manager skip, one Warn (assert via a captured logger hook), stale file cleanup; `unresolvedRulesetReason` both branches; status endpoint reason passthrough.
-* Frontend, with the **thin branch coverage margin (85.1%, floor 85%)** in mind: every new or changed branch needs a test or coverage can slip below the gate. Branches to cover: `isValid` with content only, URL only (now false), blank content; the label asterisk (now unconditional, which removes a branch, net positive); preset change with the remaining presets; `errorBody` `ruleset_empty` mapping with and without an `error_code`; `KNOWN_REASONS` `ruleset_empty` row and the unknown-reason fallback. Deleting the preset removes branches, so net coverage should not drop, but the dev agent must not delete tests without replacement.
-* Playwright as above.
-
-### Container gates (run once, by `qa-security` or the main session, not by dev agents)
-
-1. Rebuild the E2E container (`.github/skills/scripts/skill-runner.sh docker-rebuild-e2e`), then `npx playwright test tests/security/waf-config.spec.ts --project=firefox` (targeted, Firefox only; full-suite and cross-browser runs are CI-only).
-2. GORM scan: no model field or migration change, but the predicate lives in `models/`, so run `./scripts/scan-gorm-security.sh --check` (zero CRITICAL/HIGH).
-3. `bash scripts/local-patch-report.sh`, then `scripts/go-test-coverage.sh` (>= 85%) and `scripts/frontend-test-coverage.sh` (>= 85%). If coverage falls short, `qa-security` returns the uncovered files to the dev agent.
-4. `cd backend && go build ./...`, `cd frontend && npm run type-check && npm run build`.
-5. `lefthook run pre-commit` (staticcheck is blocking). Local CodeQL/Trivy are deferred to CI because this is a `fix:` with no new endpoint or component.
-6. Live check on the rebuilt test container (:8787): save a comment-only rule set via the UI and the API (both refused), then confirm a real `SecRule` set still returns 403 on an attack request, and that a legacy empty row shows the passive line and produces one Warn per apply.
-
-### Public Text
-
-* Plain `fix:`/`test:`/`docs:` subjects as in the table. No `(security)` scope: this is a validation fix whose subject adds nothing the changelog should flag, and the batch 5 spec reserves the one vague `(security)` subject for the import hardening in PR 16. No breaking-change markers (project is v0).
-* Code comments, test names, error strings, docs and the PR body describe behavior only ("a rule set needs rules"). No mention of Aikido, a pentest or the finding id, a scanner, bypass or exploitation wording.
-* PR body: summary of the five behaviors in section 1 plus the validation commands. No session id, no attribution footer.
-
-## 6. Risks and Mitigations
-
-| Id | Risk | Mitigation |
-| --- | --- | --- |
-| R1 | Predicate false positives or negatives (`SecRuleEngine` matching `secrule`; indented or continued lines) | Word-boundary match, table test with those exact cases; same function on both paths so they cannot disagree. |
-| R2 | Large fixture churn hides a real regression | Commit 1 is test-only and green on its own; the Drift table lists the known fixtures; the dev agent greps rather than trusting the list. |
-| R3 | A user relied on an empty "placeholder" row (the batch spec's X-R5) | The row is kept, only stops activating; passive reason on the Security page; the 400 text says what to add. |
-| R4 | Existing install has the empty OWASP preset selected as the WAF source and sees the WAF go from "applied" to "not applied" | Intended and honest: it never blocked anything. Passive line only; documented in `waf.md`. |
-| R5 | A user may legitimately want a source-URL-only row for later | It was never fetched; the hint now says so. A real import is the filed enhancement issue. |
-| R6 | Thin frontend branch coverage margin | Test list above; QA runs the coverage script and bounces uncovered files back. |
-| R7 | Locale parity test fails on the partial 5-locale precedent | Add the keys to the same 5 locales as the sibling keys; run `i18n.test.ts` in commit 3 and 4 gates. If the parity test demands all 29, add English text to the rest via a one-off node script (not committed; no Python). |
-| R8 | Wording leaks the finding | Public Text rules above; supervisor checks strings and docs in review. |
-
-## 7. Open Questions (with recommendations)
-
-* **Q1. Placeholder preset: remove it, or keep it as a one-click starter that fills in real rules?** Recommend **remove** (the batch spec's decision). A real CRS import is a `feat`; file a neutral enhancement issue.
-* **Q2. Source URL hint.** `sourceUrlHelper` exists in all 29 locales and now says something false. Recommend (decided with the Supervisor): reword properly in en, de, es, fr, zh; copy the English into the other 24 with an uncommitted node script and say so in the PR body and QA report, without claiming translation quality.
-* **Q3. Keep `SourceURL` in the form at all?** Recommend keep (optional reference field, no API change), revisit when the import feature is designed.
-* **Q4. Should an update that blanks an existing set's content be refused, or allowed so users can "clear" a set?** Recommend **refused** (same rule on create and update); deleting the set is the way to remove it.
-* **Q5. E2E seed for a legacy empty row.** If the Playwright harness cannot seed past the new check, is Vitest plus the Go report test enough for the passive line? Recommend yes, and state it in the QA report.
-* **Q6. Should the Warn also fire when the 400 is returned on save?** Recommend no: the 400 is the feedback; Warn is for apply-time skips only.
-* **Q7. Keep `include` as a rule directive?** Recommend yes (an include pulls rules in), accepting that an include of a missing file is not detected here.
-
-## 8. Acceptance Criteria
-
-* Saving a rule set with blank, whitespace, comment-only, engine-directive-only or URL-only content returns 400 `error_code: ruleset_empty`; nothing is stored and no Caddy apply runs.
-* A rule set with a `SecRule`, `SecAction` or `Include` line saves and is enforced as before (an attack request still returns 403).
-* `ApplyConfig` skips a stored rule set without rule lines, writes no file for it, removes any stale file, and logs one Warn per skipped set per apply.
-* The enforcement report and the Security page show the passive `ruleset_empty` line for a selected empty set; no banner, toast or badge.
-* The WAF form has no "OWASP Core Rule Set" preset, requires rule content, and shows the translated refusal if the server still refuses.
-* `docs/api.md`, `docs/cerberus.md` and `docs/features/waf.md` say a rule set needs rules; markdownlint is clean.
-* Scoped gates pass per commit; the QA container gates pass; frontend and backend coverage stay at or above 85%.
-
-## 9. Rollback and Contingency
-
-* The change is additive validation plus a skip: there is no schema change, migration or new response field, so a revert of the PR restores the previous behavior with no data fix-up. Rows are never deleted or modified by this PR.
-* If commit 3 (reason plumbing) proves too wide in review, drop it: commits 2 and 4 still close the finding, and the note falls back to the existing `ruleset_unavailable` text.
-* If the locale parity test blocks the 5-locale precedent, widen to all 29 (Q2) rather than relax the test.
-* If a fixture sweep in commit 1 reveals a test that depends on content without rule lines for a reason other than convenience, stop and report; never `.skip` or delete a test to get green.
-
-## 10. Handoff
-
-After approval, hand to `supervisor` for plan review, then implement commit by commit with `backend-dev` (commits 1-3 backend parts) and `frontend-dev` (commits 3-4 frontend parts, with `playwright-dev` for the spec if preferred), `docs-writer` for commit 5, and `qa-security` last. Dispatch prompts must say: run all commands in the foreground and block until done, scoped tests only, do not commit.
+* PR 19: every out-of-range value in 4.1 returns 400 with nothing stored; boundary and echoed values return 200; a failed apply restores only touched keys/columns and keeps a concurrent write (tested); the CrowdSec Start failure revert behaves as before; the pin matrix passes unmodified after the parser refactor, key-only-enabled instances are identical on the base and branch images, and Disable with a stale key `true` stops the proxy enforcing; backend coverage at least 85%; GORM scan clean; container gate (a)-(f) recorded.
+* PR 20: the i18n parity test covers `proxyHosts` and passes with the three new keys in all four locales; the three enforcement specs pass on firefox and leave module keys exactly as found; the output-limit test no longer measures wall-clock time, runs `exec sleep 60` and asserts `ctx.Err()` is nil; each changed doc statement has a code or container observation behind it; frontend coverage still at least 85% in the single QA run; `npm run lint:md` clean.
+* Both: no commit contains a session id or link; Definition of Done from CLAUDE.md run once by `qa-security`.

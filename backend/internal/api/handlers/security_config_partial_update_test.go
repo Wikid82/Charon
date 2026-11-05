@@ -212,3 +212,81 @@ func serveSecurityStatus(t *testing.T, router *gin.Engine) string {
 	t.Helper()
 	return serveSecurityPin(t, router, http.MethodGet, "/security/status", "192.0.2.10:5000", "").Body.String()
 }
+
+// Out-of-range values answer 400 with the validation message and store nothing, for each field the plan names.
+func TestUpdateConfig_OutOfRangeValuesAnswer400AndWriteNothing(t *testing.T) {
+	cases := []struct {
+		name    string
+		body    string
+		wantMsg string
+	}{
+		{"paranoia zero", `{"waf_paranoia_level":0}`, "waf_paranoia_level must be between 1 and 4"},
+		{"paranoia five", `{"waf_paranoia_level":5}`, "waf_paranoia_level must be between 1 and 4"},
+		{"paranoia ninety-nine", `{"waf_paranoia_level":99}`, "waf_paranoia_level must be between 1 and 4"},
+		{"requests minus one", `{"rate_limit_requests":-1}`, "rate_limit_requests must be between 0 and 100000"},
+		{"requests above ceiling", `{"rate_limit_requests":100001}`, "rate_limit_requests must be between 0 and 100000"},
+		{"burst minus one", `{"rate_limit_burst":-1}`, "rate_limit_burst must be between 0 and 10000"},
+		{"window above ceiling", `{"rate_limit_window_sec":86401}`, "rate_limit_window_sec must be between 0 and 86400"},
+		{"bypass list not an address", `{"rate_limit_bypass_list":"not-an-ip"}`, "rate_limit_bypass_list must be a comma-separated list of IP addresses or CIDR ranges"},
+		{"crowdsec url ftp", `{"crowdsec_api_url":"ftp://x"}`, "crowdsec_api_url must be empty or an absolute http or https URL with a host"},
+		{"rate limit mode garbage with enable false", `{"rate_limit_enable":false,"rate_limit_mode":"garbage"}`, `rate_limit_mode must be "", "disabled" or "enabled"`},
+		{"rate limit mode capitalised", `{"rate_limit_mode":"Enabled"}`, `rate_limit_mode must be "", "disabled" or "enabled"`},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			_, router, db := newSecurityPinRouter(t)
+			before := seedFullSecurityRow(t, db, true)
+
+			w := serveSecurityPin(t, router, http.MethodPost, "/security/config", "192.0.2.10:5000", c.body)
+
+			require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+			var body struct {
+				Error string `json:"error"`
+			}
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
+			assert.Equal(t, c.wantMsg, body.Error)
+			assertRowKeptExcept(t, before, loadDefaultSecurityRow(t, db))
+		})
+	}
+}
+
+// Boundary values are accepted, and a save that posts back the row it read is accepted too.
+func TestUpdateConfig_BoundaryAndEchoedValuesAreAccepted(t *testing.T) {
+	cases := []struct {
+		name string
+		body string
+	}{
+		{"paranoia one", `{"waf_paranoia_level":1}`},
+		{"paranoia four", `{"waf_paranoia_level":4}`},
+		{"requests ceiling", `{"rate_limit_requests":100000}`},
+		{"burst ceiling", `{"rate_limit_burst":10000}`},
+		{"window ceiling", `{"rate_limit_window_sec":86400}`},
+		{"ui limits", `{"rate_limit_requests":1000,"rate_limit_burst":100,"rate_limit_window_sec":3600}`},
+		{"bypass list cidr", `{"rate_limit_bypass_list":"192.0.2.0/24,198.51.100.7"}`},
+		{"crowdsec url https", `{"crowdsec_api_url":"https://crowdsec.example"}`},
+	}
+	for _, c := range cases {
+		c := c
+		t.Run(c.name, func(t *testing.T) {
+			_, router, db := newSecurityPinRouter(t)
+			seedFullSecurityRow(t, db, true)
+
+			w := serveSecurityPin(t, router, http.MethodPost, "/security/config", "192.0.2.10:5000", c.body)
+
+			require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		})
+	}
+
+	t.Run("echo of the stored row", func(t *testing.T) {
+		_, router, db := newSecurityPinRouter(t)
+		before := seedFullSecurityRow(t, db, true)
+		raw, err := json.Marshal(before)
+		require.NoError(t, err)
+
+		w := serveSecurityPin(t, router, http.MethodPost, "/security/config", "192.0.2.10:5000", string(raw))
+
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		assertRowKeptExcept(t, before, loadDefaultSecurityRow(t, db))
+	})
+}

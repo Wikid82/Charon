@@ -1,51 +1,69 @@
-# QA Report: PR 18 (a WAF rule set needs rules), branch `fix/waf-rule-sets-need-rules`
+# QA Report: PR 19 (security settings value checks and compare-and-restore), branch `fix/security-settings-checks`
 
-Date: 2026-11-04. Scope: 7 commits ahead of `development` (plan: `docs/plans/current_spec.md`), tree clean at start and at end. CodeQL and Trivy are deferred to CI (fix-scoped change, no new endpoint or component). The docs-site build was not run locally; it runs in CI.
+Date: 2026-11-05. Scope: 8 commits ahead of `development` (plan: `docs/plans/current_spec.md`; plan commit 3, the CrowdSec Start revert unification, was intentionally dropped). Tree clean at start and at end. CodeQL and Trivy are deferred to CI (`fix:` scope, no new endpoint or UI). The frontend is untouched.
 
 ## Result: PASS
 
-No blocking findings. One low observation and some residual risks are listed below.
+No blocking findings. Three low observations and the residual risks are listed below.
 
 | Gate | Result |
 | --- | --- |
 | `cd backend && go build ./...` | Pass |
 | `./scripts/scan-gorm-security.sh --check` | Pass: 0 critical, 0 high, 0 medium (2 informational suggestions, 1 suppressed) |
-| `scripts/go-test-coverage.sh` | Pass: statements 93.2%, lines 92.1% (minimum 87%); all packages ok |
-| `scripts/frontend-test-coverage.sh` | Pass: 321 files, 4138 tests passed, 2 todo; statements 91.11%, branches 85.61%, functions 88.42%, lines 92.11% |
-| `cd frontend && npm run type-check` | Pass |
-| `bash scripts/local-patch-report.sh` | Pass: overall 48/48 changed lines (100%); backend 45/45, frontend 3/3; artifacts in `test-results/` |
-| `lefthook run pre-commit --all-files` | Pass: all 18 hooks green (go vet, golangci-lint fast 0 issues, markdownlint 0 issues, actionlint, shellcheck, frontend type-check and lint with 0 errors, semgrep 367 rules on 2367 files with 0 findings) |
-| Playwright `tests/security/waf-config.spec.ts`, project `security-tests` | Pass: 20 of 20 (including both "Rule set needs rules" cases) |
+| `scripts/go-test-coverage.sh` | Pass: statements 93.2%, lines 92.1% (minimum 87%); no failing package |
+| `cd frontend && npm run type-check` | Pass (no frontend files changed on the branch) |
+| `bash scripts/local-patch-report.sh` | Pass: overall 213/227 changed lines (93.8%); backend 213/227, frontend 0/0; artifacts in `test-results/` |
+| `lefthook run pre-commit --all-files` | Pass: all 18 hooks green, including semgrep (657 s), golangci-lint fast, go vet, markdownlint, frontend lint and type-check |
+| Container gates (a), (b), (c), (d) | Pass, details below |
 
-The branch margin on frontend branches is thin (85.61% against a floor of 85%); it did not drop from before the change.
+Patch coverage detail: the uncovered changed lines are error-return branches only, `backend/internal/api/handlers/security_handler.go` 626-627, 629-630, 636-637, 647-648 (storage failures inside the disable write) and `backend/internal/models/security_module_state.go` 439-440, 468-469, 493-494 (restore-transaction failure paths). Both files are above the 85% backend floor for the patch.
 
 ## Container gates
 
-Run against the rebuilt E2E image (`docker-rebuild-e2e`) and a throwaway pair of containers (a second `charon:local` instance as the upstream, a bind-mounted data directory, a private network, host ports 28080 and 28180). The live `charon` container was not touched. The throwaway containers and network were removed.
+Two images were built for the comparison: `qa19-branch` (this branch) and `qa19-base` (a `git archive` of `development`, built outside the repo tree). Throwaway containers used unique names, loopback-only ports and their own bind-mounted data directories. The live `charon` and `charon-e2e` containers were not touched. All throwaway containers, data directories and both images were removed afterwards.
 
-- URL-only create (`source_url` set, empty content) returned 400 with `error_code: ruleset_empty`.
-- Comment-only create (`# just a comment` and a commented `SecRule`) returned 400 with `error_code: ruleset_empty`.
-- Updating an existing set with whitespace-only content returned 400 `ruleset_empty`; the stored set kept its 76-byte content.
-- A real `SecRule` set saved (200) and was written to a ruleset file.
-- A legacy empty row (seeded directly in the database, because the API now refuses it) selected as the WAF source:
-  - `/security/status` reported `enforced: false`, `reason: ruleset_empty`, `unprotected_hosts: 1`.
-  - No ruleset file was written for it and the generated proxy config had no WAF handler for the host.
-  - One apply produced exactly one Warn, `skipping WAF rule set that has no rules`, plus the existing summary Warn that names the reason. The log counter went from 3 to 4 across a single config save.
-  - An attack request through the proxy returned 502 (not blocked, since nothing was enforcing; the upstream path does not exist).
-- Selecting the real set as the source: `/security/status` reported `enforced: true`, `unprotected_hosts: 0`, and the same attack request returned 403.
+### (a) Value checks on `POST /security/config` (branch image, fresh data)
 
-## Notes on test coverage claims
+Each of these returned 400 with the documented message, and the full config (including `updated_at`) read back byte-identical afterwards:
 
-- Locale placeholders: `wafConfig.sourceUrlHelper` was reworded in en, de, es, fr and zh. The other 23 locales carry the English sentence as a placeholder (verified: 23 locale files are string-identical to `en`). No claim is made about translation quality for those 23.
-- E2E case (c), a legacy empty row shown as the passive line: the Playwright harness cannot seed such a row, because the API now refuses to store one. That behavior is covered by the Vitest row in `SecurityEnforcementNote.test.tsx` and by the Go enforcement-report test (and was confirmed by hand in the container check above).
+- `waf_paranoia_level` 0, 5 and 99
+- `rate_limit_requests` 100001 and -1
+- `rate_limit_burst` 10001 and -1
+- `rate_limit_window_sec` 86401
+- `rate_limit_mode` `"garbage"` with `rate_limit_enable: false`, and `"Enabled"` (case)
+- `rate_limit_bypass_list` `not-an-ip`, and `1.2.3.4, 10.0.0.0/8, bad`
+- `crowdsec_api_url` `ftp://x`
+
+These returned 200: `waf_paranoia_level` 1 and 4; requests/burst/window at 100000/10000/86400 and at 0/0/0; the UI limits 1000/100/3600; a bypass list `1.2.3.4, 10.0.0.0/8,,` (blank entries skipped); an empty bypass list; `crowdsec_api_url` `https://example.com:8080` and empty; mode `enabled` and `disabled`; and a save that echoes the whole row read from `GET /security/config`. The Rate Limiting page itself was not driven in a browser (no frontend change); the 1000/100/3600 values were saved through the API.
+
+### (b) Refused-apply restore
+
+Forcing method: a proxy host whose `advanced_config` carries an unknown handler is refused at create time (the host is rolled back and not stored, 500), so it cannot be used to make a later apply fail. The plan's fallback was used instead: the Caddy process inside the container was frozen with `SIGSTOP`, so the admin `/load` call times out after 30 s and the rollback also fails. The save answers 500 `Failed to reload configuration`; Caddy was resumed afterwards.
+
+- Save of `waf_mode`, `rate_limit_requests` and `rate_limit_burst` with the apply refused: the module keys (`security.waf.enabled`, and others) and the row columns returned to the prior values; settings keys kept their original `updated_at`.
+- Concurrent write: while the apply was stalled, `security.waf.enabled` was changed to a different value through a direct database write (the writer's own change to it was already committed). After the 500, that key kept the concurrent value, the row columns were restored, and the log carried exactly one `security state restore skipped: a concurrent write changed this value` warning with `target=security.waf.enabled`. The warning is written to the application log files under `/app/data/logs` (it appears once per file, the same event in `charon.log` and `cpmp.log`), not to the container's stdout.
+
+### (c) Upgrade comparison on one data volume (base image, then branch image, same volume)
+
+- Key-only-enabled instance (`POST /security/cerberus/enable`, row `Enabled=false`, rate limiting configured at 2 requests per 60 s on a proxied host): on the base image and then on the branch image the status body was identical (cerberus on, rate limit enabled and enforced), the settings and row were identical, and a proxied request sequence returned 2 x 200 then 3 x 429 on both. No enforcement turns off at upgrade.
+- Stale keys `true` with row `Enabled=false`, then `/security/disable` from localhost (authenticated, run inside the container): base image left both keys `true`, status cerberus on, and every request 429 (still enforcing). Branch image set both keys to `false`, status cerberus off and rate limit off, and every request returned 200.
+- The same Disable on the branch image with the apply refused (Caddy frozen): response 500, both keys and the row `Enabled` returned to their prior values, key `updated_at` unchanged.
+- Fresh install on the branch image was exercised by gate (a). Gate (e) does not apply (plan commit 3 dropped). Gate (vi), the emergency reset comparison, was not part of this run.
+
+### (d) Blank-valued feature key
+
+With `feature.cerberus.enabled` and `security.cerberus.enabled` set to the empty string and the row off, a `waf_mode: block` save with the apply refused showed both keys as `true` mid-flight (so the check is not vacuous), and after the 500 both read back as the empty string with their original `updated_at`. They were not left as `true`.
 
 ## Observations (not blocking)
 
-1. Low: when a host carries its own `advanced_config` WAF handler that names a valid rule set, and the global source is an empty legacy row, the proxy config does contain the host's handler and an attack request is blocked (403), yet `/security/status` still counts that host in `unprotected_hosts` (1). Seen on the first pass before the host's own handler was removed. The status counts hosts that lack the global handler and does not look at per-host handlers. This was not changed by this PR and is conservative (it under-reports protection, never over-reports). It can be filed as a separate follow-up.
+1. Low. A refused apply restores the row's imaged column values but not the row's own `updated_at`: after a restore the row shows a newer modified time (seen in gates (b) and (c)). Values are correct. The settings keys do keep their modified time. The base behaves the same, so this is not a regression. Files: `backend/internal/models/security_module_state.go` (row restore).
+2. Low, documented limit 4 in `backend/internal/models/security_module_state.go`. `waf_paranoia_level` and `crowdsec_api_url` are not imaged, so a config save that changes them and then fails the apply answers 500 but leaves the new values stored (observed with paranoia 3 to 2). Pre-existing and unchanged by this branch.
+3. Low. The restore warning goes to the file logger and not to stdout, so an operator following `docker logs` will not see it. Consistent with the other application warnings.
 
 ## Residual risks
 
-- A user who relied on an empty rule set row (including the removed placeholder preset) sees the WAF go from "applied" to "not applied" after upgrading. The row is kept, only the activation stops, and the Security page shows the passive reason line. This is the intended behavior.
-- An `Include` of a missing file is not detected by the rule-line check (accepted in the plan).
-- CodeQL and Trivy have not run locally; CI runs both on the PR.
-- Full-suite and cross-browser Playwright runs are CI-only and were not run.
+- The two restore transactions (settings, then row) are separate, so a concurrent write can win on one and lose on the other (documented limit 2, covered by a unit test). A concurrent write that stores exactly the writer's after-image value is overwritten by the restore (limit 1).
+- The concurrent-write gate used a direct database write during a stalled apply rather than a second API request, because a second API write would also have been refused and restored.
+- The restore does not re-apply the proxy configuration after a concurrent writer's apply (limit 3); the next apply corrects it.
+- Frontend coverage and frontend tests were not re-run, because no frontend file changed.
+- CodeQL and Trivy are deferred to CI as per the `fix:` scope rule.
