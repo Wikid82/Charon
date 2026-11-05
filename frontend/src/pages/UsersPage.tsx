@@ -190,7 +190,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
   return (
     <>
       {/* Layer 1: Background overlay (z-40) */}
-      <div className="fixed inset-0 bg-black/50 z-40" onClick={handleClose} />
+      <div className="fixed inset-0 bg-black/50 z-40" role="presentation" onClick={handleClose} />
 
       {/* Layer 2: Form container (z-50, pointer-events-none) */}
       <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
@@ -465,7 +465,7 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
   return (
     <>
       {/* Layer 1: Background overlay (z-40) */}
-      <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/50 z-40" role="presentation" onClick={onClose} />
 
       {/* Layer 2: Form container (z-50, pointer-events-none) */}
       <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
@@ -661,7 +661,7 @@ function UserDetailModal({ isOpen, onClose, user, isSelf }: UserDetailModalProps
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/50 z-40" role="presentation" onClick={onClose} />
       <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
         <div
           ref={dialogRef}

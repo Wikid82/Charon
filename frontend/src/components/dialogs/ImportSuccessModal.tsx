@@ -1,4 +1,5 @@
 import { CheckCircle, Plus, RefreshCw, SkipForward, AlertCircle, Info } from 'lucide-react'
+import { useEffect, useRef } from 'react'
 
 export interface ImportSuccessModalProps {
   visible: boolean
@@ -20,6 +21,14 @@ export default function ImportSuccessModal({
   onNavigateHosts,
   results,
 }: ImportSuccessModalProps) {
+  const dialogRef = useRef<HTMLDivElement>(null)
+  const isVisible = visible && results !== null
+
+  // Move focus into the dialog on open so Escape closes it without a prior click.
+  useEffect(() => {
+    if (isVisible) dialogRef.current?.focus()
+  }, [isVisible])
+
   if (!visible || !results) return null
 
   const { created, updated, skipped, errors } = results
@@ -27,16 +36,30 @@ export default function ImportSuccessModal({
   const totalProcessed = created + updated + skipped
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center" data-testid="import-success-modal">
-      <div className="absolute inset-0 bg-black/60" onClick={onClose} />
-      <div className="relative bg-dark-card rounded-lg p-6 w-[500px] max-w-full mx-4 border border-gray-800">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center"
+      data-testid="import-success-modal"
+      role="presentation"
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') onClose()
+      }}
+    >
+      <div className="absolute inset-0 bg-black/60" role="presentation" onClick={onClose} />
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="import-success-title"
+        tabIndex={-1}
+        className="relative bg-dark-card rounded-lg p-6 w-[500px] max-w-full mx-4 border border-gray-800 focus:outline-none"
+      >
         {/* Header */}
         <div className="flex items-center gap-3 mb-6">
           <div className="shrink-0 w-12 h-12 rounded-full bg-green-900/30 flex items-center justify-center">
             <CheckCircle className="h-6 w-6 text-green-400" />
           </div>
           <div>
-            <h2 className="text-xl font-bold text-white">Import Completed</h2>
+            <h2 id="import-success-title" className="text-xl font-bold text-white">Import Completed</h2>
             <p className="text-sm text-gray-400">
               {totalProcessed} host{totalProcessed !== 1 ? 's' : ''} processed
             </p>

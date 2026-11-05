@@ -690,7 +690,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   return (
     <>
       {/* Layer 1: Background overlay (z-40) */}
-      <div className="fixed inset-0 bg-black/50 z-40" onClick={onCancel} />
+      <div className="fixed inset-0 bg-black/50 z-40" role="presentation" onClick={onCancel} />
 
       {/* Layer 2: Form container (z-50, pointer-events-none) */}
       <div className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-50">

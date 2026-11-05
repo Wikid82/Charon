@@ -37,6 +37,8 @@ vi.mock('../ui', async () => {
     SelectTrigger: ({ error, children }: { error?: boolean; children: React.ReactNode }) => (
       <button
         role="combobox"
+        aria-controls="dns-provider-listbox"
+        aria-expanded={false}
         data-error={error}
         disabled={capturedSelectDisabled}
         aria-disabled={capturedSelectDisabled}
@@ -49,10 +51,10 @@ vi.mock('../ui', async () => {
       return <span data-placeholder={placeholder}>{capturedSelectValue || placeholder}</span>
     },
     SelectContent: ({ children }: { children: React.ReactNode }) => (
-      <div role="listbox">{children}</div>
+      <div id="dns-provider-listbox" role="listbox">{children}</div>
     ),
     SelectItem: ({ value, disabled, children }: { value: string; disabled?: boolean; children: React.ReactNode }) => (
-      <div role="option" data-value={value} data-disabled={disabled}>
+      <div role="option" aria-selected={value === capturedSelectValue} data-value={value} data-disabled={disabled}>
         {children}
       </div>
     ),

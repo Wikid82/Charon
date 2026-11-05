@@ -100,6 +100,22 @@ export default function CrowdSecConfig() {
   const [confirmUnban, setConfirmUnban] = useState<CrowdSecDecision | null>(null)
   const [whitelistForm, setWhitelistForm] = useState<{ ip_or_cidr: string; reason: string }>({ ip_or_cidr: '', reason: '' })
   const [confirmDeleteWhitelist, setConfirmDeleteWhitelist] = useState<CrowdSecWhitelistEntry | null>(null)
+  const banIpInputRef = useRef<HTMLInputElement>(null)
+  const unbanCancelButtonRef = useRef<HTMLButtonElement>(null)
+  const whitelistDeleteCancelButtonRef = useRef<HTMLButtonElement>(null)
+  const isUnbanModalOpen = confirmUnban !== null
+  const isWhitelistDeleteModalOpen = confirmDeleteWhitelist !== null
+
+  // Focus each modal's intended control on open (replaces autoFocus).
+  useEffect(() => {
+    if (showBanModal) banIpInputRef.current?.focus()
+  }, [showBanModal])
+  useEffect(() => {
+    if (isUnbanModalOpen) unbanCancelButtonRef.current?.focus()
+  }, [isUnbanModalOpen])
+  useEffect(() => {
+    if (isWhitelistDeleteModalOpen) whitelistDeleteCancelButtonRef.current?.focus()
+  }, [isWhitelistDeleteModalOpen])
   const [isApplyingPreset, setIsApplyingPreset] = useState(false)
   const [presetPreview, setPresetPreview] = useState<string>('')
   const [presetMeta, setPresetMeta] = useState<{ slug?: string; type?: string; cacheKey?: string; itemSha256?: string; etag?: string; retrievedAt?: string; source?: string } | null>(null)
@@ -1719,10 +1735,10 @@ export default function CrowdSecConfig() {
           aria-labelledby="ban-modal-title"
         >
           {/* Layer 1: Background overlay (z-40) */}
-          <div
-            className="absolute inset-0 bg-black/60"
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/60 focus:outline-none"
             onClick={() => setShowBanModal(false)}
-            role="button"
             tabIndex={-1}
             aria-label={t('common.close')}
           />
@@ -1730,6 +1746,7 @@ export default function CrowdSecConfig() {
           {/* Layer 3: Form content (pointer-events-auto) */}
           <div
             className="relative bg-dark-card rounded-lg p-6 w-[480px] max-w-full shadow-xl"
+            role="presentation"
             onKeyDown={(e) => {
               if (e.key === 'Escape') setShowBanModal(false)
               if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) banMutation.mutate()
@@ -1752,7 +1769,7 @@ export default function CrowdSecConfig() {
                 error={banFieldErrors.ip}
                 errorTestId="ban-ip-error"
                 helperText={t('crowdsecConfig.banModal.ipHint')}
-                autoFocus
+                ref={banIpInputRef}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault()
@@ -1836,15 +1853,16 @@ export default function CrowdSecConfig() {
           aria-modal="true"
           aria-labelledby="unban-modal-title"
         >
-          <div
-            className="absolute inset-0 bg-black/60"
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/60 focus:outline-none"
             onClick={() => setConfirmUnban(null)}
-            role="button"
             tabIndex={-1}
             aria-label={t('common.close')}
           />
           <div
             className="relative bg-dark-card rounded-lg p-6 w-[400px] max-w-full shadow-xl"
+            role="presentation"
             onKeyDown={(e) => {
               if (e.key === 'Escape') setConfirmUnban(null)
               if (e.key === 'Enter') unbanMutation.mutate(confirmUnban.ip)
@@ -1856,9 +1874,9 @@ export default function CrowdSecConfig() {
             </p>
             <div className="flex gap-3 justify-end">
               <Button
+                ref={unbanCancelButtonRef}
                 variant="secondary"
                 onClick={() => setConfirmUnban(null)}
-                autoFocus
               >
                 {t('common.cancel')}
               </Button>
@@ -1890,6 +1908,7 @@ export default function CrowdSecConfig() {
           />
           <div
             className="relative z-10 bg-gray-900 rounded-lg border border-gray-700 p-6 max-w-md w-full mx-4 shadow-xl"
+            role="presentation"
             onKeyDown={(e) => {
               if (e.key === 'Escape') setConfirmDeleteWhitelist(null)
             }}
@@ -1902,9 +1921,9 @@ export default function CrowdSecConfig() {
             </p>
             <div className="flex justify-end gap-3">
               <Button
+                ref={whitelistDeleteCancelButtonRef}
                 variant="secondary"
                 onClick={() => setConfirmDeleteWhitelist(null)}
-                autoFocus
               >
                 {t('common.cancel', 'Cancel')}
               </Button>

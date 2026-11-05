@@ -265,7 +265,7 @@ const EditMonitorModal: FC<{ monitor: MonitorSummary; onClose: () => void; t: (k
     return (
         <>
             {/* Layer 1: Background overlay (z-40) */}
-            <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
+            <div className="fixed inset-0 bg-black/50 z-40" role="presentation" onClick={onClose} />
 
             {/* Layer 2: Form container (z-50, pointer-events-none) */}
             <div className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-50">
@@ -399,7 +399,7 @@ const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }
     return (
         <>
             {/* Layer 1: Background overlay (z-40) */}
-            <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
+            <div className="fixed inset-0 bg-black/50 z-40" role="presentation" onClick={onClose} />
 
             {/* Layer 2: Form container (z-50, pointer-events-none) */}
             <div className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-50">
