@@ -1,6 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Mail, Send, CheckCircle2, XCircle } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { getSMTPConfig, updateSMTPConfig, testSMTPConnection, sendTestEmail, type SMTPConfigRequest  } from '../api/smtp'
@@ -12,6 +12,7 @@ import { Input } from '../components/ui/Input'
 import { Label } from '../components/ui/Label'
 import { Select, SelectTrigger, SelectContent, SelectItem, SelectValue } from '../components/ui/Select'
 import { Skeleton } from '../components/ui/Skeleton'
+import { useSeedOnChange } from '../hooks/useSeedOnChange'
 import { toast } from '../utils/toast'
 
 
@@ -32,16 +33,14 @@ export default function SMTPSettings() {
     queryFn: getSMTPConfig,
   })
 
-  useEffect(() => {
-    if (smtpConfig) {
-      setHost(smtpConfig.host || '')
-      setPort(smtpConfig.port || 587)
-      setUsername(smtpConfig.username || '')
-      setPassword(smtpConfig.password || '')
-      setFromAddress(smtpConfig.from_address || '')
-      setEncryption(smtpConfig.encryption || 'starttls')
-    }
-  }, [smtpConfig])
+  useSeedOnChange(smtpConfig, (config) => {
+    setHost(config.host || '')
+    setPort(config.port || 587)
+    setUsername(config.username || '')
+    setPassword(config.password || '')
+    setFromAddress(config.from_address || '')
+    setEncryption(config.encryption || 'starttls')
+  })
 
   const saveMutation = useMutation({
     mutationFn: async () => {

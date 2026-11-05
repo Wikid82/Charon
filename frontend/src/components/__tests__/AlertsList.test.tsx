@@ -179,6 +179,55 @@ describe('AlertsList', () => {
     )
   })
 
+  it('returns to the first page when the time range changes', async () => {
+    const manyAlerts = Array.from({ length: 10 }, (_, i) => ({
+      id: i + 1,
+      scenario: 'crowdsecurity/http-bf',
+      ip: `10.0.0.${i + 1}`,
+      message: 'test',
+      events_count: 1,
+      start_at: '2025-01-01T00:00:00Z',
+      stop_at: '2025-01-01T01:00:00Z',
+      created_at: '2025-01-01T00:00:00Z',
+      duration: '4h',
+      type: 'ban',
+      origin: 'crowdsec',
+    }))
+    mockUseAlerts.mockReturnValue({
+      data: { alerts: manyAlerts, total: 25, source: 'cscli', cached: false },
+      isLoading: false,
+      isError: false,
+    })
+
+    const user = userEvent.setup()
+    const { rerender } = renderWithQueryClient(<AlertsList range="24h" />)
+    await user.click(screen.getByRole('button', { name: /next page/i }))
+    expect(screen.getByText('Page 2 of 3')).toBeInTheDocument()
+
+    rerender(<AlertsList range="7d" />)
+
+    expect(screen.getByText('Page 1 of 3')).toBeInTheDocument()
+    expect(mockUseAlerts).toHaveBeenLastCalledWith(
+      expect.objectContaining({ range: '7d', offset: 0 })
+    )
+  })
+
+  it('moves back a page with the previous button', async () => {
+    mockUseAlerts.mockReturnValue({
+      data: { alerts: mockAlerts.data.alerts, total: 25, source: 'cscli', cached: false },
+      isLoading: false,
+      isError: false,
+    })
+
+    const user = userEvent.setup()
+    renderWithQueryClient(<AlertsList range="24h" />)
+    await user.click(screen.getByRole('button', { name: /next page/i }))
+    await user.click(screen.getByRole('button', { name: /previous page/i }))
+
+    expect(screen.getByText('Page 1 of 3')).toBeInTheDocument()
+    expect(mockUseAlerts).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 0 }))
+  })
+
   it('does not render pagination for single page', () => {
     renderWithQueryClient(<AlertsList range="24h" />)
 

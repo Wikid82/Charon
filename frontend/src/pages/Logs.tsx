@@ -1,5 +1,5 @@
 import { FileText, ChevronLeft, ChevronRight, ScrollText, AlertTriangle } from 'lucide-react';
-import { useState, useEffect, type FC } from 'react';
+import { useState, type FC } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useSearchParams } from 'react-router';
 
@@ -38,18 +38,18 @@ const Logs: FC = () => {
 
   // Reset pagination only once the debounced values change, so a keystroke
   // doesn't reset the page before the query actually fires.
-  useEffect(() => {
+  const [pageScope, setPageScope] = useState({ search: debouncedSearch, host: debouncedHost });
+  if (pageScope.search !== debouncedSearch || pageScope.host !== debouncedHost) {
+    setPageScope({ search: debouncedSearch, host: debouncedHost });
     setPage(0);
-  }, [debouncedSearch, debouncedHost]);
+  }
 
   const { data: logs, isLoading: isLoadingLogs } = useLogFiles();
 
   // Select first log by default if none selected
-  useEffect(() => {
-    if (!selectedLog && logs && logs.length > 0) {
-      setSelectedLog(logs[0].name);
-    }
-  }, [logs, selectedLog]);
+  if (!selectedLog && logs && logs.length > 0) {
+    setSelectedLog(logs[0].name);
+  }
 
   const filter: LogFilter = {
     search: debouncedSearch,

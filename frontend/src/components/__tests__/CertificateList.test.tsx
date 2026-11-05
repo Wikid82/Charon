@@ -301,6 +301,61 @@ describe('CertificateList', () => {
     await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument())
   })
 
+  it('keeps every selected id when a refetch returns the same ids as new objects', async () => {
+    const user = userEvent.setup()
+    const qc = createTestQueryClient()
+    const { rerender } = render(<QueryClientProvider client={qc}><CertificateList /></QueryClientProvider>)
+    const rows = await screen.findAllByRole('row')
+    await user.click(within(rows.find(r => r.textContent?.includes('CustomCert'))!).getByRole('checkbox'))
+    await user.click(within(rows.find(r => r.textContent?.includes('UnusedValidCert'))!).getByRole('checkbox'))
+
+    vi.mocked(useCertificates).mockReturnValue(createCertificatesValue())
+    rerender(<QueryClientProvider client={qc}><CertificateList /></QueryClientProvider>)
+
+    expect(screen.getByRole('status')).toBeInTheDocument()
+    const refreshed = screen.getAllByRole('row')
+    expect(within(refreshed.find(r => r.textContent?.includes('CustomCert'))!).getByRole('checkbox')).toBeChecked()
+    expect(within(refreshed.find(r => r.textContent?.includes('UnusedValidCert'))!).getByRole('checkbox')).toBeChecked()
+  })
+
+  it('prunes only the vanished id and keeps the surviving selection', async () => {
+    const user = userEvent.setup()
+    const qc = createTestQueryClient()
+    const { rerender } = render(<QueryClientProvider client={qc}><CertificateList /></QueryClientProvider>)
+    const rows = await screen.findAllByRole('row')
+    await user.click(within(rows.find(r => r.textContent?.includes('CustomCert'))!).getByRole('checkbox'))
+    await user.click(within(rows.find(r => r.textContent?.includes('UnusedValidCert'))!).getByRole('checkbox'))
+
+    const remaining = createCertificatesValue().certificates.filter(c => c.uuid !== 'cert-1')
+    vi.mocked(useCertificates).mockReturnValue(createCertificatesValue({ certificates: remaining }))
+    rerender(<QueryClientProvider client={qc}><CertificateList /></QueryClientProvider>)
+
+    expect(screen.getByRole('status')).toBeInTheDocument()
+    const refreshed = screen.getAllByRole('row')
+    expect(within(refreshed.find(r => r.textContent?.includes('UnusedValidCert'))!).getByRole('checkbox')).toBeChecked()
+    expect(refreshed.find(r => r.textContent?.includes('CustomCert'))).toBeUndefined()
+  })
+
+  it('reselects an id that vanished and later reappears (selection is derived, not pruned)', async () => {
+    const user = userEvent.setup()
+    const qc = createTestQueryClient()
+    const { rerender } = render(<QueryClientProvider client={qc}><CertificateList /></QueryClientProvider>)
+    const rows = await screen.findAllByRole('row')
+    await user.click(within(rows.find(r => r.textContent?.includes('CustomCert'))!).getByRole('checkbox'))
+    expect(screen.getByRole('status')).toBeInTheDocument()
+
+    const remaining = createCertificatesValue().certificates.filter(c => c.uuid !== 'cert-1')
+    vi.mocked(useCertificates).mockReturnValue(createCertificatesValue({ certificates: remaining }))
+    rerender(<QueryClientProvider client={qc}><CertificateList /></QueryClientProvider>)
+    await waitFor(() => expect(screen.queryByRole('status')).not.toBeInTheDocument())
+
+    vi.mocked(useCertificates).mockReturnValue(createCertificatesValue())
+    rerender(<QueryClientProvider client={qc}><CertificateList /></QueryClientProvider>)
+    const restored = await screen.findAllByRole('row')
+    expect(within(restored.find(r => r.textContent?.includes('CustomCert'))!).getByRole('checkbox')).toBeChecked()
+    expect(screen.getByRole('status')).toBeInTheDocument()
+  })
+
   it('clicking the toolbar Delete button opens BulkDeleteCertificateDialog', async () => {
     const user = userEvent.setup()
     renderWithClient(<CertificateList />)

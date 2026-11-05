@@ -1,5 +1,5 @@
 import { Download, Eye, Trash2, ChevronUp, ChevronDown } from 'lucide-react'
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import BulkDeleteCertificateDialog from './dialogs/BulkDeleteCertificateDialog'
@@ -32,18 +32,17 @@ export default function CertificateList() {
   const [certToDelete, setCertToDelete] = useState<Certificate | null>(null)
   const [certToView, setCertToView] = useState<Certificate | null>(null)
   const [certToExport, setCertToExport] = useState<Certificate | null>(null)
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [pickedIds, setPickedIds] = useState<Set<string>>(new Set())
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false)
 
   const deleteMutation = useDeleteCertificate()
 
-  useEffect(() => {
-    setSelectedIds(prev => {
-      const validIds = new Set(certificates.map(c => c.uuid).filter(Boolean))
-      const reconciled = new Set([...prev].filter(id => validIds.has(id)))
-      return reconciled.size === prev.size ? prev : reconciled
-    })
-  }, [certificates])
+  // Selection is derived at use: ids that are no longer in the list are ignored
+  // rather than pruned from state in an effect.
+  const selectedIds = useMemo<Set<string>>(() => {
+    const currentIds = new Set(certificates.map(c => c.uuid).filter(Boolean))
+    return new Set([...pickedIds].filter(id => currentIds.has(id)))
+  }, [certificates, pickedIds])
 
   const handleDelete = (cert: Certificate) => {
     deleteMutation.mutate(cert.uuid, {
@@ -99,7 +98,7 @@ export default function CertificateList() {
     selectedIds.size > 0 && selectedIds.size < selectableCertIds.size
 
   const handleSelectAll = () => {
-    setSelectedIds(selectedIds.size === selectableCertIds.size ? new Set() : new Set(selectableCertIds))
+    setPickedIds(selectedIds.size === selectableCertIds.size ? new Set() : new Set(selectableCertIds))
   }
 
   const handleSelectRow = (uuid: string) => {
@@ -109,7 +108,7 @@ export default function CertificateList() {
     } else {
       next.add(uuid)
     }
-    setSelectedIds(next)
+    setPickedIds(next)
   }
 
   const handleSort = (column: SortColumn) => {
@@ -352,7 +351,7 @@ export default function CertificateList() {
         open={showBulkDeleteDialog}
         onConfirm={() => bulkDeleteMutation.mutate(Array.from(selectedIds), {
           onSuccess: ({ succeeded, failed }) => {
-            setSelectedIds(new Set())
+            setPickedIds(new Set())
             setShowBulkDeleteDialog(false)
             if (failed > 0) {
               toast.error(t('certificates.bulkDeletePartial', { deleted: succeeded, failed }))

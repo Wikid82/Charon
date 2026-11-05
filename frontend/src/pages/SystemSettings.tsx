@@ -21,6 +21,7 @@ import { Switch } from '../components/ui/Switch'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../components/ui/Tooltip'
 import { WebSocketStatusCard } from '../components/WebSocketStatusCard'
 import { useAuth } from '../hooks/useAuth'
+import { useSeedOnChange } from '../hooks/useSeedOnChange'
 import { useUptimeHealth } from '../hooks/useUptimeSummary'
 import { cn } from '../utils/cn'
 import { toast } from '../utils/toast'
@@ -104,23 +105,21 @@ export default function SystemSettings() {
   })
 
   // Update local state when settings load
-  useEffect(() => {
-    if (settings) {
-      // Default to 'auto' if empty or invalid value
-      if (settings['caddy.ssl_provider']) {
-        const validProviders = ['auto', 'letsencrypt-staging', 'letsencrypt-prod', 'zerossl']
-        const provider = settings['caddy.ssl_provider']
-        setSslProvider(validProviders.includes(provider) ? provider : 'auto')
-      }
-      setKeepaliveIdle(settings['caddy.keepalive_idle'] ?? '')
-      setKeepaliveCount(settings['caddy.keepalive_count'] ?? '')
-      if (settings['ui.domain_link_behavior']) setDomainLinkBehavior(settings['ui.domain_link_behavior'])
-      if (settings['app.public_url']) setPublicURL(settings['app.public_url'])
-      setUptimeInterval(settings[UPTIME_SETTING_KEYS.interval] ?? '')
-      setUptimeWorkers(settings[UPTIME_SETTING_KEYS.workers] ?? '')
-      setUptimeRetention(settings[UPTIME_SETTING_KEYS.retention] ?? '')
+  useSeedOnChange(settings, (loaded) => {
+    // Default to 'auto' if empty or invalid value
+    if (loaded['caddy.ssl_provider']) {
+      const validProviders = ['auto', 'letsencrypt-staging', 'letsencrypt-prod', 'zerossl']
+      const provider = loaded['caddy.ssl_provider']
+      setSslProvider(validProviders.includes(provider) ? provider : 'auto')
     }
-  }, [settings])
+    setKeepaliveIdle(loaded['caddy.keepalive_idle'] ?? '')
+    setKeepaliveCount(loaded['caddy.keepalive_count'] ?? '')
+    if (loaded['ui.domain_link_behavior']) setDomainLinkBehavior(loaded['ui.domain_link_behavior'])
+    if (loaded['app.public_url']) setPublicURL(loaded['app.public_url'])
+    setUptimeInterval(loaded[UPTIME_SETTING_KEYS.interval] ?? '')
+    setUptimeWorkers(loaded[UPTIME_SETTING_KEYS.workers] ?? '')
+    setUptimeRetention(loaded[UPTIME_SETTING_KEYS.retention] ?? '')
+  })
 
   // Validate Public URL with debouncing
   const validatePublicURL = async (url: string) => {

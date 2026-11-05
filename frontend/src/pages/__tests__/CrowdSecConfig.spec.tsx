@@ -448,8 +448,9 @@ describe('CrowdSecConfig', () => {
 
     renderWithProviders(<CrowdSecConfig />)
 
-  // Wait for presets to load and click on the preset card
-  const presetCard = await screen.findByText('Hub Only')
+  // Wait for presets to load and click on the preset card. The first match is the list card; the
+  // detail pane shows the same title once the first usable preset is auto-selected.
+  const [presetCard] = await screen.findAllByText('Hub Only')
   await userEvent.click(presetCard)
 
     expect(await screen.findByTestId('preset-hub-unavailable')).toBeInTheDocument()

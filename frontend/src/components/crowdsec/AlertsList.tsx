@@ -1,5 +1,5 @@
 import { AlertTriangle, ChevronLeft, ChevronRight } from 'lucide-react'
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { useAlerts } from '../../hooks/useCrowdsecDashboard'
@@ -17,11 +17,10 @@ const PAGE_SIZE = 10
 
 export function AlertsList({ range }: AlertsListProps) {
   const { t } = useTranslation()
-  const [page, setPage] = useState(0)
-
-  useEffect(() => {
-    setPage(0)
-  }, [range])
+  // The page is tied to the range it was chosen under; a range change reads as page 0
+  // without an effect that resets state after the stale page has already rendered.
+  const [pagination, setPagination] = useState<{ range: TimeRange; page: number }>({ range, page: 0 })
+  const page = pagination.range === range ? pagination.page : 0
 
   const { data, isLoading, isError } = useAlerts({
     range,
@@ -34,11 +33,11 @@ export function AlertsList({ range }: AlertsListProps) {
   }, [data?.total])
 
   const handlePreviousPage = () => {
-    setPage((p) => Math.max(0, p - 1))
+    setPagination({ range, page: Math.max(0, page - 1) })
   }
 
   const handleNextPage = () => {
-    setPage((p) => (totalPages > 0 ? Math.min(totalPages - 1, p + 1) : 0))
+    setPagination({ range, page: totalPages > 0 ? Math.min(totalPages - 1, page + 1) : 0 })
   }
 
   if (isLoading) {

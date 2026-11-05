@@ -291,13 +291,18 @@ export default function CrowdSecConfig() {
 
   // Keep the current selection while it is still listed and usable; otherwise select the first usable row
   // in catalog order, or nothing when no row can be used (the empty key never matches a row).
-  useEffect(() => {
-    if (!presetCatalog.length) return
-    const keepsSelection = presetCatalog.some((preset) => presetKey(preset) === selectedPresetKey && isPresetSelectable(preset))
-    if (keepsSelection) return
-    const firstSelectable = presetCatalog.find(isPresetSelectable)
-    setSelectedPresetKey(firstSelectable ? presetKey(firstSelectable) : '')
-  }, [presetCatalog, selectedPresetKey])
+  // Reconciled during render whenever the catalog changes, so no stale selection is ever committed.
+  const [reconciledCatalog, setReconciledCatalog] = useState<PresetCatalogEntry[] | null>(null)
+  if (reconciledCatalog !== presetCatalog) {
+    setReconciledCatalog(presetCatalog)
+    if (presetCatalog.length) {
+      const keepsSelection = presetCatalog.some((preset) => presetKey(preset) === selectedPresetKey && isPresetSelectable(preset))
+      if (!keepsSelection) {
+        const firstSelectable = presetCatalog.find(isPresetSelectable)
+        setSelectedPresetKey(firstSelectable ? presetKey(firstSelectable) : '')
+      }
+    }
+  }
 
   const selectPreset = (preset: PresetCatalogEntry) => {
     if (isPresetSelectable(preset)) setSelectedPresetKey(presetKey(preset))
@@ -367,20 +372,29 @@ export default function CrowdSecConfig() {
     },
   })
 
+  // Changing the selected preset clears the previous preview and messages. This is applied during render,
+  // keyed on the selected key, so the new selection never renders with the old preset's state.
+  const [presetResetKey, setPresetResetKey] = useState<string | null>(null)
+  if (presetResetKey !== selectedPresetKey) {
+    setPresetResetKey(selectedPresetKey)
+    if (selectedPreset) {
+      setValidationError(null)
+      setPresetStatusMessage(null)
+      setApplyInfo(null)
+      setAmbiguousTypes([])
+      setChosenType('')
+      setPresetMeta({
+        cacheKey: selectedPreset.cacheKey,
+        etag: selectedPreset.etag,
+        retrievedAt: selectedPreset.retrievedAt,
+        source: selectedPreset.source,
+      })
+      setPresetPreview('')
+    }
+  }
+
   useEffect(() => {
     if (!selectedPreset) return
-    setValidationError(null)
-    setPresetStatusMessage(null)
-    setApplyInfo(null)
-    setAmbiguousTypes([])
-    setChosenType('')
-    setPresetMeta({
-      cacheKey: selectedPreset.cacheKey,
-      etag: selectedPreset.etag,
-      retrievedAt: selectedPreset.retrievedAt,
-      source: selectedPreset.source,
-    })
-    setPresetPreview('')
     pullPresetMutation.mutate({ slug: selectedPreset.slug, type: selectedPreset.type })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Only re-run when slug changes, not on mutation/preset object identity changes
   }, [selectedPresetKey])

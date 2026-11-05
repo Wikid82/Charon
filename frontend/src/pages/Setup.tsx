@@ -22,7 +22,6 @@ const Setup: FC = () => {
     password: '',
   });
   const [error, setError] = useState<string | null>(null);
-  const [emailValid, setEmailValid] = useState<boolean | null>(null);
 
   const { data: status, isLoading: statusLoading } = useQuery({
     queryKey: ['setupStatus'],
@@ -30,9 +29,7 @@ const Setup: FC = () => {
     retry: false,
   });
 
-  useEffect(() => {
-    setEmailValid(formData.email ? isValidEmail(formData.email) : null);
-  }, [formData.email]);
+  const emailValid: boolean | null = formData.email ? isValidEmail(formData.email) : null;
 
   useEffect(() => {
     // Wait for setup status to load
