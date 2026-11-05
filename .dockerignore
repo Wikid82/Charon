@@ -51,6 +51,7 @@ frontend/e2e/
 node_modules/
 package-lock.json
 package.json
+eslint.config.js
 
 # -----------------------------------------------------------------------------
 # Go/Backend - Build artifacts & coverage

@@ -691,7 +691,41 @@ jobs:
 
 
 
+      # Blocking: `lint` runs with --max-warnings 0 (see frontend/package.json).
       - name: Run frontend lint
         working-directory: frontend
         run: npm run lint
-        continue-on-error: true
+
+      - name: Run frontend locale lint
+        working-directory: frontend
+        run: npm run lint:locales
+
+  # Not path-filtered on purpose: a path-filtered job is skipped on unrelated PRs,
+  # and a skipped job cannot satisfy a required status check. Running it always
+  # keeps it requirable without an always-run wrapper job. It is cheap (root
+  # npm ci plus eslint over tests/).
+  e2e-lint:
+    name: E2E Test Lint (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run E2E lint
+        run: npm run lint:e2e
