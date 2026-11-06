@@ -451,20 +451,70 @@ jobs:
             io.charon.build.timestamp=${{ github.event.repository.updated_at }}
             io.charon.feature.branch=${{ steps.branch-tags.outputs.feature_branch_tag }}
 
+      # The build-arg VERSION is the version the binary reports (/api/v1/health), so
+      # every channel is decided by scripts/ci/resolve-build-version.sh (§4.10). The
+      # channel is chosen only from the normalized TRIGGER_* values and the release
+      # decision from "Detect release commit" (§4.5). Metadata-action output is not used.
       - name: Resolve build version
         id: build_version
         env:
-          META_VERSION: ${{ steps.meta.outputs.version }}
+          TRIGGER_REF: ${{ env.TRIGGER_REF }}
+          TRIGGER_EVENT: ${{ env.TRIGGER_EVENT }}
+          TRIGGER_PR_NUMBER: ${{ env.TRIGGER_PR_NUMBER }}
+          TRIGGER_HEAD_SHA: ${{ env.TRIGGER_HEAD_SHA }}
+          IS_RELEASE: ${{ steps.release.outputs.is_release }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
         run: |
-          # On main the metadata-action primary tag is "latest", which is not a
-          # version. Use the release-please manifest version instead. Every other
-          # ref keeps the metadata-action value (dev, PR/branch tags).
-          VERSION="${META_VERSION}"
-          if [[ "${TRIGGER_REF}" == "refs/heads/main" ]]; then
-            VERSION=$(jq -er '.["."]' .release-please-manifest.json)
+          set -euo pipefail
+
+          # The release channel needs every condition at once: a push to main that
+          # is not a pull request, and a release commit. Anything else is not a release.
+          if [[ "${TRIGGER_REF}" == "refs/heads/main" && "${TRIGGER_EVENT}" != "pull_request" && "${IS_RELEASE}" == "true" ]]; then
+            CHANNEL="release"
+          elif [[ "${TRIGGER_EVENT}" == "pull_request" ]]; then
+            if [[ -n "${TRIGGER_PR_NUMBER}" ]]; then
+              CHANNEL="pr"
+            else
+              CHANNEL="branch"
+            fi
+          elif [[ "${TRIGGER_REF}" == "refs/heads/main" ]]; then
+            CHANNEL="main"
+          elif [[ "${TRIGGER_REF}" == "refs/heads/development" ]]; then
+            CHANNEL="dev"
+          else
+            CHANNEL="branch"
           fi
+
+          RESOLVER_ARGS=(--channel "${CHANNEL}")
+          case "${CHANNEL}" in
+            pr) RESOLVER_ARGS+=(--pr "${TRIGGER_PR_NUMBER}") ;;
+            dev|branch) RESOLVER_ARGS+=(--sha "${TRIGGER_HEAD_SHA}") ;;
+          esac
+          VERSION="$(bash scripts/ci/resolve-build-version.sh "${RESOLVER_ARGS[@]}")"
+
+          # A detected release must resolve to the release channel and to the same
+          # version the release step validated. A PR can never resolve to release.
+          if [[ "${IS_RELEASE}" == "true" && "${CHANNEL}" != "release" ]]; then
+            echo "::error::is_release is true but the channel is ${CHANNEL} (ref=${TRIGGER_REF}, event=${TRIGGER_EVENT})"
+            exit 1
+          fi
+          if [[ "${CHANNEL}" == "release" ]]; then
+            if [[ "${TRIGGER_REF}" != "refs/heads/main" || "${TRIGGER_EVENT}" == "pull_request" || "${IS_RELEASE}" != "true" ]]; then
+              echo "::error::The release channel was selected outside a release push to main"
+              exit 1
+            fi
+            if [[ "${VERSION}" != "${RELEASE_VERSION}" || "${VERSION}" == *+* ]]; then
+              echo "::error::Resolved release version '${VERSION}' does not match the detected release '${RELEASE_VERSION}'"
+              exit 1
+            fi
+          fi
+          if [[ "${TRIGGER_EVENT}" == "pull_request" && "${CHANNEL}" == "release" ]]; then
+            echo "::error::A pull request must never resolve to the release channel"
+            exit 1
+          fi
+
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Resolved build VERSION: ${VERSION}"
+          echo "Resolved build VERSION: ${VERSION} (channel: ${CHANNEL})"
 
       - name: Assert PR output contract
         if: steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
@@ -785,24 +835,28 @@ jobs:
             exit 1
           fi
 
-          # Only the strict SemVer form (the version package's canonical grammar) gets a
-          # versioned build. Unversioned builds (dev, pr-N, branch tags, nightly-<sha>) keep
-          # the What's New modal hidden for an unseeded user.
-          readonly SEMVER_RE='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
+          # Every published image is versioned (§4.10). The release commit must report its
+          # released X.Y.Z. Every other build must report exactly the resolver output: plain
+          # X.Y.Z on main, or X.Y.Z+dev.<sha7>, X.Y.Z+pr.<N> or X.Y.Z+branch.<sha7>. A
+          # degraded "dev" or any other shape fails here, before anything is published.
+          readonly VERSION_RE='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(\+(dev\.[0-9a-f]{7}|branch\.[0-9a-f]{7}|pr\.[1-9][0-9]*))?$'
 
           if [[ "${IS_RELEASE}" == "true" ]]; then
             EXPECT_VERSION="${RELEASE_VERSION}"
-            SMOKE_ARGS=(--expect-newest "${RELEASE_VERSION}" --expect-min-entries 100)
+            SMOKE_ARGS=(--expect-newest "${RELEASE_VERSION}")
           else
             EXPECT_VERSION="${BUILD_VERSION}"
-            SMOKE_ARGS=(--expect-min-entries 100)
+            SMOKE_ARGS=()
           fi
 
-          if [[ "${EXPECT_VERSION}" =~ ${SEMVER_RE} ]]; then
-            SMOKE_ARGS+=(--expect-status-for-unseeded shown)
-          else
-            SMOKE_ARGS+=(--expect-status-for-unseeded hidden)
+          if [[ ! "${EXPECT_VERSION}" =~ ${VERSION_RE} ]]; then
+            echo "::error::Build version '${EXPECT_VERSION}' is not an expected versioned form"
+            exit 1
           fi
+
+          # Versioned builds are strict SemVer, so the What's New modal shows for an
+          # unseeded user.
+          SMOKE_ARGS+=(--expect-min-entries 100 --expect-status-for-unseeded shown)
 
           echo "Smoke expectations: version=${EXPECT_VERSION} args=${SMOKE_ARGS[*]}"
           bash scripts/ci/smoke-whats-new.sh \

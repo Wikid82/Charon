@@ -182,7 +182,7 @@ jobs:
       packages: write
       id-token: write
     outputs:
-      version: ${{ steps.meta.outputs.version }}
+      version: ${{ steps.build_version.outputs.version }}
       digest: ${{ steps.resolve_digest.outputs.digest }}
       built_sha: ${{ steps.built_commit.outputs.built_sha }}
 
@@ -215,6 +215,18 @@ jobs:
       - name: Record the built commit
         id: built_commit
         run: echo "built_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # The nightly VERSION is X.Y.Z+nightly.<sha7> (§4.10), built from the checked-out
+      # commit and the manifest it carries. The version is only passed through env.
+      - name: Resolve build version
+        id: build_version
+        env:
+          BUILT_SHA: ${{ steps.built_commit.outputs.built_sha }}
+        run: |
+          set -euo pipefail
+          VERSION="$(bash scripts/ci/resolve-build-version.sh --channel nightly --sha "${BUILT_SHA}")"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Resolved nightly build VERSION: ${VERSION}"
 
       - name: Set lowercase image name
         run: echo "IMAGE_NAME_LC=${IMAGE_NAME,,}" >> "$GITHUB_ENV"
@@ -281,7 +293,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=nightly-${{ steps.built_commit.outputs.built_sha }}
+            VERSION=${{ steps.build_version.outputs.version }}
             VCS_REF=${{ steps.built_commit.outputs.built_sha }}
             BUILD_DATE=${{ github.event.repository.pushed_at }}
             ALPINE_IMAGE=${{ steps.alpine.outputs.image }}
@@ -603,12 +615,13 @@ jobs:
       # Replaces the old /health poll. That endpoint exists only on the emergency server, so
       # the SPA's HTML fallback answered it and the check always passed. The script asserts
       # the JSON health endpoint, the exact built version and commit, and the changelog data.
-      # The nightly version is non-SemVer, so the unseeded-user modal must stay hidden.
       - name: Smoke test What's New on the nightly image
         env:
           IMAGE_REPO: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
           IMAGE_DIGEST: ${{ needs.build-and-push-nightly.outputs.digest }}
           BUILT_SHA: ${{ needs.build-and-push-nightly.outputs.built_sha }}
+          # The VERSION build-arg the nightly image received (X.Y.Z+nightly.<sha7>).
+          BUILT_VERSION: ${{ needs.build-and-push-nightly.outputs.version }}
         run: |
           set -euo pipefail
 
@@ -617,12 +630,19 @@ jobs:
             exit 1
           fi
 
+          # The nightly image is versioned, so the What's New modal shows for an unseeded user.
+          # The sha in the version must be the commit the job built (§4.7).
+          if [[ ! "${BUILT_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\+nightly\.${BUILT_SHA:0:7}$ ]]; then
+            echo "::error::Nightly version '${BUILT_VERSION}' does not match the built commit ${BUILT_SHA:0:7}"
+            exit 1
+          fi
+
           bash scripts/ci/smoke-whats-new.sh \
             --image "${IMAGE_REPO}@${IMAGE_DIGEST}" \
-            --expect-version-exact "nightly-${BUILT_SHA}" \
+            --expect-version-exact "${BUILT_VERSION}" \
             --expect-commit "${BUILT_SHA}" \
-            --expect-min-entries 1 \
-            --expect-status-for-unseeded hidden
+            --expect-min-entries 100 \
+            --expect-status-for-unseeded shown
 
   # NOTE: Standalone binary builds removed - Charon uses Docker-only deployment
   # The build-nightly-release job that ran GoReleaser for Windows/macOS/Linux binaries

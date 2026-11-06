@@ -11,7 +11,7 @@ help:
 	@echo "  run                    - Run backend in development mode"
 	@echo "  clean                  - Clean build artifacts"
 	@echo "  docker-build           - Build Docker image"
-	@echo "  docker-build-versioned - Build Docker image with version from .version file"
+	@echo "  docker-build-versioned - Build Docker image stamped with the local build version"
 	@echo "  docker-run             - Run Docker container"
 	@echo "  docker-dev             - Run Docker in development mode"
 	@echo "  release                - Create a new semantic version release (interactive)"
@@ -65,12 +65,14 @@ build:
 	@echo "Building backend..."
 	cd backend && go build -o bin/api ./cmd/api
 
+# Local builds use the resolver's "local" channel (X.Y.Z+local.<sha7>[.dirty]).
+# The frontend build does not read a version, so only the backend is stamped.
 build-versioned:
-	@echo "Building frontend (versioned)..."
-	cd frontend && VITE_APP_VERSION=$$(git describe --tags --always --dirty) npm run build
+	@echo "Building frontend..."
+	cd frontend && npm run build
 	@echo "Building backend (versioned)..."
 	cd backend && \
-	VERSION=$$(git describe --tags --always --dirty); \
+	VERSION=$$(bash $(CURDIR)/scripts/ci/resolve-build-version.sh --channel local) || exit 1; \
 	GIT_COMMIT=$$(git rev-parse --short HEAD); \
 	BUILD_DATE=$$(date -u +'%Y-%m-%dT%H:%M:%SZ'); \
 	go build -ldflags "-X github.com/Wikid82/charon/backend/internal/version.Version=$$VERSION -X github.com/Wikid82/charon/backend/internal/version.GitCommit=$$GIT_COMMIT -X github.com/Wikid82/charon/backend/internal/version.BuildTime=$$BUILD_DATE" -o bin/api ./cmd/api
@@ -96,14 +98,15 @@ docker-build:
 
 # Build Docker image with version
 docker-build-versioned:
- 	@VERSION=$$(cat .version 2>/dev/null || git describe --tags --always --dirty 2>/dev/null || echo "dev"); \
+	@VERSION=$$(bash $(CURDIR)/scripts/ci/resolve-build-version.sh --channel local) || exit 1; \
+	IMAGE_TAG=$$(printf '%s' "$$VERSION" | tr '+' '-'); \
 	BUILD_DATE=$$(date -u +'%Y-%m-%dT%H:%M:%SZ'); \
 	VCS_REF=$$(git rev-parse HEAD 2>/dev/null || echo "unknown"); \
 	docker build \
 		--build-arg VERSION=$$VERSION \
 		--build-arg BUILD_DATE=$$BUILD_DATE \
 		--build-arg VCS_REF=$$VCS_REF \
-		-t charon:$$VERSION \
+		-t charon:$$IMAGE_TAG \
 		-t charon:latest \
 		.
 
