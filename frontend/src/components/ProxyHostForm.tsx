@@ -240,7 +240,6 @@ function getEntityToken(entity: { id?: number; uuid?: string }): string | null {
   return null
 }
 
-/** Reads the "don't ask about new base domains" preference (legacy key still honored). */
 /**
  * Returns a warning when the forward host looks like a Docker container IP or
  * a private address, since those can change on container restart. Returns null
@@ -263,6 +262,7 @@ function getForwardHostWarning(forwardHost: string | undefined): string | null {
   return null
 }
 
+/** Reads the "don't ask about new base domains" preference (legacy key still honored). */
 function readDontAskDomainPreference(): boolean {
   const stored = localStorage.getItem('charon_dont_ask_domain') ?? localStorage.getItem('cpmp_dont_ask_domain')
   return stored === 'true'

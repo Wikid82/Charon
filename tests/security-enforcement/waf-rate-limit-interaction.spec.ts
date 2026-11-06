@@ -1,5 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
+import type { ProxyHostRecord } from '../utils/api-records';
+
 /**
  * Integration: WAF & Rate Limit Interaction
  *
@@ -13,10 +15,12 @@ test.describe('WAF & Rate Limit Interaction', () => {
     domain: 'waf-test.local',
     forwardHost: '127.0.0.1',
     forwardPort: '3001',
+    name: 'WAF rate limit test',
     description: 'Test proxy for WAF and rate limit',
   };
 
   const fillProxyForm = async (page: Page) => {
+    await page.locator('#proxy-name').fill(testProxy.name);
     await page.locator('#domain-names').fill(testProxy.domain);
     await page.locator('#forward-host').fill(testProxy.forwardHost);
     const forwardPortInput = page.locator('#forward-port');
@@ -58,22 +62,13 @@ test.describe('WAF & Rate Limit Interaction', () => {
   });
 
   test.afterEach(async ({ page }) => {
-    // Cleanup: Delete test proxy
-    try {
-      await page.goto('/proxy-hosts');
-      const proxyRow = page.locator(`text=${testProxy.domain}`).first();
-      if (await proxyRow.isVisible()) {
-        const deleteButton = proxyRow.locator('..').getByRole('button', { name: /delete/i }).first();
-        await deleteButton.click();
-
-        const confirmButton = page.getByRole('button', { name: /confirm|delete/i }).first();
-        if (await confirmButton.isVisible()) {
-          await confirmButton.click();
-        }
-        await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
-      }
-    } catch {
-      // Ignore cleanup errors
+    // Remove the proxy through the API so a failed UI delete cannot leave a duplicate domain behind.
+    const list = await page.request.get('/api/v1/proxy-hosts');
+    expect(list.ok()).toBe(true);
+    const hosts = (await list.json()) as ProxyHostRecord[];
+    for (const host of hosts.filter((h) => (h.domain_names ?? h.domainNames ?? '').includes(testProxy.domain))) {
+      const response = await page.request.delete(`/api/v1/proxy-hosts/${host.uuid}`);
+      expect(response.ok()).toBe(true);
     }
   });
 
