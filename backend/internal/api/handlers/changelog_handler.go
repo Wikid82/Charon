@@ -100,7 +100,7 @@ func (h *ChangelogHandler) Ack(c *gin.Context) {
 	// into LastSeenVersion, or the user would be permanently stuck once
 	// the deployment upgrades to a real tagged release (same failure
 	// mode as an unguarded seedLastSeenVersion; see
-	// changelog.IsUnversionedBuild). Leave last_seen_version untouched
+	// version.IsUnversioned). Leave last_seen_version untouched
 	// rather than writing a value we know is invalid.
 	if req.Action == "dismiss_permanent" && !h.svc.IsDevBuild() {
 		updates["last_seen_version"] = h.svc.CurrentVersion()

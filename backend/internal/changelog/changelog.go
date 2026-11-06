@@ -11,7 +11,7 @@ import (
 	"encoding/json"
 	"sort"
 
-	"golang.org/x/mod/semver"
+	"github.com/Wikid82/charon/backend/internal/version"
 )
 
 //go:embed data/changelog.json
@@ -91,36 +91,19 @@ func (s *Service) SetCurrentVersion(v string) { s.currentVersion = v }
 // CurrentVersion returns the effective current version.
 func (s *Service) CurrentVersion() string { return s.currentVersion }
 
-// IsUnversionedBuild reports whether v is unsuitable as a changelog
-// "since" comparison anchor: either the unversioned "dev" sentinel
-// (version.Version's default), or any other string that isn't valid
-// semver. The latter case covers real CI-produced distributable builds
-// that are non-"dev" but still non-semver — e.g.
-// nightly-build.yml/docker-build.yml tag images as "nightly-<git-sha>"
-// or a branch-derived docker/metadata-action value.
-// golang.org/x/mod/semver.Compare defines an invalid version string as
-// always less than a valid one, so treating only literal "dev" as
-// unversioned would let those builds seed users with an incomparable
-// LastSeenVersion: every real changelog entry would permanently compare
-// as "newer," and the user could never dismiss the changelog.
-//
-// This is the single shared authority for the concept — every call site
-// that needs to decide "is this version string safe to use as a
-// changelog anchor" (Service.IsDevBuild, seedLastSeenVersion in
-// user_handler.go, ChangelogHandler.Ack's dismiss_permanent guard) must
-// go through this function rather than re-deriving the check, which is
-// exactly what let a nightly-build user get permanently stuck with an
-// unrecoverable LastSeenVersion in the past.
-func IsUnversionedBuild(v string) bool {
-	return v == "dev" || !semver.IsValid("v"+v)
-}
-
 // IsDevBuild reports whether the effective current version is unsuitable
-// as a changelog "since" comparison anchor. See IsUnversionedBuild for
-// the full rationale. Callers (the /changelog/status handler) must gate
+// as a changelog "since" comparison anchor: the unversioned "dev"
+// sentinel (version.Version's default), or any string that is not strict
+// SemVer. The latter covers real CI-produced distributable builds that
+// are non-"dev" but non-semver, e.g. nightly-build.yml/docker-build.yml
+// tag images as "nightly-<git-sha>" or a branch-derived
+// docker/metadata-action value. Seeding a user with one of those would
+// leave them with an incomparable LastSeenVersion that could never be
+// dismissed. The check itself lives in version.IsUnversioned, the single
+// shared authority; callers (the /changelog/status handler) must gate
 // show_changelog on this, not just on currentVersion == "dev".
 func (s *Service) IsDevBuild() bool {
-	return IsUnversionedBuild(s.currentVersion)
+	return version.IsUnversioned(s.currentVersion)
 }
 
 // GetEntriesSince returns entries newer than lastSeen, newest-first.
@@ -138,17 +121,21 @@ func (s *Service) IsDevBuild() bool {
 // that same build from ever calling GetEntriesSince. But if the app is
 // later upgraded to a real semver release, that user's stale invalid
 // LastSeenVersion must not fall into the "behind everything" branch —
-// semver.Compare's "invalid always compares less than valid" rule would
-// otherwise make every real entry look newer forever, and
-// dismiss_permanent (which just re-anchors LastSeenVersion to
-// CurrentVersion()) could never fix it for a still-non-semver build.
+// an unversioned comparison would otherwise make every real entry look
+// newer forever, and dismiss_permanent (which just re-anchors
+// LastSeenVersion to CurrentVersion()) could never fix it for a
+// still-non-semver build.
 func (s *Service) GetEntriesSince(lastSeen string) []Entry {
-	if lastSeen != "" && !semver.IsValid("v"+lastSeen) {
+	if lastSeen != "" && version.IsUnversioned(lastSeen) {
 		return nil
 	}
 	var result []Entry
 	for _, e := range allEntries {
-		if lastSeen == "" || semver.Compare("v"+e.Version, "v"+lastSeen) > 0 {
+		if lastSeen == "" {
+			result = append(result, normalizeEntry(e))
+			continue
+		}
+		if cmp, ok := version.Compare(e.Version, lastSeen); ok && cmp > 0 {
 			result = append(result, normalizeEntry(e))
 		}
 	}
@@ -204,6 +191,7 @@ func normalizeEntry(e Entry) Entry {
 
 func sortNewestFirst(entries []Entry) {
 	sort.Slice(entries, func(i, j int) bool {
-		return semver.Compare("v"+entries[i].Version, "v"+entries[j].Version) > 0
+		cmp, ok := version.Compare(entries[i].Version, entries[j].Version)
+		return ok && cmp > 0
 	})
 }

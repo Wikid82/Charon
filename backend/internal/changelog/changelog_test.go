@@ -343,3 +343,44 @@ func TestGetAllEntries_NormalizesNilArrayFields(t *testing.T) {
 	assert.Contains(t, body, `"fixes":[]`)
 	assert.Contains(t, body, `"other":[]`)
 }
+
+// TestIsDevBuild_TrueForShorthandAndLeadingV covers versions that
+// golang.org/x/mod/semver would accept but the strict SemVer form used by
+// version.Canonical rejects. No build emits these, so they only matter as
+// a tightening of the changelog anchor check.
+func TestIsDevBuild_TrueForShorthandAndLeadingV(t *testing.T) {
+	for _, v := range []string{"1", "1.2", "v1.2.3"} {
+		svc := NewService(v)
+		assert.Truef(t, svc.IsDevBuild(), "expected IsDevBuild()==true for unversioned version %q", v)
+	}
+}
+
+func TestGetEntriesSince_ShorthandLastSeen_ReturnsEmpty(t *testing.T) {
+	svc := NewService("2.0.0")
+	setEntriesForTest(t, fixtureEntries())
+
+	assert.Empty(t, svc.GetEntriesSince("1.2"))
+}
+
+// TestGetEntriesSince_PrereleaseOrdering checks SemVer precedence against
+// build metadata and prerelease identifiers, which the since-filter and the
+// newest-first sort both depend on.
+func TestGetEntriesSince_PrereleaseOrdering(t *testing.T) {
+	svc := NewService("0.47.0")
+	setEntriesForTest(t, []Entry{
+		{Version: "0.46.5"},
+		{Version: "0.47.0-rc.1"},
+		{Version: "0.47.0"},
+	})
+
+	since := svc.GetEntriesSince("0.46.5+nightly.abc")
+	require.Len(t, since, 2)
+	assert.Equal(t, "0.47.0", since[0].Version)
+	assert.Equal(t, "0.47.0-rc.1", since[1].Version)
+
+	all := svc.GetAllEntries()
+	require.Len(t, all, 3)
+	assert.Equal(t, "0.47.0", all[0].Version)
+	assert.Equal(t, "0.47.0-rc.1", all[1].Version)
+	assert.Equal(t, "0.46.5", all[2].Version)
+}

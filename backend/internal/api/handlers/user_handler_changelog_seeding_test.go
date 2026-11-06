@@ -225,17 +225,17 @@ func TestSeedLastSeenVersion(t *testing.T) {
 }
 
 // TestSeedLastSeenVersion_NonSemverVersion covers the CI-produced version
-// strings that aren't literally "dev" but also aren't valid semver —
+// strings that aren't literally "dev" but also aren't strict SemVer —
 // e.g. nightly-build.yml/docker-build.yml tag distributable images as
-// "nightly-<git-sha>". Before seedLastSeenVersion delegated to
-// changelog.IsUnversionedBuild, only the literal "dev" sentinel was
-// checked here, so a user created while running a nightly image got
-// seeded with an invalid, non-empty LastSeenVersion that would
-// permanently block them from ever seeing the changelog once the
-// deployment upgraded to a real tagged release (see
-// changelog.Service.GetEntriesSince's invalid-lastSeen guard).
+// "nightly-<git-sha>". seedLastSeenVersion must skip seeding for these
+// (via version.IsUnversioned); otherwise a user created while running a
+// nightly image would get an invalid, non-empty LastSeenVersion that
+// permanently blocks them from seeing the changelog once the deployment
+// upgrades to a real tagged release (see
+// changelog.Service.GetEntriesSince's unversioned-lastSeen guard).
+// Shorthand ("1", "1.2") and a leading "v" are also unversioned.
 func TestSeedLastSeenVersion_NonSemverVersion(t *testing.T) {
-	for _, v := range []string{"nightly-a1b2c3d", "main", "development", "branch-feat-foo-a1b2c3d"} {
+	for _, v := range []string{"nightly-a1b2c3d", "main", "development", "branch-feat-foo-a1b2c3d", "1", "1.2", "v1.2.3"} {
 		withVersion(t, v)
 		assert.Equalf(t, "", seedLastSeenVersion(), "expected seedLastSeenVersion()==\"\" for non-semver version %q", v)
 	}
