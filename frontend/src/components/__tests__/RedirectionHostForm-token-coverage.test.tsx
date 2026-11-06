@@ -1,7 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { act } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import RedirectionHostForm from '../RedirectionHostForm'
@@ -82,13 +81,11 @@ vi.mock('../ui/Select', () => {
 const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })
 
 const renderForm = async (onSubmit: (data: Record<string, unknown>) => Promise<void>) => {
-  await act(async () => {
-    render(
-      <QueryClientProvider client={queryClient}>
-        <RedirectionHostForm onSubmit={onSubmit} onCancel={vi.fn()} />
-      </QueryClientProvider>
-    )
-  })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <RedirectionHostForm onSubmit={onSubmit} onCancel={vi.fn()} />
+    </QueryClientProvider>
+  )
 }
 
 describe('RedirectionHostForm certificate token normalization edge cases', () => {

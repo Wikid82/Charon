@@ -3,8 +3,8 @@ import { useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { useUploadBackup } from '../../hooks/useBackups'
-import { Button } from '../ui'
 import { toast } from '../../utils/toast'
+import { Button } from '../ui'
 
 /**
  * File picker accepting `.zip,.age,.db` (spec §3.3.2, §3.8). Uploads

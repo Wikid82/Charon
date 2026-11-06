@@ -1,6 +1,6 @@
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { useEffect, useRef, useState } from 'react'
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 
 import {
   getBackups,
@@ -102,17 +102,19 @@ function useBackupJob<TArg, TResult>(start: (arg: TArg) => Promise<BackupJobStar
 > {
   const queryClient = useQueryClient()
   const [jobId, setJobId] = useState<string | null>(null)
-  const [isPending, setIsPending] = useState(false)
+  // Set synchronously by mutate(); react-query's isPending lags one notify tick behind it.
+  const [isSubmitting, setIsSubmitting] = useState(false)
   const callbacksRef = useRef<UseBackupJobCallbacks<TResult>>({})
   const settledJobIdRef = useRef<string | null>(null)
 
   const startMutation = useMutation({
     mutationFn: start,
     onSuccess: (response) => {
+      setIsSubmitting(false)
       setJobId(response.job_id)
     },
     onError: (error) => {
-      setIsPending(false)
+      setIsSubmitting(false)
       callbacksRef.current.onError?.(error as Error)
     },
   })
@@ -120,16 +122,19 @@ function useBackupJob<TArg, TResult>(start: (arg: TArg) => Promise<BackupJobStar
   const jobQuery = useBackupJobPolling<TResult>(jobId)
   const job = jobQuery.data
 
+  // Pending from the initial POST until the polled job reaches a terminal status.
+  const jobIsTerminal = job?.status === 'completed' || job?.status === 'failed'
+  const isPending = isSubmitting || (jobId !== null && !jobIsTerminal)
+
+  // Side effects only: fire the caller's callbacks exactly once per settled job.
   useEffect(() => {
     if (!job || !jobId || settledJobIdRef.current === jobId) return
     if (job.status === 'completed') {
       settledJobIdRef.current = jobId
-      setIsPending(false)
       queryClient.invalidateQueries({ queryKey: BACKUPS_QUERY_KEY })
       callbacksRef.current.onSuccess?.(job.result as TResult)
     } else if (job.status === 'failed') {
       settledJobIdRef.current = jobId
-      setIsPending(false)
       callbacksRef.current.onError?.(new Error(job.error?.message ?? 'Job failed'))
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -139,7 +144,7 @@ function useBackupJob<TArg, TResult>(start: (arg: TArg) => Promise<BackupJobStar
     callbacksRef.current = callbacks ?? {}
     settledJobIdRef.current = null
     setJobId(null)
-    setIsPending(true)
+    setIsSubmitting(true)
     startMutation.mutate(arg)
   }
 
@@ -147,7 +152,7 @@ function useBackupJob<TArg, TResult>(start: (arg: TArg) => Promise<BackupJobStar
     callbacksRef.current = {}
     settledJobIdRef.current = null
     setJobId(null)
-    setIsPending(false)
+    setIsSubmitting(false)
     startMutation.reset()
   }
 
@@ -215,6 +220,12 @@ export function useUpdateBackupSettings() {
   })
 }
 
+/** Builds the cron expression for a daily/weekly preset (the hour is taken from `HH:MM`). */
+function buildPresetCron(frequency: Exclude<ScheduleFrequency, 'custom'>, time: string, dayOfWeek: string): string {
+  const hour = parseInt(time.split(':')[0] ?? '0', 10) || 0
+  return frequency === 'daily' ? `0 ${hour} * * *` : `0 ${hour} * * ${dayOfWeek}`
+}
+
 /**
  * Combined backup-settings form state (schedule + retention + encryption),
  * saved together through a single `PUT /api/v1/backups/settings` call —
@@ -268,35 +279,48 @@ export function useBackupSettingsForm(): UseBackupSettingsFormResult {
 
   const [hydrated, setHydrated] = useState(false)
   const [enabled, setEnabled] = useState(true)
-  const [frequency, setFrequency] = useState<ScheduleFrequency>('daily')
-  const [time, setTime] = useState('03:00')
-  const [dayOfWeek, setDayOfWeek] = useState('0')
+  const [frequency, setFrequencyState] = useState<ScheduleFrequency>('daily')
+  const [time, setTimeState] = useState('03:00')
+  const [dayOfWeek, setDayOfWeekState] = useState('0')
   const [cronExpression, setCronExpression] = useState('0 3 * * *')
   const [retentionCount, setRetentionCount] = useState('7')
   const [remoteRetentionCount, setRemoteRetentionCount] = useState('7')
   const [encryptionEnabled, setEncryptionEnabled] = useState(false)
   const [encryptionPassphrase, setEncryptionPassphrase] = useState('')
 
-  useEffect(() => {
-    if (!settings || hydrated) return
+  // Hydrate once, during render, when the server settings first arrive (avoids a
+  // flash of default values that an effect-based hydration would paint).
+  if (settings && !hydrated) {
     const preset = parseCronPreset(settings.schedule_cron)
+    setHydrated(true)
     setEnabled(settings.schedule_enabled)
-    setFrequency(preset.frequency)
-    setTime(preset.time)
-    setDayOfWeek(preset.dayOfWeek)
-    setCronExpression(settings.schedule_cron)
+    setFrequencyState(preset.frequency)
+    setTimeState(preset.time)
+    setDayOfWeekState(preset.dayOfWeek)
+    setCronExpression(
+      preset.frequency === 'custom'
+        ? settings.schedule_cron
+        : buildPresetCron(preset.frequency, preset.time, preset.dayOfWeek)
+    )
     setRetentionCount(String(settings.retention_count))
     setRemoteRetentionCount(String(settings.remote_retention_count))
     setEncryptionEnabled(settings.encryption_enabled)
-    setHydrated(true)
-  }, [settings, hydrated])
+  }
 
-  // Recompute the derived cron string whenever a preset (non-custom) input changes.
-  useEffect(() => {
-    if (frequency === 'custom') return
-    const hour = parseInt(time.split(':')[0] ?? '0', 10) || 0
-    setCronExpression(frequency === 'daily' ? `0 ${hour} * * *` : `0 ${hour} * * ${dayOfWeek}`)
-  }, [frequency, time, dayOfWeek])
+  // The derived cron string follows the preset inputs; a 'custom' frequency leaves the
+  // user-edited cron untouched. Recomputed in the setters so no effect is needed.
+  const setFrequency = (value: ScheduleFrequency) => {
+    setFrequencyState(value)
+    if (value !== 'custom') setCronExpression(buildPresetCron(value, time, dayOfWeek))
+  }
+  const setTime = (value: string) => {
+    setTimeState(value)
+    if (frequency !== 'custom') setCronExpression(buildPresetCron(frequency, value, dayOfWeek))
+  }
+  const setDayOfWeek = (value: string) => {
+    setDayOfWeekState(value)
+    if (frequency !== 'custom') setCronExpression(buildPresetCron(frequency, time, value))
+  }
 
   const cronValid = isValidCronExpression(cronExpression)
   const encryptionPassphraseSet = settings?.encryption_passphrase_set ?? false

@@ -72,7 +72,7 @@ test.describe('Emergency & Break-Glass Operations', () => {
 
   test.beforeEach(async ({ page }) => {
     await page.goto('/');
-    await page.waitForSelector('[data-testid="dashboard-container"], main', { timeout: 15000 });
+    await expect(page.locator('[data-testid="dashboard-container"], main').first()).toBeVisible({ timeout: 15000 });
   });
 
   test('ACL dropdown parity regression keeps selection stable before emergency token flows', async ({ page }) => {
@@ -95,7 +95,7 @@ test.describe('Emergency & Break-Glass Operations', () => {
 
     await test.step('Create proxy host and select created ACL in dropdown', async () => {
       await page.goto('/proxy-hosts');
-      await page.waitForLoadState('networkidle');
+      await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
 
       await openCreateProxyModal(page);
       const dialog = page.getByRole('dialog');
@@ -136,7 +136,7 @@ test.describe('Emergency & Break-Glass Operations', () => {
   test('Emergency token enables break-glass access', async ({ page }) => {
     await test.step('Verify emergency token available', async () => {
       // Navigate to security settings where token is generated
-      await page.goto('/settings/security', { waitUntil: 'networkidle' }).catch(() => {
+      await page.goto('/settings/security').catch(() => {
         return page.goto('/settings');
       });
 
@@ -162,10 +162,10 @@ test.describe('Emergency & Break-Glass Operations', () => {
       const emergencyLink = page.getByRole('link', { name: /emergency|break.?glass/i }).first();
       if (await emergencyLink.isVisible()) {
         await emergencyLink.click();
-        await page.waitForLoadState('networkidle');
+        await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
       } else {
         // Check in settings
-        await page.goto('/settings/emergency', { waitUntil: 'networkidle' }).catch(() => {
+        await page.goto('/settings/emergency').catch(() => {
           return page.goto('/settings');
         });
       }
@@ -189,7 +189,7 @@ test.describe('Emergency & Break-Glass Operations', () => {
   // Disable WAF in emergency
   test('Emergency token can disable security modules', async ({ page }) => {
     await test.step('Access emergency control panel', async () => {
-      await page.goto('/settings/emergency', { waitUntil: 'networkidle' }).catch(() => {
+      await page.goto('/settings/emergency').catch(() => {
         return page.goto('/settings');
       });
     });
@@ -212,7 +212,7 @@ test.describe('Emergency & Break-Glass Operations', () => {
   // Reset encryption key in emergency
   test('Emergency token can reset encryption key', async ({ page }) => {
     await test.step('Access emergency encryption settings', async () => {
-      await page.goto('/settings/emergency', { waitUntil: 'networkidle' }).catch(() => {
+      await page.goto('/settings/emergency').catch(() => {
         return page.goto('/settings');
       });
 
@@ -241,7 +241,7 @@ test.describe('Emergency & Break-Glass Operations', () => {
   // Emergency token single-use or reusable
   test('Emergency token usage logged and tracked', async ({ page }) => {
     await test.step('View emergency token access log', async () => {
-      await page.goto('/audit', { waitUntil: 'networkidle' }).catch(() => {
+      await page.goto('/audit').catch(() => {
         return page.goto('/admin/audit');
       });
 
@@ -249,7 +249,7 @@ test.describe('Emergency & Break-Glass Operations', () => {
       const searchInput = page.getByPlaceholder(/search|filter/i).first();
       if (await searchInput.isVisible()) {
         await searchInput.fill('emergency');
-        await page.waitForLoadState('networkidle');
+        await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
       }
     });
 

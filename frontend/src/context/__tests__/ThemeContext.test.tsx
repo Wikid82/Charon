@@ -2,9 +2,9 @@ import { act, render, renderHook, screen } from '@testing-library/react'
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest'
 
 import { useTheme } from '../../hooks/useTheme'
+import { useUserThemes } from '../../hooks/useUserThemes'
 import { ThemeProvider } from '../ThemeContext'
 import { THEME_STORAGE_KEY, CUSTOM_THEME_STORAGE_KEY, type CustomThemeColors, type ThemeExport, type UserTheme } from '../ThemeContextValue'
-import { useUserThemes } from '../../hooks/useUserThemes'
 
 // ThemeProvider calls useUserThemes internally; stub it so tests don't need QueryClientProvider
 vi.mock('../../hooks/useUserThemes', () => ({
@@ -424,5 +424,64 @@ describe('ThemeProvider', () => {
     await act(async () => { result.current.setUserTheme(userTheme) })
 
     expect(result.current.activeUserTheme).toEqual(userTheme)
+  })
+
+  it('keeps a stored user:* theme while the user-theme query is still loading', () => {
+    localStorage.setItem(THEME_STORAGE_KEY, 'user:pending')
+    mockUseUserThemes.mockReturnValue({ ...defaultMockReturn(), isLoading: true, userThemes: [] })
+    const { result } = renderThemeHook()
+
+    expect(result.current.theme).toBe('user:pending')
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('user:pending')
+  })
+
+  it('falls back to dark on mount when the stored user:* theme is missing and the query has settled', () => {
+    localStorage.setItem(THEME_STORAGE_KEY, 'user:gone')
+    mockUseUserThemes.mockReturnValue({ ...defaultMockReturn(), isLoading: false, userThemes: [] })
+    const { result } = renderThemeHook()
+
+    expect(result.current.theme).toBe('dark')
+    expect(result.current.resolvedTheme).toBe('dark')
+  })
+
+  it('applies a loaded user:* theme once the query settles, and falls back only if it is still missing', () => {
+    const userTheme: UserTheme = {
+      id: 'late',
+      name: 'Late',
+      colors: sampleColors,
+      created_at: '2026-06-01T00:00:00Z',
+      updated_at: '2026-06-01T00:00:00Z',
+    }
+    localStorage.setItem(THEME_STORAGE_KEY, 'user:late')
+    mockUseUserThemes.mockReturnValue({ ...defaultMockReturn(), isLoading: true, userThemes: [] })
+    const { result, rerender } = renderThemeHook()
+    expect(result.current.theme).toBe('user:late')
+
+    mockUseUserThemes.mockReturnValue({ ...defaultMockReturn(), isLoading: false, userThemes: [userTheme] })
+    rerender()
+    expect(result.current.theme).toBe('user:late')
+    expect(attributeSpy).toHaveBeenCalledWith('data-theme', 'custom')
+    expect(setPropertySpy).toHaveBeenCalledWith('--color-bg-base', sampleColors.bgBase)
+  })
+
+  it('replaces a user:* theme that disappears from the list with dark and persists the fallback', () => {
+    const userTheme: UserTheme = {
+      id: 'vanish',
+      name: 'Vanish',
+      colors: sampleColors,
+      created_at: '2026-06-01T00:00:00Z',
+      updated_at: '2026-06-01T00:00:00Z',
+    }
+    mockUseUserThemes.mockReturnValue({ ...defaultMockReturn(), userThemes: [userTheme] })
+    const { result, rerender } = renderThemeHook()
+    act(() => { result.current.setUserTheme(userTheme) })
+    expect(result.current.theme).toBe('user:vanish')
+
+    mockUseUserThemes.mockReturnValue({ ...defaultMockReturn(), userThemes: [] })
+    rerender()
+
+    expect(result.current.theme).toBe('dark')
+    expect(attributeSpy).toHaveBeenLastCalledWith('data-theme', 'dark')
+    expect(localStorage.getItem(THEME_STORAGE_KEY)).toBe('dark')
   })
 })

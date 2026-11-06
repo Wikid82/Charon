@@ -262,7 +262,7 @@ test.describe('Backups Page - Schedule Settings', () => {
         // Backend reschedules the cron entry in-process (BackupService.Reschedule) —
         // the UI must not imply a container restart is required for this change.
         await waitForToast(page, /schedule updated|saved/i, { type: 'success' });
-        await expect(page.getByText(/restart required/i)).not.toBeVisible();
+        await expect(page.getByText(/restart required/i)).toBeHidden();
       }
     );
 

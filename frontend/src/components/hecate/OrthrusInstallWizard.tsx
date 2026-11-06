@@ -1,5 +1,5 @@
 import { CheckCircle2, Copy } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { type InstallSnippets } from '../../api/orthrus';
@@ -44,13 +44,17 @@ export const OrthrusInstallWizard = ({
   const [copiedKey, setCopiedKey] = useState(false);
   const [copiedSnippet, setCopiedSnippet] = useState<PlatformKey | null>(null);
 
-  useEffect(() => {
+  // Copy feedback is cleared when the dialog closes. Adjusting during render
+  // replaces the former effect.
+  const [wasOpen, setWasOpen] = useState(open);
+  if (wasOpen !== open) {
+    setWasOpen(open);
     if (!open) {
       // Auth key is cleared from component state when the dialog closes.
       setCopiedKey(false);
       setCopiedSnippet(null);
     }
-  }, [open]);
+  }
 
   const handleCopyKey = async () => {
     await navigator.clipboard.writeText(authKey);

@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-d81a5a8c75da92cc
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:7f0d931cc9f220881e9058eb8023254a9fd14f32c7af5566db344f41a55df505
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-f86ad2b0a2c54af0
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:20755179ee8d0a153ffddf308fc4c4cc33363c0d69e566daaa0a813da136f514
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -31,10 +31,10 @@ ARG CROWDSEC_BUILDER_SRC=toolchain-prebuilt
 
 # ---- Pinned Toolchain Versions ----
 # renovate: datasource=docker depName=golang versioning=docker
-ARG GO_VERSION=1.27.3
+ARG GOLANG_IMAGE=golang:1.27.3-alpine@sha256:fa3d596898d9f126af7c01d14ee7597bab3f39cccf392ef36b69fe77cd681f18
 
 # renovate: datasource=docker depName=alpine versioning=docker
-ARG ALPINE_IMAGE=alpine:3.24.4@sha256:e2944c2947c8cabdd6b23a2ebcf8094a9f3d53ca9e0340edd065237ab74c18c0
+ARG ALPINE_IMAGE=alpine:3.24.4@sha256:93b41ef40b1677fce8fcc64ff4af09daddfacf5040afde618bc46c1e2d1cc7d4
 
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
@@ -218,7 +218,7 @@ FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.10.0@sha256:40fe21f44bb8cddf1eb12
 # This fixes 22 HIGH/CRITICAL CVEs in stdlib embedded in Debian's gosu package
 # CVEs fixed: CVE-2023-24531, CVE-2023-24540, CVE-2023-29402, CVE-2023-29404,
 #             CVE-2023-29405, CVE-2024-24790, CVE-2025-22871, and 15 more
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS gosu-builder
+FROM --platform=$BUILDPLATFORM ${GOLANG_IMAGE} AS gosu-builder
 COPY --from=xx / /
 
 WORKDIR /tmp/gosu
@@ -276,7 +276,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:26.13.0-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:26.13.0-alpine@sha256:8996bb5821d62a8fd9bb27c1cb07462f3fdce6e47d640c6a881ead0b064ce216 AS frontend-builder
 RUN npm install -g npm@${NPM_VERSION} && npm cache clean --force
 WORKDIR /app/frontend
 
@@ -321,7 +321,7 @@ RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
     npm run build
 
 # ---- Backend Builder ----
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:fa4881266890ef051f0ce63afdfaccb69bbe8186084387f4fafd60d7ecbabc71 AS backend-builder
+FROM --platform=$BUILDPLATFORM ${GOLANG_IMAGE} AS backend-builder
 # Copy xx helpers for cross-compilation
 COPY --from=xx / /
 
@@ -454,11 +454,10 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # .github/workflows/toolchain-image.yml (--target toolchain-runtime) and on the
 # fork / bootstrap / offline fallback path.
 #
-# N4: the golang:${GO_VERSION}-alpine tag is a moving reference; digest-pin it so
-# a silent upstream base rebuild is caught by toolchain-key.sh. The pinned digest
-# is refreshed by the daily toolchain rebuild's `--pull` + Renovate.
-# renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS caddy-inline
+# N4: GOLANG_IMAGE (top of file) is the single digest-pinned golang reference for every
+# Go builder stage; a silent upstream base rebuild is caught by toolchain-key.sh.
+# Renovate refreshes the digest in one place.
+FROM --platform=$BUILDPLATFORM ${GOLANG_IMAGE} AS caddy-inline
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
@@ -800,8 +799,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Like caddy-inline, this is the single source of truth for the CrowdSec build
 # recipe. Compiled by toolchain-image.yml and the fork/offline fallback only; the
 # default app build COPY --from's its output out of the pinned toolchain image.
-# renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS crowdsec-inline
+FROM --platform=$BUILDPLATFORM ${GOLANG_IMAGE} AS crowdsec-inline
 COPY --from=xx / /
 
 WORKDIR /tmp/crowdsec

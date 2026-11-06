@@ -2,7 +2,6 @@ import { Download } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import type { Certificate } from '../../api/certificates'
 import { useExportCertificate } from '../../hooks/useCertificates'
 import { toast } from '../../utils/toast'
 import {
@@ -15,6 +14,8 @@ import {
   DialogFooter,
   Label,
 } from '../ui'
+
+import type { Certificate } from '../../api/certificates'
 
 interface CertificateExportDialogProps {
   certificate: Certificate | null

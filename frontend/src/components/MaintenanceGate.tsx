@@ -1,7 +1,7 @@
+import { useQueryClient } from '@tanstack/react-query'
 import { Loader2 } from 'lucide-react'
 import { useEffect, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
-import { useQueryClient } from '@tanstack/react-query'
 
 import { Card, CardContent } from './ui/Card'
 import { MAINTENANCE_STATUS_QUERY_KEY, useMaintenanceStatus } from '../hooks/useDatabaseMaintenance'

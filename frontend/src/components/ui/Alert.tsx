@@ -106,12 +106,14 @@ export function Alert({
 
 export type AlertTitleProps = React.HTMLAttributes<HTMLHeadingElement>
 
-export function AlertTitle({ className, ...props }: AlertTitleProps) {
+export function AlertTitle({ className, children, ...props }: AlertTitleProps) {
   return (
     <h5
       className={cn('font-semibold text-sm mb-1', className)}
       {...props}
-    />
+    >
+      {children}
+    </h5>
   )
 }
 

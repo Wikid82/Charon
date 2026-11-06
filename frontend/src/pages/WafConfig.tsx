@@ -1,5 +1,5 @@
 import { Shield, Plus, Pencil, Trash2, ExternalLink, FileCode2, Sparkles } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { ConfigReloadOverlay } from '../components/LoadingStates'
@@ -67,22 +67,38 @@ function ConfirmDialog({
   isLoading?: boolean
   deletingLabel: string
 }) {
+  const cancelButtonRef = useRef<HTMLButtonElement>(null)
+
+  // Focus the safe default (Cancel) on open so Escape and Enter work immediately.
+  useEffect(() => {
+    if (isOpen) cancelButtonRef.current?.focus()
+  }, [isOpen])
+
   if (!isOpen) return null
 
   return (
     <div
       className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-      onClick={onCancel}
+      role="presentation"
+      onClick={(e) => {
+        // Only clicks on the backdrop itself close the dialog.
+        if (e.target === e.currentTarget) onCancel()
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') onCancel()
+      }}
       data-testid="confirm-dialog-backdrop"
     >
       <div
         className="bg-dark-card border border-gray-800 rounded-lg p-6 max-w-md w-full mx-4"
-        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="waf-confirm-dialog-title"
       >
-        <h2 className="text-xl font-bold text-white mb-2">{title}</h2>
+        <h2 id="waf-confirm-dialog-title" className="text-xl font-bold text-white mb-2">{title}</h2>
         <p className="text-gray-400 mb-6">{message}</p>
         <div className="flex justify-end gap-2">
-          <Button variant="secondary" onClick={onCancel} disabled={isLoading}>
+          <Button ref={cancelButtonRef} variant="secondary" onClick={onCancel} disabled={isLoading}>
             {cancelLabel}
           </Button>
           <Button

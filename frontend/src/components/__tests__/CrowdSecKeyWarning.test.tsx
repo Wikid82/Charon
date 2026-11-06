@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { render, screen, waitFor } from '@testing-library/react'
+import { act, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
@@ -183,5 +183,57 @@ describe('CrowdSecKeyWarning', () => {
 
     expect(localStorage.getItem('crowdsec-key-warning-dismissed')).toContain(defaultStatus.full_key)
     expect(container).toBeEmptyDOMElement()
+  })
+})
+
+describe('CrowdSecKeyWarning status refresh', () => {
+  const status = {
+    key_source: 'env' as const,
+    key_check: 'accepted' as const,
+    env_key_rejected: true,
+    full_key: 'key-a',
+    current_key_preview: 'old...',
+    message: 'Key rejected',
+  }
+
+  const mountWarning = () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <QueryClientProvider client={qc}>
+        <CrowdSecKeyWarning />
+      </QueryClientProvider>,
+    )
+    return qc
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+  })
+
+  it('stays dismissed when a refreshed status carries the same key', async () => {
+    vi.mocked(crowdsecApi.getCrowdsecKeyStatus).mockResolvedValue(status)
+    const qc = mountWarning()
+    await screen.findByText('security.crowdsec.keyWarning.title')
+
+    await userEvent.click(screen.getByRole('button', { name: 'common.close' }))
+    expect(screen.queryByText('security.crowdsec.keyWarning.title')).not.toBeInTheDocument()
+
+    await act(async () => {
+      qc.setQueryData(['crowdsec-key-status'], { ...status })
+    })
+    expect(screen.queryByText('security.crowdsec.keyWarning.title')).not.toBeInTheDocument()
+  })
+
+  it('shows the warning again when a refreshed status carries a rotated key', async () => {
+    vi.mocked(crowdsecApi.getCrowdsecKeyStatus).mockResolvedValue(status)
+    const qc = mountWarning()
+    await screen.findByText('security.crowdsec.keyWarning.title')
+
+    await userEvent.click(screen.getByRole('button', { name: 'common.close' }))
+    await act(async () => {
+      qc.setQueryData(['crowdsec-key-status'], { ...status, full_key: 'key-b' })
+    })
+    expect(await screen.findByText('security.crowdsec.keyWarning.title')).toBeInTheDocument()
   })
 })

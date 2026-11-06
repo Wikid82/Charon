@@ -1,5 +1,4 @@
 import { useProxyGroups } from '../hooks/useProxyGroups';
-
 import {
   Select,
   SelectContent,
@@ -11,12 +10,14 @@ import {
 interface ProxyGroupSelectorProps {
   value: string | null | undefined;
   onChange: (uuid: string | null) => void;
+  /** Id applied to the trigger so an external <label htmlFor> can target it. */
+  id?: string;
 }
 
 const NONE_VALUE = 'none';
 const DEFAULT_DOT_COLOR = '#6b7280';
 
-export default function ProxyGroupSelector({ value, onChange }: ProxyGroupSelectorProps) {
+export default function ProxyGroupSelector({ value, onChange, id }: ProxyGroupSelectorProps) {
   const { data: groups } = useProxyGroups();
 
   const selectValue = value ?? NONE_VALUE;
@@ -33,7 +34,7 @@ export default function ProxyGroupSelector({ value, onChange }: ProxyGroupSelect
   return (
     <div>
       <Select value={selectValue} onValueChange={handleValueChange}>
-        <SelectTrigger className="w-full bg-gray-900 border-gray-700 text-white" aria-label="Proxy Group">
+        <SelectTrigger id={id} className="w-full bg-gray-900 border-gray-700 text-white" aria-label="Proxy Group">
           <SelectValue placeholder="Select a group" />
         </SelectTrigger>
         <SelectContent>

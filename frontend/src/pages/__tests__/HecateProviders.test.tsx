@@ -4,7 +4,10 @@ import userEvent from '@testing-library/user-event'
 import { BrowserRouter } from 'react-router'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+import { useHecate } from '../../hooks/useHecate'
 import HecateProviders from '../HecateProviders'
+
+import type { TunnelConfig, TunnelStatus } from '../../api/hecate'
 
 vi.mock('../../hooks/useHecate', () => ({
   useHecate: vi.fn(),
@@ -36,19 +39,17 @@ vi.mock('../../components/hecate/HecateTunnelForm', () => ({
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
-      if (opts?.count !== undefined) return `${String(opts.count)} tunnels`
-      return key
+      return opts?.count !== undefined ? `${String(opts.count)} tunnels` : key
     },
   }),
 }))
 
-import { useHecate } from '../../hooks/useHecate'
 
 const mockUseHecate = vi.mocked(useHecate)
 
 const baseMockHecate = {
-  tunnels: [] as import('../../api/hecate').TunnelConfig[],
-  statuses: [] as import('../../api/hecate').TunnelStatus[],
+  tunnels: [] as TunnelConfig[],
+  statuses: [] as TunnelStatus[],
   loadingTunnels: false,
   loadingStatus: false,
   error: null,
@@ -117,11 +118,9 @@ describe('HecateProviders', () => {
     const addBtns = await screen.findAllByRole('button', { name: 'hecate.providers.addTunnel' })
     await user.click(addBtns[2]) // NetBird is the 3rd provider card
 
-    await waitFor(() => {
-      const form = screen.getByTestId('tunnel-form')
-      expect(form).toBeInTheDocument()
-      expect(form).toHaveAttribute('data-provider', 'netbird')
-    })
+    const form = await screen.findByTestId('tunnel-form')
+    expect(form).toBeInTheDocument()
+    expect(form).toHaveAttribute('data-provider', 'netbird')
   })
 
   it('opens the tunnel form for Cloudflare when Cloudflare New Tunnel is clicked', async () => {

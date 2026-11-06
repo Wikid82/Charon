@@ -50,19 +50,19 @@ async function setupUptimePage(
   monitors: object[],
   historyByMonitorId: Record<string, object[]> = {},
 ) {
-  await page.route(UPTIME_MONITOR_HISTORY_API, (route) => {
+  await page.route(UPTIME_MONITOR_HISTORY_API, async (route) => {
     const url = route.request().url();
     const match = url.match(/\/uptime\/monitors\/([^/]+)\/history/);
     const monitorId = match?.[1] ?? '';
     const history = historyByMonitorId[monitorId] ?? [];
-    route.fulfill({ json: history });
+    await route.fulfill({ json: history });
   });
 
-  await page.route(UPTIME_MONITORS_API, (route) => {
+  await page.route(UPTIME_MONITORS_API, async (route) => {
     if (route.request().method() === 'GET') {
-      route.fulfill({ json: monitors });
+      await route.fulfill({ json: monitors });
     } else {
-      route.continue();
+      await route.continue();
     }
   });
 

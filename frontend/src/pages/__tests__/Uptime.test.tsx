@@ -284,9 +284,9 @@ describe('Uptime page', () => {
     vi.mocked(getMonitorsSummary).mockResolvedValue([])
 
     renderWithQueryClient(<Uptime />)
-    await waitFor(() => expect(screen.getByTestId('add-monitor-button')).toBeInTheDocument())
+    expect(await screen.findByTestId('add-monitor-button')).toBeInTheDocument()
     await user.click(screen.getByTestId('add-monitor-button'))
-    await waitFor(() => expect(screen.getByText('Create Monitor')).toBeInTheDocument())
+    expect(await screen.findByText('Create Monitor')).toBeInTheDocument()
 
     const interval = document.getElementById('create-monitor-interval') as HTMLInputElement
     expect(interval).toHaveAttribute('min', '30')
@@ -308,9 +308,9 @@ describe('Uptime page', () => {
     })
 
     renderWithQueryClient(<Uptime />)
-    await waitFor(() => expect(screen.getByTestId('add-monitor-button')).toBeInTheDocument())
+    expect(await screen.findByTestId('add-monitor-button')).toBeInTheDocument()
     await user.click(screen.getByTestId('add-monitor-button'))
-    await waitFor(() => expect(screen.getByText('Create Monitor')).toBeInTheDocument())
+    expect(await screen.findByText('Create Monitor')).toBeInTheDocument()
 
     await user.type(screen.getByLabelText(/Name/), 'Valid')
     await user.type(screen.getByLabelText(/Monitor URL/), 'https://valid.example.test')
@@ -371,7 +371,7 @@ describe('Uptime page', () => {
     vi.mocked(checkMonitor).mockRejectedValue({ response: { status: 503 }, message: 'check queue is full, try again' })
 
     renderWithQueryClient(<Uptime />)
-    await waitFor(() => expect(screen.getByText('Example App')).toBeInTheDocument())
+    expect(await screen.findByText('Example App')).toBeInTheDocument()
 
     await user.click(screen.getByTitle('Trigger Health Check'))
 

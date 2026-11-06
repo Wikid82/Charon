@@ -53,7 +53,7 @@ function buildSqliteFullInfrastructureError(context: string, details: string): E
   const error = new Error(
     `[INFRASTRUCTURE][SQLITE_FULL] ${context}\n` +
     `Detected SQLite storage exhaustion while running Playwright test setup.\n` +
-    `Root cause indicators matched: \"database or disk is full\" | \"SQLITE_FULL\" | \"(13)\" in SQLite context.\n` +
+    `Root cause indicators matched: "database or disk is full" | "SQLITE_FULL" | "(13)" in SQLite context.\n` +
     `Action required:\n` +
     `1. Free disk space on the test runner and ensure the SQLite volume is writable.\n` +
     `2. Rebuild/restart the E2E test container to reset state.\n` +
@@ -392,7 +392,8 @@ export class TestDataManager {
       if (error instanceof Error && error.message.includes('timeout')) {
         throw new Error(
           `Timeout creating proxy host for ${namespacedDomain} after 30s. ` +
-          `This may indicate API bottleneck or feature flag polling overhead.`
+          `This may indicate API bottleneck or feature flag polling overhead.`,
+          { cause: error }
         );
       }
       throw error;

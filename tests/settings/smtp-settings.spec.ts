@@ -174,8 +174,7 @@ test.describe('SMTP Settings', () => {
       const portInput = page.locator('#smtp-port');
 
       await test.step('Verify port input type is number', async () => {
-        const inputType = await portInput.getAttribute('type');
-        expect(inputType).toBe('number');
+        await expect(portInput).toHaveAttribute('type', 'number');
       });
 
       await test.step('Verify port accepts valid numeric value', async () => {
@@ -185,9 +184,8 @@ test.describe('SMTP Settings', () => {
       });
 
       await test.step('Verify port has default value', async () => {
-        const portValue = await portInput.inputValue();
         // Should have a value (default or user-set)
-        expect(portValue).toBeTruthy();
+        await expect(portInput).not.toHaveValue('');
       });
     });
 
@@ -378,8 +376,7 @@ test.describe('SMTP Settings', () => {
         await page.goto('/settings/smtp', { waitUntil: 'domcontentloaded' });
         await waitForLoadingComplete(page);
 
-        const newHost = await hostInput.inputValue();
-        expect(newHost).toBe('updated-smtp.test.local');
+        await expect(hostInput).toHaveValue('updated-smtp.test.local');
       });
 
       await test.step('Restore original value', async () => {
@@ -454,10 +451,8 @@ test.describe('SMTP Settings', () => {
 
       await test.step('Verify password is masked or preserved', async () => {
         const passwordValue = await passwordInput.inputValue();
-        const inputType = await passwordInput.getAttribute('type');
-
         // Password should be of type "password" for security
-        expect(inputType).toBe('password');
+        await expect(passwordInput).toHaveAttribute('type', 'password');
 
         // Password value may be empty (placeholder), masked, or actual
         // Implementation varies - just verify field exists and is accessible

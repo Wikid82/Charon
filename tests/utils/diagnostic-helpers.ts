@@ -177,11 +177,11 @@ export function trackDialogLifecycle(
       console.log(`[DIALOG LIFECYCLE] Timestamp: ${new Date().toISOString()}`);
     }
 
-    setTimeout(() => checkDialog(), 1000);
+    setTimeout(() => void checkDialog(), 1000);
   };
 
   // Start monitoring
-  checkDialog();
+  void checkDialog();
 
   return {
     stop: () => {

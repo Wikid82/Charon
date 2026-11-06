@@ -77,7 +77,7 @@ test.describe.serial('Break Glass Recovery - Test-Runner Whitelist', () => {
     await test.step('Verify whitelist configuration persisted', async () => {
       // Use /api/v1/security/config for reading (PATCH /api/v1/config has no GET)
       const response = await apiContext.get('/api/v1/security/config');
-      expect(response).toBeOK();
+      await expect(response).toBeOK();
 
       const body = await response.json();
       expect(body.config?.admin_whitelist).toBe(ADMIN_WHITELIST);

@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import type { ReactNode } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import * as api from '../../api/crowdsec'
 import { useRestoreHubItems } from '../useCrowdsecHubItems'
+
+import type { ReactNode } from 'react'
 
 vi.mock('../../api/crowdsec')
 

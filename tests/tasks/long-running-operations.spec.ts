@@ -125,7 +125,7 @@ test.describe('Long-Running Operations', () => {
   // steps needed to distinguish the two before re-enabling this test.
   test.fixme('Backup creation does not block other operations', async ({ page }) => {
     await test.step('Initiate backup creation', async () => {
-      await page.goto('/settings/backup', { waitUntil: 'networkidle' }).catch(() => {
+      await page.goto('/settings/backup').catch(() => {
         return page.goto('/backup');
       });
 
@@ -147,7 +147,7 @@ test.describe('Long-Running Operations', () => {
     });
 
     await test.step('Verify backup completed', async () => {
-      await page.goto('/settings/backup', { waitUntil: 'networkidle' }).catch(() => {
+      await page.goto('/settings/backup').catch(() => {
         return page.goto('/backup');
       });
 
@@ -158,7 +158,7 @@ test.describe('Long-Running Operations', () => {
   // System remains responsive during backup
   test('UI remains responsive while backup in progress', async ({ page }) => {
     await test.step('Start backup operation', async () => {
-      await page.goto('/settings/backup', { waitUntil: 'networkidle' }).catch(() => {
+      await page.goto('/settings/backup').catch(() => {
         return page.goto('/backup');
       });
 
@@ -203,7 +203,7 @@ test.describe('Long-Running Operations', () => {
   // Proxy creation during backup completes independently
   test('Proxy creation independent of backup operation', async ({ page }) => {
     await test.step('Start backup', async () => {
-      await page.goto('/settings/backup', { waitUntil: 'networkidle' }).catch(() => {
+      await page.goto('/settings/backup').catch(() => {
         return page.goto('/backup');
       });
 
@@ -247,7 +247,7 @@ test.describe('Long-Running Operations', () => {
     });
 
     await test.step('Initiate backup', async () => {
-      await page.goto('/settings/backup', { waitUntil: 'networkidle' }).catch(() => {
+      await page.goto('/settings/backup').catch(() => {
         return page.goto('/backup');
       });
 
@@ -278,7 +278,7 @@ test.describe('Long-Running Operations', () => {
 
       await page.getByRole('button', { name: /login|sign in/i }).click();
       const loginResponse = await loginResponsePromise;
-      await page.waitForLoadState('networkidle');
+      await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
 
       const duration = Date.now() - start;
 
@@ -340,7 +340,7 @@ test.describe('Long-Running Operations', () => {
       await waitForToast(page, /success|created/i, { type: 'success', timeout: 20000 });
 
       // On success the dialog closes (Backups.tsx handleCreateConfirm onSuccess).
-      await expect(dialog).not.toBeVisible();
+      await expect(dialog).toBeHidden();
     });
 
     await test.step('Verify created backup is actionable', async () => {

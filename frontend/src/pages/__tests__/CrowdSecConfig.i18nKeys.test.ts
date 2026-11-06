@@ -17,8 +17,7 @@ const loadLocale = (locale: string): Json => localeModules[`../../locales/${loca
 
 const lookup = (tree: Json, path: string): Json | string | undefined =>
   path.split('.').reduce<Json | string | undefined>((node, part) => {
-    if (node && typeof node === 'object' && part in node) return node[part]
-    return undefined
+    return node && typeof node === 'object' && part in node ? node[part] : undefined
   }, tree)
 
 const leafKeys = (node: Json | string, prefix: string): string[] =>

@@ -1,4 +1,5 @@
 import { AlertTriangle } from 'lucide-react'
+import { useEffect, useRef } from 'react'
 
 interface CertificateCleanupDialogProps {
   onConfirm: (deleteCerts: boolean) => void
@@ -15,6 +16,13 @@ export default function CertificateCleanupDialog({
   hostNames,
   isBulk = false
 }: CertificateCleanupDialogProps) {
+  const cancelButtonRef = useRef<HTMLButtonElement>(null)
+
+  // Focus the safe default (Cancel) on open so Escape and Enter work immediately.
+  useEffect(() => {
+    cancelButtonRef.current?.focus()
+  }, [])
+
   const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault()
     const formData = new FormData(e.currentTarget)
@@ -25,11 +33,20 @@ export default function CertificateCleanupDialog({
   return (
     <div
       className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-      onClick={onCancel}
+      role="presentation"
+      onClick={(e) => {
+        // Only clicks on the backdrop itself close the dialog.
+        if (e.target === e.currentTarget) onCancel()
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') onCancel()
+      }}
     >
       <div
         className="bg-dark-card border border-orange-900/50 rounded-lg p-6 max-w-lg w-full mx-4"
-        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="cert-cleanup-dialog-title"
       >
         <form onSubmit={handleSubmit}>
           <div className="flex items-start gap-3 mb-4">
@@ -37,7 +54,7 @@ export default function CertificateCleanupDialog({
               <AlertTriangle className="h-5 w-5 text-orange-400" />
             </div>
             <div className="flex-1">
-              <h2 className="text-xl font-bold text-white">
+              <h2 id="cert-cleanup-dialog-title" className="text-xl font-bold text-white">
                 Delete {isBulk ? `${hostNames.length} Proxy Hosts` : 'Proxy Host'}?
               </h2>
               <p className="text-sm text-gray-400 mt-1">
@@ -97,6 +114,7 @@ export default function CertificateCleanupDialog({
           {/* Confirmation buttons */}
           <div className="flex justify-end gap-2">
             <button
+              ref={cancelButtonRef}
               type="button"
               onClick={onCancel}
               className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition-colors"

@@ -210,6 +210,25 @@ describe('CrowdSecConfig branch coverage', () => {
       await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Sort presets' }), 'source')
       expect(orderOf()).toEqual(['Alpha Preset', 'Bot Mitigation Essentials', 'Aardvark Preset'])
     })
+
+    it('breaks source ties by title when sorting by source', async () => {
+      vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({
+        presets: [
+          preset({ slug: 'crowdsecurity/zeta', title: 'Zeta Preset', source: 'hub' }),
+          preset({ slug: 'crowdsecurity/beta', title: 'Beta Preset', source: 'hub' }),
+        ],
+      })
+      await renderPage()
+      const titles = ['Beta Preset', 'Zeta Preset']
+      const orderOf = () =>
+        screen
+          .getAllByRole('button', { name: /Beta Preset|Zeta Preset/ })
+          .map((row) => titles.find((title) => row.textContent?.includes(title)))
+
+      await waitFor(() => expect(orderOf()).toHaveLength(2))
+      await userEvent.selectOptions(screen.getByRole('combobox', { name: 'Sort presets' }), 'source')
+      expect(orderOf()).toEqual(['Beta Preset', 'Zeta Preset'])
+    })
   })
 
   describe('preset pull failures', () => {

@@ -15,7 +15,7 @@ test.describe('Accessibility: Certificates', () => {
     await test.step('Run axe accessibility scan', async () => {
       const results = await makeAxeBuilder().analyze();
 
-      test.info().attach('a11y-results', {
+      await test.info().attach('a11y-results', {
         body: JSON.stringify(results.violations, null, 2),
         contentType: 'application/json',
       });

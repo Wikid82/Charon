@@ -2,8 +2,10 @@ import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-import Backups from '../Backups'
 import { toast } from '../../utils/toast'
+import Backups from '../Backups'
+
+import type * as useBackupsModule from '../../hooks/useBackups'
 
 const mockUseAuth = vi.fn()
 vi.mock('../../hooks/useAuth', () => ({
@@ -28,7 +30,7 @@ vi.mock('../../hooks/useRemoteTargets', () => ({
 }))
 
 vi.mock('../../hooks/useBackups', async () => {
-  const actual = await vi.importActual<typeof import('../../hooks/useBackups')>('../../hooks/useBackups')
+  const actual = await vi.importActual<typeof useBackupsModule>('../../hooks/useBackups')
   return {
     ...actual,
     useBackups: () => mockUseBackups(),

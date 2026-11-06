@@ -52,11 +52,11 @@ async function setupAgentPage(
 ) {
   await page.route(REMOTE_SERVERS_API, (route) => route.fulfill({ json: [] }));
   await page.route(HECATE_STATUS_API, (route) => route.fulfill({ json: [] }));
-  await page.route(ORTHRUS_AGENTS_API, (route) => {
+  await page.route(ORTHRUS_AGENTS_API, async (route) => {
     if (route.request().method() === 'GET') {
-      route.fulfill({ json: agents });
+      await route.fulfill({ json: agents });
     } else {
-      route.continue();
+      await route.continue();
     }
   });
   if (proxyStatus !== null) {
@@ -108,7 +108,7 @@ test.describe('Orthrus Write Mode', () => {
 
       await test.step('No typed-confirmation input is shown while off', async () => {
         const confirmInput = dialog.getByRole('textbox', { name: /type .* to confirm/i });
-        await expect(confirmInput).not.toBeVisible();
+        await expect(confirmInput).toBeHidden();
       });
     },
   );
@@ -158,9 +158,9 @@ test.describe('Orthrus Write Mode', () => {
       await page.route(ORTHRUS_AGENT_API, async (route) => {
         if (route.request().method() === 'PATCH') {
           patchBody = (await route.request().postDataJSON()) as Record<string, unknown>;
-          route.fulfill({ json: MOCK_AGENT_WRITE_ENABLED });
+          await route.fulfill({ json: MOCK_AGENT_WRITE_ENABLED });
         } else {
-          route.continue();
+          await route.continue();
         }
       });
 
@@ -214,9 +214,9 @@ test.describe('Orthrus Write Mode', () => {
     await page.route(ORTHRUS_AGENT_API, async (route) => {
       if (route.request().method() === 'PATCH') {
         patchBody = (await route.request().postDataJSON()) as Record<string, unknown>;
-        route.fulfill({ json: MOCK_AGENT_BASE });
+        await route.fulfill({ json: MOCK_AGENT_BASE });
       } else {
-        route.continue();
+        await route.continue();
       }
     });
 
@@ -228,7 +228,7 @@ test.describe('Orthrus Write Mode', () => {
       await toggleLabel(toggle).click();
 
       const confirmInput = dialog.getByRole('textbox', { name: /type .* to confirm/i });
-      await expect(confirmInput).not.toBeVisible();
+      await expect(confirmInput).toBeHidden();
 
       await dialog.getByRole('button', { name: /save|disable/i }).click();
     });

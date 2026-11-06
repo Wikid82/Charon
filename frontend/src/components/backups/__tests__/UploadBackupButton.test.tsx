@@ -4,12 +4,14 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import { UploadBackupButton } from '../UploadBackupButton'
 
+import type * as useBackupsModule from '../../../hooks/useBackups'
+
 const mockUploadMutate = vi.fn()
 let uploadData: unknown
 let uploadPending = false
 
 vi.mock('../../../hooks/useBackups', async () => {
-  const actual = await vi.importActual<typeof import('../../../hooks/useBackups')>('../../../hooks/useBackups')
+  const actual = await vi.importActual<typeof useBackupsModule>('../../../hooks/useBackups')
   return {
     ...actual,
     useUploadBackup: () => ({

@@ -61,9 +61,7 @@ describe('Security', () => {
   )
 
   const renderSecurityPage = async () => {
-    await act(async () => {
-      render(<Security />, { wrapper })
-    })
+    render(<Security />, { wrapper })
   }
 
   const mockSecurityStatus = {
@@ -112,7 +110,7 @@ describe('Security', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-crowdsec'))
+      await screen.findByTestId('toggle-crowdsec')
       const toggle = screen.getByTestId('toggle-crowdsec')
       await user.click(toggle)
 
@@ -127,11 +125,9 @@ describe('Security', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-waf'))
+      await screen.findByTestId('toggle-waf')
       const toggle = screen.getByTestId('toggle-waf')
-      await act(async () => {
-        await user.click(toggle)
-      })
+      await user.click(toggle)
 
       await waitFor(() => expect(settingsApi.updateSetting).toHaveBeenCalledWith('security.waf.enabled', 'true', 'security', 'bool'))
     })
@@ -143,7 +139,7 @@ describe('Security', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-acl'))
+      await screen.findByTestId('toggle-acl')
       const toggle = screen.getByTestId('toggle-acl')
       await user.click(toggle)
 
@@ -157,7 +153,7 @@ describe('Security', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-rate-limit'))
+      await screen.findByTestId('toggle-rate-limit')
       const toggle = screen.getByTestId('toggle-rate-limit')
       await user.click(toggle)
 
@@ -170,7 +166,7 @@ describe('Security', () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
 
       await renderSecurityPage()
-      await waitFor(() => screen.getByDisplayValue('10.0.0.0/8'))
+      await screen.findByDisplayValue('10.0.0.0/8')
       expect(screen.getByDisplayValue('10.0.0.0/8')).toBeInTheDocument()
     })
 
@@ -183,7 +179,7 @@ describe('Security', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByDisplayValue('10.0.0.0/8'))
+      await screen.findByDisplayValue('10.0.0.0/8')
 
       const saveButton = screen.getByRole('button', { name: /Save/i })
       await user.click(saveButton)
@@ -220,7 +216,7 @@ describe('Security', () => {
         await options.onSuccess()
       })
       // Falls back to the server value once the draft is cleared
-      await waitFor(() => expect(screen.getByDisplayValue('10.0.0.0/8')).toBeInTheDocument())
+      expect(await screen.findByDisplayValue('10.0.0.0/8')).toBeInTheDocument()
     })
   })
 
@@ -255,11 +251,9 @@ describe('Security', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-crowdsec'))
+      await screen.findByTestId('toggle-crowdsec')
       const toggle = screen.getByTestId('toggle-crowdsec')
-      await act(async () => {
-        await user.click(toggle)
-      })
+      await user.click(toggle)
 
       await waitFor(() => {
         expect(settingsApi.updateSetting).not.toHaveBeenCalledWith('security.crowdsec.enabled', 'true', 'security', 'bool')
@@ -275,11 +269,9 @@ describe('Security', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-crowdsec'))
+      await screen.findByTestId('toggle-crowdsec')
       const toggle = screen.getByTestId('toggle-crowdsec')
-      await act(async () => {
-        await user.click(toggle)
-      })
+      await user.click(toggle)
 
       await waitFor(() => {
         expect(settingsApi.updateSetting).not.toHaveBeenCalledWith('security.crowdsec.enabled', 'false', 'security', 'bool')
@@ -297,7 +289,7 @@ describe('Security', () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
 
       await renderSecurityPage()
-      await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
+      await screen.findByText(/Cerberus Dashboard/i)
 
       // Get all card headings (CardTitle uses text-base class)
       const cards = screen.getAllByRole('heading', { level: 3 })
@@ -311,7 +303,7 @@ describe('Security', () => {
       vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatus)
 
       await renderSecurityPage()
-      await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
+      await screen.findByText(/Cerberus Dashboard/i)
 
       // Layer indicators are now Badges with just the layer number
       expect(screen.getByText('Layer 1')).toBeInTheDocument()
@@ -326,7 +318,7 @@ describe('Security', () => {
       vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 1234, lapi_ready: true })
 
       await renderSecurityPage()
-      await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
+      await screen.findByText(/Cerberus Dashboard/i)
 
       // Verify threat protection descriptions
       expect(screen.getByText(/Known attackers, botnets/i)).toBeInTheDocument()
@@ -344,7 +336,7 @@ describe('Security', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-waf'))
+      await screen.findByTestId('toggle-waf')
       const toggle = screen.getByTestId('toggle-waf')
       await user.click(toggle)
 
@@ -362,7 +354,7 @@ describe('Security', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-crowdsec'))
+      await screen.findByTestId('toggle-crowdsec')
       const toggle = screen.getByTestId('toggle-crowdsec')
       await user.click(toggle)
 
@@ -377,7 +369,7 @@ describe('Security', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-crowdsec'))
+      await screen.findByTestId('toggle-crowdsec')
       const toggle = screen.getByTestId('toggle-crowdsec')
       await user.click(toggle)
 
@@ -400,7 +392,7 @@ describe('Security', () => {
       )
 
       await renderSecurityPage()
-      await waitFor(() => screen.getByTestId('toggle-waf'))
+      await screen.findByTestId('toggle-waf')
 
       const toggle = screen.getByTestId('toggle-waf')
       await user.click(toggle)
@@ -433,7 +425,7 @@ describe('Security', () => {
       )
 
       await renderSecurityPage()
-      await waitFor(() => screen.getByTestId('toggle-rate-limit'))
+      await screen.findByTestId('toggle-rate-limit')
 
       const toggle = screen.getByTestId('toggle-rate-limit')
       await user.click(toggle)
@@ -458,7 +450,7 @@ describe('Security', () => {
       vi.mocked(settingsApi.updateSetting).mockRejectedValue(new Error('Network error'))
 
       await renderSecurityPage()
-      await waitFor(() => screen.getByTestId('toggle-waf'))
+      await screen.findByTestId('toggle-waf')
 
       const toggle = screen.getByTestId('toggle-waf')
       expect(toggle).not.toBeChecked() // initially disabled
@@ -492,7 +484,7 @@ describe('Security', () => {
       vi.mocked(settingsApi.updateSetting).mockResolvedValue()
 
       await renderSecurityPage()
-      await waitFor(() => screen.getByTestId('toggle-acl'))
+      await screen.findByTestId('toggle-acl')
 
       const toggle = screen.getByTestId('toggle-acl')
       await user.click(toggle)

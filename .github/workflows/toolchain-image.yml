@@ -453,10 +453,22 @@ jobs:
           KEY: ${{ needs.build-toolchain.outputs.key }}
           DIGEST: ${{ needs.build-toolchain.outputs.digest }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          BUILT_SHA: ${{ github.event.pull_request.head.sha }}
           PUSH_TOKEN: ${{ secrets.TOOLCHAIN_BOT_TOKEN || secrets.GITHUB_TOKEN }}
           HAVE_BOT_TOKEN: ${{ secrets.TOOLCHAIN_BOT_TOKEN != '' }}
         run: |
           set -euo pipefail
+          # Stale-run guard: KEY/DIGEST were computed for BUILT_SHA, but the
+          # checkout above resolves the branch *tip*. If a newer commit landed
+          # while this run was building, the pin belongs to the old content and
+          # writing it onto the new tip would leave a stale pin that the loop
+          # guard below then refuses to repair. The newer push has its own run
+          # that will sync (or confirm) the pin, so this one stands down.
+          tip_sha="$(git rev-parse HEAD)"
+          if [[ "$tip_sha" != "$BUILT_SHA" ]]; then
+            echo "::notice::Branch tip ${tip_sha} moved past the commit this run built (${BUILT_SHA}); skipping pin sync — the run for the newer head owns it."
+            exit 0
+          fi
           cur_tag="$(grep -E '^ARG CHARON_TOOLCHAIN_TAG=' Dockerfile | cut -d= -f2)"
           cur_digest="$(grep -E '^ARG CHARON_TOOLCHAIN_DIGEST=' Dockerfile | cut -d= -f2)"
           if [[ "$cur_tag" == "$KEY" && "$cur_digest" == "$DIGEST" ]]; then

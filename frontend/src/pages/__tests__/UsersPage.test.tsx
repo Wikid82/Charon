@@ -347,6 +347,89 @@ describe('UsersPage', () => {
     })
   })
 
+  it('deselects a host when its permission checkbox is clicked a second time', async () => {
+    vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+    vi.mocked(usersApi.updateUserPermissions).mockResolvedValue({ message: 'ok' })
+
+    renderWithQueryClient(<UsersPage />)
+
+    expect(await screen.findByText('Regular User')).toBeInTheDocument()
+    const editButtons = screen.getAllByTitle('Edit Permissions')
+    const firstEditable = editButtons.find((btn) => !(btn as HTMLButtonElement).disabled)
+    expect(firstEditable).toBeTruthy()
+
+    const user = userEvent.setup()
+    await user.click(firstEditable!)
+
+    await screen.findByText(/Edit Permissions/i)
+
+    await user.selectOptions(screen.getByDisplayValue('Allow All (Blacklist)'), 'deny_all')
+    const checkbox = screen.getByLabelText(/Test Host/) as HTMLInputElement
+    await user.click(checkbox)
+    await user.click(checkbox)
+    expect(checkbox.checked).toBe(false)
+
+    await user.click(screen.getByRole('button', { name: 'Save Permissions' }))
+
+    await waitFor(() => {
+      expect(usersApi.updateUserPermissions).toHaveBeenCalledWith(2, {
+        permission_mode: 'deny_all',
+        permitted_hosts: [],
+      })
+    })
+  })
+
+  it('shows the email-sent toast when the invite email is delivered', async () => {
+    vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+    vi.mocked(usersApi.inviteUser).mockResolvedValue({
+      id: 4,
+      uuid: 'new-user',
+      email: 'new@example.com',
+      role: 'user',
+      invite_token_masked: '********',
+      invite_url: '[REDACTED]',
+      email_sent: true,
+      expires_at: '2024-01-03T00:00:00Z',
+    })
+
+    renderWithQueryClient(<UsersPage />)
+
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /Invite User/i }))
+    fireEvent.change(await screen.findByPlaceholderText('user@example.com'), { target: { value: 'new@example.com' } })
+    await user.click(screen.getByRole('button', { name: /^Send Invite$/i }))
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith('Invitation email sent')
+    })
+  })
+
+  it.each([
+    [true, 'Invitation resent successfully'],
+    [false, 'New invite created. Email could not be sent.'],
+  ])('shows the resend toast when email_sent is %s', async (emailSent, message) => {
+    vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
+    vi.mocked(usersApi.resendInvite).mockResolvedValue({
+      id: 4,
+      uuid: 'pending-user',
+      email: 'pending@example.com',
+      role: 'user',
+      invite_token_masked: '********',
+      invite_url: '[REDACTED]',
+      email_sent: emailSent,
+      expires_at: '2024-01-03T00:00:00Z',
+    })
+
+    renderWithQueryClient(<UsersPage />)
+
+    const user = userEvent.setup()
+    await user.click(await screen.findByRole('button', { name: /resend invite/i }))
+
+    await waitFor(() => {
+      expect(toast.success).toHaveBeenCalledWith(message)
+    })
+  })
+
   it('hides invite link when backend returns a redacted URL', async () => {
     vi.mocked(usersApi.listUsers).mockResolvedValue(mockUsers)
     vi.mocked(usersApi.inviteUser).mockResolvedValue({

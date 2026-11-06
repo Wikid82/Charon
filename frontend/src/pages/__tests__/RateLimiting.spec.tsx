@@ -83,6 +83,7 @@ describe('RateLimiting page', () => {
     const toggle = screen.getByTestId('rate-limit-toggle')
     expect(toggle).toBeInTheDocument()
     expect((toggle as HTMLInputElement).checked).toBe(false)
+    expect(screen.getByLabelText(/Enable Rate Limiting/i)).toBe(toggle)
   })
 
   it('renders rate limiting page with toggle enabled when rate_limit is on', async () => {

@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 
-import { connectStatsWebSocket } from '../api/stats';
-import type { StatsPushMessage, StatsSummary } from '../api/stats';
+import { connectStatsWebSocket, type StatsPushMessage, type StatsSummary} from '../api/stats';
 
 export interface UseStatsWebSocketResult {
   connected: boolean;
@@ -19,7 +18,7 @@ export function useStatsWebSocket(): UseStatsWebSocketResult {
   const [latestSummary, setLatestSummary] = useState<StatsSummary | null>(null);
 
   useEffect(() => {
-    const cleanup = connectStatsWebSocket(
+    return connectStatsWebSocket(
       (msg) => {
         setLastMessage(msg);
         if (msg.type === 'stats_update') {
@@ -34,8 +33,6 @@ export function useStatsWebSocket(): UseStatsWebSocketResult {
         setConnected(false);
       }
     );
-
-    return cleanup;
   }, []);
 
   return { connected, lastMessage, latestSummary };

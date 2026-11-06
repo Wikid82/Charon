@@ -3,8 +3,8 @@ import { useState } from 'react'
 import { toast } from 'react-hot-toast'
 import { useTranslation } from 'react-i18next'
 
-import RedirectionHostForm from '../components/RedirectionHostForm'
 import { PageShell } from '../components/layout/PageShell'
+import RedirectionHostForm from '../components/RedirectionHostForm'
 import {
   Badge,
   Button,
@@ -20,13 +20,14 @@ import {
   Switch,
   type Column,
 } from '../components/ui'
-import type { RedirectionHost } from '../api/redirectionHosts'
 import {
   useCreateRedirectionHost,
   useDeleteRedirectionHost,
   useRedirectionHosts,
   useUpdateRedirectionHost,
 } from '../hooks/useRedirectionHosts'
+
+import type { RedirectionHost } from '../api/redirectionHosts'
 
 const STATUS_CODE_LABELS: Record<number, string> = {
   301: '301 Permanent',

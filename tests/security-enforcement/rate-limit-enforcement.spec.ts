@@ -124,7 +124,7 @@ test.describe('Rate Limit Enforcement', () => {
     await requestContext.dispose();
   });
 
-  test('should verify rate limiting is enabled', async ({}, testInfo) => {
+  test('should verify rate limiting is enabled', async () => {
     // Wait with retry for rate limiting to be enabled
     // Due to parallel test execution, settings may take time to propagate
     let status = await getSecurityStatus(requestContext);

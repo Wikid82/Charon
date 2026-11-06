@@ -36,7 +36,7 @@ test.describe('wait-helpers - Semantic Wait Functions', () => {
       `);
 
       await test.step('Open dialog and wait for it to be interactive', async () => {
-        await page.click('#open-dialog');
+        await page.locator('#open-dialog').click();
         const dialog = await waitForDialog(page);
 
         // Verify dialog is visible and interactive
@@ -64,7 +64,7 @@ test.describe('wait-helpers - Semantic Wait Functions', () => {
         </script>
       `);
 
-      await page.click('#open-dialog');
+      await page.locator('#open-dialog').click();
       const dialog = await waitForDialog(page);
 
       // Verify dialog is no longer busy
@@ -84,7 +84,7 @@ test.describe('wait-helpers - Semantic Wait Functions', () => {
         </script>
       `);
 
-      await page.click('#open-alert');
+      await page.locator('#open-alert').click();
       const dialog = await waitForDialog(page, { role: 'alertdialog' });
 
       await expect(dialog).toBeVisible();
@@ -121,7 +121,7 @@ test.describe('wait-helpers - Semantic Wait Functions', () => {
       `);
 
       await test.step('Select form type and wait for fields', async () => {
-        await page.selectOption('#form-type', 'advanced');
+        await page.locator('#form-type').selectOption('advanced');
         await waitForFormFields(page, '#advanced-field');
 
         const field = page.locator('#advanced-field');
@@ -143,7 +143,7 @@ test.describe('wait-helpers - Semantic Wait Functions', () => {
         </script>
       `);
 
-      await page.click('#enable-field');
+      await page.locator('#enable-field').click();
       await waitForFormFields(page, '#test-field', { shouldBeEnabled: true, timeout: 2000 });
 
       const field = page.locator('#test-field');
@@ -185,7 +185,7 @@ test.describe('wait-helpers - Semantic Wait Functions', () => {
       `);
 
       await test.step('Type and wait for debounce to settle', async () => {
-        await page.fill('#search-input', 'test query');
+        await page.locator('#search-input').fill('test query');
         await waitForDebounce(page);
 
         // Network should be idle and API called
@@ -212,11 +212,11 @@ test.describe('wait-helpers - Semantic Wait Functions', () => {
         </script>
       `);
 
-      await page.fill('#search-input', 'test');
+      await page.locator('#search-input').fill('test');
       await waitForDebounce(page, { indicatorSelector: '.search-loading' });
 
       const loader = page.locator('.search-loading');
-      await expect(loader).not.toBeVisible();
+      await expect(loader).toBeHidden();
     });
   });
 
@@ -239,11 +239,11 @@ test.describe('wait-helpers - Semantic Wait Functions', () => {
       `);
 
       await test.step('Save settings and wait for reload', async () => {
-        await page.click('#save-settings');
+        await page.locator('#save-settings').click();
         await waitForConfigReload(page);
 
         const overlay = page.locator('[data-testid="config-reload-overlay"]');
-        await expect(overlay).not.toBeVisible();
+        await expect(overlay).toBeHidden();
       });
     });
 
@@ -254,7 +254,7 @@ test.describe('wait-helpers - Semantic Wait Functions', () => {
       `);
 
       // Should not throw even if overlay never appears
-      await page.click('#save-settings');
+      await page.locator('#save-settings').click();
       await waitForConfigReload(page);
     });
 
@@ -273,7 +273,7 @@ test.describe('wait-helpers - Semantic Wait Functions', () => {
         </script>
       `);
 
-      await page.click('#save-settings');
+      await page.locator('#save-settings').click();
       await waitForConfigReload(page);
 
       // Page should be interactive
@@ -453,7 +453,7 @@ test.describe('wait-helpers - Semantic Wait Functions', () => {
       `);
 
       await test.step('Open dialog', async () => {
-        await page.click('#open-dialog');
+        await page.locator('#open-dialog').click();
         const dialog = await waitForDialog(page);
         await expect(dialog).toBeVisible();
       });
@@ -465,7 +465,7 @@ test.describe('wait-helpers - Semantic Wait Functions', () => {
       });
 
       await test.step('Search with debounce', async () => {
-        await page.fill('#search', 'test query');
+        await page.locator('#search').fill('test query');
         await waitForDebounce(page, { indicatorSelector: '.search-loading' });
 
         const results = page.locator('#results');
@@ -496,15 +496,15 @@ test.describe('wait-helpers - Semantic Wait Functions', () => {
 
       await test.step('Wait for form field and fill', async () => {
         await waitForFormFields(page, '#setting-name');
-        await page.fill('#setting-name', 'test value');
+        await page.locator('#setting-name').fill('test value');
       });
 
       await test.step('Submit and wait for config reload', async () => {
-        await page.click('button[type="submit"]');
+        await page.locator('button[type="submit"]').click();
         await waitForConfigReload(page);
 
         const overlay = page.locator('[data-testid="config-reload-overlay"]');
-        await expect(overlay).not.toBeVisible();
+        await expect(overlay).toBeHidden();
       });
     });
   });
@@ -536,7 +536,7 @@ test.describe('wait-helpers - Semantic Wait Functions', () => {
         </script>
       `);
 
-      await page.click('#add-field');
+      await page.locator('#add-field').click();
       await waitForFormFields(page, '#new-field');
 
       const field = page.locator('#new-field');
@@ -561,14 +561,14 @@ test.describe('wait-helpers - Semantic Wait Functions', () => {
       `);
 
       // Rapid typing simulation
-      await page.fill('#rapid-input', 'a');
-      await page.fill('#rapid-input', 'ab');
-      await page.fill('#rapid-input', 'abc');
+      await page.locator('#rapid-input').fill('a');
+      await page.locator('#rapid-input').fill('ab');
+      await page.locator('#rapid-input').fill('abc');
 
       await waitForDebounce(page, { indicatorSelector: '.loading' });
 
       const loader = page.locator('.loading');
-      await expect(loader).not.toBeVisible();
+      await expect(loader).toBeHidden();
     });
   });
 });

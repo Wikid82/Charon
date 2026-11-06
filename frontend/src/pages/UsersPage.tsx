@@ -44,10 +44,20 @@ import { Label } from '../components/ui/Label'
 import { Switch } from '../components/ui/Switch'
 import { useAuth } from '../hooks/useAuth'
 import { useFocusTrap } from '../hooks/useFocusTrap'
+import { useSeedOnChange } from '../hooks/useSeedOnChange'
 import { toast } from '../utils/toast'
 
 
 
+
+/**
+ * Builds a handler that adds a host id to a selection, or removes it when already selected.
+ * Shared by the invite and permissions modals so the toggle logic lives in one place.
+ */
+const createHostToggle =
+  (setSelectedHosts: (updater: (prev: number[]) => number[]) => void) =>
+  (hostId: number) =>
+    setSelectedHosts((prev) => (prev.includes(hostId) ? prev.filter((id) => id !== hostId) : [...prev, hostId]))
 
 interface InviteModalProps {
   isOpen: boolean
@@ -98,22 +108,24 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
 
   useFocusTrap(dialogRef, isOpen, onClose)
 
+  // An email without "@" has no preview, so any previous one is cleared during render.
+  if (!(email && email.includes('@')) && urlPreview !== null) {
+    setUrlPreview(null)
+  }
+
   // Fetch preview when email changes
   useEffect(() => {
-    if (email && email.includes('@')) {
-      const fetchPreview = async () => {
-        try {
-          const response = await client.post('/users/preview-invite-url', { email })
-          setUrlPreview(response.data)
-        } catch {
-          setUrlPreview(null)
-        }
+    if (!email || !email.includes('@')) return
+    const fetchPreview = async () => {
+      try {
+        const response = await client.post('/users/preview-invite-url', { email })
+        setUrlPreview(response.data)
+      } catch {
+        setUrlPreview(null)
       }
-      const debounce = setTimeout(fetchPreview, 500)
-      return () => clearTimeout(debounce)
-    } else {
-      setUrlPreview(null)
     }
+    const debounce = setTimeout(fetchPreview, 500)
+    return () => clearTimeout(debounce)
   }, [email])
 
   const inviteMutation = useMutation({
@@ -133,11 +145,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
         emailSent: data.email_sent,
         expiresAt: data.expires_at,
       })
-      if (data.email_sent) {
-        toast.success(t('users.inviteSent'))
-      } else {
-        toast.success(t('users.inviteCreated'))
-      }
+      toast.success(data.email_sent ? t('users.inviteSent') : t('users.inviteCreated'))
     },
     onError: (error: unknown) => {
       const err = error as { response?: { data?: { error?: string } } }
@@ -178,18 +186,14 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
     onClose()
   }
 
-  const toggleHost = (hostId: number) => {
-    setSelectedHosts((prev) =>
-      prev.includes(hostId) ? prev.filter((id) => id !== hostId) : [...prev, hostId]
-    )
-  }
+  const toggleHost = createHostToggle(setSelectedHosts)
 
   if (!isOpen) return null
 
   return (
     <>
       {/* Layer 1: Background overlay (z-40) */}
-      <div className="fixed inset-0 bg-black/50 z-40" onClick={handleClose} />
+      <div className="fixed inset-0 bg-black/50 z-40" role="presentation" onClick={handleClose} />
 
       {/* Layer 2: Form container (z-50, pointer-events-none) */}
       <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
@@ -338,6 +342,7 @@ function InviteModal({ isOpen, onClose, proxyHosts }: InviteModalProps) {
                             className="flex items-center gap-3 p-3 hover:bg-gray-800/50 cursor-pointer border-b border-gray-800 last:border-0"
                           >
                             <input
+                              aria-label={host.name || host.domain_names}
                               type="checkbox"
                               checked={selectedHosts.includes(
                                 parseInt(host.uuid.split('-')[0], 16) || 0
@@ -423,12 +428,10 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
   const [selectedHosts, setSelectedHosts] = useState<number[]>([])
 
   // Update state when user changes
-  useEffect(() => {
-    if (user) {
-      setPermissionMode(user.permission_mode || 'allow_all')
-      setSelectedHosts(user.permitted_hosts || [])
-    }
-  }, [user])
+  useSeedOnChange(user, (seedUser) => {
+    setPermissionMode(seedUser.permission_mode || 'allow_all')
+    setSelectedHosts(seedUser.permitted_hosts || [])
+  })
 
   const handleClose = useCallback(() => {
     onClose()
@@ -456,18 +459,14 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
     },
   })
 
-  const toggleHost = (hostId: number) => {
-    setSelectedHosts((prev) =>
-      prev.includes(hostId) ? prev.filter((id) => id !== hostId) : [...prev, hostId]
-    )
-  }
+  const toggleHost = createHostToggle(setSelectedHosts)
 
   if (!isOpen || !user) return null
 
   return (
     <>
       {/* Layer 1: Background overlay (z-40) */}
-      <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/50 z-40" role="presentation" onClick={onClose} />
 
       {/* Layer 2: Form container (z-50, pointer-events-none) */}
       <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
@@ -525,6 +524,7 @@ function PermissionsModal({ isOpen, onClose, user, proxyHosts }: PermissionsModa
                     className="flex items-center gap-3 p-3 hover:bg-gray-800/50 cursor-pointer border-b border-gray-800 last:border-0"
                   >
                     <input
+                      aria-label={host.name || host.domain_names}
                       type="checkbox"
                       checked={selectedHosts.includes(
                         parseInt(host.uuid.split('-')[0], 16) || 0
@@ -583,16 +583,14 @@ function UserDetailModal({ isOpen, onClose, user, isSelf }: UserDetailModalProps
   const [showPasswordSection, setShowPasswordSection] = useState(false)
   const [apiKeyMasked, setApiKeyMasked] = useState('')
 
-  useEffect(() => {
-    if (user) {
-      setName(user.name || '')
-      setEmail(user.email || '')
-      setShowPasswordSection(false)
-      setCurrentPassword('')
-      setNewPassword('')
-      setConfirmPassword('')
-    }
-  }, [user])
+  useSeedOnChange(user, (seedUser) => {
+    setName(seedUser.name || '')
+    setEmail(seedUser.email || '')
+    setShowPasswordSection(false)
+    setCurrentPassword('')
+    setNewPassword('')
+    setConfirmPassword('')
+  })
 
   // Fetch profile for API key info when editing self
   const { data: profile } = useQuery({
@@ -601,20 +599,15 @@ function UserDetailModal({ isOpen, onClose, user, isSelf }: UserDetailModalProps
     enabled: isOpen && isSelf,
   })
 
-  useEffect(() => {
-    if (profile) {
-      setApiKeyMasked(profile.api_key_masked || '')
-    }
-  }, [profile])
+  useSeedOnChange(profile, (loaded) => {
+    setApiKeyMasked(loaded.api_key_masked || '')
+  })
 
   useFocusTrap(dialogRef, isOpen, onClose)
 
   const profileMutation = useMutation({
     mutationFn: async () => {
-      if (isSelf) {
-        return updateProfile({ name, email })
-      }
-      return updateUser(user!.id, { name, email })
+      return isSelf ? updateProfile({ name, email }) : updateUser(user!.id, { name, email })
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
@@ -665,7 +658,7 @@ function UserDetailModal({ isOpen, onClose, user, isSelf }: UserDetailModalProps
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
+      <div className="fixed inset-0 bg-black/50 z-40" role="presentation" onClick={onClose} />
       <div className="fixed inset-0 flex items-center justify-center pointer-events-none z-50">
         <div
           ref={dialogRef}
@@ -842,11 +835,7 @@ export default function UsersPage() {
     mutationFn: resendInvite,
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ['users'] })
-      if (data.email_sent) {
-        toast.success(t('users.inviteResent'))
-      } else {
-        toast.success(t('users.inviteCreatedNoEmail'))
-      }
+      toast.success(data.email_sent ? t('users.inviteResent') : t('users.inviteCreatedNoEmail'))
     },
     onError: (error: unknown) => {
       const err = error as { response?: { data?: { error?: string } } }

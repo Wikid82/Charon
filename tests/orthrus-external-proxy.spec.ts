@@ -65,11 +65,11 @@ async function setupAgentPage(
 ) {
   await page.route(REMOTE_SERVERS_API, (route) => route.fulfill({ json: [] }));
   await page.route(HECATE_STATUS_API, (route) => route.fulfill({ json: [] }));
-  await page.route(ORTHRUS_AGENTS_API, (route) => {
+  await page.route(ORTHRUS_AGENTS_API, async (route) => {
     if (route.request().method() === 'GET') {
-      route.fulfill({ json: agents });
+      await route.fulfill({ json: agents });
     } else {
-      route.continue();
+      await route.continue();
     }
   });
   if (proxyStatus !== null) {
@@ -102,20 +102,20 @@ test.describe('External Docker Proxy', () => {
 
     await page.route(REMOTE_SERVERS_API, (route) => route.fulfill({ json: [] }));
     await page.route(HECATE_STATUS_API, (route) => route.fulfill({ json: [] }));
-    await page.route(ORTHRUS_AGENTS_API, (route) => {
+    await page.route(ORTHRUS_AGENTS_API, async (route) => {
       if (route.request().method() === 'GET') {
-        route.fulfill({ json: [MOCK_AGENT_ONLINE] });
+        await route.fulfill({ json: [MOCK_AGENT_ONLINE] });
       } else {
-        route.continue();
+        await route.continue();
       }
     });
     await page.route(ORTHRUS_PROXY_STATUS_API, (route) => route.fulfill({ json: MOCK_PROXY_INACTIVE }));
     await page.route(ORTHRUS_AGENT_API, async (route) => {
       if (route.request().method() === 'PATCH') {
         patchBody = await route.request().postDataJSON() as Record<string, unknown>;
-        route.fulfill({ json: { ...MOCK_AGENT_ONLINE, external_proxy_port: 2376 } });
+        await route.fulfill({ json: { ...MOCK_AGENT_ONLINE, external_proxy_port: 2376 } });
       } else {
-        route.continue();
+        await route.continue();
       }
     });
 
@@ -145,20 +145,20 @@ test.describe('External Docker Proxy', () => {
 
     await page.route(REMOTE_SERVERS_API, (route) => route.fulfill({ json: [] }));
     await page.route(HECATE_STATUS_API, (route) => route.fulfill({ json: [] }));
-    await page.route(ORTHRUS_AGENTS_API, (route) => {
+    await page.route(ORTHRUS_AGENTS_API, async (route) => {
       if (route.request().method() === 'GET') {
-        route.fulfill({ json: [MOCK_AGENT_WITH_PROXY] });
+        await route.fulfill({ json: [MOCK_AGENT_WITH_PROXY] });
       } else {
-        route.continue();
+        await route.continue();
       }
     });
     await page.route(ORTHRUS_PROXY_STATUS_API, (route) => route.fulfill({ json: MOCK_PROXY_ACTIVE }));
     await page.route(ORTHRUS_AGENT_API, async (route) => {
       if (route.request().method() === 'PATCH') {
         patchBody = await route.request().postDataJSON() as Record<string, unknown>;
-        route.fulfill({ json: { ...MOCK_AGENT_WITH_PROXY, external_proxy_port: 0 } });
+        await route.fulfill({ json: { ...MOCK_AGENT_WITH_PROXY, external_proxy_port: 0 } });
       } else {
-        route.continue();
+        await route.continue();
       }
     });
 
@@ -184,11 +184,11 @@ test.describe('External Docker Proxy', () => {
     let apiCalled = false;
 
     await setupAgentPage(page, [MOCK_AGENT_ONLINE], MOCK_PROXY_INACTIVE);
-    await page.route(ORTHRUS_AGENT_API, (route) => {
+    await page.route(ORTHRUS_AGENT_API, async (route) => {
       if (route.request().method() === 'PATCH') {
         apiCalled = true;
       }
-      route.continue();
+      await route.continue();
     });
 
     const dialog = await openProxyDialog(page, MOCK_AGENT_NAME);

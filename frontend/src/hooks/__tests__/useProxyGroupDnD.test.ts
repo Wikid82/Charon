@@ -4,10 +4,11 @@ import React from 'react'
 import { toast } from 'react-hot-toast'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ProxyGroup } from '../../api/proxyGroups'
-import type { ProxyHost } from '../../api/proxyHosts'
 import { useProxyGroupDnD } from '../useProxyGroupDnD'
 import { QUERY_KEY } from '../useProxyHosts'
+
+import type { ProxyGroup } from '../../api/proxyGroups'
+import type { ProxyHost } from '../../api/proxyHosts'
 
 vi.mock('react-hot-toast', () => ({
   toast: { success: vi.fn(), error: vi.fn() },
@@ -16,8 +17,7 @@ vi.mock('react-hot-toast', () => ({
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, unknown>) => {
-      if (opts && typeof opts.count === 'number') return `${key}:${opts.count}`
-      return key
+      return opts && typeof opts.count === 'number' ? `${key}:${opts.count}` : key
     },
   }),
 }))

@@ -26,7 +26,9 @@ test.describe('FOUC Prevention', () => {
         localStorage.removeItem('charon-theme');
         localStorage.removeItem('charon-custom-theme');
         localStorage.removeItem('theme');
-      } catch (_) {}
+      } catch {
+        // Storage may be unavailable in this browser context; nothing to clean up.
+      }
     });
   });
 

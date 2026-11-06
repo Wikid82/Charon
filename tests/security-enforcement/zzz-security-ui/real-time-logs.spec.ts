@@ -103,7 +103,7 @@ test.describe('Real-Time Logs Viewer', () => {
 
     // Navigate to security page
     await page.goto('/security');
-    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
 
     // Check if LiveLogViewer is visible (only shown when Cerberus is enabled)
     const connectionStatus = page.locator('[data-testid="connection-status"]');
@@ -262,7 +262,7 @@ test.describe('Real-Time Logs Viewer', () => {
       shouldFailNextConnection = true;
 
       // Trigger a reconnect by switching modes
-      await page.click(SELECTORS.appModeButton);
+      await page.locator(SELECTORS.appModeButton).click();
 
       // Should show disconnected after failed reconnect
       await expect(page.locator(SELECTORS.connectionStatus)).toContainText('Disconnected', {
@@ -377,8 +377,7 @@ test.describe('Real-Time Logs Viewer', () => {
       await levelSelect.selectOption({ index: 1 });
 
       // Verify a selection was made
-      const selectedValue = await levelSelect.inputValue();
-      expect(selectedValue).toBeTruthy();
+      await expect(levelSelect).not.toHaveValue('');
     });
 
     test('should filter logs by search text', async ({ page, authenticatedUser }) => {
@@ -430,7 +429,7 @@ test.describe('Real-Time Logs Viewer', () => {
       await navigateToLiveLogs(page);
 
       // Ensure we're in security mode
-      await page.click(SELECTORS.securityModeButton);
+      await page.locator(SELECTORS.securityModeButton).click();
       await waitForWebSocketConnection(page);
 
       // Source filter should be visible in security mode - try multiple selectors
@@ -450,8 +449,7 @@ test.describe('Real-Time Logs Viewer', () => {
 
       // Select a non-default option
       await sourceSelect.selectOption({ index: 1 });
-      const selectedValue = await sourceSelect.inputValue();
-      expect(selectedValue).toBeTruthy();
+      await expect(sourceSelect).not.toHaveValue('');
     });
   });
 
@@ -477,7 +475,7 @@ test.describe('Real-Time Logs Viewer', () => {
       expect(isSecurityActive).toBeTruthy();
 
       // Click App mode
-      await page.click(SELECTORS.appModeButton);
+      await page.locator(SELECTORS.appModeButton).click();
       await page.waitForTimeout(200); // Wait for state transition
 
       // App button should now be active
@@ -510,7 +508,7 @@ test.describe('Real-Time Logs Viewer', () => {
       expect(connectedEndpoints.some((url) => url.includes('/cerberus/logs/ws'))).toBe(true);
 
       // Switch to app mode
-      await page.click(SELECTORS.appModeButton);
+      await page.locator(SELECTORS.appModeButton).click();
 
       // Wait for new connection
       await page.waitForTimeout(500);
@@ -533,7 +531,7 @@ test.describe('Real-Time Logs Viewer', () => {
       await expect(logCount).toBeVisible();
 
       // Switch mode
-      await page.click(SELECTORS.appModeButton);
+      await page.locator(SELECTORS.appModeButton).click();
 
       // Logs should be cleared - count should show 0 of 0
       await expect(logCount).toContainText('0 of 0');
@@ -564,7 +562,7 @@ test.describe('Real-Time Logs Viewer', () => {
       await page.locator(SELECTORS.resumeButton).click();
 
       // Paused indicator should be hidden
-      await expect(page.locator(SELECTORS.pausedIndicator)).not.toBeVisible();
+      await expect(page.locator(SELECTORS.pausedIndicator)).toBeHidden();
 
       // Should be back to pause button
       await expect(page.locator(SELECTORS.pauseButton)).toBeVisible();
@@ -650,7 +648,7 @@ test.describe('Real-Time Logs Viewer', () => {
       await navigateToLiveLogs(page);
 
       // Ensure security mode
-      await page.click(SELECTORS.securityModeButton);
+      await page.locator(SELECTORS.securityModeButton).click();
       await waitForWebSocketConnection(page);
 
       // Blocked only checkbox should be visible - use label text to locate
@@ -681,18 +679,18 @@ test.describe('Real-Time Logs Viewer', () => {
       await navigateToLiveLogs(page);
 
       // Start in security mode - source filter visible
-      await page.click(SELECTORS.securityModeButton);
+      await page.locator(SELECTORS.securityModeButton).click();
       await waitForWebSocketConnection(page);
       await expect(page.locator(SELECTORS.sourceSelect)).toBeVisible();
 
       // Switch to app mode
-      await page.click(SELECTORS.appModeButton);
+      await page.locator(SELECTORS.appModeButton).click();
 
       // Source filter should be hidden
-      await expect(page.locator(SELECTORS.sourceSelect)).not.toBeVisible();
+      await expect(page.locator(SELECTORS.sourceSelect)).toBeHidden();
 
       // Blocked only checkbox should also be hidden
-      await expect(page.locator('text=Blocked only')).not.toBeVisible();
+      await expect(page.locator('text=Blocked only')).toBeHidden();
     });
   });
 });

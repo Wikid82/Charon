@@ -1,4 +1,3 @@
-import { useQuery } from '@tanstack/react-query'
 import {
   DndContext,
   DragOverlay,
@@ -8,6 +7,7 @@ import {
   useSensors,
   pointerWithin,
 } from '@dnd-kit/core'
+import { useQuery } from '@tanstack/react-query'
 import { Loader2, ExternalLink, AlertTriangle, Trash2, Globe, Settings, FolderOpen, GripVertical } from 'lucide-react'
 import { useState, useMemo, useCallback } from 'react'
 import { toast } from 'react-hot-toast'
@@ -18,8 +18,13 @@ import { deleteCertificate } from '../api/certificates'
 import { getSettings } from '../api/settings'
 import { getMonitors, type UptimeMonitor } from '../api/uptime'
 import CertificateCleanupDialog from '../components/dialogs/CertificateCleanupDialog'
+import { GroupDropZone } from '../components/GroupDropZone'
 import { PageShell } from '../components/layout/PageShell'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
+import { ManageGroupsDialog } from '../components/ManageGroupsDialog'
+import { ProxyGroupBadge } from '../components/ProxyGroupBadge'
+import { ProxyGroupForm } from '../components/ProxyGroupForm'
+import { ProxyHostDragHandle } from '../components/ProxyHostDragHandle'
 import ProxyHostForm from '../components/ProxyHostForm'
 import {
   Badge,
@@ -40,15 +45,10 @@ import {
 } from '../components/ui'
 import { useAccessLists } from '../hooks/useAccessLists'
 import { useCertificates } from '../hooks/useCertificates'
-import { useProxyHosts } from '../hooks/useProxyHosts'
-import { useDeleteProxyGroup, useProxyGroups } from '../hooks/useProxyGroups'
-import { useSecurityHeaderProfiles } from '../hooks/useSecurityHeaders'
 import { useProxyGroupDnD } from '../hooks/useProxyGroupDnD'
-import { ProxyGroupBadge } from '../components/ProxyGroupBadge'
-import { ProxyGroupForm } from '../components/ProxyGroupForm'
-import { ManageGroupsDialog } from '../components/ManageGroupsDialog'
-import { GroupDropZone } from '../components/GroupDropZone'
-import { ProxyHostDragHandle } from '../components/ProxyHostDragHandle'
+import { useDeleteProxyGroup, useProxyGroups } from '../hooks/useProxyGroups'
+import { useProxyHosts } from '../hooks/useProxyHosts'
+import { useSecurityHeaderProfiles } from '../hooks/useSecurityHeaders'
 import compareHosts from '../utils/compareHosts'
 import { formatSettingLabel, settingHelpText, applyBulkSettingsToHosts } from '../utils/proxyHostsHelpers'
 
@@ -492,8 +492,7 @@ export default function ProxyHosts() {
   // Helper: display label for group during accessibility announcements
   const getGroupName = useCallback(
     (id: string): string => {
-      if (id === 'ungrouped') return t('proxyGroups.ungrouped')
-      return groups.find((g) => g.uuid === id)?.name ?? id
+      return id === 'ungrouped' ? t('proxyGroups.ungrouped') : groups.find((g) => g.uuid === id)?.name ?? id
     },
     [groups, t],
   )

@@ -131,7 +131,7 @@
         "/^Dockerfile$/"
       ],
       "matchStrings": [
-        "#\\s*renovate:\\s*datasource=docker\\s+depName=golang.*\\nARG GO_VERSION=(?<currentValue>[^\\s]+)"
+        "#\\s*renovate:\\s*datasource=docker\\s+depName=golang.*\\nARG GOLANG_IMAGE=golang:(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"
       ],
       "depNameTemplate": "golang",
       "datasourceTemplate": "docker",
@@ -280,19 +280,6 @@
       "depNameTemplate": "node",
       "datasourceTemplate": "node-version",
       "versioningTemplate": "node"
-    },
-    {
-      "customType": "regex",
-      "description": "Track GO_VERSION in Actions workflows",
-      "managerFilePatterns": [
-        "/^\\.github/workflows/.*\\.yml$/"
-      ],
-      "matchStrings": [
-        "GO_VERSION: ['\"]?(?<currentValue>[\\d\\.]+)['\"]?"
-      ],
-      "depNameTemplate": "golang/go",
-      "datasourceTemplate": "golang-version",
-      "versioningTemplate": "semver"
     },
     {
       "customType": "regex",
@@ -991,7 +978,7 @@
       "groupSlug": "npm-non-major"
     },
     {
-      "description": "Dockerfile ARG trackers (any datasource) group under Dockerfile, not Go/NPM — placed after the datasource group rules so it wins",
+      "description": "Dockerfile ARG trackers that do NOT feed the toolchain image (npm, gosu, delve, Alpine apk floors) group here; toolchain-key pins are pulled out by the toolchain rules below — placed after the datasource group rules so it wins",
       "matchManagers": [
         "custom.regex"
       ],
@@ -1011,7 +998,7 @@
       ]
     },
     {
-      "description": "Keep the Dockerfile's golang builder image in lockstep with go.mod/GO_VERSION bumps — prevents the Docker build failing when go.mod requires a newer Go than the pinned builder image (overrides the broader Dockerfile ARG grouping above since it matches later)",
+      "description": "TOOLCHAIN group (A/B): every Dockerfile pin that feeds scripts/toolchain-key.sh — Caddy, caddy-dns/* and xcaddy plugins, CrowdSec, the forced x/* + libdns transitive pins, and the inline `# renovate:` CVE pins inside the caddy-inline/crowdsec-inline stages — lands in ONE PR so the prebuilt charon-toolchain image rebuilds once, not once per bump. Runtime-only pins (npm, gosu, delve, Alpine apk floors) are excluded by the negated depNames and stay in dockerfile-non-major. prPriority puts this PR first. Placed after dockerfile-non-major so it wins. Majors stay separate (manual review).",
       "matchManagers": [
         "custom.regex"
       ],
@@ -1019,7 +1006,10 @@
         "Dockerfile"
       ],
       "matchDepNames": [
-        "golang"
+        "!npm",
+        "!tianon/gosu",
+        "!github.com/go-delve/delve",
+        "!/^alpine_[^/]+\\//"
       ],
       "matchUpdateTypes": [
         "minor",
@@ -1027,8 +1017,33 @@
         "pin",
         "digest"
       ],
-      "groupName": "go-non-major",
-      "groupSlug": "go-non-major"
+      "groupName": "toolchain",
+      "groupSlug": "toolchain",
+      "prPriority": 10,
+      "addLabels": [
+        "toolchain"
+      ]
+    },
+    {
+      "description": "TOOLCHAIN group (B): base images — Go (golang), Alpine, Node, tonistiigi/xx. Matches ANY manager/file on purpose so the Dockerfile builder image, go.work, and NODE_VERSION in workflows bump together (the old lockstep rule), and a base-image bump shares the single toolchain rebuild with rule A. Majors stay separate.",
+      "matchDepNames": [
+        "golang",
+        "alpine",
+        "node",
+        "tonistiigi/xx"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "toolchain",
+      "groupSlug": "toolchain",
+      "prPriority": 10,
+      "addLabels": [
+        "toolchain"
+      ]
     },
     {
       "description": "Development branch: Auto-merge non-major updates after proven stable",

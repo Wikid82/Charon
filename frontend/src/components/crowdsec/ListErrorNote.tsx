@@ -10,7 +10,7 @@ interface ListErrorNoteProps {
 }
 
 const isKnownCode = (code: string | undefined): code is CrowdsecListErrorCode =>
-  CROWDSEC_LIST_ERROR_CODES.some((known) => known === code)
+  code !== undefined && (CROWDSEC_LIST_ERROR_CODES as readonly string[]).includes(code)
 
 /**
  * Passive inline note for a CrowdSec list that came back partial or empty because

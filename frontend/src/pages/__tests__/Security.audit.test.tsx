@@ -77,9 +77,7 @@ describe('Security Page - QA Security Audit', () => {
   )
 
   const renderSecurityPage = async () => {
-    await act(async () => {
-      render(<Security />, { wrapper })
-    })
+    render(<Security />, { wrapper })
   }
 
   describe('Input Validation', () => {
@@ -90,7 +88,7 @@ describe('Security Page - QA Security Audit', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
+      await screen.findByText(/Cerberus Dashboard/i)
 
       // DOM should not contain any actual script elements from user input
       expect(document.querySelectorAll('script[src*="alert"]').length).toBe(0)
@@ -104,7 +102,7 @@ describe('Security Page - QA Security Audit', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
+      await screen.findByText(/Cerberus Dashboard/i)
 
       // Find the admin whitelist input by placeholder
       const whitelistInput = screen.getByPlaceholderText(/192.168.1.0\/24/i)
@@ -123,7 +121,7 @@ describe('Security Page - QA Security Audit', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-crowdsec'))
+      await screen.findByTestId('toggle-crowdsec')
       const toggle = screen.getByTestId('toggle-crowdsec')
       await user.click(toggle)
 
@@ -143,7 +141,7 @@ describe('Security Page - QA Security Audit', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-crowdsec'))
+      await screen.findByTestId('toggle-crowdsec')
       const toggle = screen.getByTestId('toggle-crowdsec')
       await user.click(toggle)
 
@@ -160,7 +158,7 @@ describe('Security Page - QA Security Audit', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-crowdsec'))
+      await screen.findByTestId('toggle-crowdsec')
       const toggle = screen.getByTestId('toggle-crowdsec')
       await user.click(toggle)
 
@@ -191,7 +189,7 @@ describe('Security Page - QA Security Audit', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-waf'))
+      await screen.findByTestId('toggle-waf')
       const toggle = screen.getByTestId('toggle-waf')
       await user.click(toggle)
 
@@ -216,7 +214,7 @@ describe('Security Page - QA Security Audit', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-crowdsec'))
+      await screen.findByTestId('toggle-crowdsec')
       const toggle = screen.getByTestId('toggle-crowdsec')
 
       // First click
@@ -248,7 +246,7 @@ describe('Security Page - QA Security Audit', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
+      await screen.findByText(/Cerberus Dashboard/i)
 
       // Get initial card order
       const initialCards = screen.getAllByRole('heading', { level: 3 })
@@ -273,7 +271,7 @@ describe('Security Page - QA Security Audit', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
+      await screen.findByText(/Cerberus Dashboard/i)
 
       // Each layer should have a Badge with layer number
       expect(screen.getByText('Layer 1')).toBeInTheDocument()
@@ -294,7 +292,7 @@ describe('Security Page - QA Security Audit', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
+      await screen.findByText(/Cerberus Dashboard/i)
 
       // All 4 cards should be present - check for h3 headings
       const cards = screen.getAllByRole('heading', { level: 3 })
@@ -312,7 +310,7 @@ describe('Security Page - QA Security Audit', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
+      await screen.findByText(/Cerberus Dashboard/i)
 
       expect(screen.getByTestId('toggle-crowdsec')).toBeInTheDocument()
       expect(screen.getByTestId('toggle-acl')).toBeInTheDocument()
@@ -326,7 +324,7 @@ describe('Security Page - QA Security Audit', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
+      await screen.findByText(/Cerberus Dashboard/i)
 
       expect(screen.getByTestId('toggle-crowdsec')).toBeInTheDocument()
       // CrowdSec card should have Configure button now
@@ -341,7 +339,7 @@ describe('Security Page - QA Security Audit', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
+      await screen.findByText(/Cerberus Dashboard/i)
 
       const cards = screen.getAllByRole('heading', { level: 3 })
       const cardNames = cards.map(card => card.textContent)
@@ -355,7 +353,7 @@ describe('Security Page - QA Security Audit', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
+      await screen.findByText(/Cerberus Dashboard/i)
 
       // Layer indicators are now Badges with just the layer number
       expect(screen.getByText('Layer 1')).toBeInTheDocument()
@@ -371,7 +369,7 @@ describe('Security Page - QA Security Audit', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByText(/Cerberus Dashboard/i))
+      await screen.findByText(/Cerberus Dashboard/i)
 
       // From spec:
       // CrowdSec: "Known attackers, botnets, brute-force attempts"
@@ -395,7 +393,7 @@ describe('Security Page - QA Security Audit', () => {
 
       await renderSecurityPage()
 
-      await waitFor(() => screen.getByTestId('toggle-waf'))
+      await screen.findByTestId('toggle-waf')
 
       const toggle = screen.getByTestId('toggle-waf')
 

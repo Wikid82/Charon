@@ -10,6 +10,7 @@ import {
   resetImportSession,
   waitForSuccessfulImportResponse,
 } from './import-page-helpers';
+import type { PreviewHostRecord } from '../../utils/api-records';
 
 const execAsync = promisify(exec);
 
@@ -105,11 +106,6 @@ async function openImportPageDeterministic(page: Page): Promise<void> {
 test.describe('Caddy Import Debug Tests @caddy-import-debug', () => {
   const diagnosticsByPage = new WeakMap<Page, () => void>();
 
-  test.beforeEach(async ({ page }) => {
-    diagnosticsByPage.set(page, attachImportDiagnostics(page, 'caddy-import-debug'));
-    await resetImportSession(page);
-  });
-
   // CRITICAL FIX #4: Pre-test health check
   test.beforeAll(async ({ baseURL }) => {
     console.log('[Health Check] Validating Charon container state...');
@@ -125,8 +121,13 @@ test.describe('Caddy Import Debug Tests @caddy-import-debug', () => {
       console.log('[Health Check] ✅ Container is healthy and ready');
     } catch (error) {
       console.error('[Health Check] ❌ Failed:', error);
-      throw new Error('Charon container not running or unhealthy. Please start the container with: docker-compose up -d');
+      throw new Error('Charon container not running or unhealthy. Please start the container with: docker-compose up -d', { cause: error });
     }
+  });
+
+  test.beforeEach(async ({ page }) => {
+    diagnosticsByPage.set(page, attachImportDiagnostics(page, 'caddy-import-debug'));
+    await resetImportSession(page);
   });
 
   // CRITICAL FIX #3: Programmatic backend log capture on test failure
@@ -146,7 +147,7 @@ test.describe('Caddy Import Debug Tests @caddy-import-debug', () => {
 
         if (stdout) {
           console.log('[Log Capture] Backend logs retrieved:', stdout);
-          testInfo.attach('backend-logs', {
+          await testInfo.attach('backend-logs', {
             body: stdout,
             contentType: 'text/plain'
           });
@@ -389,7 +390,7 @@ docs.example.com {
         }
 
         // Check if warnings exist for unsupported features
-        if (hosts.some((h: any) => h.warnings?.length > 0)) {
+        if (hosts.some((h: PreviewHostRecord) => (h.warnings?.length ?? 0) > 0)) {
           console.log('✅ Backend included warnings:', hosts[0].warnings);
         } else {
           console.warn('❌ Backend did NOT include warnings about file_server');
@@ -473,14 +474,14 @@ redirect.example.com {
 
       // Analyze what was parsed
       const hosts = responseBody.preview?.hosts || [];
-      console.log(`[Analysis] Parsed ${hosts.length} hosts:`, hosts.map((h: any) => h.domain_names));
+      console.log(`[Analysis] Parsed ${hosts.length} hosts:`, hosts.map((h: PreviewHostRecord) => h.domain_names));
 
       // Should find 2 valid reverse proxies (api + ws)
       expect(hosts.length).toBeGreaterThanOrEqual(2);
       console.log('✅ Found at least 2 hosts');
 
       // Check if static.example.com is in list (should NOT be, or should have warning)
-      const staticHost = hosts.find((h: any) => h.domain_names === 'static.example.com');
+      const staticHost = hosts.find((h: PreviewHostRecord) => h.domain_names === 'static.example.com');
       if (staticHost) {
         console.warn('⚠️ static.example.com was included:', staticHost);
         expect(staticHost.warnings).toBeDefined();
@@ -491,7 +492,7 @@ redirect.example.com {
       }
 
       // Check if redirect host has warnings
-      const redirectHost = hosts.find((h: any) => h.domain_names === 'redirect.example.com');
+      const redirectHost = hosts.find((h: PreviewHostRecord) => h.domain_names === 'redirect.example.com');
       if (redirectHost) {
         console.log('ℹ️ redirect.example.com included:', redirectHost);
       }
@@ -714,8 +715,8 @@ api.example.com {
 
       const hosts = responseBody.preview?.hosts || [];
       console.log(`[Analysis] Parsed ${hosts.length} hosts from multi-file import`);
-      console.log('[Analysis] Host domains:', hosts.map((h: any) => h.domain_names));
-      expect(hosts.length).toBe(0);
+      console.log('[Analysis] Host domains:', hosts.map((h: PreviewHostRecord) => h.domain_names));
+      expect(hosts).toHaveLength(0);
 
       // Verify users see explicit rejection feedback in the modal or page alert area.
       const errorBanner = page.locator('.bg-red-900, .bg-red-900\\/20, [role="alert"]').first();

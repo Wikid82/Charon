@@ -4,7 +4,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import { RemoteTargetsCard } from '../RemoteTargetsCard'
 
+import type * as useRemoteTargetsModule from '../../../hooks/useRemoteTargets'
 import type { RemoteTarget } from '../../../hooks/useRemoteTargets'
+import type * as reactqueryModule from '@tanstack/react-query'
 
 const mockDeleteMutate = vi.fn()
 const mockTestMutate = vi.fn()
@@ -15,7 +17,7 @@ let targets: RemoteTarget[] | undefined
 let isLoading = false
 
 vi.mock('@tanstack/react-query', async () => {
-  const actual = await vi.importActual<typeof import('@tanstack/react-query')>('@tanstack/react-query')
+  const actual = await vi.importActual<typeof reactqueryModule>('@tanstack/react-query')
   return {
     ...actual,
     useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
@@ -23,7 +25,7 @@ vi.mock('@tanstack/react-query', async () => {
 })
 
 vi.mock('../../../hooks/useRemoteTargets', async () => {
-  const actual = await vi.importActual<typeof import('../../../hooks/useRemoteTargets')>('../../../hooks/useRemoteTargets')
+  const actual = await vi.importActual<typeof useRemoteTargetsModule>('../../../hooks/useRemoteTargets')
   return {
     ...actual,
     useRemoteTargets: () => ({ data: targets, isLoading }),

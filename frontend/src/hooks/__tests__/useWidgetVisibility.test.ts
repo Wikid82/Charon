@@ -1,8 +1,7 @@
 import { renderHook, act } from '@testing-library/react'
 import { beforeEach, describe, expect, it } from 'vitest'
 
-import { useWidgetVisibility } from '../useWidgetVisibility'
-import type { WidgetKey } from '../useWidgetVisibility'
+import { useWidgetVisibility, type WidgetKey} from '../useWidgetVisibility'
 
 const STORAGE_KEY = 'charon.stats.widgetVisibility'
 

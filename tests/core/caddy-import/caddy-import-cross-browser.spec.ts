@@ -20,6 +20,7 @@
 import { test, expect, type TestUser } from '../../fixtures/auth-fixtures';
 import { Page } from '@playwright/test';
 import { ensureImportUiPreconditions, resetImportSession } from './import-page-helpers';
+import type { PreviewHostRecord } from '../../utils/api-records';
 
 /**
  * Mock Caddyfile content for testing
@@ -52,7 +53,7 @@ async function setupImportMocks(
   page: Page,
   options: {
     uploadSuccess?: boolean;
-    previewHosts?: any[];
+    previewHosts?: PreviewHostRecord[];
     conflicts?: string[];
     commitSuccess?: boolean;
   } = {}

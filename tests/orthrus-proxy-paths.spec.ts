@@ -101,7 +101,7 @@ test.describe('Orthrus Docker Proxy Paths', () => {
 
       await expect(
         page.getByRole('option', { name: /Non-Docker Orthrus Server/i }),
-      ).not.toBeVisible();
+      ).toBeHidden();
     });
 
     test('containers dropdown is disabled by default (Custom / Manual source)', async ({
@@ -126,9 +126,9 @@ test.describe('Orthrus Docker Proxy Paths', () => {
       await page.route(REMOTE_SERVERS_API, (route) =>
         route.fulfill({ json: [MOCK_ORTHRUS_DOCKER_SERVER] }),
       );
-      await page.route(DOCKER_CONTAINERS_API, (route) => {
+      await page.route(DOCKER_CONTAINERS_API, async (route) => {
         containersApiCalled = true;
-        route.fulfill({ json: [] });
+        await route.fulfill({ json: [] });
       });
 
       const dialog = await openProxyHostForm(page);
@@ -242,7 +242,7 @@ test.describe('Orthrus Docker Proxy Paths', () => {
         const containersSelect = dialog.getByRole('combobox', {
           name: 'Containers',
         });
-        await expect(containersSelect).not.toBeDisabled({ timeout: 8000 });
+        await expect(containersSelect).toBeEnabled({ timeout: 8000 });
       });
 
       await test.step('Container options appear in the dropdown', async () => {
@@ -295,7 +295,7 @@ test.describe('Orthrus Docker Proxy Paths', () => {
       });
     });
 
-    test('Test Connection button is visible for Orthrus Docker Server type', async ({
+    test('Connection button is visible for Orthrus Docker Server type', async ({
       page,
     }) => {
       await page.route(REMOTE_SERVERS_API, (route) =>

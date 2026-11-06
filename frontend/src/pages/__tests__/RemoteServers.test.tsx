@@ -2,7 +2,11 @@ import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+import * as hecateHook from '../../hooks/useHecate'
+import * as remoteServersHook from '../../hooks/useRemoteServers'
 import RemoteServers from '../RemoteServers'
+
+import type { TunnelStatus } from '../../api/hecate'
 
 vi.mock('../../hooks/useRemoteServers', () => ({
   useRemoteServers: vi.fn(),
@@ -27,9 +31,7 @@ vi.mock('../../components/RemoteServerForm', () => ({
   ),
 }))
 
-import * as remoteServersHook from '../../hooks/useRemoteServers'
-import * as hecateHook from '../../hooks/useHecate'
-import type { TunnelStatus } from '../../api/hecate'
+
 
 const mockServer = {
   uuid: 'srv-1',
@@ -127,7 +129,7 @@ describe('RemoteServers', () => {
   it('does not show TunnelStatusBadge for direct server', () => {
     vi.mocked(hecateHook.useHecate).mockReturnValue({
       ...vi.mocked(hecateHook.useHecate).mock.results[0]?.value,
-      getStatus: () => undefined,
+      getStatus: () => {},
       tunnels: [],
       statuses: [],
       loadingTunnels: false,
@@ -290,7 +292,7 @@ describe('RemoteServers', () => {
       error: null,
       tunnelsError: null,
       statusError: null,
-      getStatus: () => undefined,
+      getStatus: () => {},
       createTunnel: vi.fn(),
       updateTunnel: vi.fn(),
       deleteTunnel: vi.fn(),

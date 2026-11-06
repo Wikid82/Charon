@@ -3,6 +3,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { AgentProviderAssignDialog } from '../AgentProviderAssignDialog';
 
+import type * as reactqueryModule from '@tanstack/react-query'
+
 const mockPatch = vi.fn();
 const mockTunnels = [
   { uuid: 'cf-uuid', name: 'CF Tunnel', provider: 'cloudflare' },
@@ -26,7 +28,7 @@ vi.mock('../../../hooks/useOrthrus', () => ({
 }));
 
 vi.mock('@tanstack/react-query', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@tanstack/react-query')>();
+  const actual = await importOriginal<typeof reactqueryModule>();
   return {
     ...actual,
     useQuery: vi.fn().mockReturnValue({ data: [] }),
@@ -36,8 +38,7 @@ vi.mock('@tanstack/react-query', async (importOriginal) => {
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, opts?: Record<string, string>) => {
-      if (opts?.name) return `${key}:${opts.name}`;
-      return key;
+      return opts?.name ? `${key}:${opts.name}` : key;
     },
   }),
 }));
@@ -78,7 +79,7 @@ describe('AgentProviderAssignDialog', () => {
 
   it('renders dialog with tunnel dropdown', () => {
     render(
-      <AgentProviderAssignDialog agent={baseAgent} open onClose={() => undefined} />,
+      <AgentProviderAssignDialog agent={baseAgent} open onClose={() => {}} />,
     );
 
     expect(screen.getByRole('combobox')).toBeInTheDocument();
@@ -88,7 +89,7 @@ describe('AgentProviderAssignDialog', () => {
 
   it('shows hostname input when cloudflare tunnel is selected', async () => {
     render(
-      <AgentProviderAssignDialog agent={baseAgent} open onClose={() => undefined} />,
+      <AgentProviderAssignDialog agent={baseAgent} open onClose={() => {}} />,
     );
 
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'cf-uuid' } });
@@ -100,7 +101,7 @@ describe('AgentProviderAssignDialog', () => {
 
   it('shows Select Device button when non-cloudflare tunnel is selected', async () => {
     render(
-      <AgentProviderAssignDialog agent={baseAgent} open onClose={() => undefined} />,
+      <AgentProviderAssignDialog agent={baseAgent} open onClose={() => {}} />,
     );
 
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'nb-uuid' } });
@@ -173,7 +174,7 @@ describe('AgentProviderAssignDialog', () => {
 
   it('opens with tunnel pre-selected when agent has hecate_tunnel_uuid', () => {
     const agentWithProvider = { ...baseAgent, hecate_tunnel_uuid: 'ts-uuid' };
-    render(<AgentProviderAssignDialog agent={agentWithProvider} open onClose={() => undefined} />);
+    render(<AgentProviderAssignDialog agent={agentWithProvider} open onClose={() => {}} />);
 
     expect((screen.getByRole('combobox') as HTMLSelectElement).value).toBe('ts-uuid');
   });
@@ -184,7 +185,7 @@ describe('AgentProviderAssignDialog', () => {
       hecate_tunnel_uuid: 'cf-uuid',
       resolved_address: 'app.example.com',
     };
-    render(<AgentProviderAssignDialog agent={agentWithProvider} open onClose={() => undefined} />);
+    render(<AgentProviderAssignDialog agent={agentWithProvider} open onClose={() => {}} />);
 
     // Tunnel is pre-selected; just wait for the hostname input to appear
     const hostnameInput = await screen.findByRole('textbox', { name: /cloudflareTunnelHostname/i });
@@ -192,13 +193,13 @@ describe('AgentProviderAssignDialog', () => {
   });
 
   it('save button is disabled when no tunnel is selected', () => {
-    render(<AgentProviderAssignDialog agent={baseAgent} open onClose={() => undefined} />);
+    render(<AgentProviderAssignDialog agent={baseAgent} open onClose={() => {}} />);
 
     expect(screen.getByRole('button', { name: /saveProviderAssignment/i })).toBeDisabled();
   });
 
   it('save button is enabled after a tunnel is selected', async () => {
-    render(<AgentProviderAssignDialog agent={baseAgent} open onClose={() => undefined} />);
+    render(<AgentProviderAssignDialog agent={baseAgent} open onClose={() => {}} />);
 
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'cf-uuid' } });
 
@@ -208,7 +209,7 @@ describe('AgentProviderAssignDialog', () => {
   });
 
   it('shows TailscaleDevicePicker when tailscale tunnel is selected and Select Device is clicked', async () => {
-    render(<AgentProviderAssignDialog agent={baseAgent} open onClose={() => undefined} />);
+    render(<AgentProviderAssignDialog agent={baseAgent} open onClose={() => {}} />);
 
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'ts-uuid' } });
 
@@ -224,7 +225,7 @@ describe('AgentProviderAssignDialog', () => {
   });
 
   it('shows ZeroTierMemberPicker when ZeroTier tunnel is selected and Select Device is clicked', async () => {
-    render(<AgentProviderAssignDialog agent={baseAgent} open onClose={() => undefined} />);
+    render(<AgentProviderAssignDialog agent={baseAgent} open onClose={() => {}} />);
 
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'zt-uuid' } });
 

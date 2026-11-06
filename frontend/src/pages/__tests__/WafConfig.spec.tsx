@@ -230,6 +230,42 @@ describe('WafConfig page', () => {
     })
   })
 
+  it('moves focus to Cancel when the delete dialog opens', async () => {
+    vi.mocked(securityApi.getRuleSets).mockResolvedValue({ rulesets: [mockRuleSet] })
+
+    renderWithProviders(<WafConfig />)
+    await userEvent.click(await screen.findByTestId('delete-ruleset-uuid-1'))
+
+    const dialog = await screen.findByRole('dialog', { name: 'Delete Rule Set' })
+    expect(within(dialog).getByRole('button', { name: 'Cancel' })).toHaveFocus()
+  })
+
+  it('closes the delete dialog on Escape without deleting', async () => {
+    vi.mocked(securityApi.getRuleSets).mockResolvedValue({ rulesets: [mockRuleSet] })
+
+    renderWithProviders(<WafConfig />)
+    await userEvent.click(await screen.findByTestId('delete-ruleset-uuid-1'))
+    await screen.findByRole('dialog', { name: 'Delete Rule Set' })
+
+    await userEvent.keyboard('{Escape}')
+
+    await waitFor(() => {
+      expect(screen.queryByText('Delete Rule Set')).not.toBeInTheDocument()
+    })
+    expect(securityApi.deleteRuleSet).not.toHaveBeenCalled()
+  })
+
+  it('keeps the delete dialog open when its body is clicked', async () => {
+    vi.mocked(securityApi.getRuleSets).mockResolvedValue({ rulesets: [mockRuleSet] })
+
+    renderWithProviders(<WafConfig />)
+    await userEvent.click(await screen.findByTestId('delete-ruleset-uuid-1'))
+
+    await userEvent.click(await screen.findByText('Delete Rule Set'))
+
+    expect(screen.getByRole('dialog', { name: 'Delete Rule Set' })).toBeInTheDocument()
+  })
+
   it('displays mode correctly for detection-only rulesets', async () => {
     const detectionRuleset: SecurityRuleSet = {
       ...mockRuleSet,

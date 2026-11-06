@@ -38,10 +38,7 @@ vi.mock('react-i18next', () => ({
         'common.update': 'Update',
         'common.save': 'Save',
       };
-      if (key === 'proxyGroups.colorPreset' && options?.color) {
-        return `Color ${options.color}`;
-      }
-      return map[key] ?? key;
+      return key === 'proxyGroups.colorPreset' && options?.color ? `Color ${options.color}` : map[key] ?? key;
     },
   }),
 }));
@@ -172,5 +169,78 @@ describe('ProxyGroupForm', () => {
     const colorInput = screen.getByLabelText('Custom color');
     fireEvent.change(colorInput, { target: { value: '#ff0000' } });
     expect(colorInput).toHaveValue('#ff0000');
+  });
+});
+
+describe('ProxyGroupForm form seeding', () => {
+  const groupA = {
+    uuid: 'a-uuid',
+    name: 'Group A',
+    description: 'First',
+    color: '#6366f1',
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
+  };
+  const groupB = { ...groupA, uuid: 'b-uuid', name: 'Group B', description: 'Second', color: '#ef4444' };
+
+  const renderWith = (props: Partial<React.ComponentProps<typeof ProxyGroupForm>>) => {
+    const qc = createTestQueryClient();
+    return render(
+      <QueryClientProvider client={qc}>
+        <ProxyGroupForm open={true} onClose={vi.fn()} {...props} />
+      </QueryClientProvider>,
+    );
+  };
+
+  it('seeds fields from the group on first render', () => {
+    renderWith({ group: groupA });
+    expect(screen.getByLabelText(/group name/i)).toHaveValue('Group A');
+    expect(screen.getByLabelText(/description/i)).toHaveValue('First');
+  });
+
+  it('uses defaults when opened without a group', () => {
+    renderWith({ group: undefined });
+    expect(screen.getByLabelText(/group name/i)).toHaveValue('');
+    expect(screen.getByLabelText(/description/i)).toHaveValue('');
+  });
+
+  it('re-seeds fields when the group prop changes while open', () => {
+    const { rerender } = renderWith({ group: groupA });
+    const qc = createTestQueryClient();
+    rerender(
+      <QueryClientProvider client={qc}>
+        <ProxyGroupForm open={true} onClose={vi.fn()} group={groupB} />
+      </QueryClientProvider>,
+    );
+    expect(screen.getByLabelText(/group name/i)).toHaveValue('Group B');
+    expect(screen.getByLabelText(/description/i)).toHaveValue('Second');
+  });
+
+  it('discards unsaved edits and re-seeds when reopened', () => {
+    const qc = createTestQueryClient();
+    const tree = (open: boolean) => (
+      <QueryClientProvider client={qc}>
+        <ProxyGroupForm open={open} onClose={vi.fn()} group={groupA} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(tree(true));
+    fireEvent.change(screen.getByLabelText(/group name/i), { target: { value: 'Edited' } });
+    rerender(tree(false));
+    rerender(tree(true));
+    expect(screen.getByLabelText(/group name/i)).toHaveValue('Group A');
+  });
+
+  it("re-seeds from the latest group when reopened after a group change", () => {
+    const qc = createTestQueryClient();
+    const tree = (open: boolean, group: typeof groupA | undefined) => (
+      <QueryClientProvider client={qc}>
+        <ProxyGroupForm open={open} onClose={vi.fn()} group={group} />
+      </QueryClientProvider>
+    );
+    const { rerender } = render(tree(true, groupA));
+    rerender(tree(false, groupA));
+    rerender(tree(false, groupB));
+    rerender(tree(true, groupB));
+    expect(screen.getByLabelText(/group name/i)).toHaveValue('Group B');
   });
 });

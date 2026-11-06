@@ -308,3 +308,75 @@ describe('CrowdSecConfig presets served without the hub', () => {
     })
   })
 })
+
+describe('CrowdSecConfig preset selection follows the catalog', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(baseStatus)
+    vi.mocked(crowdsecApi.statusCrowdsec).mockResolvedValue({ running: true, pid: 123, lapi_ready: true })
+    vi.mocked(crowdsecApi.listCrowdsecFiles).mockResolvedValue({ files: ['acquis.yaml'] })
+    vi.mocked(crowdsecApi.readCrowdsecFile).mockResolvedValue({ content: 'file-content' })
+    vi.mocked(crowdsecApi.listCrowdsecDecisions).mockResolvedValue({ decisions: [] })
+    vi.mocked(presetsApi.pullCrowdsecPreset).mockImplementation(async (slug) => pulledFor(slug))
+    vi.mocked(presetsApi.getCurrentApplyJob).mockResolvedValue(null)
+    vi.mocked(featureFlagsApi.getFeatureFlags).mockResolvedValue({ 'feature.crowdsec.console_enrollment': false })
+    vi.mocked(settingsApi.updateSetting).mockResolvedValue()
+  })
+
+  it('auto-selects the first selectable preset in catalog order', async () => {
+    vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({ presets: [OFFLINE_HUB_ROW, CURATED_ROW, ONLINE_HUB_ROW] })
+    await renderPage()
+
+    await waitFor(() => expect(presetRow(CURATED_ROW.title)).toHaveAttribute('aria-pressed', 'true'))
+    expect(presetRow(ONLINE_HUB_ROW.title)).toHaveAttribute('aria-pressed', 'false')
+    expect(pulledSlugs()).toContain(CURATED_ROW.slug)
+  })
+
+  it('keeps the user-selected preset when a refetch still lists it as selectable', async () => {
+    vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({ presets: [CURATED_ROW, ONLINE_HUB_ROW] })
+    const view = renderWithQueryClient(<CrowdSecConfig />)
+    await userEvent.click(await findPresetRow(ONLINE_HUB_ROW.title))
+    await waitFor(() => expect(presetRow(ONLINE_HUB_ROW.title)).toHaveAttribute('aria-pressed', 'true'))
+
+    vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({ presets: [CURATED_ROW, ONLINE_HUB_ROW] })
+    await view.queryClient.invalidateQueries()
+
+    await waitFor(() => expect(presetRow(ONLINE_HUB_ROW.title)).toHaveAttribute('aria-pressed', 'true'))
+    expect(presetRow(CURATED_ROW.title)).toHaveAttribute('aria-pressed', 'false')
+  })
+
+  it('falls back to the first selectable preset when the selected one leaves the catalog', async () => {
+    vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({ presets: [CURATED_ROW, ONLINE_HUB_ROW] })
+    const view = renderWithQueryClient(<CrowdSecConfig />)
+    await userEvent.click(await findPresetRow(ONLINE_HUB_ROW.title))
+    await waitFor(() => expect(presetRow(ONLINE_HUB_ROW.title)).toHaveAttribute('aria-pressed', 'true'))
+
+    vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({ presets: [CURATED_ROW] })
+    await view.queryClient.invalidateQueries()
+
+    await waitFor(() => expect(presetRow(CURATED_ROW.title)).toHaveAttribute('aria-pressed', 'true'))
+    expect(screen.queryByText(ONLINE_HUB_ROW.title)).not.toBeInTheDocument()
+  })
+
+  it('selects nothing when the remaining catalog has no selectable preset', async () => {
+    vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({ presets: [CURATED_ROW, ONLINE_HUB_ROW] })
+    const view = renderWithQueryClient(<CrowdSecConfig />)
+    await userEvent.click(await findPresetRow(ONLINE_HUB_ROW.title))
+    await waitFor(() => expect(presetRow(ONLINE_HUB_ROW.title)).toHaveAttribute('aria-pressed', 'true'))
+
+    vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({ presets: [OFFLINE_HUB_ROW, SECOND_OFFLINE_HUB_ROW], hub_offline: true })
+    await view.queryClient.invalidateQueries()
+
+    await waitFor(() => expect(presetRow(OFFLINE_HUB_ROW.title)).toHaveAttribute('aria-pressed', 'false'))
+    expect(presetRow(SECOND_OFFLINE_HUB_ROW.title)).toHaveAttribute('aria-pressed', 'false')
+    expect(screen.queryByTestId('apply-preset-btn')).toBeDisabled()
+  })
+
+  it('renders an empty catalog without selecting or pulling anything', async () => {
+    vi.mocked(presetsApi.listCrowdsecPresets).mockResolvedValue({ presets: [] })
+    await renderPage()
+
+    expect(screen.queryByRole('button', { name: startsWithTitle(CURATED_ROW.title) })).not.toBeInTheDocument()
+    expect(pulledSlugs()).toEqual([])
+  })
+})

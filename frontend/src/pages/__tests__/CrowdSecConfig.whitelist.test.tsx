@@ -97,12 +97,12 @@ const mockWhitelistEntries = [
 
 const renderPage = async () => {
   renderWithQueryClient(<CrowdSecConfig />)
-  await waitFor(() => screen.getByText('CrowdSec Configuration'))
+  await screen.findByText('CrowdSec Configuration')
 }
 
 const goToWhitelistTab = async () => {
   await userEvent.click(screen.getByRole('tab', { name: TAB_WHITELIST }))
-  await waitFor(() => screen.getByTestId('whitelist-ip-input'))
+  await screen.findByTestId('whitelist-ip-input')
 }
 
 describe('CrowdSecConfig – whitelist tab', () => {
@@ -214,7 +214,7 @@ describe('CrowdSecConfig – whitelist tab', () => {
     await goToWhitelistTab()
     await userEvent.type(screen.getByTestId('whitelist-ip-input'), '1.2.3.4')
     await userEvent.click(screen.getByTestId('whitelist-add-btn'))
-    await waitFor(() => expect(screen.getByText('Adding IP to whitelist')).toBeInTheDocument())
+    expect(await screen.findByText('Adding IP to whitelist')).toBeInTheDocument()
     resolveAdd(mockWhitelistEntries[0])
   })
 
@@ -226,7 +226,7 @@ describe('CrowdSecConfig – whitelist tab', () => {
     await goToWhitelistTab()
     await userEvent.type(screen.getByTestId('whitelist-ip-input'), 'bad-ip')
     await userEvent.click(screen.getByTestId('whitelist-add-btn'))
-    await waitFor(() => expect(screen.getByTestId('whitelist-ip-error')).toBeInTheDocument())
+    expect(await screen.findByTestId('whitelist-ip-error')).toBeInTheDocument()
     expect(screen.getByTestId('whitelist-ip-error')).toHaveTextContent('Invalid IP')
   })
 
@@ -239,7 +239,7 @@ describe('CrowdSecConfig – whitelist tab', () => {
     await goToWhitelistTab()
     await userEvent.type(screen.getByTestId('whitelist-ip-input'), '192.168.1.1')
     await userEvent.click(screen.getByTestId('whitelist-add-btn'))
-    await waitFor(() => expect(screen.getByTestId('whitelist-ip-error')).toBeInTheDocument())
+    expect(await screen.findByTestId('whitelist-ip-error')).toBeInTheDocument()
     expect(screen.getByTestId('whitelist-ip-error')).toHaveTextContent(duplicate)
     expect(toast.error).toHaveBeenCalledWith(duplicate)
   })
@@ -313,7 +313,7 @@ describe('CrowdSecConfig – whitelist tab', () => {
     await goToWhitelistTab()
     await userEvent.click((await screen.findAllByTestId('whitelist-delete-btn'))[0])
     await userEvent.click(await screen.findByRole('button', { name: BTN_REMOVE }))
-    await waitFor(() => expect(screen.getByText('Removing from whitelist')).toBeInTheDocument())
+    expect(await screen.findByText('Removing from whitelist')).toBeInTheDocument()
     resolveDelete()
   })
 

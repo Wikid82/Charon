@@ -1,7 +1,6 @@
 import { Activity, Info } from 'lucide-react'
 
-import { Card, CardContent, CardHeader, CardTitle, Skeleton } from '../ui'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui'
+import { Card, CardContent, CardHeader, CardTitle, Skeleton, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from '../ui'
 
 import type { StatsSummary } from '../../api/stats'
 

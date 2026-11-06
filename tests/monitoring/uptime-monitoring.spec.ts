@@ -458,13 +458,13 @@ test.describe('Uptime Monitoring Page', () => {
       await waitForLoadingComplete(page);
 
       // Click add monitor button
-      await page.click(SELECTORS.addMonitorButton);
+      await page.locator(SELECTORS.addMonitorButton).click();
 
       // Fill form
-      await page.fill('input#create-monitor-name', 'New API Monitor');
-      await page.fill('input#create-monitor-url', 'https://api.newservice.com/health');
-      await page.selectOption('select#create-monitor-type', 'http');
-      await page.fill('input#create-monitor-interval', '60');
+      await page.locator('input#create-monitor-name').fill('New API Monitor');
+      await page.locator('input#create-monitor-url').fill('https://api.newservice.com/health');
+      await page.locator('select#create-monitor-type').selectOption('http');
+      await page.locator('input#create-monitor-interval').fill('60');
 
       // Set up response listener BEFORE clicking submit to avoid race condition
       const createResponsePromise = page.waitForResponse(
@@ -475,7 +475,7 @@ test.describe('Uptime Monitoring Page', () => {
       );
 
       // Submit
-      await page.click('button[type="submit"]');
+      await page.locator('button[type="submit"]').click();
 
       await createResponsePromise;
 
@@ -515,12 +515,12 @@ test.describe('Uptime Monitoring Page', () => {
       await page.goto('/uptime');
       await waitForLoadingComplete(page);
 
-      await page.click(SELECTORS.addMonitorButton);
+      await page.locator(SELECTORS.addMonitorButton).click();
 
-      await page.fill('input#create-monitor-name', 'Redis Cache');
-      await page.fill('input#create-monitor-url', 'redis.local:6379');
-      await page.selectOption('select#create-monitor-type', 'tcp');
-      await page.fill('input#create-monitor-interval', '30');
+      await page.locator('input#create-monitor-name').fill('Redis Cache');
+      await page.locator('input#create-monitor-url').fill('redis.local:6379');
+      await page.locator('select#create-monitor-type').selectOption('tcp');
+      await page.locator('input#create-monitor-interval').fill('30');
 
       // Set up response listener BEFORE clicking submit to avoid race condition
       const createTcpResponsePromise = page.waitForResponse(
@@ -530,7 +530,7 @@ test.describe('Uptime Monitoring Page', () => {
           response.status() === 201
       );
 
-      await page.click('button[type="submit"]');
+      await page.locator('button[type="submit"]').click();
 
       await createTcpResponsePromise;
 
@@ -565,8 +565,8 @@ test.describe('Uptime Monitoring Page', () => {
       await firstCard.locator(SELECTORS.settingsButton).click();
 
       // Wait for menu to appear and click configure
-      await page.waitForSelector(SELECTORS.configureOption, { state: 'visible' });
-      await page.click(SELECTORS.configureOption);
+      await expect(page.locator(SELECTORS.configureOption)).toBeVisible();
+      await page.locator(SELECTORS.configureOption).click();
 
       // In Firefox, the modal form might take time to render
       // Wait for the form input to be available instead of waiting for dialog role
@@ -574,7 +574,7 @@ test.describe('Uptime Monitoring Page', () => {
       await nameInput.waitFor({ state: 'visible', timeout: 10000 });
 
       // Update name (use specific id selector)
-      await page.fill('input#monitor-name', 'Updated API Server');
+      await page.locator('input#monitor-name').fill('Updated API Server');
 
       // Set up response listener BEFORE clicking submit to avoid race condition
       const responsePromise = page.waitForResponse(
@@ -585,7 +585,7 @@ test.describe('Uptime Monitoring Page', () => {
       );
 
       // Save - find the submit button within the modal
-      await page.click('button[type="submit"]');
+      await page.locator('button[type="submit"]').click();
 
       await responsePromise;
 
@@ -630,7 +630,7 @@ test.describe('Uptime Monitoring Page', () => {
       );
 
       // Click delete
-      await page.click(SELECTORS.deleteOption);
+      await page.locator(SELECTORS.deleteOption).click();
 
       await deleteResponsePromise;
 
@@ -644,17 +644,17 @@ test.describe('Uptime Monitoring Page', () => {
       await page.goto('/uptime');
       await waitForLoadingComplete(page);
 
-      await page.click(SELECTORS.addMonitorButton);
+      await page.locator(SELECTORS.addMonitorButton).click();
 
       // Fill with valid name but empty URL
-      await page.fill('input#create-monitor-name', 'Test Monitor');
+      await page.locator('input#create-monitor-name').fill('Test Monitor');
 
       // Submit button should be disabled when URL is empty
       const submitButton = page.locator('button[type="submit"]');
       await expect(submitButton).toBeDisabled();
 
       // Fill URL
-      await page.fill('input#create-monitor-url', 'https://valid.url.com');
+      await page.locator('input#create-monitor-url').fill('https://valid.url.com');
 
       // Now should be enabled
       await expect(submitButton).toBeEnabled();
@@ -667,11 +667,11 @@ test.describe('Uptime Monitoring Page', () => {
       await page.goto('/uptime');
       await waitForLoadingComplete(page);
 
-      await page.click(SELECTORS.addMonitorButton);
+      await page.locator(SELECTORS.addMonitorButton).click();
 
       // Fill required fields
-      await page.fill('input#create-monitor-name', 'Test Monitor');
-      await page.fill('input#create-monitor-url', 'https://test.com');
+      await page.locator('input#create-monitor-name').fill('Test Monitor');
+      await page.locator('input#create-monitor-url').fill('https://test.com');
 
       // Interval input advertises the 30s floor (§3.6.2) and the 24h ceiling.
       const intervalInput = page.locator('input#create-monitor-interval');
@@ -679,7 +679,7 @@ test.describe('Uptime Monitoring Page', () => {
       await expect(intervalInput).toHaveAttribute('max', '86400');
 
       // Set a valid interval
-      await page.fill('input#create-monitor-interval', '60');
+      await page.locator('input#create-monitor-interval').fill('60');
 
       const submitButton = page.locator('button[type="submit"]');
       await expect(submitButton).toBeEnabled();
@@ -852,9 +852,7 @@ test.describe('Uptime Monitoring Page', () => {
       await expect(historySegment).toBeVisible({ timeout: 5000 });
 
       // Each history segment should have a title attribute with details
-      const title = await historySegment.getAttribute('title');
-      expect(title).toBeTruthy();
-      expect(title).toContain('Status:');
+      await expect(historySegment).toHaveAttribute('title', /Status:/);
     });
   });
 
@@ -884,7 +882,7 @@ test.describe('Uptime Monitoring Page', () => {
         page.waitForResponse(
           resp => resp.url().includes('/api/v1/uptime/sync') && resp.status() === 200
         ),
-        page.click(SELECTORS.syncButton),
+        page.locator(SELECTORS.syncButton).click(),
       ]);
 
       // Verify sync was requested - mocked routes don't trigger toasts reliably
@@ -931,7 +929,7 @@ test.describe('Uptime Monitoring Page', () => {
       );
 
       // Trigger sync
-      await page.click(SELECTORS.syncButton);
+      await page.locator(SELECTORS.syncButton).click();
       await preserveSyncResponsePromise;
 
       expect(syncCalled).toBe(true);

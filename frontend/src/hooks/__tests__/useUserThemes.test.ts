@@ -1,10 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { createElement } from 'react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-import { useUserThemes } from '../useUserThemes'
 import * as themesApi from '../../api/themes'
+import { useUserThemes } from '../useUserThemes'
+
 import type { UserThemeDTO } from '../../api/themes'
 import type { CustomThemeColors } from '../../context/ThemeContextValue'
 

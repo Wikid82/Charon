@@ -1,5 +1,5 @@
 import { AlertTriangle } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
 import { Link } from 'react-router';
@@ -50,12 +50,15 @@ export function AgentWriteModeDialog({ agent, open, onClose }: AgentWriteModeDia
   const [desiredEnabled, setDesiredEnabled] = useState(agent.write_enabled);
   const [confirmText, setConfirmText] = useState('');
 
-  useEffect(() => {
+  // Re-seed on open or when the stored write mode changes (adjust-during-render, no effect).
+  const [seededFor, setSeededFor] = useState({ open, writeEnabled: agent.write_enabled });
+  if (seededFor.open !== open || seededFor.writeEnabled !== agent.write_enabled) {
+    setSeededFor({ open, writeEnabled: agent.write_enabled });
     if (open) {
       setDesiredEnabled(agent.write_enabled);
       setConfirmText('');
     }
-  }, [open, agent.write_enabled]);
+  }
 
   // Only turning the toggle ON (from an off starting point) requires the
   // typed-name confirmation gate — disabling is strictly safety-increasing

@@ -8,7 +8,7 @@
  * - Logs timing statistics and slowest tests
  */
 
-import { Reporter, TestCase, TestResult, FullResult } from '@playwright/test/reporter';
+import { Reporter, TestCase, TestResult } from '@playwright/test/reporter';
 
 interface StepMetrics {
   name: string;
@@ -20,7 +20,7 @@ interface TestMetrics {
   title: string;
   duration: number;
   steps: StepMetrics[];
-  status: 'passed' | 'failed' | 'skipped';
+  status: TestResult['status'];
   error?: string;
 }
 
@@ -47,7 +47,7 @@ export default class DebugReporter implements Reporter {
       title: test.title,
       duration: result.duration,
       steps,
-      status: result.status as any,
+      status: result.status,
       error: result.error?.message,
     };
 
@@ -81,7 +81,7 @@ export default class DebugReporter implements Reporter {
     }
   }
 
-  onEnd(result: FullResult): void {
+  onEnd(): void {
     // Sort slow tests by duration
     this.slowTests.sort((a, b) => b.duration - a.duration);
 

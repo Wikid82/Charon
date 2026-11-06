@@ -583,7 +583,7 @@ test.describe('System Settings', () => {
         await page.keyboard.press('Tab');
 
         let focusedElements = 0;
-        let maxTabs = 30;
+        const maxTabs = 30;
 
         for (let i = 0; i < maxTabs; i++) {
           // Use activeElement check which is more reliable

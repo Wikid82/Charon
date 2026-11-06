@@ -8,6 +8,7 @@ import {
   createUserViaApi,
   getAuthTokenFromPage as getAuthToken,
 } from '../utils/api-helpers';
+import type { ProxyHostRecord, UserRecord } from '../utils/api-records';
 
 async function resetSecurityState(page: import('@playwright/test').Page): Promise<void> {
   const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN;
@@ -79,7 +80,7 @@ test.describe('Multi-Component Security Workflows', () => {
       if (proxiesResponse.ok()) {
         const proxies = await proxiesResponse.json();
         if (Array.isArray(proxies)) {
-          const matchingProxy = proxies.find((proxy: any) =>
+          const matchingProxy = proxies.find((proxy: ProxyHostRecord) =>
             proxy.domain_names === testProxy.domain || proxy.domainNames === testProxy.domain
           );
           if (matchingProxy?.uuid) {
@@ -96,7 +97,7 @@ test.describe('Multi-Component Security Workflows', () => {
       if (usersResponse.ok()) {
         const users = await usersResponse.json();
         if (Array.isArray(users)) {
-          const matchingUser = users.find((user: any) => user.email === testUser.email);
+          const matchingUser = users.find((user: UserRecord) => user.email === testUser.email);
           if (matchingUser?.id) {
             await page.request.delete(`/api/v1/users/${matchingUser.id}`, {
               headers: { Authorization: `Bearer ${token}` },
@@ -135,7 +136,7 @@ test.describe('Multi-Component Security Workflows', () => {
       }));
       createdProxyUUID = createPayload.uuid;
 
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
+      await page.goto('/proxy-hosts');
       await waitForLoadingComplete(page, { timeout: 15000 });
       await expect(page.getByText(testProxy.domain).first()).toBeVisible({ timeout: 15000 });
     });
@@ -279,7 +280,7 @@ test.describe('Multi-Component Security Workflows', () => {
         responses.push(response.status());
       }
 
-      expect(responses.length).toBe(5);
+      expect(responses).toHaveLength(5);
       expect(responses.every((status) => status < 500)).toBe(true);
     });
   });

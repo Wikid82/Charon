@@ -10,13 +10,11 @@ import {
   type TooltipContentProps,
 } from 'recharts'
 
-import { Card, CardContent, CardHeader, CardTitle, Skeleton } from '../ui'
-import {
+import { Card, CardContent, CardHeader, CardTitle, Skeleton,
   Tooltip as UITooltip,
   TooltipContent,
   TooltipProvider,
-  TooltipTrigger,
-} from '../ui'
+  TooltipTrigger } from '../ui'
 
 import type { TrafficBucket, StatsBucket } from '../../api/stats'
 import type { ValueType, NameType } from 'recharts/types/component/DefaultTooltipContent'

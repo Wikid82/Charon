@@ -1,5 +1,5 @@
 import { Plus, X, Code } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
 import { Alert } from './ui/Alert';
 import { Badge } from './ui/Badge';
@@ -7,6 +7,7 @@ import { Button } from './ui/Button';
 import { Card } from './ui/Card';
 import { Input } from './ui/Input';
 import { NativeSelect } from './ui/NativeSelect';
+import { parseJsonArray } from '../utils/parseJsonArray';
 
 interface PermissionsPolicyItem {
   feature: string;
@@ -50,25 +51,18 @@ const ALLOWLIST_PRESETS = [
 ];
 
 export function PermissionsPolicyBuilder({ value, onChange }: PermissionsPolicyBuilderProps) {
-  const [policies, setPolicies] = useState<PermissionsPolicyItem[]>([]);
+  const [policies, setPolicies] = useState<PermissionsPolicyItem[]>(() => parseJsonArray<PermissionsPolicyItem>(value));
   const [newFeature, setNewFeature] = useState('camera');
   const [newAllowlist, setNewAllowlist] = useState('');
   const [customOrigin, setCustomOrigin] = useState('');
   const [showPreview, setShowPreview] = useState(false);
 
-  // Parse initial value
-  useEffect(() => {
-    try {
-      if (value) {
-        const parsed = JSON.parse(value) as PermissionsPolicyItem[];
-        setPolicies(parsed);
-      } else {
-        setPolicies([]);
-      }
-    } catch {
-      setPolicies([]);
-    }
-  }, [value]);
+  // Re-parse when the parent replaces `value` (adjust-during-render, no effect).
+  const [syncedValue, setSyncedValue] = useState(value);
+  if (value !== syncedValue) {
+    setSyncedValue(value);
+    setPolicies(parseJsonArray<PermissionsPolicyItem>(value));
+  }
 
   // Generate Permissions-Policy string preview
   const generatePolicyString = (pols: PermissionsPolicyItem[]): string => {
@@ -262,7 +256,7 @@ export function PermissionsPolicyBuilder({ value, onChange }: PermissionsPolicyB
       {/* Policy String Preview */}
       {showPreview && policyString && (
         <div className="space-y-2">
-          <label className="text-sm font-medium text-gray-700 dark:text-gray-300">Generated Permissions-Policy Header:</label>
+          <span className="text-sm font-medium text-gray-700 dark:text-gray-300">Generated Permissions-Policy Header:</span>
           <pre className="p-3 bg-gray-900 dark:bg-gray-950 text-green-400 rounded-lg overflow-x-auto text-xs font-mono">
             {policyString || '(empty)'}
           </pre>

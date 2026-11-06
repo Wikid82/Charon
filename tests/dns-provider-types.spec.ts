@@ -303,8 +303,8 @@ test.describe('DNS Provider Types', () => {
 
       await test.step('Verify Manual-specific UI appears', async () => {
         // Should NOT show fields like API key or access token
-        await expect(page.getByLabel(/api.*key/i)).not.toBeVisible();
-        await expect(page.getByLabel(/access.*token/i)).not.toBeVisible();
+        await expect(page.getByLabel(/api.*key/i)).toBeHidden();
+        await expect(page.getByLabel(/access.*token/i)).toBeHidden();
       });
     });
 

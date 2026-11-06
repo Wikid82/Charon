@@ -54,7 +54,6 @@ tests/
 ├── tasks/                          # Async task tests
 ├── utils/                          # Test helper utilities
 │   ├── debug-logger.ts            # Structured logging
-│   ├── test-steps.ts              # Step and assertion helpers
 │   ├── ui-helpers.ts              # UI interaction helpers (switches, toasts, forms)
 │   └── wait-helpers.ts            # Wait/polling utilities (feature flags, API)
 ├── fixtures/                       # Shared test fixtures

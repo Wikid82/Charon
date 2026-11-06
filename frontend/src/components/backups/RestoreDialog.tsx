@@ -1,9 +1,9 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { useRestoreBackup, useValidateBackup, type BackupFile } from '../../hooks/useBackups'
-import { Alert, Button, Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, Input } from '../ui'
 import { toast } from '../../utils/toast'
+import { Alert, Button, Dialog, DialogContent, DialogHeader, DialogFooter, DialogTitle, Input } from '../ui'
 
 export interface RestoreDialogProps {
   backup: BackupFile | null
@@ -17,21 +17,20 @@ export interface RestoreDialogProps {
  * `legacy_format` / `encryption_key_required` warnings, and reports the
  * `restart_required` / `database_swap_pending` outcome once restore completes.
  */
-export function RestoreDialog({ backup, onClose }: RestoreDialogProps) {
+export function RestoreDialog(props: RestoreDialogProps) {
+  // Keyed by target so the passphrase and mutation state reset whenever a different
+  // backup is targeted (replaces a reset-in-effect). The key is the filename, so
+  // re-renders of the same backup keep their state.
+  return <RestoreDialogBody key={props.backup?.filename ?? ''} {...props} />
+}
+
+function RestoreDialogBody({ backup, onClose }: RestoreDialogProps) {
   const { t } = useTranslation()
   const [passphrase, setPassphrase] = useState('')
   const validateMutation = useValidateBackup()
   const restoreMutation = useRestoreBackup()
 
   const isEncrypted = backup?.filename.endsWith('.age') ?? false
-
-  useEffect(() => {
-    setPassphrase('')
-    validateMutation.reset()
-    restoreMutation.reset()
-    // Only re-run when the target backup changes (dialog reopened for a new row).
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [backup?.filename])
 
   const handleValidate = () => {
     if (!backup) return

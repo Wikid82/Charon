@@ -176,17 +176,17 @@ test.describe.serial('Certificate Bulk Delete', () => {
     }
   });
 
+  test.beforeEach(async ({ page, adminUser }) => {
+    await loginUser(page, adminUser);
+    await waitForLoadingComplete(page);
+    await navigateToCertificates(page);
+  });
+
   test.afterAll(async () => {
     // .catch(() => {}) handles certs already deleted by test 7
     for (const cert of createdCerts) {
       await deleteCertViaAPI(baseURL, cert.uuid).catch(() => {});
     }
-  });
-
-  test.beforeEach(async ({ page, adminUser }) => {
-    await loginUser(page, adminUser);
-    await waitForLoadingComplete(page);
-    await navigateToCertificates(page);
   });
 
   // ---------------------------------------------------------------------------

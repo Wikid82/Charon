@@ -23,16 +23,16 @@ async function openOrthrusWizard(page: import('@playwright/test').Page) {
   await page.route(REMOTE_SERVERS_API, (route) => route.fulfill({ json: [] }));
   await page.route(HECATE_STATUS_API, (route) => route.fulfill({ json: [] }));
   await page.route(ORTHRUS_AGENT_SNIPPETS_API, (route) => route.fulfill({ json: MOCK_SNIPPETS }));
-  await page.route(ORTHRUS_AGENTS_API, (route) => {
+  await page.route(ORTHRUS_AGENTS_API, async (route) => {
     if (route.request().method() === 'POST') {
-      route.fulfill({
+      await route.fulfill({
         json: {
           agent: { uuid: MOCK_AGENT_UUID, name: MOCK_AGENT_NAME, enabled: true },
           auth_key: MOCK_AUTH_KEY,
         },
       });
     } else {
-      route.fulfill({ json: [] });
+      await route.fulfill({ json: [] });
     }
   });
 

@@ -58,7 +58,7 @@ test.describe('Break Glass - Tier 2 (Emergency Server)', () => {
   const BASIC_AUTH = 'Basic ' + Buffer.from(`${EMERGENCY_SERVER.username}:${EMERGENCY_SERVER.password}`).toString('base64');
 
   // Skip individual tests if emergency server is not healthy
-  test.beforeEach(async ({}, testInfo) => {
+  test.beforeEach(async () => {
     const isHealthy = await ensureHealthChecked();
     if (!isHealthy) {
       console.log('⚠️ Emergency server not accessible from test environment - continuing test anyway');

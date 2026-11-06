@@ -7,6 +7,7 @@ export const isValidEmail = (email: string): boolean => {
  * Checks if a string is a valid IPv4 address
  */
 export const isIPv4 = (value: string): boolean => {
+  // eslint-disable-next-line security/detect-unsafe-regex -- linear: every repetition is bounded to at most 3 digits, so backtracking per start position is constant; verified linear in validation.test.ts
   const ipv4Regex = /^(\d{1,3}\.){3}\d{1,3}$/
   if (!ipv4Regex.test(value)) return false
   const parts = value.split('.')

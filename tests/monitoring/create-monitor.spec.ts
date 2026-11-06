@@ -28,7 +28,7 @@ const emptyMonitorsRoute = async (page: import('@playwright/test').Page) => {
 };
 
 async function openCreateModal(page: import('@playwright/test').Page) {
-  await page.click('[data-testid="add-monitor-button"]');
+  await page.locator('[data-testid="add-monitor-button"]').click();
   await expect(page.getByRole('heading', { name: /create monitor/i })).toBeVisible();
 }
 
@@ -107,7 +107,7 @@ test.describe('Create Monitor Modal — TCP UX', () => {
 
     await urlInput.fill('192.168.1.1:8080');
 
-    await expect(page.locator('[role="alert"]')).not.toBeVisible();
+    await expect(page.locator('[role="alert"]')).toBeHidden();
   });
 
   test('Inline error clears when type changed from TCP to HTTP', async ({ page }) => {
@@ -123,7 +123,7 @@ test.describe('Create Monitor Modal — TCP UX', () => {
 
     await typeSelect.selectOption('http');
 
-    await expect(page.locator('[role="alert"]')).not.toBeVisible();
+    await expect(page.locator('[role="alert"]')).toBeHidden();
   });
 
   test('Submit with tcp:// prefix is prevented client-side', async ({ page }) => {

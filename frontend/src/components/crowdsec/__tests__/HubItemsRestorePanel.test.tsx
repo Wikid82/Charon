@@ -73,7 +73,7 @@ describe('HubItemsRestorePanel', () => {
   })
 
   it('disables the button and announces progress while installing', async () => {
-    let release: (value: api.RestoreHubItemsResult) => void = () => undefined
+    let release: (value: api.RestoreHubItemsResult) => void = () => {}
     vi.mocked(api.restoreHubItems).mockReturnValue(new Promise((resolve) => { release = resolve }))
     renderPanel()
 

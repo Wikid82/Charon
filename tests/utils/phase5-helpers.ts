@@ -295,8 +295,8 @@ export async function setupBackupsList(page: Page, backups?: BackupFile[]): Prom
 export async function completeRestoreFlow(page: Page, filename?: string): Promise<void> {
   const targetFilename = filename || 'backup_2024-01-15_120000.zip';
 
-  await page.route(`**/api/v1/backups/${targetFilename}/restore`, (route) => {
-    route.fulfill({ status: 200, json: { message: 'Restore completed successfully' } });
+  await page.route(`**/api/v1/backups/${targetFilename}/restore`, async (route) => {
+    await route.fulfill({ status: 200, json: { message: 'Restore completed successfully' } });
   });
 
   await page.goto('/tasks/backups');
@@ -611,8 +611,8 @@ export async function setupLogFiles(page: Page, files?: LogFile[]): Promise<void
     { name: 'error.log', size: 256000, modified: '2024-01-15T11:30:00Z' },
   ];
 
-  await page.route('**/api/v1/logs', (route) => {
-    route.fulfill({ status: 200, json: defaultFiles });
+  await page.route('**/api/v1/logs', async (route) => {
+    await route.fulfill({ status: 200, json: defaultFiles });
   });
 }
 
@@ -620,7 +620,7 @@ export async function setupLogFiles(page: Page, files?: LogFile[]): Promise<void
  * Selects a log file and waits for content to load
  */
 export async function selectLogFile(page: Page, filename: string): Promise<void> {
-  await page.click(`button:has-text("${filename}")`);
+  await page.locator(`button:has-text("${filename}")`).click();
   await waitForAPIResponse(page, `/api/v1/logs/${filename}`, { status: 200 });
 }
 
@@ -655,12 +655,12 @@ export async function setupLogContent(
   entries: CaddyAccessLog[],
   total?: number
 ): Promise<void> {
-  await page.route(`**/api/v1/logs/${filename}*`, (route) => {
+  await page.route(`**/api/v1/logs/${filename}*`, async (route) => {
     const url = new URL(route.request().url());
     const requestedPage = parseInt(url.searchParams.get('page') || '1');
     const limit = parseInt(url.searchParams.get('limit') || '50');
 
-    route.fulfill({
+    await route.fulfill({
       status: 200,
       json: {
         entries: entries.slice((requestedPage - 1) * limit, requestedPage * limit),
@@ -694,20 +694,20 @@ export async function mockImportAPI(page: Page): Promise<void> {
     },
   };
 
-  await page.route('**/api/v1/import/upload', (route) => {
-    route.fulfill({ status: 200, json: mockPreview });
+  await page.route('**/api/v1/import/upload', async (route) => {
+    await route.fulfill({ status: 200, json: mockPreview });
   });
 
-  await page.route('**/api/v1/import/preview', (route) => {
-    route.fulfill({ status: 200, json: mockPreview });
+  await page.route('**/api/v1/import/preview', async (route) => {
+    await route.fulfill({ status: 200, json: mockPreview });
   });
 
-  await page.route('**/api/v1/import/status', (route) => {
-    route.fulfill({ status: 200, json: { has_pending: true, session: mockPreview.session } });
+  await page.route('**/api/v1/import/status', async (route) => {
+    await route.fulfill({ status: 200, json: { has_pending: true, session: mockPreview.session } });
   });
 
-  await page.route('**/api/v1/import/commit', (route) => {
-    route.fulfill({ status: 200, json: { created: 1, updated: 0, skipped: 0, errors: [] } });
+  await page.route('**/api/v1/import/commit', async (route) => {
+    await route.fulfill({ status: 200, json: { created: 1, updated: 0, skipped: 0, errors: [] } });
   });
 }
 
@@ -715,11 +715,11 @@ export async function mockImportAPI(page: Page): Promise<void> {
  * Sets up mock import preview with specific hosts
  */
 export async function mockImportPreview(page: Page, preview: ImportPreview): Promise<void> {
-  await page.route('**/api/v1/import/upload', (route) => {
-    route.fulfill({ status: 200, json: preview });
+  await page.route('**/api/v1/import/upload', async (route) => {
+    await route.fulfill({ status: 200, json: preview });
   });
-  await page.route('**/api/v1/import/preview', (route) => {
-    route.fulfill({ status: 200, json: preview });
+  await page.route('**/api/v1/import/preview', async (route) => {
+    await route.fulfill({ status: 200, json: preview });
   });
 }
 
@@ -766,7 +766,7 @@ export async function setupImportReview(page: Page, hostCount: number): Promise<
   const pasteArea = page.locator('textarea[placeholder*="Paste"]');
   if (await pasteArea.isVisible()) {
     await pasteArea.fill('# mock content');
-    await page.click('button:has-text("Upload")');
+    await page.locator('button:has-text("Upload")').click();
     await waitForAPIResponse(page, '/api/v1/import/upload', { status: 200 });
   }
 }
@@ -786,8 +786,8 @@ export async function mockCrowdSecImportAPI(page: Page): Promise<void> {
     }
   });
 
-  await page.route('**/api/v1/crowdsec/import', (route) => {
-    route.fulfill({ status: 200, json: { message: 'Import successful' } });
+  await page.route('**/api/v1/crowdsec/import', async (route) => {
+    await route.fulfill({ status: 200, json: { message: 'Import successful' } });
   });
 }
 
@@ -802,7 +802,7 @@ export async function uploadCrowdSecConfig(page: Page): Promise<void> {
     buffer: Buffer.from('mock tar content'),
   });
 
-  await page.click('button:has-text("Import")');
+  await page.locator('button:has-text("Import")').click();
 }
 
 // ============================================================================
@@ -855,8 +855,8 @@ export async function setupMonitorHistory(
   monitorId: string,
   heartbeats: UptimeHeartbeat[]
 ): Promise<void> {
-  await page.route(`**/api/v1/uptime/monitors/${monitorId}/history*`, (route) => {
-    route.fulfill({ status: 200, json: heartbeats });
+  await page.route(`**/api/v1/uptime/monitors/${monitorId}/history*`, async (route) => {
+    await route.fulfill({ status: 200, json: heartbeats });
   });
 }
 
@@ -912,7 +912,7 @@ export async function setupLiveLogsWithMockData(
 
   // Store entries for later retrieval in tests
   await page.evaluate((data) => {
-    (window as any).__mockLiveLogEntries = data;
+    (window as unknown as { __mockLiveLogEntries?: unknown }).__mockLiveLogEntries = data;
   }, fullEntries);
 }
 

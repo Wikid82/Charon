@@ -66,27 +66,19 @@ export function DataTable<T>({
 
   const handleSort = (key: string) => {
     setSortConfig((prev) => {
-      if (prev?.key === key) {
-        if (prev.direction === 'asc') {
-          return { key, direction: 'desc' }
-        }
-        // Reset sort if clicking third time
-        return null
+      if (prev?.key !== key) {
+        return { key, direction: 'asc' }
       }
-      return { key, direction: 'asc' }
+      // Third click on the same column resets the sort
+      return prev.direction === 'asc' ? { key, direction: 'desc' } : null
     })
   }
 
   const handleSelectAll = () => {
     if (!onSelectionChange) return
 
-    if (selectedKeys.size === data.length) {
-      // All selected, deselect all
-      onSelectionChange(new Set())
-    } else {
-      // Select all
-      onSelectionChange(new Set(data.map(rowKey)))
-    }
+    // Deselect everything when all rows are selected, otherwise select all rows
+    onSelectionChange(selectedKeys.size === data.length ? new Set() : new Set(data.map(rowKey)))
   }
 
   const handleSelectRow = (key: string) => {

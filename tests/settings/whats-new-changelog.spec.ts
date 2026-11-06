@@ -145,7 +145,7 @@ test.describe('What\'s New Changelog', () => {
         await loginUser(page, regularUser);
         const modal = await waitForModal(page, "What's New");
         await modal.getByRole('button', { name: 'Remind Me Next Time' }).click();
-        await expect(modal).not.toBeVisible();
+        await expect(modal).toBeHidden();
       });
 
       await test.step('Log out and back in — modal reappears', async () => {
@@ -163,14 +163,14 @@ test.describe('What\'s New Changelog', () => {
         await loginUser(page, regularUser);
         const modal = await waitForModal(page, "What's New");
         await modal.getByRole('button', { name: 'Got It, Thanks' }).click();
-        await expect(modal).not.toBeVisible();
+        await expect(modal).toBeHidden();
       });
 
       await test.step('Log out and back in — modal does not reappear', async () => {
         await logoutUser(page);
         await loginUser(page, regularUser);
         await waitForLoadingComplete(page);
-        await expect(page.getByRole('dialog', { name: "What's New" })).not.toBeVisible();
+        await expect(page.getByRole('dialog', { name: "What's New" })).toBeHidden();
       });
     }
   );
@@ -182,7 +182,7 @@ test.describe('What\'s New Changelog', () => {
         await loginUser(page, regularUser);
         const modal = await waitForModal(page, "What's New");
         await modal.getByRole('button', { name: /close/i }).click();
-        await expect(modal).not.toBeVisible();
+        await expect(modal).toBeHidden();
       });
 
       await test.step('Log out and back in — modal reappears (snoozed, not dismissed)', async () => {
@@ -200,7 +200,7 @@ test.describe('What\'s New Changelog', () => {
         await expect(modal).toBeVisible();
         // Click outside the dialog panel to trigger the backdrop dismiss.
         await page.mouse.click(4, 4);
-        await expect(modal).not.toBeVisible();
+        await expect(modal).toBeHidden();
 
         await logoutUser(page);
         await loginUser(page, regularUser);
@@ -217,7 +217,7 @@ test.describe('What\'s New Changelog', () => {
         const modal = await waitForModal(page, "What's New");
         await modal.getByRole('checkbox', { name: /don't show me update notifications/i }).check();
         await modal.getByRole('button', { name: 'Remind Me Next Time' }).click();
-        await expect(modal).not.toBeVisible();
+        await expect(modal).toBeHidden();
       });
 
       await test.step('Modal stays suppressed on subsequent logins, including after a further version bump', async () => {
@@ -230,7 +230,7 @@ test.describe('What\'s New Changelog', () => {
         await logoutUser(page);
         await loginUser(page, regularUser);
         await waitForLoadingComplete(page);
-        await expect(page.getByRole('dialog', { name: "What's New" })).not.toBeVisible();
+        await expect(page.getByRole('dialog', { name: "What's New" })).toBeHidden();
       });
     }
   );
@@ -289,7 +289,7 @@ test.describe('What\'s New Changelog', () => {
         await loginUser(page, regularUser);
         const modal = await waitForModal(page, "What's New");
         await modal.getByRole('button', { name: 'Got It, Thanks' }).click();
-        await expect(modal).not.toBeVisible();
+        await expect(modal).toBeHidden();
       });
 
       await test.step('Open the revisit link from Appearance Settings', async () => {
@@ -317,7 +317,7 @@ test.describe('What\'s New Changelog', () => {
         // "Close" (aria-label, vs. this footer button's visible text) — the
         // footer button renders first in DOM order (see WhatsNewModal.tsx).
         await modal.getByRole('button', { name: 'Close' }).first().click();
-        await expect(modal).not.toBeVisible();
+        await expect(modal).toBeHidden();
         expect(await ackRequestPromise).toBeNull();
       });
 
@@ -325,7 +325,7 @@ test.describe('What\'s New Changelog', () => {
         await logoutUser(page);
         await loginUser(page, regularUser);
         await waitForLoadingComplete(page);
-        await expect(page.getByRole('dialog', { name: "What's New" })).not.toBeVisible();
+        await expect(page.getByRole('dialog', { name: "What's New" })).toBeHidden();
       });
     }
   );

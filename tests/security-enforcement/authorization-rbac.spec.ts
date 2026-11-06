@@ -2,7 +2,7 @@
  * Cerberus ACL Role-Based Access Control Tests
  */
 
-import { test, expect, request as playwrightRequest } from '@playwright/test';
+import { test, expect, request as playwrightRequest, type APIRequestContext } from '@playwright/test';
 import { STORAGE_STATE } from '../constants';
 import { TestDataManager } from '../utils/TestDataManager';
 import { TEST_PASSWORD } from '../fixtures/auth-fixtures';
@@ -15,7 +15,7 @@ const TEST_USERS = {
   guest: { email: 'guest@test.local', password: 'GuestPassword123!' },
 };
 
-async function loginAndGetToken(context: any, credentials: { email: string; password: string }): Promise<string | null> {
+async function loginAndGetToken(context: APIRequestContext, credentials: { email: string; password: string }): Promise<string | null> {
   try {
     const response = await context.post(`${BASE_URL}/api/v1/auth/login`, {
       data: credentials,
@@ -32,9 +32,9 @@ async function loginAndGetToken(context: any, credentials: { email: string; pass
 }
 
 test.describe('Cerberus ACL Role-Based Access Control', () => {
-  let adminContext: any;
-  let userContext: any;
-  let guestContext: any;
+  let adminContext: APIRequestContext;
+  let userContext: APIRequestContext;
+  let guestContext: APIRequestContext;
   let adminToken: string | null;
   let userToken: string | null;
   let guestToken: string | null;
@@ -371,9 +371,9 @@ const ADMIN_ONLY_UI_ROUTES: string[] = [
 
 test.describe('Privileged management-API authorization (GHSA-3gc6-295r-xm5m)', () => {
   let testData: TestDataManager;
-  let adminApiContext: any;
-  let adminContext: any;
-  let userContext: any;
+  let adminApiContext: APIRequestContext;
+  let adminContext: APIRequestContext;
+  let userContext: APIRequestContext;
   let adminToken: string;
   let userToken: string;
 

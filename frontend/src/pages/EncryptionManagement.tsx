@@ -1,5 +1,5 @@
 import { Key, Shield, AlertTriangle, CheckCircle, Clock, RefreshCw, AlertCircle } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { PageShell } from '../components/layout/PageShell'
@@ -115,20 +115,14 @@ function RotationConfirmDialog({ isOpen, onClose, onConfirm, isPending }: Rotati
 export default function EncryptionManagement() {
   const { t } = useTranslation()
   const [showConfirmDialog, setShowConfirmDialog] = useState(false)
-  const [isRotating, setIsRotating] = useState(false)
+  const rotateMutation = useRotateKey()
+  // A rotation is "in progress" exactly while its mutation is pending; success and error both settle it.
+  const isRotating = rotateMutation.isPending
 
   // Fetch status with auto-refresh during rotation
   const { data: status, isLoading } = useEncryptionStatus(isRotating ? 5000 : undefined)
   const { data: history } = useRotationHistory()
-  const rotateMutation = useRotateKey()
   const validateMutation = useValidateKeys()
-
-  // Stop auto-refresh when rotation completes
-  useEffect(() => {
-    if (isRotating && rotateMutation.isSuccess) {
-      setIsRotating(false)
-    }
-  }, [isRotating, rotateMutation.isSuccess])
 
   const handleRotateClick = () => {
     setShowConfirmDialog(true)
@@ -136,7 +130,6 @@ export default function EncryptionManagement() {
 
   const handleConfirmRotation = () => {
     setShowConfirmDialog(false)
-    setIsRotating(true)
 
     rotateMutation.mutate(undefined, {
       onSuccess: (result) => {
@@ -156,7 +149,6 @@ export default function EncryptionManagement() {
       onError: (error: unknown) => {
         const msg = error instanceof Error ? error.message : String(error)
         toast.error(t('encryption.rotationError', { error: msg }))
-        setIsRotating(false)
       },
     })
   }

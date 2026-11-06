@@ -917,6 +917,54 @@ describe('CredentialManager', () => {
     })
   })
 
+  describe('credential form seeding per open', () => {
+    const openEditFor = async (user: ReturnType<typeof userEvent.setup>, label: string) => {
+      const rows = screen.getAllByRole('row')
+      const credRow = rows.find(r => r.innerHTML.includes(label))
+      await user.click(within(credRow!).getAllByRole('button')[1]) // 0=Test, 1=Edit
+    }
+
+    it('shows the stored values on each edit, discarding unsaved edits from a previous open', async () => {
+      const user = userEvent.setup()
+      renderWithClient(
+        <CredentialManager
+          open={true}
+          onOpenChange={mockOnOpenChange}
+          provider={mockProvider}
+          providerTypeInfo={mockProviderTypeInfo}
+        />
+      )
+
+      await openEditFor(user, 'Main Zone')
+      await user.clear(screen.getByLabelText(/Label/i))
+      await user.type(screen.getByLabelText(/Label/i), 'Scratch')
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+      await openEditFor(user, 'Main Zone')
+      expect(screen.getByLabelText(/Label/i)).toHaveValue('Main Zone')
+    })
+
+    it('opens Add with blank create defaults after a prior edit', async () => {
+      const user = userEvent.setup()
+      renderWithClient(
+        <CredentialManager
+          open={true}
+          onOpenChange={mockOnOpenChange}
+          provider={mockProvider}
+          providerTypeInfo={mockProviderTypeInfo}
+        />
+      )
+
+      await openEditFor(user, 'Main Zone')
+      expect(screen.getByLabelText(/Label/i)).toHaveValue('Main Zone')
+      await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+      await user.click(screen.getByText('Add Credential'))
+      expect(screen.getByLabelText(/Label/i)).toHaveValue('')
+      expect(screen.getByLabelText(/zone/i)).toHaveValue('')
+    })
+  })
+
   describe('Regression: real API shape (no numeric id field)', () => {
     it('renders and performs test/delete actions when credentials have only a uuid and no numeric id', async () => {
       // This mirrors the actual API response shape: DNSProviderCredential never

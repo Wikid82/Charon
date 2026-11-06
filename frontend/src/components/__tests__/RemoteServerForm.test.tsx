@@ -513,3 +513,56 @@ describe('RemoteServerForm', () => {
     expect(document.getElementById('cts-agent')).not.toBeNull()
   })
 })
+
+describe('RemoteServerForm re-seeding', () => {
+  const baseServer = {
+    uuid: 'srv-a',
+    name: 'Server A',
+    provider: 'docker',
+    host: 'a.lan',
+    port: 5000,
+    username: 'admin',
+    enabled: true,
+    reachable: true,
+    created_at: '2025-11-18T10:00:00Z',
+    updated_at: '2025-11-18T10:00:00Z',
+  }
+
+  const tree = (server: typeof baseServer | undefined) => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    return (
+      <MemoryRouter>
+        <QueryClientProvider client={qc}>
+          <RemoteServerForm server={server} onSubmit={vi.fn(() => Promise.resolve())} onCancel={vi.fn()} />
+        </QueryClientProvider>
+      </MemoryRouter>
+    )
+  }
+
+  it('re-seeds fields when the server prop changes to a different server', () => {
+    const { rerender } = render(tree(baseServer))
+    rerender(tree({ ...baseServer, uuid: 'srv-b', name: 'Server B', host: 'b.lan', port: 6000 }))
+    expect(screen.getByDisplayValue('Server B')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('b.lan')).toBeInTheDocument()
+    expect(screen.getByDisplayValue('6000')).toBeInTheDocument()
+  })
+
+  it('keeps unsaved edits when re-rendered with the same server object', async () => {
+    const user = userEvent.setup()
+    const { rerender } = render(tree(baseServer))
+    const hostInput = screen.getByDisplayValue('a.lan')
+    await user.clear(hostInput)
+    await user.type(hostInput, 'edited.lan')
+
+    rerender(tree(baseServer))
+    expect(screen.getByDisplayValue('edited.lan')).toBeInTheDocument()
+  })
+
+  it('resets to create defaults when the server prop is cleared', () => {
+    const { rerender } = render(tree(baseServer))
+    rerender(tree(undefined))
+    expect(screen.getByText('Add Source')).toBeInTheDocument()
+    expect(screen.getByPlaceholderText('My Production Server')).toHaveValue('')
+    expect(screen.queryByDisplayValue('Server A')).not.toBeInTheDocument()
+  })
+})

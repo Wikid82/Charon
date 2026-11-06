@@ -1,8 +1,7 @@
 import { Info, ShieldCheck } from 'lucide-react'
 
 import { cn } from '../../utils/cn'
-import { Card, CardContent, CardHeader, CardTitle, Skeleton } from '../ui'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui'
+import { Card, CardContent, CardHeader, CardTitle, Skeleton, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from '../ui'
 
 import type { CertExpiry } from '../../api/stats'
 

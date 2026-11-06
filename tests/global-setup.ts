@@ -35,7 +35,7 @@ async function waitForContainer(maxRetries = 15, delayMs = 2000): Promise<void> 
         console.log(`  ✅ Container ready after ${i + 1} attempt(s) [${(i + 1) * delayMs}ms]`);
         return;
       }
-    } catch (error) {
+    } catch {
       console.log(`  ⏳ Waiting for container... (${i + 1}/${maxRetries})`);
       if (i < maxRetries - 1) {
         await new Promise(resolve => setTimeout(resolve, delayMs));
@@ -67,7 +67,7 @@ async function globalSetup(): Promise<void> {
     console.log(`   ├─ Protocol: ${parsedURL.protocol}`);
     console.log(`   ├─ IPv6: ${isIPv6 ? 'Yes' : 'No'}`);
     console.log(`   └─ Localhost: ${isLocalhost ? 'Yes' : 'No'}\n`);
-  } catch (e) {
+  } catch {
     console.log('   ⚠️  Could not parse base URL\n');
   }
 

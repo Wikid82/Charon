@@ -1,12 +1,13 @@
-import { useState, useCallback } from 'react'
-import type { DragStartEvent, DragEndEvent, DragOverEvent } from '@dnd-kit/core'
 import { useQueryClient } from '@tanstack/react-query'
+import { useState, useCallback } from 'react'
 import { toast } from 'react-hot-toast'
 import { useTranslation } from 'react-i18next'
 
-import type { ProxyHost } from '../api/proxyHosts'
-import type { ProxyGroup } from '../api/proxyGroups'
 import { QUERY_KEY } from './useProxyHosts'
+
+import type { ProxyGroup } from '../api/proxyGroups'
+import type { ProxyHost } from '../api/proxyHosts'
+import type { DragStartEvent, DragEndEvent, DragOverEvent } from '@dnd-kit/core'
 
 interface UseProxyGroupDnDOptions {
   hosts: ProxyHost[]
@@ -34,11 +35,7 @@ export function useProxyGroupDnD({
     (event: DragStartEvent) => {
       const uuid = event.active.id as string
       setActiveDragId(uuid)
-      if (selectedHosts.has(uuid)) {
-        setHostsBeingDragged([...selectedHosts])
-      } else {
-        setHostsBeingDragged([uuid])
-      }
+      setHostsBeingDragged(selectedHosts.has(uuid) ? [...selectedHosts] : [uuid])
     },
     [selectedHosts],
   )
