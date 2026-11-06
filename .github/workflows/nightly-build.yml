@@ -260,7 +260,9 @@ jobs:
             org.opencontainers.image.description=Nightly build of Charon
 
       - name: Generate Changelog Data
-        run: bash scripts/generate-changelog.sh
+        # Fail the nightly rather than embed an empty or dirty changelog. The
+        # guard is the same one the release path uses (see §4.4 of the spec).
+        run: bash scripts/generate-changelog.sh --require-entries && bash scripts/ci/check-changelog-data.sh backend/internal/changelog/data/changelog.json
 
       - name: Build and push Docker image
         id: build
