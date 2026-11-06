@@ -24,20 +24,21 @@ import (
 
 // seedLastSeenVersion returns the value newly-activated users should be
 // seeded with for LastSeenVersion, so they never see historical "What's
-// New" entries on their first login. Returns "" (skip seeding, treated
-// as "pre-existing user, behind everything") for unversioned/dev builds
-// — delegates to version.IsUnversioned, which covers the literal "dev"
-// sentinel, non-semver CI-produced version strings (e.g. "nightly-<sha>"),
-// shorthand, and a leading "v". Seeding any of those would be actively
-// wrong: they don't compare meaningfully against real release versions,
-// and a non-empty invalid value would leave the user permanently unable
-// to see any changelog entry once the deployment upgrades to a real
-// tagged release (see changelog.Service.GetEntriesSince).
+// New" entries on their first login. It is the bare SemVer form of
+// version.Version (build metadata stripped, so it matches what
+// dismiss_permanent later stores), or "" for an unversioned build. An
+// empty seed means "pre-existing user, behind everything". Unversioned
+// covers the literal "dev" sentinel, non-semver CI version strings (e.g.
+// "nightly-<sha>"), shorthand, and a leading "v". Seeding any of those
+// would be wrong: they don't compare against real release versions, and
+// a non-empty invalid value would leave the user unable to see entries
+// once the deployment upgrades to a tagged release.
 func seedLastSeenVersion() string {
-	if version.IsUnversioned(version.Version) {
+	canonical, ok := version.Canonical(version.Version)
+	if !ok {
 		return ""
 	}
-	return version.Version
+	return canonical
 }
 
 type UserHandler struct {
