@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	neturl "net/url"
+	"strings"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -142,16 +143,8 @@ func (s *UpdateService) CheckForUpdates() (*UpdateInfo, error) {
 		return nil, err
 	}
 
-	// Simple string comparison for now.
-	// In production, use a semver library.
-	// Assuming tags are "v0.1.0" and version is "0.1.0"
-	latest := release.TagName
-	if latest != "" && latest[0] == 'v' {
-		latest = latest[1:]
-	}
-
 	info := &UpdateInfo{
-		Available:      latest != s.currentVersion && latest != "",
+		Available:      updateAvailable(s.currentVersion, release.TagName),
 		CurrentVersion: s.currentVersion,
 		LatestVersion:  release.TagName,
 		ChangelogURL:   releaseURL(release.HTMLURL),
@@ -161,6 +154,16 @@ func (s *UpdateService) CheckForUpdates() (*UpdateInfo, error) {
 	s.lastCheck = time.Now()
 
 	return info, nil
+}
+
+// updateAvailable reports whether tag names a release strictly newer than
+// running. Unversioned running builds ("dev", "nightly-<sha>") never report an
+// update, and neither do non-SemVer or empty tags. A leading "v" on the tag is
+// accepted; build metadata on either side is ignored.
+func updateAvailable(running, tag string) bool {
+	latest := strings.TrimPrefix(tag, "v")
+	cmp, ok := version.Compare(running, latest)
+	return ok && cmp < 0
 }
 
 // releaseURL returns raw only when it is an https link whose hostname is exactly

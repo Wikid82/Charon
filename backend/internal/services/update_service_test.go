@@ -242,3 +242,45 @@ func TestUpdateService_CheckForUpdates_NonOKCarriesCurrentVersion(t *testing.T) 
 	assert.Equal(t, "", info.ChangelogURL)
 	assert.Equal(t, "0.9.0", info.CurrentVersion)
 }
+
+func TestUpdateService_CheckForUpdates_SemanticAvailability(t *testing.T) {
+	tests := []struct {
+		name    string
+		running string
+		tag     string
+		want    bool
+	}{
+		{name: "newer patch release", running: "0.46.5", tag: "v0.46.6", want: true},
+		{name: "same release", running: "0.46.5", tag: "v0.46.5", want: false},
+		{name: "running ahead of latest", running: "0.46.6", tag: "v0.46.5", want: false},
+		{name: "dev suffix equal to latest", running: "0.46.5+dev", tag: "v0.46.5", want: false},
+		{name: "dev sha suffix equal to latest", running: "0.46.5+dev.abc1234", tag: "v0.46.5", want: false},
+		{name: "nightly suffix behind latest", running: "0.46.5+nightly.x", tag: "v0.46.6", want: true},
+		{name: "prerelease upgraded to release", running: "0.47.0-rc.1", tag: "v0.47.0", want: true},
+		{name: "unversioned dev build", running: "dev", tag: "v0.46.6", want: false},
+		{name: "unversioned nightly sha build", running: "nightly-a1b2c3d", tag: "v0.46.6", want: false},
+		{name: "non-semver nightly tag", running: "0.46.5", tag: "nightly-a1b2c3d", want: false},
+		{name: "shorthand latest tag", running: "0.46.5", tag: "v1.2", want: false},
+		{name: "empty latest tag", running: "0.46.5", tag: "", want: false},
+		{name: "double v prefix", running: "0.46.5", tag: "vv0.46.6", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_ = json.NewEncoder(w).Encode(githubRelease{TagName: tt.tag})
+			}))
+			defer server.Close()
+
+			us := NewUpdateService()
+			assert.NoError(t, us.SetAPIURL(server.URL+"/releases/latest"))
+			us.SetHTTPClient(server.Client())
+			us.SetCurrentVersion(tt.running)
+
+			info, err := us.CheckForUpdates()
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, info.Available)
+			assert.Equal(t, tt.running, info.CurrentVersion)
+		})
+	}
+}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -350,4 +351,42 @@ func TestRestoreBackupSafe_CaddyReloadFailure_ReportedNotFatal(t *testing.T) {
 	require.NotNil(t, result)
 	assert.False(t, result.CaddyReloaded)
 	assert.Equal(t, 1, reloader.calls)
+}
+
+// TestAppVersionWarning covers the archive-vs-running app_version comparison.
+// Versions are compared with build metadata stripped; unversioned sides fall
+// back to an exact string match. The result is only ever a warning.
+func TestAppVersionWarning(t *testing.T) {
+	const (
+		older = "archive app_version (%s) differs from the running version (%s)"
+		newer = "archive was created by a newer Charon version (%s) than the running version (%s); restoring it may fail or lose data"
+	)
+	tests := []struct {
+		name    string
+		archive string
+		running string
+		want    string
+	}{
+		{name: "no archive version", archive: "", running: "0.46.5", want: ""},
+		{name: "same canonical release", archive: "0.46.5", running: "0.46.5", want: ""},
+		{name: "dev suffix archive on release", archive: "0.46.5+dev", running: "0.46.5", want: ""},
+		{name: "release archive on dev suffix", archive: "0.46.5", running: "0.46.5+dev", want: ""},
+		{name: "sha suffix archive on release", archive: "0.46.5+dev.abc1234", running: "0.46.5", want: ""},
+		{name: "nightly suffix on both sides", archive: "0.46.5+nightly.x", running: "0.46.5+nightly.y", want: ""},
+		{name: "archive older patch", archive: "0.46.4", running: "0.46.5", want: fmt.Sprintf(older, "0.46.4", "0.46.5")},
+		{name: "archive older with metadata", archive: "0.46.4+dev", running: "0.46.5", want: fmt.Sprintf(older, "0.46.4+dev", "0.46.5")},
+		{name: "archive newer patch", archive: "0.46.6", running: "0.46.5", want: fmt.Sprintf(newer, "0.46.6", "0.46.5")},
+		{name: "archive newer with dev suffix", archive: "0.46.6+dev", running: "0.46.5", want: fmt.Sprintf(newer, "0.46.6+dev", "0.46.5")},
+		{name: "archive release newer than prerelease", archive: "0.47.0", running: "0.47.0-rc.1", want: fmt.Sprintf(newer, "0.47.0", "0.47.0-rc.1")},
+		{name: "archive prerelease older than release", archive: "0.47.0-rc.1", running: "0.47.0", want: fmt.Sprintf(older, "0.47.0-rc.1", "0.47.0")},
+		{name: "identical unversioned strings", archive: "dev", running: "dev", want: ""},
+		{name: "unversioned archive against release", archive: "dev", running: "0.46.5", want: fmt.Sprintf(older, "dev", "0.46.5")},
+		{name: "release archive against unversioned running", archive: "0.46.5", running: "dev", want: fmt.Sprintf(older, "0.46.5", "dev")},
+		{name: "nightly sha archive against release", archive: "nightly-a1b2c3d", running: "0.46.5", want: fmt.Sprintf(older, "nightly-a1b2c3d", "0.46.5")},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, appVersionWarning(tt.archive, tt.running))
+		})
+	}
 }

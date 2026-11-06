@@ -29,6 +29,8 @@ func TestUpdateHandler_Check(t *testing.T) {
 	err := svc.SetAPIURL(server.URL + "/releases/latest")
 	assert.NoError(t, err)
 	svc.SetHTTPClient(server.Client())
+	// Unversioned builds never report an update, so pin a SemVer running version.
+	svc.SetCurrentVersion("0.9.0")
 
 	// Setup Handler
 	h := NewUpdateHandler(svc)
@@ -47,7 +49,7 @@ func TestUpdateHandler_Check(t *testing.T) {
 	var info services.UpdateInfo
 	err = json.Unmarshal(resp.Body.Bytes(), &info)
 	assert.NoError(t, err)
-	assert.True(t, info.Available) // Assuming current version is not v1.0.0
+	assert.True(t, info.Available) // 0.9.0 is older than the v1.0.0 tag
 	assert.Equal(t, "v1.0.0", info.LatestVersion)
 
 	// Test Failure
