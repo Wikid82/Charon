@@ -2,6 +2,9 @@ import { ChevronDown, ChevronUp, ExternalLink, CheckCircle, XCircle, Settings } 
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { defaultProviderSchemas } from '../data/dnsProviderSchemas'
+import { useEnableMultiCredentials, useCredentials } from '../hooks/useCredentials'
+import { useDNSProviderTypes, useDNSProviderMutations, type DNSProvider } from '../hooks/useDNSProviders'
 import CredentialManager from './CredentialManager'
 import {
   Dialog,
@@ -21,9 +24,6 @@ import {
   Alert,
   Textarea,
 } from './ui'
-import { defaultProviderSchemas } from '../data/dnsProviderSchemas'
-import { useEnableMultiCredentials, useCredentials } from '../hooks/useCredentials'
-import { useDNSProviderTypes, useDNSProviderMutations, type DNSProvider } from '../hooks/useDNSProviders'
 
 import type { DNSProviderRequest, DNSProviderTypeInfo } from '../api/dnsProviders'
 

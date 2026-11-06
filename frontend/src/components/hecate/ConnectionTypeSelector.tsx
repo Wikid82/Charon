@@ -2,9 +2,9 @@ import { useId } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link } from 'react-router'
 
-import { ProviderDevicePicker } from './ProviderDevicePicker'
 import { useHecate } from '../../hooks/useHecate'
 import { useAgentList } from '../../hooks/useOrthrus'
+import { ProviderDevicePicker } from './ProviderDevicePicker'
 
 export type ConnectionMode = 'direct' | 'agent' | 'provider'
 export type ConnectionType = 'direct' | 'orthrus' | 'cloudflare' | 'tailscale' | 'netbird' | 'zerotier'

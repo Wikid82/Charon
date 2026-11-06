@@ -1,8 +1,8 @@
 import { ChevronUp, ChevronDown, ChevronsUpDown } from 'lucide-react'
 import * as React from 'react'
 
-import { Checkbox } from './Checkbox'
 import { cn } from '../../utils/cn'
+import { Checkbox } from './Checkbox'
 
 export interface Column<T> {
   key: string

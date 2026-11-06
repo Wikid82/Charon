@@ -2,9 +2,6 @@ import { Check, Link2, Pencil, Settings, ShieldCheck, Trash2, X } from 'lucide-r
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { AgentExternalProxyDialog } from './AgentExternalProxyDialog';
-import { AgentProviderAssignDialog } from './AgentProviderAssignDialog';
-import { AgentWriteModeDialog } from './AgentWriteModeDialog';
 import { type OrthrusAgent } from '../../api/orthrus';
 import { useDeleteAgent, useRenameAgent } from '../../hooks/useOrthrus';
 import { Badge } from '../ui/Badge';
@@ -17,6 +14,9 @@ import {
   DialogTitle,
 } from '../ui/Dialog';
 import { Input } from '../ui/Input';
+import { AgentExternalProxyDialog } from './AgentExternalProxyDialog';
+import { AgentProviderAssignDialog } from './AgentProviderAssignDialog';
+import { AgentWriteModeDialog } from './AgentWriteModeDialog';
 
 interface OrthrusAgentManagerProps {
   agents: OrthrusAgent[];

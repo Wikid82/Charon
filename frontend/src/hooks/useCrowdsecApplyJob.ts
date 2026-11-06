@@ -2,7 +2,6 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import { SECURITY_STATUS_QUERY_KEY } from './useSecurity'
 import { getCrowdsecBusyJobId, isCrowdsecBusyError } from '../api/errorBody'
 import {
   applyPresetAsync,
@@ -14,6 +13,7 @@ import {
   type CrowdsecApplyJob,
 } from '../api/presets'
 import { isApplyJobTerminal } from '../utils/crowdsecApplyJob'
+import { SECURITY_STATUS_QUERY_KEY } from './useSecurity'
 
 export const APPLY_JOB_QUERY_KEY = ['crowdsec-apply-job'] as const
 

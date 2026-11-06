@@ -1,13 +1,13 @@
 import { Plus, X, Code } from 'lucide-react';
 import { useState } from 'react';
 
+import { parseJsonArray } from '../utils/parseJsonArray';
 import { Alert } from './ui/Alert';
 import { Badge } from './ui/Badge';
 import { Button } from './ui/Button';
 import { Card } from './ui/Card';
 import { Input } from './ui/Input';
 import { NativeSelect } from './ui/NativeSelect';
-import { parseJsonArray } from '../utils/parseJsonArray';
 
 interface PermissionsPolicyItem {
   feature: string;

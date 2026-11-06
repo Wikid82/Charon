@@ -1,7 +1,7 @@
 import * as React from 'react'
 
-import { Button, type ButtonProps } from './Button'
 import { cn } from '../../utils/cn'
+import { Button, type ButtonProps } from './Button'
 
 export interface EmptyStateAction {
   label: string

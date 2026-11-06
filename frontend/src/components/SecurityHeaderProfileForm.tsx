@@ -1,6 +1,7 @@
 import { AlertTriangle, Save, X } from 'lucide-react';
 import { useState, useEffect, useId } from 'react';
 
+import { useCalculateSecurityScore } from '../hooks/useSecurityHeaders';
 import { CSPBuilder } from './CSPBuilder';
 import { PermissionsPolicyBuilder } from './PermissionsPolicyBuilder';
 import { SecurityScoreDisplay } from './SecurityScoreDisplay';
@@ -11,7 +12,6 @@ import { Input } from './ui/Input';
 import { NativeSelect } from './ui/NativeSelect';
 import { Switch } from './ui/Switch';
 import { Textarea } from './ui/Textarea';
-import { useCalculateSecurityScore } from '../hooks/useSecurityHeaders';
 
 import type { SecurityHeaderProfile, CreateProfileRequest } from '../api/securityHeaders';
 

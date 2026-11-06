@@ -2,12 +2,12 @@ import { AlertTriangle, Info, ShieldCheck } from 'lucide-react'
 import { useId } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { LOGIN_PROTECTION_DOCS_URL, TRUSTED_PROXIES_DOCS_URL } from '../constants/docs'
+import { useLoginProtectionStatus } from '../hooks/useSecurity'
 import { Alert } from './ui/Alert'
 import { Badge } from './ui/Badge'
 import { Card } from './ui/Card'
 import { Skeleton } from './ui/Skeleton'
-import { LOGIN_PROTECTION_DOCS_URL, TRUSTED_PROXIES_DOCS_URL } from '../constants/docs'
-import { useLoginProtectionStatus } from '../hooks/useSecurity'
 
 import type {
   AddrScope,

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback, type ReactNode } from 'react'
 
+import { useUserThemes } from '../hooks/useUserThemes'
 import {
   ThemeContext,
   type ThemeId,
@@ -13,7 +14,6 @@ import {
   THEME_STORAGE_KEY,
   CUSTOM_THEME_STORAGE_KEY,
 } from './ThemeContextValue'
-import { useUserThemes } from '../hooks/useUserThemes'
 
 // Resolves 'system' to a concrete data-theme value
 function resolveSystemTheme(): DataThemeValue {
