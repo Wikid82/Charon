@@ -205,9 +205,9 @@ ARG CADDY_DNS_DNSIMPLE_GO_VERSION=10.0.0
 
 # Patch known CVEs in Alpine's SQLite and SQLite-libs packages when fix is published upstream. 
 # CVE-2026-119591, CVE-2026-119372, CVE-2026-119378, CVE-2026-119375, CVE-2026-119371, CVE-2026-119376, CVE-2026-119377
-# Renovate tracking requires a matching rule for repology
-# renovate: datasource=repology depName=alpine_3_24/sqlite
-ARG SQLITE_VERSION=3.53.4-r0
+# Renovate tracking requires a matching rule for apk
+# renovate: datasource=apk depName=sqlite
+ARG SQLITE_VERSION=3.54.1-r0
 
 # ---- Cross-Compilation Helpers ----
 # renovate: datasource=docker depName=tonistiigi/xx
@@ -985,18 +985,19 @@ WORKDIR /app
 #
 # libxml2 carries open CVEs with no upstream fix as of 2.13.9-r2. It is declared as a
 # minimum-version floor (`>=`) so builds always pull the newest Alpine package, and the
-# floor itself is bumped by Renovate (repology) the moment a patched release is published.
-# renovate: datasource=repology depName=alpine_3_24/libxml2 versioning=loose
+# floor itself is bumped by Renovate (apk) the moment a patched release is published.
+# renovate: datasource=apk depName=libxml2 versioning=loose
 ARG LIBXML2_VERSION=2.13.9-r2
 #
 # zlib is pinned to an exact version so the image never silently keeps an older vulnerable
 # build from the base layer (`apk upgrade` alone left Aikido flagging it).
-ARG ZLIB_VERSION=1.3.2-r1
+# renovate: datasource=apk depName=zlib versioning=loose
+ARG ZLIB_VERSION=1.4-r0
 #
 # ca-certificates is a minimum-version floor so the image always carries a Mozilla bundle that
 # distrusts the compromised eMudhra intermediates' roots (Oct 2026) even when the base image
-# layer is stale; Renovate (repology) raises the floor as newer bundles ship.
-# renovate: datasource=repology depName=alpine_3_24/ca-certificates versioning=loose
+# layer is stale; Renovate (apk) raises the floor as newer bundles ship.
+# renovate: datasource=apk depName=ca-certificates versioning=loose
 ARG CA_CERTIFICATES_VERSION=20261020-r0
 # hadolint ignore=DL3018
 
