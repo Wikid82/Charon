@@ -7,7 +7,7 @@
     "e2e:headed": "PLAYWRIGHT_COVERAGE=0 PLAYWRIGHT_BASE_URL=http://127.0.0.1:8080 PLAYWRIGHT_SKIP_SECURITY_DEPS=1 npx playwright test --project=firefox --headed",
     "e2e:ui:headless-server": "bash ./scripts/run-e2e-ui.sh",
     "e2e:report": "npx playwright show-report",
-    "lint:e2e": "eslint tests --max-warnings 1625",
+    "lint:e2e": "eslint tests --max-warnings 124",
     "lint:md": "markdownlint-cli2 '**/*.md' '#node_modules/**' '#.venv/**' '#test-results/**' '#codeql-db/**' '#codeql-agent-results/**'",
     "lint:md:fix": "markdownlint-cli2 --fix '**/*.md' '#node_modules/**' '#.venv/**' '#test-results/**' '#codeql-db/**' '#codeql-agent-results/**'"
   },
@@ -24,6 +24,7 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.14.0",
     "@bgotink/playwright-coverage": "^0.3.2",
+    "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.65.0",
     "@types/eslint-plugin-jsx-a11y": "6.10.0",
     "@types/node": "^26.6.6",
@@ -32,15 +33,12 @@
     "dotenv": "^18.0.9",
     "eslint": "^10.14.0",
     "eslint-plugin-playwright": "^2.12.2",
-    "eslint-plugin-playwright": "^2.12.2",
     "lefthook": "^2.2.2",
     "markdownlint-cli2": "^0.24.0",
     "playwright": "^1.65.0",
     "prettier": "^3.9.10",
     "prettier-plugin-tailwindcss": "^0.8.1",
     "tar": "^7.5.22",
-    "typescript": "npm:@typescript/typescript6@^6.0.2",
-    "typescript-eslint": "^8.72.1"
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "typescript-eslint": "^8.72.1"
   }

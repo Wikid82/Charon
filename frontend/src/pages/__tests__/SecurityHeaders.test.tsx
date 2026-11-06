@@ -740,7 +740,7 @@ describe('SecurityHeaders', () => {
     const openBtn = screen.getAllByRole('button', { name: /Create Profile/i })[0];
     fireEvent.click(openBtn);
 
-    await screen.findByText(/Create Security Header Profile/i)
+    await screen.findByText(/Create Security Header Profile/i);
 
     // Fill required fields to enable submit
     const nameInput = screen.getByPlaceholderText(/e.g., Production Security Headers/i);
