@@ -735,6 +735,81 @@ jobs:
             echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
             echo "✅ arm64 build complete. Digest: ${DIGEST}"
 
+  # Smoke-tests the amd64 image that build-amd64 already pushed, pinned by digest, BEFORE
+  # merge-and-publish moves any user-facing tag (docs/plans/current_spec.md §4.7). A failed
+  # check blocks the publish, so a broken What's New changelog cannot reach users.
+  # ACCEPTED RISK: arm64 is not smoke-tested. It is built from the same source and embeds
+  # the same changelog data, and a QEMU start would add several minutes per run.
+  smoke-whats-new:
+    needs: [setup, build-amd64]
+    # An explicit job-level `if:` REPLACES the implicit "all needs succeeded" check, so
+    # the setup/build results and skip_build are spelled out here. Fork PRs are skipped:
+    # their token cannot push or pull the same-repo build (the head repo differs).
+    if: needs.setup.result == 'success' && needs.build-amd64.result == 'success' && needs.setup.outputs.skip_build != 'true' && !(github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ env.TRIGGER_HEAD_SHA }}
+
+      - name: Log in to GitHub Container Registry
+        uses: step-security/docker-login-action@8c7b695d8738c5699a679ff5254baf0f19f20a94 # v4.6.0
+        with:
+          registry: ${{ env.GHCR_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Smoke test What's New on the built amd64 image
+        env:
+          IMAGE_DIGEST: ${{ needs.build-amd64.outputs.digest }}
+          IS_RELEASE: ${{ needs.setup.outputs.is_release }}
+          RELEASE_VERSION: ${{ needs.setup.outputs.release_version }}
+          # The VERSION build-arg build-amd64 received. The image carries exactly this string.
+          BUILD_VERSION: ${{ needs.setup.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::build-amd64 digest is missing or malformed: '${IMAGE_DIGEST}'"
+            exit 1
+          fi
+
+          # Only the strict SemVer form (the version package's canonical grammar) gets a
+          # versioned build. Unversioned builds (dev, pr-N, branch tags, nightly-<sha>) keep
+          # the What's New modal hidden for an unseeded user.
+          readonly SEMVER_RE='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(-[0-9A-Za-z.-]+)?(\+[0-9A-Za-z.-]+)?$'
+
+          if [[ "${IS_RELEASE}" == "true" ]]; then
+            EXPECT_VERSION="${RELEASE_VERSION}"
+            SMOKE_ARGS=(--expect-newest "${RELEASE_VERSION}" --expect-min-entries 100)
+          else
+            EXPECT_VERSION="${BUILD_VERSION}"
+            SMOKE_ARGS=(--expect-min-entries 100)
+          fi
+
+          if [[ "${EXPECT_VERSION}" =~ ${SEMVER_RE} ]]; then
+            SMOKE_ARGS+=(--expect-status-for-unseeded shown)
+          else
+            SMOKE_ARGS+=(--expect-status-for-unseeded hidden)
+          fi
+
+          echo "Smoke expectations: version=${EXPECT_VERSION} args=${SMOKE_ARGS[*]}"
+          bash scripts/ci/smoke-whats-new.sh \
+            --image "${GHCR_REGISTRY}/${IMAGE_NAME}@${IMAGE_DIGEST}" \
+            --expect-version-exact "${EXPECT_VERSION}" \
+            "${SMOKE_ARGS[@]}"
+
   # Composes the two independently-built per-platform digests into one multi-platform
   # manifest list (twice — once per registry, since `imagetools create` requires source
   # and target to live in the same registry), then performs everything the old combined
@@ -742,11 +817,13 @@ jobs:
   # Trivy scan, SBOM generation+attestation, Cosign signing (of the merged digest), and
   # the step summary.
   merge-and-publish:
-    needs: [setup, build-amd64, build-arm64]
+    needs: [setup, build-amd64, build-arm64, smoke-whats-new]
     # Requires BOTH platform builds to have succeeded — otherwise a failed arm64 build
     # (for example) would not prevent this job from attempting to merge a nonexistent
     # arm64 digest into the manifest list.
-    if: needs.setup.result == 'success' && needs.build-amd64.result == 'success' && needs.build-arm64.result == 'success' && needs.setup.outputs.skip_build != 'true'
+    # Requires the What's New smoke test to pass before any user-facing tag is published.
+    # `skipped` is accepted only for fork PRs, where smoke-whats-new is deliberately skipped.
+    if: needs.setup.result == 'success' && needs.build-amd64.result == 'success' && needs.build-arm64.result == 'success' && (needs.smoke-whats-new.result == 'success' || (needs.smoke-whats-new.result == 'skipped' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository)) && needs.setup.outputs.skip_build != 'true'
     env:
       HAS_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
     runs-on: ubuntu-latest
