@@ -115,6 +115,13 @@ If the head is already the bot's own `chore(docker): sync toolchain image pin`
 commit and the pin is still stale, the job fails instead of pushing again. Bot
 digest-bump PRs (`bot/bump-toolchain-image*`) are skipped by `sync-pin-on-pr`.
 
+**Stale-run guard:** the key and digest are computed for the commit the run
+built, but the sync job checks out the branch *tip*. If a newer commit landed
+while the build was running, the job logs a notice and exits without pushing; the
+run for the newer head owns the pin. Without this, a slow run for an old head
+could stamp its stale key onto the new tip, which the loop guard above would then
+refuse to repair.
+
 ## One-time bootstrap notes
 
 - The GHCR package `charon-toolchain` is created on the first publish and is
