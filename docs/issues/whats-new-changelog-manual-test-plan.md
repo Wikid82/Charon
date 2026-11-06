@@ -208,20 +208,67 @@ keeping their data. Use a new volume for each run and delete it afterwards.
    - [ ] **C** sees exactly 3 entries, newest first.
    - [ ] After **"Got It, Thanks"**, B and C see no popup on the next two logins.
 
-7. Downgrade check. Stop the new container and start an older image on the
-   same volume, for example the stable image. Then read the stored versions:
+7. Downgrade check. This proves that an older image never lowers a stored
+   version. Keep the same `DOCKER_HOST` from Prerequisites, if you set one.
 
-   ```bash
-   docker exec qa-wn-1234-old sqlite3 /app/data/charon.db \
-     "SELECT email, last_seen_version FROM users;"
-   ```
+   a. While the image under test is still running, write down the stored
+      versions:
 
-   - [ ] Stored versions do not move backwards. The newer value stays.
+      ```bash
+      docker exec qa-wn-1234-new sqlite3 /app/data/charon.db \
+        "SELECT email, last_seen_version FROM users;"
+      ```
+
+   b. Stop that container. Keep it for now, so step 8 can remove it:
+
+      ```bash
+      docker stop qa-wn-1234-new
+      ```
+
+   c. Start an older image on the same volume. It must report a lower version
+      than the image under test. Check with
+      `curl -s http://127.0.0.1:18080/api/v1/health` and look at the `version`
+      field. The stable image is used in this example:
+
+      ```bash
+      docker run -d --name qa-wn-1234-downgrade -p 127.0.0.1:18080:8080 \
+        -v qa-wn-1234-data:/app/data ghcr.io/wikid82/charon:latest
+      ```
+
+   d. Sign in as **B** through the API, then dismiss the popup permanently. The
+      popup stays hidden on the older image, so the browser cannot send this
+      request. Use the same endpoints as the CI smoke check
+      (`scripts/ci/smoke-whats-new.sh`):
+
+      ```bash
+      TOKEN=$(curl -sS -X POST http://127.0.0.1:18080/api/v1/auth/login \
+        -H 'Content-Type: application/json' \
+        -d '{"email":"<B email>","password":"<B password>"}' | jq -r '.token')
+
+      curl -sS -o /dev/null -w '%{http_code}\n' -X POST \
+        http://127.0.0.1:18080/api/v1/changelog/ack \
+        -H "Authorization: Bearer $TOKEN" \
+        -H 'Content-Type: application/json' \
+        -d '{"action":"dismiss_permanent"}'
+      ```
+
+      The last line must print a `2xx` code, such as `200`.
+
+   e. Read the stored versions from the older container:
+
+      ```bash
+      docker exec qa-wn-1234-downgrade sqlite3 /app/data/charon.db \
+        "SELECT email, last_seen_version FROM users;"
+      ```
+
+   - [ ] **B**'s `last_seen_version` is the same as, or higher than, the value
+         you wrote down in step a. It must not go lower.
+   - [ ] No other user's value went lower either.
 
 8. Clean up. Remove the containers and the volume you created:
 
    ```bash
-   docker rm -f qa-wn-1234-new qa-wn-1234-old
+   docker rm -f qa-wn-1234-new qa-wn-1234-downgrade
    docker volume rm qa-wn-1234-data
    ```
 
