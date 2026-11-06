@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-bce5079da99f35d0
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:2d9fddbd31beee92dea226cd3061d3f5f8a52d152c0a18cae22b28400ce9e989
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-d81a5a8c75da92cc
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:7f0d931cc9f220881e9058eb8023254a9fd14f32c7af5566db344f41a55df505
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -34,7 +34,7 @@ ARG CROWDSEC_BUILDER_SRC=toolchain-prebuilt
 ARG GO_VERSION=1.27.3
 
 # renovate: datasource=docker depName=alpine versioning=docker
-ARG ALPINE_IMAGE=alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
+ARG ALPINE_IMAGE=alpine:3.24.4@sha256:e2944c2947c8cabdd6b23a2ebcf8094a9f3d53ca9e0340edd065237ab74c18c0
 
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
