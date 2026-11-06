@@ -85,7 +85,7 @@ func TestGetEntriesSince_CapAndCeiling(t *testing.T) {
 			want:     []string{},
 		},
 		{
-			name:     "unversioned build has no ceiling and still caps at three",
+			name:     "unversioned build has no ceiling and returns all entries newer than lastSeen",
 			current:  "dev",
 			lastSeen: "0.44.0",
 			entries:  history,

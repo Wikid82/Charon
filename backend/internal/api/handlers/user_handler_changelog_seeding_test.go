@@ -224,12 +224,11 @@ func TestSeedLastSeenVersion(t *testing.T) {
 	assert.Equal(t, "9.9.9", seedLastSeenVersion())
 }
 
-// TestSeedLastSeenVersion_NonSemverVersion covers the CI-produced version
-// strings that aren't literally "dev" but also aren't strict SemVer —
-// e.g. nightly-build.yml/docker-build.yml tag distributable images as
-// "nightly-<git-sha>". seedLastSeenVersion must skip seeding for these
-// (via version.IsUnversioned); otherwise a user created while running a
-// nightly image would get an invalid, non-empty LastSeenVersion that
+// TestSeedLastSeenVersion_NonSemverVersion covers version strings that
+// aren't literally "dev" but also aren't strict SemVer, including the legacy
+// "nightly-<git-sha>" format. seedLastSeenVersion must skip seeding for these
+// (via version.IsUnversioned); otherwise a user created while running such a
+// build would get an invalid, non-empty LastSeenVersion that
 // permanently blocks them from seeing the changelog once the deployment
 // upgrades to a real tagged release (see
 // changelog.Service.GetEntriesSince's unversioned-lastSeen guard).

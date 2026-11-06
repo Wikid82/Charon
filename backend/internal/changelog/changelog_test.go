@@ -110,11 +110,9 @@ func TestIsDevBuild_FalseForRealPrereleaseVersion(t *testing.T) {
 	assert.False(t, svc.IsDevBuild())
 }
 
-// TestIsDevBuild_TrueForNonSemverVersion covers the CI-produced version
-// strings that aren't literally "dev" but also aren't valid semver:
-// nightly-build.yml and docker-build.yml tag distributable images with
-// VERSION=nightly-<git-sha> or branch-derived docker/metadata-action
-// values. semver.Compare treats any invalid string as always "less than"
+// TestIsDevBuild_TrueForNonSemverVersion covers version strings that aren't
+// literally "dev" but also aren't valid SemVer, including the legacy
+// nightly-<sha> format kept as a regression guard. semver.Compare treats any invalid string as always "less than"
 // a valid one, so without this guard a user seeded with one of these as
 // LastSeenVersion would see the entire changelog history on every login,
 // forever (see GetEntriesSince_InvalidLastSeen_ReturnsEmpty for the

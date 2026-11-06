@@ -49,6 +49,11 @@ func TestCanonical(t *testing.T) {
 		{name: "four components", in: "1.2.3.4", want: "", wantOK: false},
 		{name: "dangling prerelease separator", in: "1.2.3-", want: "", wantOK: false},
 		{name: "empty build metadata", in: "1.2.3+", want: "", wantOK: false},
+		{name: "numeric prerelease leading zero", in: "1.2.3-01", want: "", wantOK: false},
+		{name: "numeric prerelease zero", in: "1.2.3-0", want: "1.2.3-0", wantOK: true},
+		{name: "rc prerelease", in: "1.2.3-rc.1", want: "1.2.3-rc.1", wantOK: true},
+		{name: "alphanumeric prerelease starting with zero", in: "1.2.3-0a", want: "1.2.3-0a", wantOK: true},
+		{name: "prerelease with metadata stripped", in: "1.2.3-0a+build.1", want: "1.2.3-0a", wantOK: true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -75,6 +80,8 @@ func TestIsUnversioned(t *testing.T) {
 		{in: "1", want: true},
 		{in: "1.2", want: true},
 		{in: "nightly-a1b2c3d", want: true},
+		{in: "1.2.3-01", want: true},
+		{in: "1.2.3-0", want: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.in, func(t *testing.T) {

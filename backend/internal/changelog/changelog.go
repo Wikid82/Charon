@@ -105,11 +105,9 @@ func (s *Service) CurrentVersion() string { return s.currentVersion }
 
 // IsDevBuild reports whether the effective current version is unsuitable
 // as a changelog "since" comparison anchor: the unversioned "dev"
-// sentinel (version.Version's default), or any string that is not strict
-// SemVer. The latter covers real CI-produced distributable builds that
-// are non-"dev" but non-semver, e.g. nightly-build.yml/docker-build.yml
-// tag images as "nightly-<git-sha>" or a branch-derived
-// docker/metadata-action value. Seeding a user with one of those would
+// sentinel (version.Version's default), or any other non-SemVer string
+// (including the legacy nightly-<sha> format). Such values can come from
+// distributable builds that are non-"dev" but non-semver. Seeding a user with one of those would
 // leave them with an incomparable LastSeenVersion that could never be
 // dismissed. The check itself lives in version.IsUnversioned, the single
 // shared authority; callers (the /changelog/status handler) must gate
