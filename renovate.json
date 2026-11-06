@@ -131,7 +131,7 @@
         "/^Dockerfile$/"
       ],
       "matchStrings": [
-        "#\\s*renovate:\\s*datasource=docker\\s+depName=golang.*\\nARG GO_VERSION=(?<currentValue>[^\\s]+)"
+        "#\\s*renovate:\\s*datasource=docker\\s+depName=golang.*\\nARG GOLANG_IMAGE=golang:(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"
       ],
       "depNameTemplate": "golang",
       "datasourceTemplate": "docker",
@@ -280,19 +280,6 @@
       "depNameTemplate": "node",
       "datasourceTemplate": "node-version",
       "versioningTemplate": "node"
-    },
-    {
-      "customType": "regex",
-      "description": "Track GO_VERSION in Actions workflows",
-      "managerFilePatterns": [
-        "/^\\.github/workflows/.*\\.yml$/"
-      ],
-      "matchStrings": [
-        "GO_VERSION: ['\"]?(?<currentValue>[\\d\\.]+)['\"]?"
-      ],
-      "depNameTemplate": "golang/go",
-      "datasourceTemplate": "golang-version",
-      "versioningTemplate": "semver"
     },
     {
       "customType": "regex",

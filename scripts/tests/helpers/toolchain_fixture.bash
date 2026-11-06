@@ -49,7 +49,7 @@ tf_write_dockerfile() {
 
   cat > "$TF_DF" <<EOF
 # syntax=docker/dockerfile:1
-ARG GO_VERSION=1.27.3
+ARG GOLANG_IMAGE=golang:1.27.3-alpine@${golang_digest}
 ARG ALPINE_IMAGE=${alpine_image}
 ARG CROWDSEC_VERSION=1.8.1
 ARG EXPR_LANG_VERSION=1.17.8
@@ -72,7 +72,7 @@ ARG CHARON_TOOLCHAIN_DIGEST=sha256:000000000000000000000000000000000000000000000
 FROM --platform=\$BUILDPLATFORM ${xx_pin} AS xx
 
 # renovate: datasource=docker depName=golang
-FROM --platform=\$BUILDPLATFORM golang:\${GO_VERSION}-alpine@${golang_digest} AS caddy-inline
+FROM --platform=\$BUILDPLATFORM \${GOLANG_IMAGE} AS caddy-inline
 ARG CADDY_VERSION
 ARG CADDY_SECURITY_VERSION
 ARG CORAZA_CADDY_VERSION
@@ -98,7 +98,7 @@ ${caddy_get_line}
     test -x /usr/bin/caddy'
 
 # renovate: datasource=docker depName=golang
-FROM --platform=\$BUILDPLATFORM golang:\${GO_VERSION}-alpine@${golang_digest} AS crowdsec-inline
+FROM --platform=\$BUILDPLATFORM \${GOLANG_IMAGE} AS crowdsec-inline
 COPY --from=xx / /
 WORKDIR /tmp/crowdsec
 ARG CROWDSEC_VERSION
