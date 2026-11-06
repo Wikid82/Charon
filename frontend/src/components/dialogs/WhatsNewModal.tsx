@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { useAuth } from '../../hooks/useAuth'
@@ -15,9 +15,21 @@ import {
 import { Label } from '../ui/Label'
 
 import type { ChangelogAckAction, ChangelogEntry } from '../../api/changelog'
-import type { TFunction } from 'i18next'
 
 const GITHUB_COMMIT_URL = 'https://github.com/Wikid82/Charon/commit/'
+
+/** Commit shas are lowercase hex from `git log`; anything else gets no link (F17). */
+const COMMIT_SHA_PATTERN = /^[0-9a-f]{7,40}$/
+
+/** Browse mode renders the newest versions first and reveals this many more per "Show older releases" click (F20). */
+const BROWSE_PAGE_SIZE = 10
+
+/** Decorative icon shown before each group heading. It is `aria-hidden` so screen readers skip it (F21). */
+const SECTION_ICONS = {
+  features: '✨',
+  fixes: '🐛',
+  security: '🔒',
+} as const
 
 /**
  * Props for {@link WhatsNewModal}.
@@ -36,12 +48,30 @@ export type WhatsNewModalProps =
   | { mode: 'status' }
   | { mode: 'browse'; open: boolean; onClose: () => void }
 
-interface ChangelogEntrySectionProps {
-  entry: ChangelogEntry
-  t: TFunction
+/** True when a commit sha is safe to place in a GitHub commit URL. */
+function isCommitSha(sha: string): boolean {
+  return COMMIT_SHA_PATTERN.test(sha)
 }
 
-function ChangelogEntrySection({ entry, t }: ChangelogEntrySectionProps) {
+interface SectionHeadingProps {
+  icon: string
+  label: string
+}
+
+function SectionHeading({ icon, label }: SectionHeadingProps) {
+  return (
+    <h4 className="mb-1 text-sm font-medium text-content-secondary">
+      <span aria-hidden="true">{icon}</span> {label}
+    </h4>
+  )
+}
+
+interface ChangelogEntrySectionProps {
+  entry: ChangelogEntry
+}
+
+function ChangelogEntrySection({ entry }: ChangelogEntrySectionProps) {
+  const { t } = useTranslation()
   // Defensive hardening: the four group fields are typed as nullable (see
   // `ChangelogEntry` in `api/changelog.ts`) because the backend can
   // legitimately serialize a nil slice as JSON `null`, and hand-edited local
@@ -63,12 +93,11 @@ function ChangelogEntrySection({ entry, t }: ChangelogEntrySectionProps) {
 
       {features.length > 0 && (
         <div>
-          <h4 className="mb-1 text-sm font-medium text-content-secondary">
-            {t('whatsNew.newFeatures')}
-          </h4>
+          <SectionHeading icon={SECTION_ICONS.features} label={t('whatsNew.newFeatures')} />
           <ul className="list-inside list-disc space-y-1 text-sm text-content-primary">
-            {features.map((feature) => (
-              <li key={feature}>{feature}</li>
+            {/* Index-prefixed: the same text can legitimately repeat across versions' lists (F18). */}
+            {features.map((feature, index) => (
+              <li key={`${index}-${feature}`}>{feature}</li>
             ))}
           </ul>
         </div>
@@ -76,10 +105,10 @@ function ChangelogEntrySection({ entry, t }: ChangelogEntrySectionProps) {
 
       {fixes.length > 0 && (
         <div>
-          <h4 className="mb-1 text-sm font-medium text-content-secondary">{t('whatsNew.fixes')}</h4>
+          <SectionHeading icon={SECTION_ICONS.fixes} label={t('whatsNew.fixes')} />
           <ul className="list-inside list-disc space-y-1 text-sm text-content-primary">
-            {fixes.map((fix) => (
-              <li key={fix}>{fix}</li>
+            {fixes.map((fix, index) => (
+              <li key={`${index}-${fix}`}>{fix}</li>
             ))}
           </ul>
         </div>
@@ -87,21 +116,24 @@ function ChangelogEntrySection({ entry, t }: ChangelogEntrySectionProps) {
 
       {security.length > 0 && (
         <div>
-          <h4 className="mb-1 text-sm font-medium text-content-secondary">
-            {t('whatsNew.security')}
-          </h4>
+          <SectionHeading icon={SECTION_ICONS.security} label={t('whatsNew.security')} />
           <ul className="list-inside list-disc space-y-1 text-sm text-content-primary">
-            {security.map((item) => (
-              <li key={item.sha}>
-                {item.summary}{' '}
-                <a
-                  href={`${GITHUB_COMMIT_URL}${item.sha}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-sm font-normal text-content-secondary underline"
-                >
-                  {t('whatsNew.viewCommit')}
-                </a>
+            {security.map((item, index) => (
+              <li key={`${item.sha}-${index}`}>
+                {item.summary}
+                {isCommitSha(item.sha) && (
+                  <>
+                    {' '}
+                    <a
+                      href={`${GITHUB_COMMIT_URL}${item.sha}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-sm font-normal text-content-secondary underline"
+                    >
+                      {t('whatsNew.viewCommit')}
+                    </a>
+                  </>
+                )}
               </li>
             ))}
           </ul>
@@ -114,13 +146,69 @@ function ChangelogEntrySection({ entry, t }: ChangelogEntrySectionProps) {
             {t('whatsNew.showMaintenanceDetails')}
           </summary>
           <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-content-secondary">
-            {other.map((item) => (
-              <li key={item}>{item}</li>
+            {other.map((item, index) => (
+              <li key={`${index}-${item}`}>{item}</li>
             ))}
           </ul>
         </details>
       )}
     </section>
+  )
+}
+
+/**
+ * The voluntary "revisit changelog" dialog. Mounted only while open, so its
+ * paging state resets every time it is reopened.
+ */
+function BrowseChangelogDialog({ onClose }: { onClose: () => void }) {
+  const { t } = useTranslation()
+  const allQuery = useChangelogAll(true)
+  const [visibleCount, setVisibleCount] = useState(BROWSE_PAGE_SIZE)
+  const entries = allQuery.data?.versions ?? []
+
+  let content: ReactNode
+  if (allQuery.isLoading) {
+    content = <p role="status" className="text-sm text-content-muted">{t('common.loading')}</p>
+  } else if (allQuery.isError) {
+    content = <p role="alert" className="text-sm text-error">{t('whatsNew.loadError')}</p>
+  } else if (entries.length === 0) {
+    content = <p className="text-sm text-content-muted">{t('whatsNew.empty')}</p>
+  } else {
+    content = (
+      <>
+        {entries.slice(0, visibleCount).map((entry) => (
+          <ChangelogEntrySection key={entry.version} entry={entry} />
+        ))}
+        {entries.length > visibleCount && (
+          <div className="flex justify-center">
+            <Button
+              variant="secondary"
+              onClick={() => setVisibleCount((count) => count + BROWSE_PAGE_SIZE)}
+            >
+              {t('whatsNew.showOlder')}
+            </Button>
+          </div>
+        )}
+      </>
+    )
+  }
+
+  return (
+    <Dialog open onOpenChange={(nextOpen) => { if (!nextOpen) onClose() }}>
+      <DialogContent className="max-h-[85vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{t('whatsNew.title')}</DialogTitle>
+        </DialogHeader>
+
+        <div className="space-y-6 px-6">{content}</div>
+
+        <DialogFooter>
+          <Button variant="secondary" onClick={onClose}>
+            {t('whatsNew.closeButton')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   )
 }
 
@@ -158,39 +246,11 @@ export default function WhatsNewModal(props: WhatsNewModalProps) {
   // further down), so it's grabbed here alongside the other hooks.
   const { refetchUser } = useAuth()
 
-  const isBrowse = props.mode === 'browse'
-  const browseOpen = isBrowse && props.open
-
   // Hooks must run unconditionally on every render regardless of mode.
   const statusQuery = useChangelogStatus()
-  const allQuery = useChangelogAll(browseOpen)
 
-  if (isBrowse) {
-    if (!props.open) return null
-
-    const entries = allQuery.data?.versions ?? []
-
-    return (
-      <Dialog open={props.open} onOpenChange={(nextOpen) => { if (!nextOpen) props.onClose() }}>
-        <DialogContent className="max-h-[85vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{t('whatsNew.title')}</DialogTitle>
-          </DialogHeader>
-
-          <div className="space-y-6 px-6">
-            {entries.map((entry) => (
-              <ChangelogEntrySection key={entry.version} entry={entry} t={t} />
-            ))}
-          </div>
-
-          <DialogFooter>
-            <Button variant="secondary" onClick={props.onClose}>
-              {t('whatsNew.closeButton')}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    )
+  if (props.mode === 'browse') {
+    return props.open ? <BrowseChangelogDialog onClose={props.onClose} /> : null
   }
 
   // status mode: self-gated, non-blocking. No toast on fetch failure — a
@@ -231,7 +291,7 @@ export default function WhatsNewModal(props: WhatsNewModalProps) {
 
         <div className="space-y-6 px-6">
           {entries.map((entry) => (
-            <ChangelogEntrySection key={entry.version} entry={entry} t={t} />
+            <ChangelogEntrySection key={entry.version} entry={entry} />
           ))}
         </div>
 

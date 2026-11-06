@@ -2400,9 +2400,9 @@
   },
   "whatsNew": {
     "title": "What's New",
-    "newFeatures": "✨ New Features",
-    "fixes": "🐛 Fixes",
-    "security": "🔒 Security",
+    "newFeatures": "New Features",
+    "fixes": "Fixes",
+    "security": "Security",
     "viewCommit": "view commit",
     "showMaintenanceDetails": "Show maintenance details",
     "remindLater": "Remind Me Next Time",

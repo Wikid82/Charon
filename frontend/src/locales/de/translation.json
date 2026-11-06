@@ -2486,9 +2486,9 @@
   },
   "whatsNew": {
     "title": "Neuigkeiten",
-    "newFeatures": "✨ Neue Funktionen",
-    "fixes": "🐛 Fehlerbehebungen",
-    "security": "🔒 Sicherheit",
+    "newFeatures": "Neue Funktionen",
+    "fixes": "Fehlerbehebungen",
+    "security": "Sicherheit",
     "viewCommit": "Commit ansehen",
     "showMaintenanceDetails": "Wartungsdetails anzeigen",
     "remindLater": "Später erinnern",

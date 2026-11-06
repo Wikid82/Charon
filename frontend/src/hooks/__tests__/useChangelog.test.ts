@@ -4,6 +4,7 @@ import { createElement, type ReactNode } from 'react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import * as changelogApi from '../../api/changelog';
+import enTranslation from '../../locales/en/translation.json';
 import {
   useChangelogStatus,
   useChangelogAll,
@@ -163,7 +164,7 @@ describe('useChangelog hooks', () => {
 
       await waitFor(() => expect(result.current.isError).toBe(true));
 
-      expect(toast.toast.error).toHaveBeenCalledWith('Failed to update changelog preferences');
+      expect(toast.toast.error).toHaveBeenCalledWith(enTranslation.whatsNew.ackError);
     });
   });
 
@@ -196,7 +197,7 @@ describe('useChangelog hooks', () => {
 
       await waitFor(() => expect(result.current.isError).toBe(true));
 
-      expect(toast.toast.error).toHaveBeenCalledWith('Failed to re-enable update notifications');
+      expect(toast.toast.error).toHaveBeenCalledWith(enTranslation.whatsNew.optInError);
     });
   });
 });
