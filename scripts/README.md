@@ -43,6 +43,34 @@ Or use the VS Code task: `Ctrl+Shift+P` → `Tasks: Run Task` → `Coraza: Run I
 - **Go Test Coverage**: `bash ./scripts/go-test-coverage.sh`
 - **Frontend Test Coverage**: `bash ./scripts/frontend-test-coverage.sh`
 
+## What's New and Build Version Scripts (CI)
+
+These scripts make the image build decide the What's New data and the version
+label. CI runs them; you can run them by hand to check a change before pushing.
+Every script prints its usage with `--help`, and its exit codes are listed in
+the header comment at the top of the file.
+
+| Script | Used by | What it does |
+| --- | --- | --- |
+| `generate-changelog.sh` | `docker-build.yml` (setup), `nightly-build.yml` | Writes `backend/internal/changelog/data/changelog.json` from git history. `--current-version X.Y.Z` adds the release being built. `--require-entries` fails when there are no entries. |
+| `ci/check-changelog-data.sh` | Both image builds, and the quality checks | Fails when the data file is missing, malformed, has merge-commit subjects, or (with `--expect-newest`) does not have the expected newest release. |
+| `ci/detect-release-commit.sh` | `docker-build.yml` (setup) | Decides whether the commit is a release commit (on `main`, manifest version went up). Prints `is_release` and `version`. |
+| `ci/resolve-build-version.sh` | `docker-build.yml`, `nightly-build.yml`, `Makefile` | Prints the version an image reports, such as `0.46.5+pr.1234`. The channel is set with `--channel`. |
+| `ci/smoke-whats-new.sh` | `docker-build.yml` (before publishing), `nightly-build.yml` | Starts a built image on a temporary volume and checks its version, the What's New list and the new-user popup rules. Needs `docker`, `curl` and `jq`. |
+
+Shell tests for these scripts use [bats](https://github.com/bats-core/bats-core)
+and live in `scripts/tests/`. Run them and the linter from the repository root:
+
+```bash
+bats scripts/tests/generate-changelog.bats scripts/tests/check-changelog-data.bats \
+  scripts/tests/detect-release-commit.bats scripts/tests/resolve-build-version.bats \
+  scripts/tests/smoke-whats-new.bats
+shellcheck scripts/generate-changelog.sh scripts/ci/*.sh
+```
+
+The smoke script needs a running Docker daemon and a published or PR image.
+See `docs/issues/whats-new-changelog-manual-test-plan.md` for the manual steps.
+
 ## CI/CD Workflows
 
 Changes to these scripts may trigger CI workflows:

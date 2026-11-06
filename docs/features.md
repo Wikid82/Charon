@@ -401,8 +401,10 @@ Make Charon look exactly the way you want. Choose from five built-in themes — 
 Never wonder what changed after an update. The next time you log in after Charon updates, a "What's New" popup shows you exactly what's new — new features, fixes, and improvements — since you were last here.
 
 - **Automatic** — Content is generated straight from the release history, so there's never any manual changelog writing to fall behind on
+- **Nightly and development too** — Test builds show the popup as well, so you see what changed in them
+- **Short and sweet** — The popup shows at most the 3 newest releases you haven't seen yet
 - **Your call** — Don't want the popup? Turn it off anytime in Settings > Appearance
-- **Revisit anytime** — Missed it, or just want to look back? Click the "What's New" link in Settings > Appearance to reopen it whenever you like
+- **Revisit anytime** — Missed it, or just want to look back? Click the "What's New" link in Settings > Appearance to browse the full history, 10 releases at a time
 
 ---
 

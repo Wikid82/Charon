@@ -141,7 +141,7 @@ func TestSetCurrentVersion_Overrides(t *testing.T) {
 // TestGetEntriesSince_InvalidLastSeen_ReturnsEmpty is the service-level
 // (belt-and-suspenders) half of the non-semver-version defense. A stored
 // LastSeenVersion is invalid semver only if it was written while running
-// a non-semver build (nightly-<sha>, branch tags, etc.) — the
+// a non-semver build (a branch-name tag, etc.) — the
 // handler-level IsDevBuild() gate prevents that same build from ever
 // calling GetEntriesSince, but if the app is later upgraded to a real
 // semver release, that user's stale invalid LastSeenVersion must not be

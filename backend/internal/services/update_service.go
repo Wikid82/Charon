@@ -157,7 +157,7 @@ func (s *UpdateService) CheckForUpdates() (*UpdateInfo, error) {
 }
 
 // updateAvailable reports whether tag names a release strictly newer than
-// running. Unversioned running builds ("dev", "nightly-<sha>") never report an
+// running. Unversioned running builds ("dev") never report an
 // update, and neither do non-SemVer or empty tags. A leading "v" on the tag is
 // accepted; build metadata on either side is ignored.
 func updateAvailable(running, tag string) bool {

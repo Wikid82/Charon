@@ -261,7 +261,7 @@ func TestChangelogHandler_Ack_DismissPermanent_UpdatesLastSeenVersion(t *testing
 // only render when show_changelog is already true, which itself implies
 // !IsDevBuild()) by POSTing dismiss_permanent directly while the server
 // is running a non-semver build (e.g. a nightly image). Without this
-// guard, CurrentVersion() ("nightly-<sha>") would get written to
+// guard, CurrentVersion() (a non-SemVer string such as a branch name) would get written to
 // LastSeenVersion — an invalid, non-empty value that permanently blocks
 // the user from ever seeing the changelog once the deployment upgrades
 // to a real tagged release (see changelog.Service.GetEntriesSince).

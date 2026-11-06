@@ -16,7 +16,7 @@ The user explicitly overrides the usual "a high/critical fix ships as its own PR
 
 Branch: `fix/whats-new-pipeline-and-build-versions` → PR into `development`. No worktrees.
 
-Closes **#1865**, **#1866**, **#1867**. All three are folded in naturally (§6).
+Closes **#1865** and **#1867**. #1866 is closed as not planned (decision: non-release `main` builds keep reporting the manifest version; see §13).
 
 Scope owner agents:
 
@@ -238,7 +238,7 @@ path, so no private advisory candidate was identified. F16's app-wide pattern is
 | F9 | `changelog_url` rendered without validation | Low | `NotificationCenter.tsx:116` | Commit 9 |
 | C6 | Update check is a string compare, so dev and nightly falsely report an update | Medium | §2.2 | Commit 10 |
 | C8 | Backup version warning is exact-match (noise) | Low | `backup_restore_safe.go:205-209` | Commit 10 |
-| #1866 | Non-release `main` builds (promotion merges) report the previous release as if they were it | Low | `docker-build.yml:392-394` | Commit 11 (`X.Y.Z+main.<sha7>` for non-release `main` builds) |
+| #1866 | Non-release `main` builds (promotion merges) report the previous release version | Low | `docker-build.yml:392-394` | **Not planned (user decision):** `main` is the stable line, the window before the release-please merge is short, and the update check offers the real release; no label added |
 | F4 | Makefile versioned targets invalid; `docker-build-versioned` never runs (`Makefile:99` has a leading space); dead `.version`; dead `VITE_APP_VERSION` | Low | `make -n` prints "Nothing to be done" | Commit 11 |
 | F6 | Stale speculative comments in `update_service_test.go` | Low | `:35-41` etc. | Commit 10 |
 | F23 | Could a non-`main` source (a fork PR, or a branch named `main`) resolve to the `release` channel? | — | Verified in the repo: (1) The `setup` job `if:` (`docker-build.yml:96`) only admits `workflow_run` runs whose `workflow_run.head_repository.full_name == github.repository`, so a fork's `workflow_run` never runs `setup`. A same-repo `head_branch` of `main` *is* `main`. (2) The same `if:` skips `pull_request` runs whose `head_ref` is `main` or `development`. (3) `is_release` and the `release` channel additionally require `TRIGGER_EVENT != pull_request` (§4.5, §4.10), and a `workflow_run` started by a PR carries `workflow_run.event = pull_request` into `TRIGGER_EVENT` (`:65`). (4) `detect-release-commit.sh` also requires that the manifest version increased and that any existing `vX.Y.Z` tag points at HEAD | **Mitigated, closed.** No gap found. Bats tests cover the PR-event and non-`main` cases (§4.5) |
@@ -532,8 +532,10 @@ Wiring:
   | Build | Version flag | Other flags |
   | --- | --- | --- |
   | release (`is_release`) | `--expect-version-exact "$RELEASE_VERSION"` | `--expect-newest "$RELEASE_VERSION" --expect-min-entries 100 --expect-status-for-unseeded shown` |
-  | others, until Commit 11 | `--expect-version-exact "$BUILD_VERSION"` (the value `setup` already passes to the build) | `--expect-min-entries 100`. The modal stays hidden because these versions are unversioned until Commit 11 |
-  | others, after Commit 11 | `--expect-version-exact "$BUILD_VERSION"` (resolver output) | `--expect-min-entries 100 --expect-status-for-unseeded shown` |
+  | others (`main`, `development`, PR, branch) | `--expect-version-exact "$BUILD_VERSION"` (resolver output, §4.10) | `--expect-min-entries 100 --expect-status-for-unseeded shown` |
+
+  The step asserts that `BUILD_VERSION` is one of `X.Y.Z`, `X.Y.Z+dev.<sha7>`, `X.Y.Z+pr.<N>` or
+  `X.Y.Z+branch.<sha7>`. A degraded `dev` value therefore fails the gate before publish.
 
 - **`nightly-build.yml:589-622`**: replace the vacuous `/health` loop with the script against the pushed
   nightly digest, using `--expect-commit "$BUILT_SHA"`.
@@ -592,7 +594,7 @@ Backup `appVersionWarning(archive, running)`:
 
 `Valid` stays `true` in every case. Also remove the stale comments in `update_service_test.go` (F6).
 
-### 4.10 Build-version resolver (Commit 11, includes #1866 and F4)
+### 4.10 Build-version resolver (Commit 11 and F4)
 
 ```text
 scripts/ci/resolve-build-version.sh --channel <release|main|dev|nightly|pr|branch|local> [--sha S] [--pr N] [--manifest P]
@@ -601,8 +603,8 @@ scripts/ci/resolve-build-version.sh --channel <release|main|dev|nightly|pr|branc
 | Channel | Output | Selected when (`docker-build.yml`, normalized `TRIGGER_*` only) |
 | --- | --- | --- |
 | `release` | `X.Y.Z` | `is_release == true` (§4.5) |
-| `main` | `X.Y.Z+main.<sha7>` (#1866) | `TRIGGER_REF == refs/heads/main`, not a PR, not a release commit |
-| `dev` | `X.Y.Z+dev` | `TRIGGER_REF == refs/heads/development`, not a PR |
+| `main` | `X.Y.Z` (manifest version, no tags) | `TRIGGER_REF == refs/heads/main`, not a PR, not a release commit; no build metadata, because `main` is the stable line |
+| `dev` | `X.Y.Z+dev.<sha7>`, `--sha "$TRIGGER_HEAD_SHA"` | `TRIGGER_REF == refs/heads/development`, not a PR |
 | `pr` | `X.Y.Z+pr.<N>` | `TRIGGER_EVENT == pull_request` and `TRIGGER_PR_NUMBER` non-empty |
 | `branch` | `X.Y.Z+branch.<sha7>` | everything else (including `workflow_run`-of-PR with no number), `--sha "$TRIGGER_HEAD_SHA"` |
 | `nightly` | `X.Y.Z+nightly.<sha7>` | `nightly-build.yml`, `--sha` = checked-out HEAD (§4.7) |
@@ -632,8 +634,9 @@ Wiring:
 | `.dockerignore:163-177` | No change in this commit. `scripts/ci/` is excluded in Commit 5 (see §7, "Ignore files") |
 | `codecov.yml:90` | Already ignores `scripts/**`. No change |
 
-The smoke job keeps `--expect-version-exact "$BUILD_VERSION"`, but `BUILD_VERSION` is now the resolver
-output, and non-release images add `--expect-status-for-unseeded shown`.
+The smoke job uses `--expect-version-exact` with the exact string the build received. Non-release
+images use the resolver output and add `--expect-status-for-unseeded shown`. The nightly job
+(`nightly-build.yml`) uses the same flags with `X.Y.Z+nightly.<sha7>` and `--expect-commit "$BUILT_SHA"`.
 
 **Orthrus does not use the resolver.** It keeps `nightly-<sha>`, with the corrected checked-out sha from
 Commit 8. Its version is only logged (non-goal).
@@ -649,8 +652,8 @@ Every status response is capped at the newest 3 entries, at or below the running
 | Image | Embedded data | Reported version | New user | Existing user `''` | User seeded long ago (`'0.36.1'`, never acked) | Existing user `0.46.5`, new release `0.46.6` | Update check (latest `v0.46.5`) |
 | --- | --- | --- | --- | --- | --- | --- | --- |
 | Release commit on `main` (`latest`, `0.46.6`, `0.46`) | All tags plus the synthesized `0.46.6` entry | `0.46.6` | Seeded `0.46.6`, no modal | Modal: newest 3 (≤ 0.46.6); dismissal anchors `0.46.6` | Modal: **3** (`0.46.6`, `0.46.5`, `0.46.4`), not about 35 | Modal: `0.46.6` only, once | false |
-| Non-release `main` (promotion merge) | All tags (≤ base) | `0.46.5+main.<sha7>` | Seeded `0.46.5` | Newest 3 ≤ 0.46.5 | 3 | Nothing (base equals the seen version) | false |
-| `development` (`:dev`) | All tags | `0.46.5+dev` | Seeded `0.46.5` | Newest 3 ≤ 0.46.5 | 3 | Nothing | false |
+| Non-release `main` (promotion merge) | All tags (≤ base) | `0.46.5` | Seeded `0.46.5` | Newest 3 ≤ 0.46.5 | 3 | Nothing (base equals the seen version) | false |
+| `development` (`:dev`) | All tags | `0.46.5+dev.<sha7>` | Seeded `0.46.5` | Newest 3 ≤ 0.46.5 | 3 | Nothing | false |
 | PR (`pr-N`) | All tags | `0.46.5+pr.N` | Seeded `0.46.5` | Newest 3 | 3 | Nothing | false |
 | Nightly | All tags (may include `0.46.6` before the manifest propagates) | `0.46.5+nightly.<sha7>` (checked-out sha) | Seeded `0.46.5` | Newest 3 **≤ 0.46.5** (ceiling) | 3, ≤ 0.46.5 | Nothing, and no nag loop | false (true once `v0.46.6` is published) |
 | Local `go run` / E2E | `[]` / fixture | `dev` | Not seeded | Hidden (unversioned) | Hidden | Hidden | false |
@@ -666,7 +669,7 @@ Every status response is capped at the newest 3 entries, at or below the running
   intermediate deploy dump 171 entries on `''` users and about 35 on users seeded at v0.36.1.
 - High-severity items (F1/#1865, F8, F11) are all in the bug-fix block.
 - The orchestrator still needs to file **one** issue: F16's app-wide pattern (binder error leakage in other
-  handlers). #1865, #1866 and #1867 close with this PR.
+  handlers). #1865 and #1867 close with this PR.
 - The fork-PR / branch-named-`main` concern (F23) is **mitigated and closed**, with evidence. Nothing to
   file. No private advisory candidate.
 
@@ -686,7 +689,7 @@ Every status response is capped at the newest 3 entries, at or below the running
 | 8 | `fix(ci): smoke test what's new on built images before publishing and label nightlies with the built commit` (#1867) | **new** `scripts/ci/smoke-whats-new.sh` + `scripts/tests/smoke-whats-new.bats`, `docker-build.yml` (`smoke-whats-new` job on the `build-<run_id>-amd64` digest, `permissions: contents: read, packages: read`; `merge-and-publish.needs` and `if:` updated), `nightly-build.yml` (checked-out `built_sha` for Charon `:275-276` and Orthrus `:542`; smoke replaces `:589-622`), `quality-checks.yml` | 6 | shellcheck, bats; the PR run shows `smoke-whats-new` passing **before** `merge-and-publish`; QA runs the script locally against the PR image (§8) |
 | 9 | `fix: show the running version and update status in the system settings update card` | `update_service.go` (`CurrentVersion`, `releaseURL`) + test, `api/system.ts`, **new** `hooks/useSystemUpdates.ts` (with an `enabled` option) + test, `SystemSettings.tsx` (manual trigger kept), `SystemStatus.tsx`, `NotificationCenter.tsx`, their tests | — | `go test ./internal/services/ -run UpdateService`; vitest on those files; `npm run type-check`; `npx playwright test tests/security-enforcement/zzz-security-ui/system-security-settings.spec.ts --project=firefox` |
 | 10 | `feat: compare versions semantically in update checks and backup validation` | `update_service.go` + test (stale comments removed), `backup_restore_safe.go` + `backup_restore_safe_coverage_test.go` | 2, 9 | `go test ./internal/services/ -run 'UpdateService\|ValidateBackup'` |
-| 11 | `feat(ci): stamp non-release builds with the released base version` (#1866) | **new** `scripts/ci/resolve-build-version.sh` + bats, `docker-build.yml` (resolver feeds `BUILD_VERSION`, `is_release` selects `release`), `nightly-build.yml` (Charon only; Orthrus stays `nightly-<sha>`), `quality-checks.yml`, `Makefile` (F4 incl. `:99`), `Dockerfile` (`:287-289`, `:316-320`), smoke expectations | 3, 6, 8, 10 | shellcheck + bats; `make -n docker-build-versioned` prints the recipe; `make -n build-versioned` shows the resolver; the PR run logs `Resolved build VERSION: 0.46.5+pr.<N>`, and `smoke-whats-new` asserts it exactly and shows the 3-entry modal for an unseeded user |
+| 11 | `feat(ci): stamp non-release builds with the released base version` | **new** `scripts/ci/resolve-build-version.sh` + bats, `docker-build.yml` (resolver feeds `BUILD_VERSION`, `is_release` selects `release`), `nightly-build.yml` (Charon only; Orthrus stays `nightly-<sha>`), `quality-checks.yml`, `Makefile` (F4 incl. `:99`), `Dockerfile` (`:287-289`, `:316-320`), smoke expectations | 3, 6, 8, 10 | shellcheck + bats; `make -n docker-build-versioned` prints the recipe; `make -n build-versioned` shows the resolver; the PR run logs `Resolved build VERSION: 0.46.5+pr.<N>`, and `smoke-whats-new` asserts it exactly and shows the 3-entry modal for an unseeded user |
 | 12 | `docs: document the what's new pipeline and build-metadata versions` | `VERSION.md`, `ARCHITECTURE.md`, `docs/features.md`, `docs/features/security.md`, `docs/issues/whats-new-changelog-manual-test-plan.md` | 11 | `bash docs-site/scripts/sync-docs.sh && cd docs-site && zensical build --strict` (no manifest or nav change needed; `features.md` is already in `docs-site/scripts/docs-manifest.json:4`) |
 
 Every commit is independently deployable:
@@ -720,14 +723,14 @@ Changelog visibility: every subject is public. None uses `(security)`.
 
 - Create `fix/whats-new-pipeline-and-build-versions` from `development`.
 - The PR goes into `development` and is merged with "Create a merge commit".
-- The PR body says `Closes #1865, #1866, #1867`, lists the commits, and contains no session ID or link.
+- The PR body says `Closes #1865, #1867`, lists the commits, and contains no session ID or link.
 - Let it ride nightly before promotion, per the user's soak preference.
 
 Contingency:
 
 - Revert individual commits inside the PR. Commits 7, 8 and 11 are self-contained CI layers.
-- If release detection misfires, it fails toward "not a release": no version tags, the `+main.<sha7>`
-  version, and the data guard still runs.
+- If release detection misfires, it fails toward "not a release": no version tags, the plain manifest version
+  string, and the data guard still runs.
 - If the smoke job is flaky, revert only Commit 8's `merge-and-publish.needs` line. Do not weaken the
   assertions.
 - Post-merge rollback reverts the merge commit. Stored `last_seen_version` values are canonical SemVer, so
@@ -769,12 +772,12 @@ Contingency:
 | # | Image | Expected `/health.version` | `/changelog/all` | Fresh user status | `''` user status | After `dismiss_permanent` | `/system/updates.available` | Method |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | M1 | PR image (`pr-<N>`) | `0.46.5+pr.<N>` | ≥ 100 entries, newest `0.46.5`, 0 `Merge` subjects, no duplicates | hidden (seeded `0.46.5`) | **shown, 3 entries ≤ 0.46.5** | hidden; `last_seen_version='0.46.5'` | false | smoke script + curl |
-| M2 | `:dev` after merge | `0.46.5+dev` | same as M1 | hidden | shown, 3 | hidden | false | smoke script |
+| M2 | `:dev` after merge | `0.46.5+dev.<sha7>` | same as M1 | hidden | shown, 3 | hidden | false | smoke script |
 | M3 | `:nightly` after merge | `0.46.5+nightly.<sha7>`; `git_commit` and the OCI `revision` equal the nightly job's own `built_sha` (`git rev-parse HEAD` after its checkout), **not** `origin/nightly` | same, plus any newer tags | hidden | shown, 3, **all ≤ 0.46.5** | hidden, also across 2 more logins (no nag loop) | false | smoke script `--expect-commit "$BUILT_SHA"` |
 | M4 | First release after merge (`latest`, `X.Y.Z`, `X.Y` tags exist; no major-only tag) | `X.Y.Z` | newest = `X.Y.Z` (synthesized if the tag lagged) | hidden (seeded `X.Y.Z`) | shown, 3 (newest `X.Y.Z`) | hidden | false | smoke script (release flags) + registry tag listing |
 | M5 | M4, user upgraded from 0.46.5 (`'0.46.5'`) | `X.Y.Z` | — | — | only the versions in `(0.46.5, X.Y.Z]`, at most 3 | hidden | false | upgrade path |
 | M5b | M4 or PR image, user seeded long ago (`'0.36.1'`, never acked) | — | — | — | **exactly 3** (the newest ≤ running), not about 35 | hidden | — | upgrade path (user B) |
-| M6 | Non-release `main` build | `X.Y.Z+main.<sha7>` | ≤ base | hidden | shown, 3 | hidden | false | smoke script |
+| M6 | Non-release `main` build | `X.Y.Z` (no tags) | ≤ base | hidden | shown, 3 | hidden | false | smoke script |
 | M7 | Downgrade: user at `X.Y.Z` runs an older image | older version | — | — | — | `last_seen_version` stays `X.Y.Z` | — | upgrade path in reverse + `docker exec sqlite3` read |
 | M8 | Any image, passthrough user | — | 403 | 403 (modal hidden) | — | 403 | — | API check: create a passthrough user, log in, then `curl` all four `/changelog/*` routes and expect 403 |
 | M9 | PR image, Settings → Appearance → revisit | — | — | Loading state, then the newest 10 plus "Show older releases"; no React key errors in the console; headings have no emoji in the accessible name. Empty state checked on a `dev`-default local build with `[]` | — | — | — | **Playwright MCP browser** against a throwaway PR-image container (snapshot + console messages) |
@@ -858,12 +861,12 @@ Contingency:
 
 ## 13. Open questions: defaults, pending user confirmation
 
-1. `development` metadata: **bare `+dev`** (pending user confirmation).
+1. `development` metadata: **`+dev.<sha7>`** (decided by user: an issue reporter can tell which build they run from the version string alone).
 2. Update check on unversioned builds: **report no update** (pending user confirmation).
 3. PR and branch builds: **versioned** (`+pr.<N>`, `+branch.<sha7>`) (pending user confirmation; the
    supervisor agrees).
 4. Status cap: **3 entries on every status response** (pending user confirmation).
-5. Non-release `main` builds: **`X.Y.Z+main.<sha7>`** to resolve #1866 (pending user confirmation).
+5. Non-release `main` builds: **decided (user):** keep reporting the manifest version `X.Y.Z`, no label; #1866 closed as not planned.
 6. Internal scopes kept out of user-facing "Fixes": `deps|dep|ci|e2e|test|tests|workflow|lint|docs|build|release|renovate`
    (pending user confirmation).
 7. Browse-mode page size: **10** (pending user confirmation).

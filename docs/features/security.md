@@ -2,7 +2,7 @@
 
 Charon runs the front door to your home server — so keeping that door locked is not an optional feature, it's the whole point. This page explains, in plain language, how Charon keeps you and your apps safe. No jargon, no CVE numbers, just the big picture.
 
-Looking for exact details on what changed in a specific update? Open the **"What's New"** popup (Settings > Appearance) and check its **Security** section — that's the place for release-by-release specifics. This page is the general "here's how we keep you safe, always" story.
+Looking for exact details on what changed in a specific update? Open the **"What's New"** popup (Settings > Appearance) and check its **Security** section. Each release lists its security fixes there, when it has any. That's the place for release-by-release specifics. This page is the general "here's how we keep you safe, always" story.
 
 ## Our Philosophy: Safe by Default
 

@@ -13,30 +13,34 @@ assignees: []
 
 ## Description
 
-Manual, human-driven checklist for the new "What's New" changelog popup
-that greets users after an app update. Automated E2E
-(`tests/settings/whats-new-changelog.spec.ts`) already covers the happy
-paths against fixture data (see `docs/reports/qa_report.md`, verdict
-READY TO MERGE) — this plan supplements that with a real deployment
-walkthrough (real login sessions, real version bumps, real page reloads)
-that automated tests can't fully stand in for. See
-`docs/superpowers/specs/2026-07-28-whats-new-changelog-design.md` for the
-full feature design and `docs/plans/current_spec.md` for the
-implementation plan.
+Manual, human-driven checklist for the "What's New" changelog popup that
+greets users after an app update. It is run against real, CI-built Charon
+images, not fixture data. Automated E2E tests cover the UI on an unversioned
+`dev` image. This plan covers what those tests cannot: real version
+numbers, real upgrades on a persistent data volume, and real login sessions.
+The design is in `docs/superpowers/specs/2026-07-28-whats-new-changelog-design.md`.
+
+Each image reports its version on the health endpoint. Expected values are in
+`VERSION.md` under "Build Versions".
 
 ## Prerequisites
 
-- A running Charon instance built with a real (non-`dev`) version string,
-  or the dev override `CHARON_CHANGELOG_VERSION` set per the design spec's
-  "Manual pre-merge workflow" section (`CHARON_ENV=development` required
-  for the override to take effect).
-- `backend/internal/changelog/data/changelog.json` populated with at least
-  two versions' worth of fixture or real entries (never commit this file
-  changed from the `[]` placeholder).
-- At least one test user account whose `last_seen_version` you can set/view
-  directly in the SQLite database, so each scenario below starts from a
-  known state.
-- Access to the Appearance Settings page as a logged-in user.
+- A host with Docker. A rootless Docker daemon is recommended. If your daemon
+  is not the default one, set it first, for example
+  `export DOCKER_HOST=unix:///run/user/<uid>/docker.sock`.
+- `curl`, `jq` and a checkout of this repository (for
+  `scripts/ci/smoke-whats-new.sh`).
+- The images to test, by tag:
+  - a pull request image, `ghcr.io/wikid82/charon:pr-<N>`
+  - the published stable image, `ghcr.io/wikid82/charon:latest`
+  - optionally, a release image, `ghcr.io/wikid82/charon:<X.Y.Z>`
+- A browser for the UI steps (the Playwright MCP browser is fine).
+- Never run these steps against a live instance you depend on. Every container
+  and volume below uses a `qa-wn-` or `smoke-wn-` name, so existing containers
+  and volumes are never touched.
+- A local dev override exists (`CHARON_CHANGELOG_VERSION`, honored only when
+  `CHARON_ENV` is not `production`). It is for UI iteration only. Do not use it
+  as evidence for this plan.
 
 ## Test Cases
 
@@ -101,7 +105,7 @@ implementation plan.
 
 - [ ] As a user who is currently opted out (from the previous section),
       navigate to **Appearance Settings**.
-- [ ] Confirm the **"Show 'What's New' after updates"** toggle reflects the
+- [ ] Confirm the **"Show update notifications"** toggle reflects the
       opted-out state (off).
 - [ ] Turn the toggle on.
 - [ ] Log out and log back in with a `last_seen_version` older than
@@ -118,23 +122,130 @@ implementation plan.
       (not just entries since `last_seen_version`).
 - [ ] Confirm this browse-mode view only offers a single **Close** action —
       no "Remind Me"/"Got It, Thanks" buttons, no opt-out checkbox.
+- [ ] While the list loads, a loading message is shown. If the list cannot
+      load, an error message is shown instead of an empty dialog.
+- [ ] Confirm the first 10 releases are shown, newest first. If there are
+      more, a **"Show older releases"** button appears. Each click adds the
+      next 10. Reopening the dialog starts again at 10.
 - [ ] Close it, then check the test user's `last_seen_version` and opt-out
       state directly in the database — confirm **neither changed**.
       Browsing must have zero side effects.
 - [ ] Use this link while already opted out — confirm it still opens and
       shows full history (browsing works regardless of opt-out status).
 
-### Pre-Existing User Migration Behavior
+### Built-Image Matrix (automated smoke check)
 
-- [ ] Find or create a user record with an **empty** `last_seen_version`
-      (simulating an account that existed before this feature shipped and
-      hasn't logged in since the migration ran).
-- [ ] Log in as that user — confirm the popup appears showing the full
-      changelog history up to the current version (empty `last_seen_version`
-      is treated as "behind everything").
-- [ ] Dismiss with **"Got It, Thanks"**.
-- [ ] Log out and log back in — confirm the popup does **not** reappear
-      (this was a one-time catch-up, not a recurring state).
+The smoke script starts an image on a temporary volume, reads its version,
+creates a user, and checks the What's New API and modal rules. CI runs the
+same script before every publish. Run it by hand against a pull request image:
+
+```bash
+bash scripts/ci/smoke-whats-new.sh --image ghcr.io/wikid82/charon:pr-<N> \
+  --expect-version-exact '0.46.5+pr.<N>' --expect-min-entries 100 \
+  --expect-newest 0.46.5 --expect-status-for-unseeded shown
+```
+
+Use `--expect-version-regex` instead of `--expect-version-exact` when you
+want a pattern. In a regex, the `+` must be escaped, as in `0\.46\.5\+dev`.
+The script exits `0` when every check passes. It removes everything it
+created, even on failure.
+
+| Image | Version flag | Other flags | What must be true |
+| --- | --- | --- | --- |
+| Pull request `pr-<N>` | `--expect-version-exact '<X.Y.Z>+pr.<N>'` | `--expect-newest <X.Y.Z>` | At least 100 entries, newest is `X.Y.Z`, no duplicates, no merge-commit subjects |
+| Development `dev` | `--expect-version-exact '<X.Y.Z>+dev.<sha7>'` | `--expect-newest <X.Y.Z>` | Same as above |
+| Nightly `nightly` | `--expect-version-exact '<X.Y.Z>+nightly.<sha7>'` | `--expect-commit <full 40-character commit>` | The commit matches the nightly job's built commit, and every entry is at or below `X.Y.Z` |
+| Non-release `main` | `--expect-version-exact '<X.Y.Z>'` (no label) | `--expect-newest <X.Y.Z>` | Every entry is at or below `X.Y.Z` |
+| Release `X.Y.Z` | `--expect-version-exact '<X.Y.Z>'` | `--expect-newest <X.Y.Z>` | The newest entry is the release itself |
+
+Every row also takes `--expect-min-entries 100 --expect-status-for-unseeded shown`.
+These check the new-user rule: the popup shows exactly 3 entries, and after
+"Got it" it stays hidden on the next two logins. The CI smoke check uses the
+same flags.
+
+### Upgrade Path (real data volume)
+
+This checks what users see after moving from one image to another while
+keeping their data. Use a new volume for each run and delete it afterwards.
+
+1. Pick a unique name, for example `qa-wn-1234-data`. Create the volume and run
+   the published stable image on it, mapping its port to your own machine only:
+
+   ```bash
+   docker volume create qa-wn-1234-data
+   docker run -d --name qa-wn-1234-old -p 127.0.0.1:18080:8080 \
+     -v qa-wn-1234-data:/app/data ghcr.io/wikid82/charon:latest
+   ```
+
+2. Open `http://127.0.0.1:18080`, finish setup, and create three users: **A**,
+   **B** and **C**. Each new user is seeded with the running version (`0.46.5` here).
+3. Make B look like an account seeded long ago, and C look like an account
+   from before the feature existed. The database is inside the container:
+
+   ```bash
+   docker exec qa-wn-1234-old sqlite3 /app/data/charon.db \
+     "UPDATE users SET last_seen_version='0.36.1' WHERE email='<B email>';
+      UPDATE users SET last_seen_version='' WHERE email='<C email>';"
+   ```
+
+4. Stop and remove the old container. Keep the volume:
+
+   ```bash
+   docker rm -f qa-wn-1234-old
+   ```
+
+5. Start the image under test on the same volume. Use a pull request image
+   or a release image. Map the port in the same way:
+
+   ```bash
+   docker run -d --name qa-wn-1234-new -p 127.0.0.1:18080:8080 \
+     -v qa-wn-1234-data:/app/data ghcr.io/wikid82/charon:pr-<N>
+   ```
+
+6. Log in as each user and check:
+   - [ ] **A** sees no popup on the pull request image, because A's stored version equals the running base version.
+   - [ ] **B** sees exactly 3 entries, and all are at or below the running base version. A stored `0.36.1` must not produce about 35 entries.
+   - [ ] **C** sees exactly 3 entries, newest first.
+   - [ ] After **"Got It, Thanks"**, B and C see no popup on the next two logins.
+
+7. Downgrade check. Stop the new container and start an older image on the
+   same volume, for example the stable image. Then read the stored versions:
+
+   ```bash
+   docker exec qa-wn-1234-old sqlite3 /app/data/charon.db \
+     "SELECT email, last_seen_version FROM users;"
+   ```
+
+   - [ ] Stored versions do not move backwards. The newer value stays.
+
+8. Clean up. Remove the containers and the volume you created:
+
+   ```bash
+   docker rm -f qa-wn-1234-new qa-wn-1234-old
+   docker volume rm qa-wn-1234-data
+   ```
+
+For a release upgrade, use the previous release as the first image and the
+new release as the second. Expected results: users see only versions after
+their stored version, up to the new release, and never more than 3 entries.
+
+### Browser Checks on a Built Image
+
+Start a throwaway container from the image under test
+(`docker run -d --name qa-wn-1234-ui -p 127.0.0.1:18080:8080 ...`) and remove
+it afterwards.
+
+- [ ] **Passthrough users are blocked.** Create a passthrough user, log in as
+      that user, and call the four What's New API routes (`/api/v1/changelog/status`,
+      `/all`, `/ack`, `/opt-in`). Each returns `403`. The modal does not open.
+- [ ] **Revisit dialog.** Open Settings > Appearance > What's New. The dialog
+      shows a loading state, then the newest 10 releases with "Show older releases".
+      Headings do not start with emoji in their accessible name. Check the
+      browser console: no React key warnings appear.
+- [ ] **System Settings update card.** Open Settings > System. The card shows the
+      running version (matching `/api/v1/health`). "Check for updates" triggers a
+      fetch and shows the status. A release link appears only when it is an
+      `https://github.com` address.
 
 ## Notes
 
@@ -146,7 +257,5 @@ implementation plan.
   `last_seen_version` is seeded at account creation. Worth a quick sanity
   check if a fresh invite/admin-created account is available during this
   pass.
-- Automated E2E already exercises the equivalent flows against fixture
-  data with `CHARON_CHANGELOG_VERSION` — this plan exists to catch anything
-  specific to a real deployment (real cookies/session lifecycle, real
-  database state, real multi-login timing) that fixtures can't surface.
+- An unversioned `dev` build never shows the automatic popup. Its Revisit list
+  shows whatever data it embeds, which is empty in a local build.

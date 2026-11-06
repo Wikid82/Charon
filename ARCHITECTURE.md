@@ -386,6 +386,11 @@ fork/offline fallback.
 
 Powers the post-login "What's New" modal. `internal/changelog.Service` reads a `//go:embed`-ed `data/changelog.json` (generated at release build time from conventional-commit history — see "Release Workflow" below) and answers "what's new since version X" against the `User.last_seen_version` / `User.changelog_opt_out` columns, via four authenticated routes under `/api/v1/changelog`. No runtime network calls or external dependencies.
 
+- **Version ceiling:** a versioned build never shows entries newer than its own `X.Y.Z`. An unversioned `dev` build has no ceiling, so local UI work sees all entries.
+- **Cap:** every status response returns at most the newest 3 entries, whatever the user's stored version is. The full history is available only through the browse route, which the UI pages 10 at a time.
+- **Anchor:** "dismiss permanently" stores only the bare `X.Y.Z` of the running build (build labels removed). The stored version never moves backwards, so a downgrade cannot re-show old notes.
+- **Validation:** a Security entry whose commit ID is not 7 to 40 hexadecimal characters is dropped before it reaches the browser.
+
 #### Stats Subsystem (`internal/services/stats_*`, `internal/api/handlers/stats_*`)
 
 The stats subsystem collects, aggregates, and broadcasts request metrics for the Dashboard Statistics feature.
@@ -1893,7 +1898,9 @@ go test ./integration/...
 - `1.1.1` - Bug fix (GORM query fix)
 - `1.2.0-beta.1` - Beta release for testing
 
-**Version File:** `VERSION.md` (single source of truth)
+**Version Source:** `.release-please-manifest.json` (managed by release-please) holds the
+`X.Y.Z` base. Non-release images add a build label such as `+pr.<N>` (see `VERSION.md`,
+"Build Versions"), resolved by `scripts/ci/resolve-build-version.sh`. Comparisons ignore the label.
 
 ### Build Pipeline (Multi-Platform)
 
@@ -1983,22 +1990,38 @@ its branch pushes and PRs, and the nightly Orthrus job is gated on an
 Triggered independently by every push to `main`/`development` (branch
 push, not the release tag):
 
-1. **Build:** Multi-platform Docker images
-2. **Test:** Run E2E tests against built image
+0. **Setup:** Decide whether the commit is a release (`detect-release-commit.sh`), generate and check the What's New data once (`generate-changelog.sh`, then `check-changelog-data.sh`), and resolve the build version (`resolve-build-version.sh`). The data is shared with the build jobs as an artifact, so every image embeds the same validated list.
+1. **Build:** Multi-platform Docker images (each build job re-checks the shared data before building)
+2. **Smoke test:** `smoke-whats-new.sh` starts the built amd64 image and checks its version, its What's New list and the modal behavior for a new user. Publishing waits for this to pass. Fork pull requests skip the smoke test, because the job cannot pull their image.
 3. **Security:** Scan for vulnerabilities (block if Critical/High)
 4. **SBOM:** Generate Software Bill of Materials (Syft)
 5. **Sign:** Cryptographic signature with Cosign
 6. **Provenance:** Generate SLSA provenance attestation
 7. **Publish:** Push to Docker Hub and GHCR
 
-**In-app changelog data:** `scripts/generate-changelog.sh` runs during
-`nightly-build.yml` (its one remaining real caller) to parse
-conventional-commit history into `backend/internal/changelog/data/changelog.json`,
-which is `//go:embed`-ed into the binary and powers the in-app "What's
-New" modal (see "Changelog Subsystem" above). It depends only on real
-`v*` tags existing in git history — not on release-please's PR/Release
-mechanism directly — so it keeps working unchanged by this migration
-as long as release-please continues creating bare `v*` tags.
+**In-app changelog data:** `scripts/generate-changelog.sh` parses conventional-commit
+history into `backend/internal/changelog/data/changelog.json`, which is `//go:embed`-ed
+into the binary and powers the in-app "What's New" modal (see "Changelog Subsystem"
+above). It is run in two places: the `setup` job of `docker-build.yml` (every
+push and pull request that builds an image) and `nightly-build.yml`. It depends only on
+real `v*` tags existing in git history, not on release-please's PR/Release mechanism directly.
+
+- **Release commits:** `detect-release-commit.sh` marks a commit as a release only
+  when it is on `main`, the release-please manifest version went up compared with
+  the commit before it, and the `vX.Y.Z` tag (if it exists yet) points at that commit.
+  The generator then adds the release being built as the newest entry, because its tag
+  does not exist yet. This is the "synthesized head entry".
+- **Data guard:** `check-changelog-data.sh` fails the build if the file is missing,
+  malformed, empty, contains a merge-commit subject, or (on a release) does not have the
+  release version as its newest entry. Failing loudly is intentional, so a broken list is never shipped.
+- **Version tags:** On a release commit, images get `X.Y.Z` and `X.Y` (no `v` prefix).
+  There is no major-only tag while on 0.x.
+
+**Build version resolver:** `scripts/ci/resolve-build-version.sh` is the single place that
+decides the version string an image reports. Non-release images get `X.Y.Z+dev.<sha7>`,
+`+pr.<N>`, `+branch.<sha7>` or (for `main`) plain `X.Y.Z`. The nightly job uses the `nightly`
+channel, `X.Y.Z+nightly.<sha7>`, built from the commit it checked out. The Orthrus agent image
+keeps its own `nightly-<sha>` naming. See `VERSION.md` ("Build Versions") for the user-facing table.
 
 **Mandatory rollout gates (sign-off block):**
 

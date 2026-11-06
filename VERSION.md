@@ -43,17 +43,21 @@ sync by release-please itself.
 4. **Downstream, independently of release-please**:
    - `.github/workflows/orthrus-build.yml` triggers on the new `v*`
      tag and publishes semver-tagged Orthrus agent images
-   - The next `nightly-build.yml` run picks up the new tag via
-     `scripts/generate-changelog.sh`'s `git tag -l 'v*'` scan and
-     regenerates the in-app "What's New" changelog data
+   - The image builds (`docker-build.yml` and `nightly-build.yml`) read the
+     `v*` tags with `scripts/generate-changelog.sh` to regenerate the in-app
+     "What's New" data (see "What's New Data" below)
 
 5. **Container tags are published** (via `.github/workflows/docker-build.yml`,
-   triggered on the branch push, not the tag):
+   triggered by the push to `main`, not by the tag). On a release commit the
+   image gets these tags, with no `v` prefix:
 
-- `v1.0.0` (exact version)
-- `1.0` (minor version)
-- `1` (major version)
-- `latest` (for non-prerelease on main branch)
+- `X.Y.Z`, for example `0.46.6` (the exact release)
+- `X.Y`, for example `0.46` (the newest patch of that minor)
+- `latest` (the newest build from `main`)
+
+There is no major-only tag (`0`) while Charon is on 0.x. In SemVer, any 0.x
+minor release may contain breaking changes, so a major-only tag would be
+misleading.
 
 **Do not manually push `v*` tags.** A manually-created tag desyncs
 `.release-please-manifest.json` (which release-please treats as its
@@ -100,16 +104,31 @@ Enforcement points:
 
 ### Available Tags
 
-- **`latest`**: Latest stable release (main branch)
-- **`nightly`**: Latest nightly build (nightly branch, rebuilt daily at 02:00 UTC)
-- **`nightly-YYYY-MM-DD`**: Date-specific nightly build
-- **`nightly-<sha>`**: Commit-specific nightly build
-- **`development`**: Latest development build (development branch)
-- **`v1.2.3`**: Specific version tag
-- **`1.2`**: Latest patch for minor version
-- **`1`**: Latest minor for major version
-- **`main-<sha>`**: Commit-specific build from main
-- **`development-<sha>`**: Commit-specific build from development
+Images are published to GitHub Container Registry (`ghcr.io/wikid82/charon`)
+and Docker Hub (`wikid82/charon`) with the same tags.
+
+| Tag | What it is | Updated when |
+| --- | --- | --- |
+| `latest` | Newest build from `main` (the stable line) | Every push to `main` |
+| `X.Y.Z`, e.g. `0.46.6` | An exact release | A release commit on `main` only |
+| `X.Y`, e.g. `0.46` | Newest patch of that minor release | A release commit on `main` only |
+| `dev` | Newest build from `development` | Every push to `development` |
+| `development-<sha7>` | One exact build from `development` | Every push to `development` |
+| `main-<sha7>` | One exact build from `main` | Every push to `main` |
+| `<sha7>`, e.g. `a1b2c3d` | One exact build from `main` or `development` | Every push to `main` or `development` |
+| `nightly` | Newest nightly build | Every nightly build (daily at 02:00 UTC) |
+| `nightly-YYYY-MM-DD` | The nightly build from that day | Once per nightly build |
+| `nightly-<sha7>` | One exact nightly build | Once per nightly build |
+| `pr-<N>` | Build for pull request `N` (same-repository PRs) | Every push to that PR |
+| `beta` | Newest build from a pull request into `development` | Every push to such a PR |
+| `<branch>-<sha7>` | One exact build from another branch (name simplified to lowercase letters, numbers and dashes) | Every push to that branch |
+
+`<sha7>` is the first seven characters of the commit ID.
+
+There is no `development` tag. Use `dev` for the development line.
+
+Orthrus, the separate agent image, keeps its own `nightly-<sha>` naming and is
+not covered by the build version rules below.
 
 ### Usage Examples
 
@@ -117,8 +136,8 @@ Enforcement points:
 # Use latest stable release
 docker pull ghcr.io/wikid82/charon:latest
 
-# Use specific version
-docker pull ghcr.io/wikid82/charon:v1.0.0
+# Use a specific release
+docker pull ghcr.io/wikid82/charon:0.46.6
 
 # Use latest nightly build (automated daily at 02:00 UTC)
 docker pull ghcr.io/wikid82/charon:nightly
@@ -127,13 +146,13 @@ docker pull ghcr.io/wikid82/charon:nightly
 docker pull ghcr.io/wikid82/charon:nightly-2026-01-13
 
 # Use commit-specific nightly build
-docker pull ghcr.io/wikid82/charon:nightly-abc123
+docker pull ghcr.io/wikid82/charon:nightly-a1b2c3d
 
 # Use development builds (unstable, every commit)
-docker pull ghcr.io/wikid82/charon:development
+docker pull ghcr.io/wikid82/charon:dev
 
 # Use specific commit from main
-docker pull ghcr.io/wikid82/charon:main-abc123
+docker pull ghcr.io/wikid82/charon:main-a1b2c3d
 ```
 
 ### Nightly Builds
@@ -158,44 +177,44 @@ Nightly builds provide a testing ground for features before they reach `main`:
 - Critical infrastructure
 - When maximum stability is required
 
-## Nightly Versioning Format
+## Build Versions
 
-### Version Precedence
+Every Charon image reports a version on the health endpoint and in the
+System Settings update card. The version is the latest release number from
+`.release-please-manifest.json` (for example `0.46.5`), plus an optional label
+after a `+` that says where the image came from.
 
-Charon uses the following version hierarchy:
+| Where the image comes from | Reported version | Example |
+| --- | --- | --- |
+| Release commit on `main` | `X.Y.Z` | `0.46.6` |
+| Other build from `main` | `X.Y.Z` (no label, `main` is the stable line) | `0.46.5` |
+| `development` branch | `X.Y.Z+dev.<sha7>` | `0.46.5+dev.a1b2c3d` |
+| Pull request | `X.Y.Z+pr.<N>` | `0.46.5+pr.1234` |
+| Any other branch | `X.Y.Z+branch.<sha7>` | `0.46.5+branch.a1b2c3d` |
+| Nightly build | `X.Y.Z+nightly.<sha7>` | `0.46.5+nightly.a1b2c3d` |
+| `make build-versioned` or `make docker-build-versioned` on your own computer | `X.Y.Z+local.<sha7>`, plus `.dirty` when tracked files have uncommitted changes | `0.46.5+local.a1b2c3d.dirty` |
+| Plain `docker build` or `go run ./cmd/api` | `dev` (unversioned) | `dev` |
 
-1. **Stable releases**: `v1.2.3` (highest precedence)
-2. **Nightly builds**: `nightly-YYYY-MM-DD` or `nightly-{sha}`
-3. **Development builds**: `development` or `development-{sha}` (lowest precedence)
+Notes:
 
-### Nightly Version Tags
+- `<sha7>` is the first seven characters of the commit the image was built from.
+- Images from a release commit never carry a label, so a release always reports exactly its `X.Y.Z`.
+- The `make` targets are described in "Development Builds" below.
 
-Nightly builds use multiple tag formats:
+### How Versions Are Compared
 
-- **`nightly`**: Always points to the latest nightly build (floating tag)
-- **`nightly-YYYY-MM-DD`**: Date-specific build (e.g., `nightly-2026-01-13`)
-- **`nightly-{sha}`**: Commit-specific build (e.g., `nightly-abc1234`)
+Charon compares versions by their `X.Y.Z` part only. Anything after a `+` is
+ignored, so `0.46.5+dev.a1b2c3d` counts as `0.46.5`.
 
-**Tag characteristics:**
+- The update check offers a newer release only when its `X.Y.Z` is higher than the running build.
+- A `dev` build (or any build without a valid version) never shows an update notice.
+- Backup restores warn when a backup was made by a newer or older Charon version.
 
-| Tag Format           | Immutable | Use Case                        |
-|----------------------|-----------|---------------------------------|
-| `nightly`            | No        | Latest nightly features         |
-| `nightly-2026-01-13` | Yes       | Reproducible date-based testing |
-| `nightly-abc1234`    | Yes       | Exact commit testing            |
+### What's New Version Rules
 
-**Version in API responses:**
-
-Nightly builds report their version in the health endpoint:
-
-```json
-{
-  "version": "nightly-2026-01-13",
-  "git_commit": "abc1234567890def",
-  "build_date": "2026-01-13T02:00:00Z",
-  "branch": "nightly"
-}
-```
+The "What's New" popup uses the same comparison. A versioned build never shows
+changes from a release newer than its own `X.Y.Z`, so an older image never
+shows notes for code it does not run.
 
 ## Version Information
 
@@ -210,10 +229,11 @@ Response includes:
 ```json
 {
   "status": "ok",
-  "service": "charon",
-  "version": "1.0.0",
-  "git_commit": "abc1234567890def",
-  "build_date": "2025-11-17T12:34:56Z"
+  "service": "Charon",
+  "version": "0.46.5+dev.a1b2c3d",
+  "git_commit": "a1b2c3d4e5f6789012345678901234567890abcd",
+  "build_time": "2026-01-13T02:00:00Z",
+  "internal_ip": "192.168.1.10"
 }
 ```
 
@@ -235,13 +255,28 @@ Returns OCI-compliant labels:
 
 ## Development Builds
 
-Local builds default to `version=dev`:
+Plain local builds stay unversioned (`version=dev`), so they never look like a
+release:
 
 ```bash
 docker build -t charon:dev .
+cd backend && go run ./cmd/api
 ```
 
-Build with custom version:
+To build with the same version label a CI build would get from your checkout,
+use the `make` targets. They read the latest release number and add a
+`+local.<sha7>` label (plus `.dirty` when tracked files have uncommitted
+changes):
+
+```bash
+# Backend binary in backend/bin/api
+make build-versioned
+
+# Docker image tagged charon:0.46.5-local.a1b2c3d (the + becomes -) and charon:latest
+make docker-build-versioned
+```
+
+To set a version by hand, pass the build argument yourself:
 
 ```bash
 docker build \
@@ -250,6 +285,14 @@ docker build \
   --build-arg VCS_REF=$(git rev-parse HEAD) \
   -t charon:1.2.3 .
 ```
+
+Notes for local builds:
+
+- The "What's New" data is generated only by CI. A local build embeds the
+  committed placeholder (`[]`), so the popup shows nothing until a CI build is used.
+  Do not commit a generated `changelog.json`.
+- End-to-end tests use an unversioned `dev` image on purpose. The What's New
+  test needs that image; it skips itself on a versioned one.
 
 ## Changelog Generation
 
@@ -270,10 +313,24 @@ git commit -m "feat: add TLS certificate management"
 git commit -m "fix: correct proxy timeout handling"
 ```
 
+### What's New Data
+
+The in-app "What's New" popup is built from the same commit history. The image
+build generates it and checks it before anything is published. These are the rules:
+
+- There is one entry per release tag (`v*`), newest first.
+- On a release commit, the release being built appears even though its tag does not exist yet.
+- Merge commits and release process commits (`chore(main): release ...`, promoting nightly) are dropped.
+- `feat(security):` and `fix(security):` commits go to the **Security** section. Their subject is shown publicly to every user, so keep it general.
+- `feat` and `fix` commits with an internal scope (`deps`, `ci`, `e2e`, `test`, `tests`, `docs`, `build`, `lint`, `release`, `renovate`, `workflow`) are listed under "Show maintenance details", not under New Features or Fixes.
+- Every other commit is also listed under maintenance details.
+- The build fails rather than shipping an empty or broken list. It checks that the file is valid JSON, has at least one entry, has no merge-commit subjects, and, on a release, has the release as its newest entry.
+
 ## CI Tag-based Releases (recommended)
 
-- CI derives the release `Version` from the Git tag (e.g., `v1.2.3`) and embeds this value into the
-  backend binary via Go ldflags; frontend reads the version from the backend's API. This avoids
-  automatic commits to `main`.
+- CI takes the release number from `.release-please-manifest.json`, which
+  release-please keeps in step with the `v*` tag it creates. The resolver
+  (`scripts/ci/resolve-build-version.sh`) turns that number into the image
+  version. See "Build Versions" above.
 - release-please creates the tag and the GitHub Release together when its standing release PR is
   merged — see "Canonical Release Process (release-please)" above.

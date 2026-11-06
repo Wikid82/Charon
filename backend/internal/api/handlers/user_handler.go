@@ -28,8 +28,8 @@ import (
 // version.Version (build metadata stripped, so it matches what
 // dismiss_permanent later stores), or "" for an unversioned build. An
 // empty seed means "pre-existing user, behind everything". Unversioned
-// covers the literal "dev" sentinel, non-semver CI version strings (e.g.
-// "nightly-<sha>"), shorthand, and a leading "v". Seeding any of those
+// covers the literal "dev" sentinel, non-SemVer version strings (e.g.
+// a branch name), shorthand, and a leading "v". Seeding any of those
 // would be wrong: they don't compare against real release versions, and
 // a non-empty invalid value would leave the user unable to see entries
 // once the deployment upgrades to a tagged release.
