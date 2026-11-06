@@ -266,10 +266,10 @@ jobs:
 
       - name: shellcheck (shell severity=error)
         run: |
-          shellcheck --severity=error scripts/generate-changelog.sh scripts/ci/check-changelog-data.sh
+          shellcheck --severity=error scripts/generate-changelog.sh scripts/ci/check-changelog-data.sh scripts/ci/detect-release-commit.sh
 
       - name: bats
-        run: bats scripts/tests/generate-changelog.bats scripts/tests/check-changelog-data.bats
+        run: bats scripts/tests/generate-changelog.bats scripts/tests/check-changelog-data.bats scripts/tests/detect-release-commit.bats
 
   verify-toolchain-pin:
     name: Toolchain pin freshness (verify-toolchain-pin)

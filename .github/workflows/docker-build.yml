@@ -108,6 +108,10 @@ jobs:
       labels: ${{ steps.meta.outputs.labels }}
       # Build-time VERSION baked into the binary (see "Resolve build version" step).
       version: ${{ steps.build_version.outputs.version }}
+      # Release commit detection (see "Detect release commit" step). Build jobs use
+      # these to pick the strict data guard (--expect-newest) on release commits.
+      is_release: ${{ steps.release.outputs.is_release }}
+      release_version: ${{ steps.release.outputs.version }}
       created: ${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
     steps:
       - name: Harden the runner (Audit all outbound calls)
@@ -218,6 +222,48 @@ jobs:
             echo "is_feature_push=$is_feature_push"
             echo "force_refresh=$force_refresh"
           } >> "$GITHUB_OUTPUT"
+
+      # Changelog data is generated once here and shared with the build jobs as an
+      # artifact, so every image (release, development, nightly-style and PR) embeds the
+      # same validated What's New data. Every step below is skipped with the build.
+      - name: Detect release commit
+        id: release
+        if: steps.skip.outputs.skip_build != 'true'
+        env:
+          EVENT: ${{ env.TRIGGER_EVENT }}
+          REF: ${{ env.TRIGGER_REF }}
+        run: |
+          bash scripts/ci/detect-release-commit.sh --event "$EVENT" --ref "$REF" >> "$GITHUB_OUTPUT"
+
+      - name: Generate and check changelog data
+        if: steps.skip.outputs.skip_build != 'true'
+        env:
+          IS_RELEASE: ${{ steps.release.outputs.is_release }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          # The release version is synthesized here because the release tag does not
+          # exist yet when the image build starts (--current-version, see
+          # scripts/generate-changelog.sh). Only release commits pass it.
+          GENERATE_ARGS=(--require-entries)
+          GUARD_ARGS=()
+          if [[ "$IS_RELEASE" == "true" ]]; then
+            GENERATE_ARGS+=(--current-version "$RELEASE_VERSION")
+            GUARD_ARGS+=(--expect-newest "$RELEASE_VERSION")
+          fi
+          bash scripts/generate-changelog.sh "${GENERATE_ARGS[@]}"
+          bash scripts/ci/check-changelog-data.sh backend/internal/changelog/data/changelog.json "${GUARD_ARGS[@]}"
+
+      - name: Upload changelog data
+        if: steps.skip.outputs.skip_build != 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: changelog-data-${{ github.run_id }}
+          path: backend/internal/changelog/data/changelog.json
+          if-no-files-found: error
+          retention-days: 1
+          # A re-run of the same run must not fail with "artifact already exists".
+          overwrite: true
 
       - name: Resolve Alpine base image digest
         if: steps.skip.outputs.skip_build != 'true'
@@ -472,6 +518,24 @@ jobs:
           IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
           echo "IMAGE_NAME=${IMAGE_NAME}" >> "$GITHUB_ENV"
 
+      - name: Download changelog data
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: changelog-data-${{ github.run_id }}
+          path: backend/internal/changelog/data
+
+      - name: Check changelog data before build
+        env:
+          IS_RELEASE: ${{ needs.setup.outputs.is_release }}
+          RELEASE_VERSION: ${{ needs.setup.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          GUARD_ARGS=()
+          if [[ "$IS_RELEASE" == "true" ]]; then
+            GUARD_ARGS+=(--expect-newest "$RELEASE_VERSION")
+          fi
+          bash scripts/ci/check-changelog-data.sh backend/internal/changelog/data/changelog.json "${GUARD_ARGS[@]}"
+
       - name: Set up Docker Buildx
         uses: step-security/setup-buildx-action@e50058a0fcd8d1a7d626c905502d010a468bf238 # v4.4.1
 
@@ -563,6 +627,24 @@ jobs:
         run: |
           IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
           echo "IMAGE_NAME=${IMAGE_NAME}" >> "$GITHUB_ENV"
+
+      - name: Download changelog data
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: changelog-data-${{ github.run_id }}
+          path: backend/internal/changelog/data
+
+      - name: Check changelog data before build
+        env:
+          IS_RELEASE: ${{ needs.setup.outputs.is_release }}
+          RELEASE_VERSION: ${{ needs.setup.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          GUARD_ARGS=()
+          if [[ "$IS_RELEASE" == "true" ]]; then
+            GUARD_ARGS+=(--expect-newest "$RELEASE_VERSION")
+          fi
+          bash scripts/ci/check-changelog-data.sh backend/internal/changelog/data/changelog.json "${GUARD_ARGS[@]}"
 
       - name: Set up QEMU
         uses: step-security/setup-qemu-action@d21542abd2ae44772cf2276e75ee4ec531d598b6 # v4.4.0
