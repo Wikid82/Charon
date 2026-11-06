@@ -29,6 +29,7 @@ const renderWithClient = (ui: React.ReactElement) => {
 describe('SystemStatus', () => {
   it('calls checkUpdates on mount', async () => {
     vi.mocked(systemApi.checkUpdates).mockResolvedValue({
+      current_version: '1.0.0',
       available: false,
       latest_version: '1.0.0',
       changelog_url: '',

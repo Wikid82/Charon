@@ -22,6 +22,7 @@ import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../com
 import { WebSocketStatusCard } from '../components/WebSocketStatusCard'
 import { useAuth } from '../hooks/useAuth'
 import { useSeedOnChange } from '../hooks/useSeedOnChange'
+import { useSystemUpdates } from '../hooks/useSystemUpdates'
 import { useUptimeHealth } from '../hooks/useUptimeSummary'
 import { cn } from '../utils/cn'
 import { toast } from '../utils/toast'
@@ -32,13 +33,6 @@ interface HealthResponse {
   version: string
   git_commit: string
   build_time: string
-}
-
-interface UpdateInfo {
-  current_version: string
-  latest_version: string
-  update_available: boolean
-  release_url?: string
 }
 
 /**
@@ -199,18 +193,12 @@ export default function SystemSettings() {
   }
 
   // Check for Updates
+  // Manual-only: the card shows the shared cached result, and the button triggers a fresh check.
   const {
     data: updateInfo,
-    refetch: checkUpdates,
+    refetch: refetchUpdates,
     isFetching: isCheckingUpdates,
-  } = useQuery({
-    queryKey: ['updates'],
-    queryFn: async (): Promise<UpdateInfo> => {
-      const response = await client.get<UpdateInfo>('/system/updates')
-      return response.data
-    },
-    enabled: false, // Manual trigger
-  })
+  } = useSystemUpdates({ enabled: false })
 
   const saveSettingsMutation = useMutation({
     mutationFn: async () => {
@@ -681,12 +669,12 @@ export default function SystemSettings() {
                   </div>
                 </div>
 
-                {updateInfo.update_available ? (
+                {updateInfo.available ? (
                   <Alert variant="info" title={t('systemSettings.updates.updateAvailable')}>
                     {t('systemSettings.updates.newVersionAvailable')}{' '}
-                    {updateInfo.release_url && (
+                    {updateInfo.changelog_url && (
                       <a
-                        href={updateInfo.release_url}
+                        href={updateInfo.changelog_url}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 text-brand-500 hover:underline font-medium"
@@ -706,7 +694,7 @@ export default function SystemSettings() {
           </CardContent>
           <CardFooter>
             <Button
-              onClick={() => checkUpdates()}
+              onClick={() => refetchUpdates()}
               isLoading={isCheckingUpdates}
               variant="secondary"
             >

@@ -928,4 +928,97 @@ describe('SystemSettings', () => {
       expect(screen.queryByText(/until the database is compacted/i)).toBeNull()
     })
   })
+
+  describe('Software Updates card', () => {
+    const mockUpdatesResponse = (updates: {
+      current_version: string
+      latest_version: string
+      available: boolean
+      changelog_url: string
+    }) => {
+      vi.mocked(client.get).mockImplementation(async (url: string) => {
+        if (url === '/system/updates') {
+          return { data: updates }
+        }
+        return {
+          data: { status: 'healthy', service: 'charon', version: '0.1.0', git_commit: 'abc123', build_time: '' },
+        }
+      })
+    }
+
+    it('does not check for updates on mount (manual trigger only)', async () => {
+      mockUpdatesResponse({
+        current_version: '0.46.5',
+        latest_version: '0.46.6',
+        available: true,
+        changelog_url: 'https://github.com/Wikid82/Charon/releases/tag/v0.46.6',
+      })
+
+      renderWithProviders(<SystemSettings />)
+
+      await screen.findByText('Software Updates')
+      expect(vi.mocked(client.get).mock.calls.some(([url]) => url === '/system/updates')).toBe(false)
+      expect(screen.queryByText('Current Version')).toBeNull()
+    })
+
+    it('shows the running version, latest version and an update link after a manual check', async () => {
+      mockUpdatesResponse({
+        current_version: '0.46.5',
+        latest_version: '0.46.6',
+        available: true,
+        changelog_url: 'https://github.com/Wikid82/Charon/releases/tag/v0.46.6',
+      })
+      const user = userEvent.setup()
+      renderWithProviders(<SystemSettings />)
+
+      await user.click(await screen.findByRole('button', { name: /check for updates/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText('0.46.5')).toBeInTheDocument()
+        expect(screen.getByText('0.46.6')).toBeInTheDocument()
+      })
+      expect(screen.getByText('Update Available')).toBeInTheDocument()
+      const link = screen.getByRole('link', { name: /view release notes/i })
+      expect(link).toHaveAttribute('href', 'https://github.com/Wikid82/Charon/releases/tag/v0.46.6')
+      expect(link).toHaveAttribute('target', '_blank')
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    })
+
+    it('hides the release notes link when changelog_url is empty', async () => {
+      mockUpdatesResponse({
+        current_version: '0.46.5',
+        latest_version: '0.46.6',
+        available: true,
+        changelog_url: '',
+      })
+      const user = userEvent.setup()
+      renderWithProviders(<SystemSettings />)
+
+      await user.click(await screen.findByRole('button', { name: /check for updates/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText('Update Available')).toBeInTheDocument()
+      })
+      expect(screen.queryByRole('link', { name: /view release notes/i })).toBeNull()
+    })
+
+    it('shows the up-to-date state when no update is available', async () => {
+      mockUpdatesResponse({
+        current_version: '0.46.6',
+        latest_version: '0.46.6',
+        available: false,
+        changelog_url: '',
+      })
+      const user = userEvent.setup()
+      renderWithProviders(<SystemSettings />)
+
+      await user.click(await screen.findByRole('button', { name: /check for updates/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText('Up to Date')).toBeInTheDocument()
+      })
+      expect(screen.queryByText('Update Available')).toBeNull()
+      expect(screen.queryByRole('link', { name: /view release notes/i })).toBeNull()
+    })
+  })
 })
