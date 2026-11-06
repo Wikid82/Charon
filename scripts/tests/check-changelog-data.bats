@@ -95,6 +95,75 @@ write_data() {
   [[ "$output" == *"non-hex sha: zz99xx"* ]]
 }
 
+# The guard must reject exactly what the backend drops (commitSHAPattern is
+# ^[0-9a-f]{7,40}$), so these boundaries mirror that pattern.
+sha_entry() {
+  write_data '[{"version":"1.1.0","date":"2026-01-07","features":[],"fixes":[],"other":[],"security":[{"summary":"harden cookies","sha":"'"$1"'"}]}]'
+}
+
+@test "an uppercase security sha fails" {
+  sha_entry "ABC1234"
+
+  run "$SCRIPT_UNDER_TEST" "$DATA"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"non-hex sha: ABC1234"* ]]
+}
+
+@test "a mixed-case security sha fails" {
+  sha_entry "abC1234"
+
+  run "$SCRIPT_UNDER_TEST" "$DATA"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"non-hex sha: abC1234"* ]]
+}
+
+@test "a 6-character security sha fails" {
+  sha_entry "abc123"
+
+  run "$SCRIPT_UNDER_TEST" "$DATA"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"non-hex sha: abc123"* ]]
+}
+
+@test "a 41-character security sha fails" {
+  sha_entry "0123456789abcdef0123456789abcdef012345678"
+
+  run "$SCRIPT_UNDER_TEST" "$DATA"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"non-hex sha: 0123456789abcdef0123456789abcdef012345678"* ]]
+}
+
+@test "a 7-character lowercase security sha passes" {
+  sha_entry "abc1234"
+
+  run "$SCRIPT_UNDER_TEST" "$DATA"
+  [ "$status" -eq 0 ]
+}
+
+@test "a 40-character lowercase security sha passes" {
+  sha_entry "0123456789abcdef0123456789abcdef01234567"
+
+  run "$SCRIPT_UNDER_TEST" "$DATA"
+  [ "$status" -eq 0 ]
+}
+
+# Only a "Merge " prefix is a merge commit. The generator drops exactly these
+# subjects, so the guard must not reject a legitimate subject such as "Mergeable".
+@test "a feature subject starting with Mergeable passes" {
+  write_data '[{"version":"1.1.0","date":"2026-01-07","features":["Mergeable configs"],"fixes":[],"other":[],"security":[]}]'
+
+  run "$SCRIPT_UNDER_TEST" "$DATA"
+  [ "$status" -eq 0 ]
+}
+
+@test "a Merge branch subject in features fails" {
+  write_data '[{"version":"1.1.0","date":"2026-01-07","features":["Merge branch x"],"fixes":[],"other":[],"security":[]}]'
+
+  run "$SCRIPT_UNDER_TEST" "$DATA"
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"merge commit subject leaked"* ]]
+}
+
 @test "a merge subject in other fails" {
   write_data '[{"version":"1.1.0","date":"2026-01-07","features":[],"fixes":[],"other":["Merge branch '"'"'nightly'"'"' into main"],"security":[]}]'
 

@@ -24,6 +24,9 @@
 set -euo pipefail
 
 readonly SEMVER_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
+# X.Y.Z with an optional prerelease, used to validate changelog entry versions
+# before semver_cmp orders them.
+readonly SEMVER_PRE_RE='^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'
 readonly SHA_RE='^[0-9a-f]{40}$'
 readonly VOLUME_NAME_RE='^[A-Za-z0-9][A-Za-z0-9_.-]*$'
 readonly CONTAINER_PORT=8080
@@ -278,9 +281,62 @@ expect_2xx() {
   esac
 }
 
-# semver_le A B: succeeds when dotted numeric version A <= B.
+# semver_cmp_prerelease A B: prints -1, 0 or 1 comparing two dot-separated
+# prerelease strings by SemVer 11.4 rules (numeric identifiers compare as
+# numbers and rank below alphanumeric ones; a shorter prefix ranks lower).
+semver_cmp_prerelease() {
+  local -a ids_a ids_b
+  local i n
+  IFS=. read -ra ids_a <<< "$1"
+  IFS=. read -ra ids_b <<< "$2"
+  n=${#ids_a[@]}
+  if [ "${#ids_b[@]}" -gt "$n" ]; then n=${#ids_b[@]}; fi
+  for ((i = 0; i < n; i++)); do
+    if [ "$i" -ge "${#ids_a[@]}" ]; then echo -1; return; fi
+    if [ "$i" -ge "${#ids_b[@]}" ]; then echo 1; return; fi
+    if [[ "${ids_a[i]}" =~ ^[0-9]+$ && "${ids_b[i]}" =~ ^[0-9]+$ ]]; then
+      if (( 10#${ids_a[i]} < 10#${ids_b[i]} )); then echo -1; return; fi
+      if (( 10#${ids_a[i]} > 10#${ids_b[i]} )); then echo 1; return; fi
+    elif [[ "${ids_a[i]}" =~ ^[0-9]+$ ]]; then
+      echo -1; return
+    elif [[ "${ids_b[i]}" =~ ^[0-9]+$ ]]; then
+      echo 1; return
+    elif [[ "${ids_a[i]}" < "${ids_b[i]}" ]]; then
+      echo -1; return
+    elif [[ "${ids_a[i]}" > "${ids_b[i]}" ]]; then
+      echo 1; return
+    fi
+  done
+  echo 0
+}
+
+# semver_cmp A B: prints -1, 0 or 1 for SemVer precedence of X.Y.Z[-pre][+meta]
+# strings (semver.org 11): 0.47.0-rc.1 < 0.47.0, and build metadata is ignored.
+# Callers must validate both inputs with SEMVER_PRE_RE first.
+semver_cmp() {
+  local va="${1%%+*}" vb="${2%%+*}" core_a core_b pre_a="" pre_b="" i
+  local -a num_a num_b
+  core_a="${va%%-*}"; core_b="${vb%%-*}"
+  if [ "$core_a" != "$va" ]; then pre_a="${va#*-}"; fi
+  if [ "$core_b" != "$vb" ]; then pre_b="${vb#*-}"; fi
+
+  IFS=. read -ra num_a <<< "$core_a"
+  IFS=. read -ra num_b <<< "$core_b"
+  for i in 0 1 2; do
+    if (( 10#${num_a[i]} < 10#${num_b[i]} )); then echo -1; return; fi
+    if (( 10#${num_a[i]} > 10#${num_b[i]} )); then echo 1; return; fi
+  done
+
+  # Same core: a release ranks above every prerelease of it.
+  if [ -z "$pre_a" ] && [ -z "$pre_b" ]; then echo 0; return; fi
+  if [ -z "$pre_a" ]; then echo 1; return; fi
+  if [ -z "$pre_b" ]; then echo -1; return; fi
+  semver_cmp_prerelease "$pre_a" "$pre_b"
+}
+
+# semver_le A B: succeeds when SemVer version A <= B.
 semver_le() {
-  [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n 1)" = "$1" ]
+  [ "$(semver_cmp "$1" "$2")" != 1 ]
 }
 
 # login EMAIL PASSWORD: sets TOKEN. The password is never logged.
@@ -435,7 +491,7 @@ check_changelog_all() {
   jqr '[.versions[].version] | length - (unique | length)'
   [ "$JQ_OUT" = 0 ] || fail "changelog has $JQ_OUT duplicate version entries"
 
-  jqr '[.versions[] | (.features + .fixes + .other)[] | select(startswith("Merge"))] | length'
+  jqr '[.versions[] | (.features + .fixes + .other)[] | select(startswith("Merge "))] | length'
   [ "$JQ_OUT" = 0 ] || fail "changelog leaks $JQ_OUT merge-commit subject(s)"
 
   jqr '.versions[0].version // ""'
@@ -465,6 +521,7 @@ assert_status() {
   [ "$JQ_OUT" = 3 ] || fail "$label: expected exactly 3 entries, got $JQ_OUT"
   jqr '.versions[].version'
   while IFS= read -r version; do
+    [[ "$version" =~ $SEMVER_PRE_RE ]] || fail "$label: entry '$version' is not a SemVer version"
     semver_le "$version" "$RUNNING_BASE" || fail "$label: entry $version is newer than the running base $RUNNING_BASE"
   done <<< "$JQ_OUT"
   log "OK: $label shows 3 entries, all <= $RUNNING_BASE"

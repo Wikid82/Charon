@@ -397,6 +397,21 @@ refute_logged() {
   [[ "$output" == *"merge-commit subject"* ]]
 }
 
+@test "a feature subject starting with Mergeable is not a merge commit" {
+  fx GET_api_v1_changelog_all.body \
+    '{"versions":[{"version":"0.46.5","features":["Mergeable configs"],"fixes":[],"other":[]}]}'
+  run "$SCRIPT_UNDER_TEST" --image img:test --expect-version-exact 0.46.5
+  [ "$status" -eq 0 ]
+}
+
+@test "a Merge branch subject in features fails" {
+  fx GET_api_v1_changelog_all.body \
+    '{"versions":[{"version":"0.46.5","features":["Merge branch x"],"fixes":[],"other":[]}]}'
+  run "$SCRIPT_UNDER_TEST" --image img:test --expect-version-exact 0.46.5
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"merge-commit subject"* ]]
+}
+
 @test "an existing volume is reused and never removed" {
   export STUB_VOLUME_EXISTS=1
   run "$SCRIPT_UNDER_TEST" --image img:test --expect-version-exact 0.46.5 --volume qa-wn-existing-data
@@ -491,6 +506,44 @@ refute_logged() {
   run "$SCRIPT_UNDER_TEST" --image img:test --expect-version-exact '0.46.5+dev' \
     --expect-status-for-unseeded shown
   [ "$status" -eq 0 ]
+}
+
+# shown_for_base BASE ENTRY_VERSION: serves BASE as the running version and a
+# single 3-entry modal whose newest entry is ENTRY_VERSION, then runs the
+# unseeded shown check. The version ordering under test is SemVer precedence.
+shown_for_base() {
+  fx GET_api_v1_health.body "{\"status\":\"ok\",\"version\":\"$1\",\"git_commit\":\"$SHA40\"}"
+  fx GET_api_v1_changelog_status.1.body \
+    "{\"show_changelog\":true,\"versions\":[{\"version\":\"$2\"},{\"version\":\"0.46.4\"},{\"version\":\"0.46.3\"}]}"
+  run "$SCRIPT_UNDER_TEST" --image img:test --expect-version-exact "$1" --expect-status-for-unseeded shown
+}
+
+@test "a prerelease entry is older than the release it precedes (0.47.0-rc.1 <= 0.47.0)" {
+  shown_for_base 0.47.0 0.47.0-rc.1
+  [ "$status" -eq 0 ]
+}
+
+@test "a release entry is newer than a running prerelease (0.47.0 > 0.47.0-rc.1)" {
+  shown_for_base 0.47.0-rc.1 0.47.0
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"newer than the running base 0.47.0-rc.1"* ]]
+}
+
+@test "prerelease numbers compare numerically (rc.10 > rc.2)" {
+  shown_for_base 0.47.0-rc.2 0.47.0-rc.10
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"newer than the running base 0.47.0-rc.2"* ]]
+}
+
+@test "prerelease numbers compare numerically (rc.2 <= rc.10)" {
+  shown_for_base 0.47.0-rc.10 0.47.0-rc.2
+  [ "$status" -eq 0 ]
+}
+
+@test "a non-SemVer entry version fails the shown check" {
+  shown_for_base 0.46.5 v0.46.5
+  [ "$status" -eq 1 ]
+  [[ "$output" == *"is not a SemVer version"* ]]
 }
 
 @test "unseeded hidden passes when the modal stays hidden through dismissal" {

@@ -163,6 +163,50 @@ run_detect() {
   [ "${out[1]}" = "version=" ]
 }
 
+# Missed-release diagnostic: a main push that changes the manifest version but is
+# not a release must warn on stderr and still decide "not a release" with exit 0.
+
+@test "a manifest version change on main that is not a release warns and does not fail" {
+  commit_manifest "0.46.3" "chore: roll back manifest"
+
+  run_detect
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "is_release=false" ]
+  [ "${lines[1]}" = "version=" ]
+  [[ "$stderr" == *"::warning::Manifest version changed to 0.46.3"* ]]
+}
+
+@test "an unchanged manifest version on main does not warn" {
+  git checkout -q -b nightly
+  echo "nightly work" > nightly.txt
+  git add nightly.txt
+  git commit -q -m "fix: nightly fix"
+  git checkout -q main
+  git merge -q --no-ff -m "chore: promote nightly to main" nightly
+
+  run_detect
+  [ "$status" -eq 0 ]
+  [[ "$stderr" != *"::warning::"* ]]
+}
+
+@test "a manifest version change on a pull_request does not warn" {
+  commit_manifest "0.46.3" "chore: roll back manifest"
+
+  run_detect pull_request refs/heads/main
+  [ "$status" -eq 0 ]
+  [[ "$stderr" != *"::warning::"* ]]
+}
+
+@test "a manifest version change whose tag was cut on another commit does not warn" {
+  git tag v0.46.5 HEAD
+  commit_manifest "0.46.5" "chore(main): release 0.46.5"
+
+  run_detect
+  [ "$status" -eq 0 ]
+  [ "${lines[0]}" = "is_release=false" ]
+  [[ "$stderr" != *"::warning::"* ]]
+}
+
 @test "missing --event exits with a usage error" {
   run "$SCRIPT_UNDER_TEST" --ref refs/heads/main
   [ "$status" -eq 2 ]

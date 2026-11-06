@@ -315,7 +315,7 @@ RUN npm ci --ignore-scripts --fetch-retries=5 --fetch-retry-mintimeout=10000
 # is stripped too).
 COPY frontend/ ./
 RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
-    if echo "${VERSION}" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+(\+|$)'; then \
+    if echo "${VERSION}" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+|$)'; then \
         PKG_VERSION="${VERSION%%+*}" && \
         npm version "${PKG_VERSION#v}" --no-git-tag-version --allow-same-version; \
     fi && \

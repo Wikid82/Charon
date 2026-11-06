@@ -11,8 +11,9 @@
 #   - the file exists and is valid JSON
 #   - the top level is an array with at least one entry
 #   - every entry has the arrays features, fixes, other and security
-#   - every security[].sha is hexadecimal
-#   - no entry subject starts with "Merge" (merge commits must never leak in)
+#   - every security[].sha is 7-40 lowercase hex characters, the same pattern
+#     the backend applies (commitSHAPattern in backend/internal/changelog)
+#   - no entry subject starts with "Merge " (merge commits must never leak in)
 #   - with --expect-newest, the first (newest) entry's version equals X.Y.Z
 #
 # Exit codes: 0 pass, 1 assertion failed, 2 usage error.
@@ -91,13 +92,13 @@ missing_array="$(jq -r '
 [ -z "$missing_array" ] || fail "$missing_array"
 
 bad_sha="$(jq -r '
-  [ .[] | .security[]? | .sha | select((tostring | test("^[0-9a-fA-F]+$")) | not) | tostring ]
+  [ .[] | .security[]? | .sha | select((tostring | test("^[0-9a-f]{7,40}$")) | not) | tostring ]
   | first // empty
 ' "$FILE")"
 [ -z "$bad_sha" ] || fail "security entry has a non-hex sha: $bad_sha"
 
 merge_subject="$(jq -r '
-  [ .[] | (.features[], .fixes[], .other[], (.security[].summary)) | select(test("^Merge")) ]
+  [ .[] | (.features[], .fixes[], .other[], (.security[].summary)) | select(test("^Merge ")) ]
   | first // empty
 ' "$FILE")"
 [ -z "$merge_subject" ] || fail "merge commit subject leaked into changelog data: $merge_subject"

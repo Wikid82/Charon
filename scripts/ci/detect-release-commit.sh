@@ -25,6 +25,10 @@
 # reason; the safe direction is "not a release" (no release tags, plain
 # manifest version, and the data guard still runs).
 #
+# On a push to main that changes the manifest version but is not detected as a
+# release, a "::warning::" annotation is written to stderr so a missed release
+# is visible in the logs. The decision itself is unchanged and the exit is 0.
+#
 # Exit codes: 0 decision emitted, 2 usage error.
 set -uo pipefail
 
@@ -75,8 +79,40 @@ emit() {
   printf 'is_release=%s\nversion=%s\n' "$1" "$2"
 }
 
+SEMVER_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
+
+# manifest_version REV: prints the "." version from the manifest at REV, or
+# nothing when the manifest is missing or unreadable.
+manifest_version() {
+  git show "$1:$MANIFEST" 2>/dev/null | jq -r '.["."] // empty' 2>/dev/null || true
+}
+
+# warn_if_release_may_be_missed: a push to main that changes the manifest
+# version but was not detected as a release can leave the data without the
+# release's notes (users anchored at the bumped version). Only a warning: the
+# build must not fail, and the safe default stays "not a release".
+warn_if_release_may_be_missed() {
+  [ "$EVENT" != pull_request ] && [ "$REF" = refs/heads/main ] || return 0
+  git rev-parse -q --verify 'HEAD^1' >/dev/null || return 0
+
+  local head_version parent_version tag tagged_commit
+  head_version="$(manifest_version HEAD)"
+  parent_version="$(manifest_version HEAD^1)"
+  [[ "$head_version" =~ $SEMVER_RE ]] || return 0
+  [ "$head_version" != "$parent_version" ] || return 0
+
+  # A tag for this version on another commit means the release was cut there.
+  tag="v${head_version}"
+  if git rev-parse -q --verify "refs/tags/${tag}" >/dev/null; then
+    tagged_commit="$(git rev-parse "refs/tags/${tag}^{commit}")"
+    [ "$tagged_commit" = "$(git rev-parse HEAD)" ] || return 0
+  fi
+  echo "::warning::Manifest version changed to ${head_version} on main (was '${parent_version:-none}') but this commit was not detected as a release. A release may have been missed; check that ${tag} exists and that the changelog data includes ${head_version}." >&2
+}
+
 not_release() {
   echo "Not a release commit: $*" >&2
+  warn_if_release_may_be_missed
   emit false ""
   exit 0
 }
@@ -97,14 +133,6 @@ semver_gt() {
     (( 10#$new_patch > 10#$old_patch ))
   fi
 }
-
-# manifest_version REV: prints the "." version from the manifest at REV, or
-# nothing when the manifest is missing or unreadable.
-manifest_version() {
-  git show "$1:$MANIFEST" 2>/dev/null | jq -r '.["."] // empty' 2>/dev/null || true
-}
-
-SEMVER_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
 
 if [ "$EVENT" = "pull_request" ]; then
   not_release "pull_request events never publish a release"
