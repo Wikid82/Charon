@@ -4,18 +4,18 @@ import { type ReactNode, useState, useEffect, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from 'react-router'
 
+import { getFeatureFlags } from '../api/featureFlags'
+import { checkHealth } from '../api/health'
+import { getSettings } from '../api/settings'
+import { useAuth } from '../hooks/useAuth'
 import { useMediaQuery } from '../hooks/useMediaQuery'
+import { toast } from '../utils/toast'
 import WhatsNewModal from './dialogs/WhatsNewModal'
 import FeedbackWidget from './FeedbackWidget'
 import NotificationCenter from './NotificationCenter'
 import SystemStatus from './SystemStatus'
 import { ThemeToggle } from './ThemeToggle'
 import { Button } from './ui/Button'
-import { getFeatureFlags } from '../api/featureFlags'
-import { checkHealth } from '../api/health'
-import { getSettings } from '../api/settings'
-import { useAuth } from '../hooks/useAuth'
-import { toast } from '../utils/toast'
 
 
 interface LayoutProps {

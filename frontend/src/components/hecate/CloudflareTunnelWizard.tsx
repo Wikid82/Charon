@@ -2,7 +2,6 @@ import { Eye, EyeOff } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { TunnelStatusBadge } from './TunnelStatusBadge';
 import { getTunnelStatus, type TunnelState } from '../../api/hecate';
 import { useHecate } from '../../hooks/useHecate';
 import { Button } from '../ui/Button';
@@ -13,6 +12,7 @@ import {
   DialogTitle,
   DialogDescription,
 } from '../ui/Dialog';
+import { TunnelStatusBadge } from './TunnelStatusBadge';
 
 interface Props {
   serverName: string;

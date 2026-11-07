@@ -2,9 +2,6 @@ import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
-import { NetBirdPeerPicker } from './NetBirdPeerPicker';
-import { TailscaleDevicePicker } from './TailscaleDevicePicker';
-import { ZeroTierMemberPicker } from './ZeroTierMemberPicker';
 import { listTailscaleDevices, type TunnelProvider } from '../../api/hecate';
 import { type OrthrusAgent } from '../../api/orthrus';
 import { useHecate } from '../../hooks/useHecate';
@@ -16,6 +13,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui/Dialog';
+import { NetBirdPeerPicker } from './NetBirdPeerPicker';
+import { TailscaleDevicePicker } from './TailscaleDevicePicker';
+import { ZeroTierMemberPicker } from './ZeroTierMemberPicker';
 
 interface AgentProviderAssignDialogProps {
   agent: OrthrusAgent;

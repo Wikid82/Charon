@@ -2,9 +2,9 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-import WhatsNewModal from './WhatsNewModal'
 import { useAuth } from '../../hooks/useAuth'
 import { useAckChangelog, useChangelogAll, useChangelogStatus } from '../../hooks/useChangelog'
+import WhatsNewModal from './WhatsNewModal'
 
 import type { ChangelogEntry, ChangelogStatus, ChangelogAll } from '../../api/changelog'
 

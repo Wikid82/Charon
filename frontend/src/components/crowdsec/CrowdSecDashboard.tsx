@@ -3,6 +3,12 @@ import { RefreshCw } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import {
+  useDashboardSummary,
+  useDashboardTimeline,
+  useDashboardTopIPs,
+  useDashboardScenarios,
+} from '../../hooks/useCrowdsecDashboard'
 import { ActiveDecisionsTable } from './ActiveDecisionsTable'
 import { AlertsList } from './AlertsList'
 import { BanTimelineChart } from './BanTimelineChart'
@@ -11,12 +17,6 @@ import { DashboardTimeRangeSelector } from './DashboardTimeRangeSelector'
 import { DecisionsExportButton } from './DecisionsExportButton'
 import { ScenarioBreakdownChart } from './ScenarioBreakdownChart'
 import { TopAttackingIPsChart } from './TopAttackingIPsChart'
-import {
-  useDashboardSummary,
-  useDashboardTimeline,
-  useDashboardTopIPs,
-  useDashboardScenarios,
-} from '../../hooks/useCrowdsecDashboard'
 
 // NOTE: Notification enrichment skipped — no frontend notification dispatch
 // system exists. Gotify/webhook notifications are handled server-side in

@@ -1,8 +1,8 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 import { vi } from 'vitest'
 
-import ImportSitesModal from './ImportSitesModal'
 import { type CaddyFile } from '../api/import'
+import ImportSitesModal from './ImportSitesModal'
 
 // Mock the upload API used by the component
 const mockUpload = vi.fn()

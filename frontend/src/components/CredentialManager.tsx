@@ -3,6 +3,16 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
+  useCredentials,
+  useCreateCredential,
+  useUpdateCredential,
+  useDeleteCredential,
+  useTestCredential,
+  type DNSProviderCredential,
+  type CredentialRequest,
+} from '../hooks/useCredentials'
+import { toast } from '../utils/toast'
+import {
   Dialog,
   DialogContent,
   DialogHeader,
@@ -14,16 +24,6 @@ import {
   Checkbox,
   EmptyState,
 } from './ui'
-import {
-  useCredentials,
-  useCreateCredential,
-  useUpdateCredential,
-  useDeleteCredential,
-  useTestCredential,
-  type DNSProviderCredential,
-  type CredentialRequest,
-} from '../hooks/useCredentials'
-import { toast } from '../utils/toast'
 
 import type { DNSProvider, DNSProviderTypeInfo } from '../api/dnsProviders'
 

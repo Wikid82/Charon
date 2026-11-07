@@ -1,11 +1,11 @@
 import { useTranslation } from 'react-i18next'
 
-import { ThemeCard } from './ThemeCard'
 import {
   BUILT_IN_THEMES,
   BUILT_IN_THEME_LABELS,
   type ThemeId,
 } from '../../context/ThemeContextValue'
+import { ThemeCard } from './ThemeCard'
 
 export interface ThemeGalleryProps {
   value: ThemeId

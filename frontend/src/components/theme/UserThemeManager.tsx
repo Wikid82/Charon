@@ -2,7 +2,6 @@ import { Check, Pencil, Trash2 } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { CustomColorPicker } from './CustomColorPicker'
 import { useUserThemes } from '../../hooks/useUserThemes'
 import { Button } from '../ui/Button'
 import {
@@ -14,6 +13,7 @@ import {
 } from '../ui/Dialog'
 import { Input } from '../ui/Input'
 import { Label } from '../ui/Label'
+import { CustomColorPicker } from './CustomColorPicker'
 
 import type { ThemeId, UserTheme, CustomThemeColors } from '../../context/ThemeContextValue'
 

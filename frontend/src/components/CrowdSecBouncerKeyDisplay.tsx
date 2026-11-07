@@ -3,12 +3,12 @@ import { Copy, Check, Key, AlertCircle } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { type BouncerInfo, type BouncerRegistration, getBouncerInfo, getBouncerKey } from '../api/crowdsec'
+import { toast } from '../utils/toast'
 import { Badge, type BadgeProps } from './ui/Badge'
 import { Button } from './ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from './ui/Card'
 import { Skeleton } from './ui/Skeleton'
-import { type BouncerInfo, type BouncerRegistration, getBouncerInfo, getBouncerKey } from '../api/crowdsec'
-import { toast } from '../utils/toast'
 
 /** Badge look and label for each registration state. `unknown` is neutral: the check failed, nothing is wrong. */
 const REGISTRATION_BADGE: Record<

@@ -3,9 +3,9 @@ import { Loader2 } from 'lucide-react'
 import { useEffect, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { Card, CardContent } from './ui/Card'
 import { MAINTENANCE_STATUS_QUERY_KEY, useMaintenanceStatus } from '../hooks/useDatabaseMaintenance'
 import { leaveMaintenance, useMaintenanceMode } from '../utils/maintenanceMode'
+import { Card, CardContent } from './ui/Card'
 
 /**
  * Full-page view shown while the server optimizes its database. Polls the
