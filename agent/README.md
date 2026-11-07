@@ -9,7 +9,7 @@ Once connected, Charon multiplexes Docker socket and TCP port-forward streams ba
 ### Docker
 
 ```bash
-docker run ghcr.io/wikid82/charon-orthrus-agent \
+docker run wikid82/orthrus \
   --server-url wss://charon.example.com/api/v1/ws/orthrus/connect \
   --auth-key ch_orthrus_<your-key-here>
 ```
@@ -20,10 +20,17 @@ docker run ghcr.io/wikid82/charon-orthrus-agent \
 docker run \
   -e ORTHRUS_SERVER_URL=wss://charon.example.com/api/v1/ws/orthrus/connect \
   -e ORTHRUS_AUTH_KEY=ch_orthrus_<your-key-here> \
+  -e PUID=65532 \
+  -e PGID=$(stat -c '%g' /var/run/docker.sock) \
+  -e TZ=UTC \
   -e ORTHRUS_DOCKER_SOCKET=/var/run/docker.sock \
-  -v /var/run/docker.sock:/var/run/docker.sock \
-  ghcr.io/wikid82/charon-orthrus-agent
+  -v /var/run/docker.sock:/var/run/docker.sock:ro \
+  wikid82/orthrus
 ```
+
+The agent runs as an unprivileged user. `PGID` must be the group that owns the Docker socket on the host (the `$(stat ...)` part above looks it up for you on Linux). See [docs/features/orthrus.md](../docs/features/orthrus.md#set-the-permissions-puid-pgid-and-tz) for a plain-language explanation.
+
+> **Heads up:** The number from `stat` goes in `PGID` only. `ORTHRUS_DOCKER_SOCKET` stays the socket's *path* (`/var/run/docker.sock`); do not build it from that number. To check the number, run `getent group <number>`; it should print the `docker` group. The agent does not need the host user added to any group.
 
 ## Environment Variables
 
@@ -32,6 +39,10 @@ docker run \
 | `ORTHRUS_SERVER_URL` | — | WebSocket URL of the Charon Orthrus endpoint (`wss://...` behind HTTPS, `ws://...` for direct HTTP) |
 | `ORTHRUS_AUTH_KEY` | — | Auth key from the Charon provisioning response (`ch_orthrus_...`) |
 | `ORTHRUS_DOCKER_SOCKET` | `/var/run/docker.sock` | Path to the local Docker socket |
+| `PUID` | `65532` | User ID the agent runs as. Must not be `0` (root) unless `ORTHRUS_ALLOW_ROOT=true` is set |
+| `PGID` | `65532` | Group ID the agent runs as. Set it to the Docker socket's group (`stat -c '%g' /var/run/docker.sock`) so the agent can read the socket. Must not be `0` unless `ORTHRUS_ALLOW_ROOT=true` is set |
+| `ORTHRUS_ALLOW_ROOT` | `false` | Set to `true` to allow `PUID` or `PGID` of `0` (root). Not recommended: a root-level agent has full control of the host if compromised. Logs a loud warning at startup |
+| `TZ` | `UTC` | Timezone used for log timestamps (e.g. `America/New_York`) |
 
 ## CLI Flags
 

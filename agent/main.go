@@ -6,20 +6,31 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
 	"github.com/sirupsen/logrus"
 
 	"github.com/Wikid82/charon/agent/leash"
+	"github.com/Wikid82/charon/agent/privdrop"
 )
 
 func main() {
+	log := logrus.New()
+
+	// Drop root before any flag, config, or network work. No-op when not root.
+	if err := privdrop.DropPrivileges(log); err != nil {
+		log.WithError(err).Fatal("orthrus: privilege drop failed")
+	}
+
 	var (
 		serverURL  = flag.String("server-url", "", "WebSocket URL of the Charon Orthrus endpoint (wss://...)")
 		authKey    = flag.String("auth-key", "", "Orthrus auth key; env ORTHRUS_AUTH_KEY takes precedence")
@@ -29,7 +40,6 @@ func main() {
 	)
 	flag.Parse()
 
-	log := logrus.New()
 	lvl, err := logrus.ParseLevel(*logLevel)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "orthrus: invalid log level %q\n", *logLevel)
@@ -77,8 +87,14 @@ func main() {
 		"server_url":    svrURL,
 		"agent_id":      agentName,
 		"docker_socket": dockSock,
+		"uid":           os.Geteuid(),
+		"gid":           os.Getegid(),
 		"auth_key":      "[REDACTED]",
 	}).Info("orthrus agent starting")
+
+	if err := checkDockerSocket(dockSock); err != nil {
+		log.WithError(err).Warn("orthrus: docker socket is not usable; Docker proxy requests will fail")
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -95,6 +111,50 @@ func main() {
 		log.WithError(err).Fatal("orthrus agent exited with error")
 	}
 	log.Info("orthrus agent stopped")
+}
+
+// checkDockerSocket dials the Docker socket once to confirm the effective
+// uid/gid can reach it. The socket is mounted read-only and is owned by the
+// host docker group, so the agent's PGID must equal that group's GID.
+//
+// The path is operator-supplied configuration. It must be absolute and must
+// name an existing unix socket before the dial is attempted.
+func checkDockerSocket(path string) error {
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("docker socket %s must be an absolute path", path)
+	}
+	clean := filepath.Clean(path)
+
+	info, err := os.Stat(clean) //nolint:gosec // G703: path is operator-supplied unix socket config validated above, not request input
+	if err != nil {
+		switch {
+		case errors.Is(err, os.ErrPermission):
+			return dockerSocketPermissionError(clean, err)
+		case errors.Is(err, os.ErrNotExist):
+			return fmt.Errorf("docker socket %s not found: is it mounted?: %w", clean, err)
+		default:
+			return fmt.Errorf("stat docker socket %s: %w", clean, err)
+		}
+	}
+	if info.Mode()&os.ModeSocket == 0 {
+		return fmt.Errorf("%s is not a unix socket", clean)
+	}
+
+	conn, err := net.Dial("unix", clean) //nolint:gosec // G704: path is operator-supplied unix socket config validated above, not request input
+	if err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			return dockerSocketPermissionError(clean, err)
+		}
+		return fmt.Errorf("dial docker socket %s: %w", clean, err)
+	}
+	return conn.Close()
+}
+
+// dockerSocketPermissionError explains how to fix a uid/gid mismatch with the
+// Docker socket's owning group.
+func dockerSocketPermissionError(path string, err error) error {
+	return fmt.Errorf("docker socket %s not accessible to uid=%d gid=%d: set PGID to the host docker group GID (`getent group docker`): %w",
+		path, os.Geteuid(), os.Getegid(), err)
 }
 
 const orthrusConnectPath = "/api/v1/ws/orthrus/connect"

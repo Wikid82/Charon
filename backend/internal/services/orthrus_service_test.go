@@ -10,6 +10,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 )
@@ -154,6 +155,115 @@ func TestOrthrusService_GetInstallSnippets(t *testing.T) {
 	assert.Contains(t, snippets.Homebrew, expectedWSURL, "homebrew snippet must use wss:// URL")
 	assert.Contains(t, snippets.KubernetesDaemonSet, expectedWSURL, "Kubernetes snippet must use wss:// URL")
 	assert.Contains(t, snippets.DockerCompose, "snippet-agent")
+}
+
+func TestOrthrusService_GetInstallSnippets_PermissionSettings(t *testing.T) {
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+
+	agent, _, err := svc.Provision("perm-agent")
+	require.NoError(t, err)
+
+	snippets, err := svc.GetInstallSnippets(agent.UUID, "https://charon.example.com")
+	require.NoError(t, err)
+	require.NotNil(t, snippets)
+
+	// Compose: reference service shape from docs/features/orthrus.md.
+	assert.Contains(t, snippets.DockerCompose, "restart: always")
+	assert.NotContains(t, snippets.DockerCompose, "unless-stopped")
+	assert.Contains(t, snippets.DockerCompose, "container_name: orthrus")
+	assert.Contains(t, snippets.DockerCompose, "- PUID=65532")
+	assert.Contains(t, snippets.DockerCompose, "- PGID=<DOCKER_GID>")
+	assert.Contains(t, snippets.DockerCompose, "- TZ=UTC")
+	assert.Contains(t, snippets.DockerCompose, "/var/run/docker.sock:/var/run/docker.sock:ro")
+
+	// Systemd: the agent only drops privileges when started as root, so the
+	// unit must not set User=; PUID/PGID are passed as environment instead.
+	assert.Contains(t, snippets.Systemd, `Environment="PUID=65532"`)
+	assert.Contains(t, snippets.Systemd, `Environment="PGID=<DOCKER_GID>"`)
+	assert.NotContains(t, snippets.Systemd, "User=")
+
+	// Tarball and Homebrew: sudo keeps the process root so privdrop applies.
+	assert.Contains(t, snippets.Tarball, "sudo env PUID=65532 PGID=<DOCKER_GID> ")
+	assert.Contains(t, snippets.Homebrew, "sudo env PUID=65532 PGID=<DOCKER_GID> ")
+
+	// Kubernetes: container starts non-root and mounts the socket read-only.
+	assert.Contains(t, snippets.KubernetesDaemonSet, "runAsNonRoot: true")
+	assert.Contains(t, snippets.KubernetesDaemonSet, "runAsUser: 65532")
+	assert.Contains(t, snippets.KubernetesDaemonSet, "runAsGroup: 65532")
+	assert.Contains(t, snippets.KubernetesDaemonSet, "supplementalGroups:")
+	assert.Contains(t, snippets.KubernetesDaemonSet, "- <DOCKER_GID>")
+	assert.Contains(t, snippets.KubernetesDaemonSet, "allowPrivilegeEscalation: false")
+	assert.Contains(t, snippets.KubernetesDaemonSet, "readOnlyRootFilesystem: true")
+	assert.Contains(t, snippets.KubernetesDaemonSet, "drop:")
+	assert.Contains(t, snippets.KubernetesDaemonSet, "- ALL")
+	assert.Contains(t, snippets.KubernetesDaemonSet, "readOnly: true")
+	assert.Contains(t, snippets.KubernetesDaemonSet, "type: Socket")
+}
+
+func TestOrthrusService_GetInstallSnippets_RenderedYAMLIsValid(t *testing.T) {
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+
+	agent, _, err := svc.Provision("yaml-agent")
+	require.NoError(t, err)
+
+	snippets, err := svc.GetInstallSnippets(agent.UUID, "https://charon.example.com")
+	require.NoError(t, err)
+
+	var compose struct {
+		Services map[string]struct {
+			Image         string   `yaml:"image"`
+			Restart       string   `yaml:"restart"`
+			ContainerName string   `yaml:"container_name"`
+			Environment   []string `yaml:"environment"`
+			Volumes       []string `yaml:"volumes"`
+		} `yaml:"services"`
+	}
+	require.NoError(t, yaml.Unmarshal([]byte(snippets.DockerCompose), &compose))
+	svcDef, ok := compose.Services["yaml-agent"]
+	require.True(t, ok, "compose service must be named after the agent")
+	assert.Equal(t, "wikid82/orthrus:latest", svcDef.Image)
+	assert.Equal(t, "always", svcDef.Restart)
+	assert.Equal(t, "orthrus", svcDef.ContainerName)
+	assert.Contains(t, svcDef.Environment, "PUID=65532")
+	assert.Contains(t, svcDef.Environment, "PGID=<DOCKER_GID>")
+	assert.Contains(t, svcDef.Volumes, "/var/run/docker.sock:/var/run/docker.sock:ro")
+
+	var ds struct {
+		Spec struct {
+			Template struct {
+				Spec struct {
+					SecurityContext struct {
+						RunAsNonRoot       bool     `yaml:"runAsNonRoot"`
+						RunAsUser          int      `yaml:"runAsUser"`
+						RunAsGroup         int      `yaml:"runAsGroup"`
+						SupplementalGroups []string `yaml:"supplementalGroups"`
+					} `yaml:"securityContext"`
+					Containers []struct {
+						SecurityContext struct {
+							AllowPrivilegeEscalation bool `yaml:"allowPrivilegeEscalation"`
+							ReadOnlyRootFilesystem   bool `yaml:"readOnlyRootFilesystem"`
+							Capabilities             struct {
+								Drop []string `yaml:"drop"`
+							} `yaml:"capabilities"`
+						} `yaml:"securityContext"`
+					} `yaml:"containers"`
+				} `yaml:"spec"`
+			} `yaml:"template"`
+		} `yaml:"spec"`
+	}
+	require.NoError(t, yaml.Unmarshal([]byte(snippets.KubernetesDaemonSet), &ds))
+	pod := ds.Spec.Template.Spec
+	assert.True(t, pod.SecurityContext.RunAsNonRoot)
+	assert.Equal(t, 65532, pod.SecurityContext.RunAsUser)
+	assert.Equal(t, 65532, pod.SecurityContext.RunAsGroup)
+	assert.Equal(t, []string{"<DOCKER_GID>"}, pod.SecurityContext.SupplementalGroups)
+	require.Len(t, pod.Containers, 1)
+	c := pod.Containers[0].SecurityContext
+	assert.False(t, c.AllowPrivilegeEscalation)
+	assert.True(t, c.ReadOnlyRootFilesystem)
+	assert.Equal(t, []string{"ALL"}, c.Capabilities.Drop)
 }
 
 func TestOrthrusService_GetInstallSnippets_URLConversions(t *testing.T) {
