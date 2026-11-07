@@ -19,6 +19,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/testutil"
+	"github.com/Wikid82/charon/backend/internal/testutil/gormfault"
 )
 
 // --- Delete UUID path with backup service ---
@@ -592,4 +593,33 @@ func TestUpdate_DBError(t *testing.T) {
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+// --- Delete UUID: deletion fails after the usage check and backup succeed ---
+
+func TestDelete_UUID_DeleteFailureReturnsGenericError(t *testing.T) {
+	db := newBulkDeleteTestDB(t, "uuid_delete_fault.db")
+	certUUID := uuid.New().String()
+	createBulkTestCert(t, db, certUUID)
+
+	// The usage check reads proxy_hosts only, so failing the ssl_certificates delete reaches the deletion error branch.
+	gormfault.Inject(t, db, gormfault.Delete, "ssl_certificates", nil)
+
+	backupCalls := 0
+	svc := services.NewCertificateService(t.TempDir(), db, nil)
+	h := NewCertificateHandler(svc, countingBackup(&backupCalls), nil)
+
+	r := gin.New()
+	r.Use(mockAuthMiddleware())
+	r.DELETE("/api/certificates/:uuid", h.Delete)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/certificates/"+certUUID, http.NoBody)
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
+	assert.JSONEq(t, `{"error":"failed to delete certificate"}`, w.Body.String())
+	assert.NotContains(t, w.Body.String(), "injected", "raw error text must not leak")
+	assert.Equal(t, 1, backupCalls)
+	assert.True(t, certExists(t, db, certUUID))
 }

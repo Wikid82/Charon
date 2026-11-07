@@ -1148,6 +1148,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management.GET("/certificates/:uuid", certHandler.Get)
 		management.PUT("/certificates/:uuid", middleware.RequireRole(models.RoleAdmin), certHandler.Update)
 		management.POST("/certificates/:uuid/export", middleware.RequireRole(models.RoleAdmin), certHandler.Export)
+		management.POST("/certificates/bulk-delete", middleware.RequireRole(models.RoleAdmin), certHandler.BulkDelete)
 		management.DELETE("/certificates/:uuid", middleware.RequireRole(models.RoleAdmin), certHandler.Delete)
 
 		// Start certificate expiry checker
