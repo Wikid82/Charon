@@ -9,7 +9,7 @@ Once connected, Charon multiplexes Docker socket and TCP port-forward streams ba
 ### Docker
 
 ```bash
-docker run ghcr.io/wikid82/charon-orthrus-agent \
+docker run wikid82/orthrus \
   --server-url wss://charon.example.com/api/v1/ws/orthrus/connect \
   --auth-key ch_orthrus_<your-key-here>
 ```
@@ -25,7 +25,7 @@ docker run \
   -e TZ=UTC \
   -e ORTHRUS_DOCKER_SOCKET=/var/run/docker.sock \
   -v /var/run/docker.sock:/var/run/docker.sock:ro \
-  ghcr.io/wikid82/charon-orthrus-agent
+  wikid82/orthrus
 ```
 
 The agent runs as an unprivileged user. `PGID` must be the group that owns the Docker socket on the host (the `$(stat ...)` part above looks it up for you on Linux). See [docs/features/orthrus.md](../docs/features/orthrus.md#set-the-permissions-puid-pgid-and-tz) for a plain-language explanation.
