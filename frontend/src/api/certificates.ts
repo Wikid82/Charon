@@ -91,6 +91,39 @@ export async function deleteCertificate(uuid: string): Promise<void> {
   await client.delete(`/certificates/${uuid}`)
 }
 
+export type BulkDeleteFailureReason = 'in_use' | 'not_found' | 'error'
+
+export interface BulkDeleteFailure {
+  uuid: string
+  reason: BulkDeleteFailureReason
+}
+
+export interface BulkDeleteCertificatesResponse {
+  deleted: string[]
+  failed: BulkDeleteFailure[]
+}
+
+/**
+ * The backend takes one backup before deleting the batch, which can take ~45s on
+ * large databases, so this request overrides the global 30s client timeout.
+ */
+const BULK_DELETE_TIMEOUT_MS = 300000
+
+/**
+ * Deletes several certificates in one request (one backup on the server).
+ * Rejects with no certificates deleted when the backup or request fails.
+ */
+export async function bulkDeleteCertificates(
+  uuids: string[],
+): Promise<BulkDeleteCertificatesResponse> {
+  const response = await client.post<BulkDeleteCertificatesResponse>(
+    '/certificates/bulk-delete',
+    { uuids },
+    { timeout: BULK_DELETE_TIMEOUT_MS },
+  )
+  return response.data
+}
+
 export async function exportCertificate(
   uuid: string,
   format: string,

@@ -6,6 +6,7 @@ import {
   uploadCertificate,
   updateCertificate,
   deleteCertificate,
+  bulkDeleteCertificates,
   exportCertificate,
   validateCertificate,
   type Certificate,
@@ -131,5 +132,32 @@ describe('certificates API', () => {
     const formData = vi.mocked(client.post).mock.calls[0][1] as FormData;
     expect(formData.get('chain_file')).toBeTruthy();
     expect(formData.get('key_file')).toBeNull();
+  });
+
+  describe('bulkDeleteCertificates', () => {
+    it('posts all uuids in one request with a 300s timeout and returns the response', async () => {
+      const response = {
+        deleted: ['uuid-1', 'uuid-2'],
+        failed: [{ uuid: 'uuid-3', reason: 'in_use' as const }],
+      };
+      vi.mocked(client.post).mockResolvedValue({ data: response });
+
+      const result = await bulkDeleteCertificates(['uuid-1', 'uuid-2', 'uuid-3']);
+
+      expect(client.post).toHaveBeenCalledTimes(1);
+      expect(client.post).toHaveBeenCalledWith(
+        '/certificates/bulk-delete',
+        { uuids: ['uuid-1', 'uuid-2', 'uuid-3'] },
+        { timeout: 300000 },
+      );
+      expect(result).toEqual(response);
+    });
+
+    it('propagates request errors so the caller sees a rejection', async () => {
+      const error = new Error('failed to create backup before deletion');
+      vi.mocked(client.post).mockRejectedValue(error);
+
+      await expect(bulkDeleteCertificates(['uuid-1'])).rejects.toBe(error);
+    });
   });
 });

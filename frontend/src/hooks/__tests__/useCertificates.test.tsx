@@ -207,50 +207,10 @@ describe('useCertificates hooks', () => {
   });
 
   describe('useBulkDeleteCertificates', () => {
-    it('deletes multiple certificates', async () => {
-      vi.mocked(api.deleteCertificate).mockResolvedValue(undefined);
-
-      const { result } = renderHook(() => useBulkDeleteCertificates(), {
-        wrapper: createWrapper(),
-      });
-
-      result.current.mutate(['uuid-1', 'uuid-2']);
-
-      await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(api.deleteCertificate).toHaveBeenCalledTimes(2);
-      expect(result.current.data).toEqual({ succeeded: 2, failed: 0 });
-    });
-
-    it('reports partial failures', async () => {
-      vi.mocked(api.deleteCertificate)
-        .mockResolvedValueOnce(undefined)
-        .mockRejectedValueOnce(new Error('fail'));
-
-      const { result } = renderHook(() => useBulkDeleteCertificates(), {
-        wrapper: createWrapper(),
-      });
-
-      result.current.mutate(['uuid-1', 'uuid-2']);
-
-      await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(result.current.data).toEqual({ succeeded: 1, failed: 1 });
-    });
-
-    it('deletes certificates sequentially, not concurrently', async () => {
-      // Regression test: the backend serializes a backup-before-delete step
-      // with a non-blocking lock (BackupService.CreateBackupWithOptions uses
-      // TryLock, not a blocking Lock). Firing all deletes concurrently meant
-      // only the first ever won the lock and the rest 500'd. This test fails
-      // if the mutation goes back to Promise.allSettled(uuids.map(...)),
-      // which would call deleteCertificate for every UUID before any of them
-      // resolves — i.e. call N+1 would fire before call N's promise settles.
-      let inFlight = 0;
-      let maxConcurrent = 0;
-      vi.mocked(api.deleteCertificate).mockImplementation(async () => {
-        inFlight++;
-        maxConcurrent = Math.max(maxConcurrent, inFlight);
-        await new Promise(resolve => setTimeout(resolve, 5));
-        inFlight--;
+    it('sends all uuids in a single bulk request', async () => {
+      vi.mocked(api.bulkDeleteCertificates).mockResolvedValue({
+        deleted: ['uuid-1', 'uuid-2', 'uuid-3'],
+        failed: [],
       });
 
       const { result } = renderHook(() => useBulkDeleteCertificates(), {
@@ -260,9 +220,60 @@ describe('useCertificates hooks', () => {
       result.current.mutate(['uuid-1', 'uuid-2', 'uuid-3']);
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true));
-      expect(api.deleteCertificate).toHaveBeenCalledTimes(3);
-      expect(result.current.data).toEqual({ succeeded: 3, failed: 0 });
-      expect(maxConcurrent).toBe(1);
+      expect(api.bulkDeleteCertificates).toHaveBeenCalledTimes(1);
+      expect(api.bulkDeleteCertificates).toHaveBeenCalledWith(['uuid-1', 'uuid-2', 'uuid-3']);
+      expect(api.deleteCertificate).not.toHaveBeenCalled();
+    });
+
+    it('returns succeeded and failed counts from the response', async () => {
+      vi.mocked(api.bulkDeleteCertificates).mockResolvedValue({
+        deleted: ['uuid-1', 'uuid-2'],
+        failed: [],
+      });
+
+      const { result } = renderHook(() => useBulkDeleteCertificates(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate(['uuid-1', 'uuid-2']);
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(result.current.data).toEqual({ succeeded: 2, failed: 0 });
+    });
+
+    it('counts partial failures reported per uuid', async () => {
+      vi.mocked(api.bulkDeleteCertificates).mockResolvedValue({
+        deleted: ['uuid-1'],
+        failed: [
+          { uuid: 'uuid-2', reason: 'in_use' },
+          { uuid: 'uuid-3', reason: 'not_found' },
+        ],
+      });
+
+      const { result } = renderHook(() => useBulkDeleteCertificates(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate(['uuid-1', 'uuid-2', 'uuid-3']);
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true));
+      expect(result.current.data).toEqual({ succeeded: 1, failed: 2 });
+    });
+
+    it('errors the mutation when the whole request is rejected', async () => {
+      vi.mocked(api.bulkDeleteCertificates).mockRejectedValue(
+        new Error('failed to create backup before deletion'),
+      );
+
+      const { result } = renderHook(() => useBulkDeleteCertificates(), {
+        wrapper: createWrapper(),
+      });
+
+      result.current.mutate(['uuid-1', 'uuid-2']);
+
+      await waitFor(() => expect(result.current.isError).toBe(true));
+      expect(result.current.data).toBeUndefined();
+      expect(api.deleteCertificate).not.toHaveBeenCalled();
     });
   });
 });
