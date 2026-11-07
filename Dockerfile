@@ -885,7 +885,7 @@ RUN set -e; \
     _retry go get github.com/quic-go/quic-go@v0.65.0; \
     # renovate: datasource=go depName=github.com/buger/jsonparser
     _retry go get github.com/buger/jsonparser@v1.6.1; \
-    _retry go get github.com/getkin/kin-openapi@v0.152.0; \
+    _retry go get github.com/getkin/kin-openapi@v0.153.0; \
     # CVE-2026-56864 / CVE-2026-56865: golang.org/x/mod/sumdb GOSUMDB tile-verification bypass
     # (a colluding GOPROXY+GOSUMDB pair could forge sumdb tiles / serve module content outside
     # the transparency log). Affects /usr/local/bin/crowdsec and /usr/local/bin/cscli — go mod
