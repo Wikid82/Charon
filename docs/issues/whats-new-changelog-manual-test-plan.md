@@ -208,37 +208,23 @@ keeping their data. Use a new volume for each run and delete it afterwards.
    - [ ] **C** sees exactly 3 entries, newest first.
    - [ ] After **"Got It, Thanks"**, B and C see no popup on the next two logins.
 
-7. Downgrade check. This proves that an older image never lowers a stored
-   version. Keep the same `DOCKER_HOST` from Prerequisites, if you set one.
+7. Downgrade check. This proves that acknowledging the popup never lowers a
+   stored version. The older stable image cannot prove this, because it does
+   not contain the rule. Run the check on the image under test instead. Keep
+   the same `DOCKER_HOST` from Prerequisites, if you set one.
 
-   a. While the image under test is still running, write down the stored
-      versions:
+   a. Store a version higher than the one the image reports. This example uses
+      `0.99.0` for user **B**. Replace `<B email>` with B's email address:
 
       ```bash
       docker exec qa-wn-1234-new sqlite3 /app/data/charon.db \
-        "SELECT email, last_seen_version FROM users;"
+        "UPDATE users SET last_seen_version='0.99.0' WHERE email='<B email>';"
       ```
 
-   b. Stop that container. Keep it for now, so step 8 can remove it:
-
-      ```bash
-      docker stop qa-wn-1234-new
-      ```
-
-   c. Start an older image on the same volume. It must report a lower version
-      than the image under test. Check with
-      `curl -s http://127.0.0.1:18080/api/v1/health` and look at the `version`
-      field. The stable image is used in this example:
-
-      ```bash
-      docker run -d --name qa-wn-1234-downgrade -p 127.0.0.1:18080:8080 \
-        -v qa-wn-1234-data:/app/data ghcr.io/wikid82/charon:latest
-      ```
-
-   d. Sign in as **B** through the API, then dismiss the popup permanently. The
-      popup stays hidden on the older image, so the browser cannot send this
-      request. Use the same endpoints as the CI smoke check
-      (`scripts/ci/smoke-whats-new.sh`):
+   b. Sign in as **B** through the API and dismiss the popup permanently. Use
+      the same endpoints as the CI smoke check
+      (`scripts/ci/smoke-whats-new.sh`). Use the port you published for
+      `qa-wn-1234-new`:
 
       ```bash
       TOKEN=$(curl -sS -X POST http://127.0.0.1:18080/api/v1/auth/login \
@@ -254,21 +240,19 @@ keeping their data. Use a new volume for each run and delete it afterwards.
 
       The last line must print a `2xx` code, such as `200`.
 
-   e. Read the stored versions from the older container:
+   c. Read the stored versions again:
 
       ```bash
-      docker exec qa-wn-1234-downgrade sqlite3 /app/data/charon.db \
+      docker exec qa-wn-1234-new sqlite3 /app/data/charon.db \
         "SELECT email, last_seen_version FROM users;"
       ```
 
-   - [ ] **B**'s `last_seen_version` is the same as, or higher than, the value
-         you wrote down in step a. It must not go lower.
-   - [ ] No other user's value went lower either.
+   - [ ] **B**'s `last_seen_version` is still `0.99.0`. It must not go lower.
 
 8. Clean up. Remove the containers and the volume you created:
 
    ```bash
-   docker rm -f qa-wn-1234-new qa-wn-1234-downgrade
+   docker rm -f qa-wn-1234-new
    docker volume rm qa-wn-1234-data
    ```
 

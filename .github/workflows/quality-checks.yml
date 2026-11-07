@@ -246,6 +246,8 @@ jobs:
         run: bats scripts/tests/check-nightly-sequencing.bats
 
   changelog-data-tests:
+    permissions:
+      contents: read
     name: Changelog generator and data guard (bats)
     runs-on: ubuntu-latest
     steps:
@@ -272,6 +274,8 @@ jobs:
         run: bats scripts/tests/generate-changelog.bats scripts/tests/check-changelog-data.bats scripts/tests/detect-release-commit.bats scripts/tests/smoke-whats-new.bats
 
   build-version-resolver-tests:
+    permissions:
+      contents: read
     name: Build version resolver (bats)
     runs-on: ubuntu-latest
     steps:
