@@ -787,6 +787,33 @@ describe('Layout', () => {
       expect(links.some((l) => l.getAttribute('href') === '/security/encryption')).toBe(false)
     })
 
+    it('shows the commit next to a version that does not contain it', async () => {
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      expect(await screen.findByText('(abcdef1)')).toBeInTheDocument()
+    })
+
+    it('hides the separate commit when the version already includes it', async () => {
+      const { checkHealth } = await import('../../api/health')
+      vi.mocked(checkHealth).mockResolvedValueOnce({
+        version: '0.46.5+dev.abcdef1',
+        git_commit: 'abcdef1234567890',
+      } as Awaited<ReturnType<typeof checkHealth>>)
+
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      expect(await screen.findByText('Version 0.46.5+dev.abcdef1')).toBeInTheDocument()
+      expect(screen.queryByText('(abcdef1)')).not.toBeInTheDocument()
+    })
+
     it('shows the Appearance link under Settings for any user', async () => {
       mockUser = { role: 'user' }
       const user = userEvent.setup()

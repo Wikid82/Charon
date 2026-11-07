@@ -100,6 +100,7 @@ export default function Layout({ children }: LayoutProps) {
     queryFn: checkHealth,
     staleTime: 1000 * 60 * 60, // 1 hour
   })
+  const shortCommit = health?.git_commit?.substring(0, 7)
 
   const { data: featureFlags } = useQuery({
     queryKey: ['feature-flags'],
@@ -410,9 +411,9 @@ export default function Layout({ children }: LayoutProps) {
             </div>
             <div className="text-xs text-content-muted text-center mt-2 mb-2 flex flex-col gap-0.5">
               <span>Version {health?.version || 'dev'}</span>
-              {health?.git_commit && health.git_commit !== 'unknown' && (
+              {shortCommit && shortCommit !== 'unknown' && !health?.version?.includes(shortCommit) && (
                 <span className="text-[10px] opacity-75 font-mono">
-                  ({health.git_commit.substring(0, 7)})
+                  ({shortCommit})
                 </span>
               )}
             </div>
