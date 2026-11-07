@@ -164,6 +164,7 @@ CHARON_EMERGENCY_TOKEN=
 # PGID: the group the agent runs as. Set it to your Docker socket's group. Find it with:
 #   stat -c '%g' /var/run/docker.sock
 # Full explanation: docs/features/orthrus.md#set-the-permissions-puid-pgid-and-tz
+# Heads up: the number goes in PGID only. DOCKER_SOCK stays the socket path. Check the number with: getent group <number>
 PUID=65532
 PGID=
 TZ=America/New_York

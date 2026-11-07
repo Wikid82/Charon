@@ -30,6 +30,8 @@ docker run \
 
 The agent runs as an unprivileged user. `PGID` must be the group that owns the Docker socket on the host (the `$(stat ...)` part above looks it up for you on Linux). See [docs/features/orthrus.md](../docs/features/orthrus.md#set-the-permissions-puid-pgid-and-tz) for a plain-language explanation.
 
+> **Heads up:** The number from `stat` goes in `PGID` only. `ORTHRUS_DOCKER_SOCKET` stays the socket's *path* (`/var/run/docker.sock`); do not build it from that number. To check the number, run `getent group <number>`; it should print the `docker` group. The agent does not need the host user added to any group.
+
 ## Environment Variables
 
 | Variable | Default | Description |

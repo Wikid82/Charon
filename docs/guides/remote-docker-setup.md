@@ -57,6 +57,10 @@ On your **remote machine**, open a terminal and:
 3. Create a file called `docker-compose.yml` and paste the snippet into it
 4. Replace `<AUTH_KEY>` with the key you saved in Step 1
 5. Check the permission settings. The file should include `PUID`, `PGID`, and `TZ` lines. Set `PGID` to your Docker group's number: run `stat -c '%g' /var/run/docker.sock` on the remote machine and put the number it prints after `PGID=`. Most setups need this. See [Set the Permissions](../features/orthrus.md#set-the-permissions-puid-pgid-and-tz) for details.
+
+   > **Heads up:** That number goes in `PGID` only. `DOCKER_SOCK` stays the socket's *path* (`/var/run/docker.sock`); do not build it from the number. To check it, run `getent group <number>`; it should print the `docker` group.
+   >
+   > **Using rootless Docker?** The settings are different. See [Rootless Docker](../features/orthrus.md#rootless-docker).
 6. Run:
 
 ```bash

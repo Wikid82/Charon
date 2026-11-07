@@ -96,6 +96,8 @@ stat -c '%g' /var/run/docker.sock
 
 It prints one number, such as `998` or `988`. Put that number after `PGID=`.
 
+> **Heads up:** That number goes in `PGID` only. `DOCKER_SOCK` stays the socket's *path* (`/var/run/docker.sock`); do not build it from this number. To check the number, run `getent group <number>`. It should print the `docker` group. You do not need to add the agent to any group, and nothing needs to be created inside the container.
+
 **Example `.env` file** (kept in the same folder as your Orthrus compose file):
 
 ```env
@@ -138,6 +140,53 @@ services:
 ### Running as Root (Not Recommended)
 
 Orthrus will only run as root if you deliberately allow it. Set `ORTHRUS_ALLOW_ROOT=true` in the agent's environment, then `PUID` or `PGID` set to `0` is accepted. Use this only if you understand the risk: anyone who breaks into a root-level helper gets control of the whole machine. Orthrus prints a loud warning each time it starts this way.
+
+### Rootless Docker
+
+Rootless Docker runs Docker as your own everyday user instead of as the machine's administrator. If you use it, the Docker socket is **not** at `/var/run/docker.sock`. It is in your user's folder:
+
+```text
+/run/user/<your-uid>/docker.sock
+```
+
+To find your number, run `id -u` as the user who runs Docker. For example, if it prints `1000`, the path is `/run/user/1000/docker.sock`.
+
+**Why the normal settings fail here.** Rootless Docker translates IDs between the container and your computer. "Root" inside the container becomes your own unprivileged user on the computer. Every other ID, such as `65532` or `1000`, is mapped to a reserved range of IDs that does not include your user's access to the socket. So dropping to a `PUID` and `PGID` like those loses access to the socket. Changing `PGID` cannot fix this, because group numbers are translated the same way.
+
+**What to set instead:**
+
+```env
+PUID=0
+PGID=0
+ORTHRUS_ALLOW_ROOT=true
+DOCKER_SOCK=/run/user/1000/docker.sock   # replace 1000 with your number from id -u
+```
+
+**Example Docker Compose service:**
+
+```yaml
+services:
+  orthrus:
+    image: wikid82/orthrus:latest
+    restart: always
+    container_name: orthrus
+    environment:
+      - PUID=0
+      - PGID=0
+      - ORTHRUS_ALLOW_ROOT=true
+      - TZ=${TZ}
+      - ORTHRUS_SERVER_URL=${ORTHRUS_SERVER_URL}
+      - ORTHRUS_AGENT_ID=${ORTHRUS_AGENT_ID}
+      - ORTHRUS_AUTH_KEY=${ORTHRUS_AUTH_KEY}
+    volumes:
+      - ${DOCKER_SOCK}:/var/run/docker.sock:ro
+```
+
+**Why this is safe here:** In rootless Docker, the agent's "root" is only your own everyday user account on the computer, not the machine's administrator. It has no more power over your computer than that account already has.
+
+**Do not use this on normal (rootful) Docker.** On regular Docker, which is the default on most Linux systems, `PUID=0` means real administrator (root) on your machine. Keep the normal settings from the top of this page. Not sure which kind you have? Run `docker info --format '{{.SecurityOptions}}'`. If the output includes the word `rootless`, you have rootless Docker. If it does not, you do not.
+
+> **Not yet verified:** This setup follows from how rootless Docker maps IDs. The Charon maintainers have not yet tested it on a live rootless Docker install. If it does not work for you, please open an issue and tell us your Docker version.
 
 ## Agent Status Reference
 
@@ -279,6 +328,7 @@ One note on that last item: read-only here means the proxy can't change anything
 | Agent connects but no containers appear | Docker socket not mounted | Add `/var/run/docker.sock:/var/run/docker.sock:ro` to the agent's volume list |
 | Agent connects but no containers appear, and it cannot open the Docker socket | `PGID` does not match the Docker group | Run `stat -c '%g' /var/run/docker.sock`, set `PGID` to that number, then restart the agent |
 | Agent refuses to start and mentions `PUID` or `PGID` being `0` | Root IDs are blocked by default | Set `PUID` and `PGID` to non-zero numbers, or see [Running as Root](#running-as-root-not-recommended) |
+| Permission denied on the socket, and the socket path starts with `/run/user` | Rootless Docker needs different settings | See [Rootless Docker](#rootless-docker) |
 | Third-party tool can't reach my agent's Docker API | Wrong port configured in the tool | Check the tool is using the External Proxy port shown in the gear-icon dialog — not Charon's main web port |
 
 ---
