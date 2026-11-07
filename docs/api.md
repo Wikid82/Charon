@@ -969,6 +969,41 @@ DELETE /certificates/:id
 }
 ```
 
+#### Bulk Delete Certificates
+
+Delete several certificates in one request. A single backup is taken before any deletion, so a batch of up to 200 certificates does not trigger one backup per certificate. Certificates in use, or not found, are reported in `failed` and do not stop the rest of the batch.
+
+```http
+POST /certificates/bulk-delete
+```
+
+**Request body:**
+
+```json
+{
+  "uuids": ["3f2b8c1e-5a4d-4e7f-9b1a-2c3d4e5f6a7b"]
+}
+```
+
+`uuids` must contain between 1 and 200 valid UUIDs. Duplicates are ignored.
+
+**Response 200:**
+
+```json
+{
+  "deleted": ["3f2b8c1e-5a4d-4e7f-9b1a-2c3d4e5f6a7b"],
+  "failed": [{ "uuid": "9a8b7c6d-1e2f-4a3b-8c4d-5e6f7a8b9c0d", "reason": "in_use" }]
+}
+```
+
+`reason` is one of `in_use`, `not_found` or `error`.
+
+**Response 400:** `{"error": "invalid request"}` for a malformed body, or `{"error": "uuids must contain between 1 and 200 entries"}` / `{"error": "uuids must contain valid UUIDs"}`.
+
+**Response 500:** `{"error": "failed to create backup before deletion"}`. Nothing is deleted in this case.
+
+**Response 507:** `{"error": "insufficient disk space for backup"}`. Nothing is deleted in this case.
+
 **Note:** A backup is automatically created before deletion. The certificate files are removed from disk along with the database record.
 
 #### Export Certificate

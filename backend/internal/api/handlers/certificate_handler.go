@@ -423,20 +423,8 @@ func (h *CertificateHandler) Delete(c *gin.Context) {
 			return
 		}
 
-		if h.backupService != nil {
-			if availableSpace, err := h.backupService.GetAvailableSpace(); err != nil {
-				logger.Log().WithError(err).Warn("unable to check disk space, proceeding with backup")
-			} else if availableSpace < 100*1024*1024 {
-				logger.Log().WithField("available_bytes", availableSpace).Warn("low disk space, skipping backup")
-				c.JSON(http.StatusInsufficientStorage, gin.H{"error": "insufficient disk space for backup"})
-				return
-			}
-
-			if _, err := h.backupService.CreateBackup(); err != nil {
-				logger.Log().WithError(err).Error("failed to create backup before deletion")
-				c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create backup before deletion"})
-				return
-			}
+		if !h.backupBeforeDelete(c) {
+			return
 		}
 
 		if err := h.service.DeleteCertificateByID(uint(numID)); err != nil {
@@ -466,52 +454,193 @@ func (h *CertificateHandler) Delete(c *gin.Context) {
 	}
 	certUUID := parsedUUID.String()
 
-	inUse, err := h.service.IsCertificateInUseByUUID(certUUID)
-	if err != nil {
-		if errors.Is(err, services.ErrCertNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "certificate not found"})
-			return
-		}
-		logger.Log().WithError(err).WithField("certificate_uuid", util.SanitizeForLog(certUUID)).Error("failed to check certificate usage")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check certificate usage"})
-		return
-	}
-	if inUse {
-		c.JSON(http.StatusConflict, gin.H{"error": "certificate is in use by one or more proxy hosts"})
+	// The usage check runs before the backup so a certificate that cannot be
+	// deleted never triggers one.
+	if err := h.checkCertificateUsage(certUUID); err != nil {
+		h.respondCertificateDeleteError(c, certUUID, err)
 		return
 	}
 
-	if h.backupService != nil {
-		if availableSpace, err := h.backupService.GetAvailableSpace(); err != nil {
-			logger.Log().WithError(err).Warn("unable to check disk space, proceeding with backup")
-		} else if availableSpace < 100*1024*1024 {
-			c.JSON(http.StatusInsufficientStorage, gin.H{"error": "insufficient disk space for backup"})
-			return
-		}
-
-		if _, err := h.backupService.CreateBackup(); err != nil {
-			logger.Log().WithError(err).Error("failed to create backup before deletion")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create backup before deletion"})
-			return
-		}
+	if !h.backupBeforeDelete(c) {
+		return
 	}
 
 	if err := h.service.DeleteCertificate(certUUID); err != nil {
-		if errors.Is(err, services.ErrCertInUse) {
-			c.JSON(http.StatusConflict, gin.H{"error": "certificate is in use by one or more proxy hosts"})
-			return
-		}
-		if errors.Is(err, services.ErrCertNotFound) {
-			c.JSON(http.StatusNotFound, gin.H{"error": "certificate not found"})
-			return
-		}
-		logger.Log().WithError(err).WithField("certificate_uuid", util.SanitizeForLog(certUUID)).Error("failed to delete certificate")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete certificate"})
+		h.respondCertificateDeleteError(c, certUUID, err)
 		return
 	}
 
 	h.sendDeleteNotification(c, certUUID)
 	c.JSON(http.StatusOK, gin.H{"message": "certificate deleted"})
+}
+
+// minBackupFreeSpaceBytes is the free disk space required before a pre-delete backup is attempted.
+const minBackupFreeSpaceBytes = 100 * 1024 * 1024
+
+// errCertUsageCheck marks a failed in-use lookup so it keeps its own response message.
+var errCertUsageCheck = errors.New("certificate usage check failed")
+
+// backupBeforeDelete takes one safety backup ahead of a destructive delete, after
+// confirming there is room for it. It writes the error response and returns false
+// when the caller must not delete anything. A nil backup service skips the step.
+func (h *CertificateHandler) backupBeforeDelete(c *gin.Context) bool {
+	if h.backupService == nil {
+		return true
+	}
+
+	if availableSpace, err := h.backupService.GetAvailableSpace(); err != nil {
+		logger.Log().WithError(err).Warn("unable to check disk space, proceeding with backup")
+	} else if availableSpace < minBackupFreeSpaceBytes {
+		logger.Log().WithField("available_bytes", availableSpace).Warn("low disk space, skipping backup")
+		c.JSON(http.StatusInsufficientStorage, gin.H{"error": "insufficient disk space for backup"})
+		return false
+	}
+
+	if _, err := h.backupService.CreateBackup(); err != nil {
+		logger.Log().WithError(err).Error("failed to create backup before deletion")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create backup before deletion"})
+		return false
+	}
+	return true
+}
+
+// checkCertificateUsage returns nil when the certificate exists and nothing references it.
+// It returns services.ErrCertNotFound, services.ErrCertInUse, or an error wrapping errCertUsageCheck.
+func (h *CertificateHandler) checkCertificateUsage(certUUID string) error {
+	inUse, err := h.service.IsCertificateInUseByUUID(certUUID)
+	if err != nil {
+		if errors.Is(err, services.ErrCertNotFound) {
+			return err
+		}
+		return fmt.Errorf("%w: %w", errCertUsageCheck, err)
+	}
+	if inUse {
+		return services.ErrCertInUse
+	}
+	return nil
+}
+
+// respondCertificateDeleteError writes the single-delete response for a failed usage check or deletion.
+func (h *CertificateHandler) respondCertificateDeleteError(c *gin.Context, certUUID string, err error) {
+	safeUUID := util.SanitizeForLog(certUUID)
+	switch {
+	case errors.Is(err, services.ErrCertNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "certificate not found"})
+	case errors.Is(err, services.ErrCertInUse):
+		c.JSON(http.StatusConflict, gin.H{"error": "certificate is in use by one or more proxy hosts"})
+	case errors.Is(err, errCertUsageCheck):
+		logger.Log().WithError(err).WithField("certificate_uuid", safeUUID).Error("failed to check certificate usage")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check certificate usage"})
+	default:
+		logger.Log().WithError(err).WithField("certificate_uuid", safeUUID).Error("failed to delete certificate")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to delete certificate"})
+	}
+}
+
+// maxBulkDeleteCertificates caps how many certificates one bulk delete request may name.
+const maxBulkDeleteCertificates = 200
+
+var (
+	errBulkDeleteCount = errors.New("uuids must contain between 1 and 200 entries")
+	errBulkDeleteUUID  = errors.New("uuids must contain valid UUIDs")
+)
+
+type bulkDeleteCertificatesRequest struct {
+	UUIDs []string `json:"uuids"`
+}
+
+// bulkDeleteCertificateFailure reports one certificate that was not deleted.
+// Reason is one of "in_use", "not_found" or "error".
+type bulkDeleteCertificateFailure struct {
+	UUID   string `json:"uuid"`
+	Reason string `json:"reason"`
+}
+
+type bulkDeleteCertificatesResponse struct {
+	Deleted []string                       `json:"deleted"`
+	Failed  []bulkDeleteCertificateFailure `json:"failed"`
+}
+
+// normalizeBulkDeleteUUIDs validates the requested UUIDs, returns their canonical
+// forms, and drops duplicates while keeping the request order.
+func normalizeBulkDeleteUUIDs(raw []string) ([]string, error) {
+	if len(raw) == 0 || len(raw) > maxBulkDeleteCertificates {
+		return nil, errBulkDeleteCount
+	}
+
+	seen := make(map[string]struct{}, len(raw))
+	uuids := make([]string, 0, len(raw))
+	for _, candidate := range raw {
+		parsed, err := uuid.Parse(candidate)
+		if err != nil {
+			return nil, errBulkDeleteUUID
+		}
+		canonical := parsed.String()
+		if _, dup := seen[canonical]; dup {
+			continue
+		}
+		seen[canonical] = struct{}{}
+		uuids = append(uuids, canonical)
+	}
+	return uuids, nil
+}
+
+// bulkDeleteReason maps a per-certificate failure to the reason reported to the client.
+func bulkDeleteReason(err error) string {
+	switch {
+	case errors.Is(err, services.ErrCertNotFound):
+		return "not_found"
+	case errors.Is(err, services.ErrCertInUse):
+		return "in_use"
+	default:
+		return "error"
+	}
+}
+
+// BulkDelete removes several certificates by UUID. One backup covers the whole
+// batch and is taken before any deletion. Per-certificate failures are reported
+// in the response and do not stop the remaining deletions.
+func (h *CertificateHandler) BulkDelete(c *gin.Context) {
+	var req bulkDeleteCertificatesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		return
+	}
+
+	uuids, err := normalizeBulkDeleteUUIDs(req.UUIDs)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	if !h.backupBeforeDelete(c) {
+		return
+	}
+
+	resp := bulkDeleteCertificatesResponse{
+		Deleted: make([]string, 0, len(uuids)),
+		Failed:  make([]bulkDeleteCertificateFailure, 0),
+	}
+	for _, certUUID := range uuids {
+		deleteErr := h.checkCertificateUsage(certUUID)
+		if deleteErr == nil {
+			deleteErr = h.service.DeleteCertificate(certUUID)
+		}
+		if deleteErr != nil {
+			reason := bulkDeleteReason(deleteErr)
+			logger.Log().WithError(deleteErr).
+				WithField("certificate_uuid", util.SanitizeForLog(certUUID)).
+				WithField("reason", reason).
+				Warn("bulk certificate delete skipped certificate")
+			resp.Failed = append(resp.Failed, bulkDeleteCertificateFailure{UUID: certUUID, Reason: reason})
+			continue
+		}
+
+		h.sendDeleteNotification(c, certUUID)
+		resp.Deleted = append(resp.Deleted, certUUID)
+	}
+
+	c.JSON(http.StatusOK, resp)
 }
 
 func (h *CertificateHandler) sendDeleteNotification(c *gin.Context, certRef string) {
