@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"syscall"
 
@@ -115,16 +116,45 @@ func main() {
 // checkDockerSocket dials the Docker socket once to confirm the effective
 // uid/gid can reach it. The socket is mounted read-only and is owned by the
 // host docker group, so the agent's PGID must equal that group's GID.
+//
+// The path is operator-supplied configuration. It must be absolute and must
+// name an existing unix socket before the dial is attempted.
 func checkDockerSocket(path string) error {
-	conn, err := net.Dial("unix", path)
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("docker socket %s must be an absolute path", path)
+	}
+	clean := filepath.Clean(path)
+
+	info, err := os.Stat(clean) //nolint:gosec // G703: path is operator-supplied unix socket config validated above, not request input
+	if err != nil {
+		switch {
+		case errors.Is(err, os.ErrPermission):
+			return dockerSocketPermissionError(clean, err)
+		case errors.Is(err, os.ErrNotExist):
+			return fmt.Errorf("docker socket %s not found: is it mounted?: %w", clean, err)
+		default:
+			return fmt.Errorf("stat docker socket %s: %w", clean, err)
+		}
+	}
+	if info.Mode()&os.ModeSocket == 0 {
+		return fmt.Errorf("%s is not a unix socket", clean)
+	}
+
+	conn, err := net.Dial("unix", clean) //nolint:gosec // G704: path is operator-supplied unix socket config validated above, not request input
 	if err != nil {
 		if errors.Is(err, os.ErrPermission) {
-			return fmt.Errorf("docker socket %s not accessible to uid=%d gid=%d: set PGID to the host docker group GID (`getent group docker`): %w",
-				path, os.Geteuid(), os.Getegid(), err)
+			return dockerSocketPermissionError(clean, err)
 		}
-		return fmt.Errorf("dial docker socket %s: %w", path, err)
+		return fmt.Errorf("dial docker socket %s: %w", clean, err)
 	}
 	return conn.Close()
+}
+
+// dockerSocketPermissionError explains how to fix a uid/gid mismatch with the
+// Docker socket's owning group.
+func dockerSocketPermissionError(path string, err error) error {
+	return fmt.Errorf("docker socket %s not accessible to uid=%d gid=%d: set PGID to the host docker group GID (`getent group docker`): %w",
+		path, os.Geteuid(), os.Getegid(), err)
 }
 
 const orthrusConnectPath = "/api/v1/ws/orthrus/connect"
