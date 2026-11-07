@@ -3,7 +3,10 @@ package privdrop
 import (
 	"bytes"
 	"errors"
+	"fmt"
+	"math"
 	"os"
+	"strconv"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -205,6 +208,7 @@ func TestApplyRootInvalidValuesAreFatal(t *testing.T) {
 		"non-numeric PUID": {"PUID": "abc"},
 		"negative PUID":    {"PUID": "-1"},
 		"float PGID":       {"PGID": "1.5"},
+		"PUID above int32": {"PUID": "2147483648"},
 		"PUID too large":   {"PUID": "4294967295"},
 		"PGID too large":   {"PGID": "99999999999999999999"},
 		"invalid with allow root": {
@@ -228,10 +232,47 @@ func TestApplyMaxValidID(t *testing.T) {
 	creds := &fakeCreds{}
 	log, _ := newLogger()
 
-	err := apply(envMap(map[string]string{"PUID": "4294967294", "PGID": "4294967294"}), creds, log)
+	err := apply(envMap(map[string]string{"PUID": strconv.Itoa(math.MaxInt32), "PGID": strconv.Itoa(math.MaxInt32)}), creds, log)
 
 	require.NoError(t, err)
-	assert.Equal(t, 4294967294, creds.euid)
+	assert.Equal(t, math.MaxInt32, creds.euid)
+	assert.Equal(t, math.MaxInt32, creds.egid)
+}
+
+func TestParseID(t *testing.T) {
+	maxMsg := fmt.Sprintf("must be between 0 and %d", math.MaxInt32)
+	cases := map[string]struct {
+		raw     string
+		want    int
+		wantErr string
+	}{
+		"empty uses default":         {raw: "", want: defaultID},
+		"whitespace uses default":    {raw: "   ", want: defaultID},
+		"zero":                       {raw: "0", want: 0},
+		"typical id":                 {raw: " 1000 ", want: 1000},
+		"max int32 is valid":         {raw: strconv.Itoa(math.MaxInt32), want: math.MaxInt32},
+		"one above max int32":        {raw: "2147483648", wantErr: maxMsg},
+		"uint32 max rejected":        {raw: "4294967295", wantErr: maxMsg},
+		"overflows int64":            {raw: "99999999999999999999", wantErr: maxMsg},
+		"negative overflows int32":   {raw: "-2147483649", wantErr: maxMsg},
+		"negative in range rejected": {raw: "-1", wantErr: maxMsg},
+		"non-numeric":                {raw: "abc", wantErr: "must be a numeric id"},
+		"float rejected":             {raw: "1.5", wantErr: "must be a numeric id"},
+		"hex rejected":               {raw: "0x10", wantErr: "must be a numeric id"},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := parseID("PUID", tc.raw)
+			if tc.wantErr != "" {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), tc.wantErr)
+				assert.Equal(t, 0, got)
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tc.want, got)
+		})
+	}
 }
 
 func TestApplyDropFailures(t *testing.T) {

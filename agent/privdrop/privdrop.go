@@ -18,6 +18,7 @@ package privdrop
 import (
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -32,9 +33,10 @@ const (
 	// defaultID is the "nobody" style uid/gid used when PUID/PGID are unset.
 	defaultID = 65532
 
-	// maxID is the largest valid uid/gid. 0xFFFFFFFF is reserved by the kernel
-	// to mean "leave unchanged" for the set*id family of syscalls.
-	maxID = 4294967294
+	// maxID is the largest accepted uid/gid. Go's syscall API takes int, and the
+	// agent is also cross-compiled for 32-bit targets, so IDs above math.MaxInt32
+	// are not supported.
+	maxID = math.MaxInt32
 )
 
 // credentials abstracts the process identity syscalls so the drop logic can be
@@ -132,11 +134,16 @@ func parseID(name, raw string) (int, error) {
 	if s == "" {
 		return defaultID, nil
 	}
-	n, err := strconv.ParseInt(s, 10, 64)
+	// Parsing with bitSize 32 bounds the result to math.MaxInt32, so the
+	// conversion to int below cannot overflow on 32-bit platforms either.
+	n, err := strconv.ParseInt(s, 10, 32)
+	if errors.Is(err, strconv.ErrRange) {
+		return 0, fmt.Errorf("privdrop: invalid %s %q: must be between 0 and %d", name, raw, maxID)
+	}
 	if err != nil {
 		return 0, fmt.Errorf("privdrop: invalid %s %q: must be a numeric id", name, raw)
 	}
-	if n < 0 || n > maxID {
+	if n < 0 {
 		return 0, fmt.Errorf("privdrop: invalid %s %q: must be between 0 and %d", name, raw, maxID)
 	}
 	return int(n), nil
