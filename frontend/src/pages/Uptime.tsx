@@ -8,6 +8,8 @@ import { useTranslation } from 'react-i18next';
 import { updateMonitor, deleteMonitor, checkMonitor, createMonitor, syncMonitors, type UptimeMonitor, type MonitorSummary, type BeatDTO } from '../api/uptime';
 import { useUptimeSummary } from '../hooks/useUptimeSummary';
 
+import type { TFunction } from 'i18next';
+
 
 type BaseMonitorStatus = 'up' | 'down' | 'pending';
 type EffectiveMonitorStatus = BaseMonitorStatus | 'paused';
@@ -30,7 +32,7 @@ const normalizeMonitorStatus = (status: string | undefined): BaseMonitorStatus =
   return normalized === 'up' || normalized === 'down' || normalized === 'pending' ? normalized : 'down';
 };
 
-const MonitorCard: FC<{ monitor: MonitorSummary; onEdit: (monitor: MonitorSummary) => void; t: (key: string, options?: Record<string, unknown>) => string }> = ({ monitor, onEdit, t }) => {
+const MonitorCard: FC<{ monitor: MonitorSummary; onEdit: (monitor: MonitorSummary) => void; t: TFunction }> = ({ monitor, onEdit, t }) => {
   const queryClient = useQueryClient()
 
   const deleteMutation = useMutation({
