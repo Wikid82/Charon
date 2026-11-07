@@ -40,21 +40,25 @@ services:
       # - ./my-existing-Caddyfile:/import/Caddyfile:ro
       # - ./sites:/import/sites:ro # If your Caddyfile imports other files
 
-  orthrus-agent:
+  orthrus:
     image: wikid82/orthrus:latest
-    container_name: orthrus
     restart: always
+    container_name: orthrus
     environment:
+      # User and group the agent runs as. PGID must match your Docker socket's group (see docs/features/orthrus.md).
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
       # The websocket URL of your Charon instance. Use wss://charon.example.com when Charon is behind HTTPS (a reverse proxy with a certificate),
       # or ws://<host>:<port> (e.g. ws://100.x.y.z:8080) when connecting to Charon directly over HTTP, such as on Tailscale or a Docker network.
       # Charon itself does not serve TLS, so wss:// to its plain HTTP port fails with "first record does not look like a TLS handshake".
       - ORTHRUS_SERVER_URL=${ORTHRUS_SERVER_URL}
-      # The agent UUID shown when you registered this agent in Charon (Remote Agents -> Add Agent)
+      # The agent ID shown when you registered this agent in Charon (Hecate -> Agent -> Add Agent)
       - ORTHRUS_AGENT_ID=${ORTHRUS_AGENT_ID}
       # The one-time auth key shown when you registered this agent
       - ORTHRUS_AUTH_KEY=${ORTHRUS_AUTH_KEY}
     volumes:
-      # Give the agent read-only access to the host Docker socket. The agent is read-only by default;
+      # Read-only access to the host Docker socket (DOCKER_SOCK in your .env). The agent is read-only by default;
       # write access is an explicit per-agent opt-in in Charon (see docs/features/orthrus.md).
       - ${DOCKER_SOCK}:/var/run/docker.sock:ro
 

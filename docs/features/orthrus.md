@@ -66,6 +66,7 @@ Charon gives you a ready-made install snippet. Pick the method that fits your se
 2. Choose your preferred method
 3. Copy the snippet
 4. On your **remote machine**, paste and run it (replace `<AUTH_KEY>` with the key you saved)
+5. Check that the file includes `PUID`, `PGID`, and `TZ` lines, and that `PGID` is set to your Docker group's number. If a line is missing, add it as shown in [Set the Permissions](#set-the-permissions-puid-pgid-and-tz) below. Most setups need this step.
 
 ### Step 4 — Watch It Go Online
 
@@ -74,6 +75,69 @@ Back in Charon → **Hecate** → **Agent**, your agent should flip to **Online*
 That's it. You can now use this agent when [adding a Source](../guides/remote-docker-setup.md). Running Charon and Docker on the same machine? See [Using Orthrus on the same server as Charon](#using-orthrus-on-the-same-server-as-charon).
 
 ---
+
+## Set the Permissions (PUID, PGID, and TZ)
+
+For safety, Orthrus runs **without admin rights**. Inside its container it works as a regular, low-privilege user. Three settings control this:
+
+| Setting | What it means | What to put here |
+| --- | --- | --- |
+| `PUID` | The user number the agent runs as. Think of it as its ID badge. | Leave it at `65532` (the default). |
+| `PGID` | The group number the agent belongs to. Groups decide who may open shared files, such as the Docker socket. | The number of your Docker group (see below). |
+| `TZ` | Your timezone, so the log times match your clock. | For example `America/New_York`. Default: `UTC`. |
+
+**What is the Docker socket?** It is a connection point (the file `/var/run/docker.sock`) that lets programs talk to Docker. Orthrus needs it to see your containers. Only certain groups may open that file, so the agent must belong to the right group. That group is what `PGID` sets.
+
+**Find your PGID.** On the machine that runs Docker (Linux), open a terminal and run:
+
+```bash
+stat -c '%g' /var/run/docker.sock
+```
+
+It prints one number, such as `998` or `988`. Put that number after `PGID=`.
+
+**Example `.env` file** (kept in the same folder as your Orthrus compose file):
+
+```env
+PUID=65532
+PGID=998
+TZ=America/New_York
+DOCKER_SOCK=/var/run/docker.sock
+ORTHRUS_SERVER_URL=wss://charon.example.com/api/v1/ws/orthrus/connect
+ORTHRUS_AGENT_ID=<agent ID from Charon>
+ORTHRUS_AUTH_KEY=<auth key from Charon>
+```
+
+**Example Docker Compose service** (the same shape as the install snippet, with the permission settings included):
+
+```yaml
+services:
+  orthrus:
+    image: wikid82/orthrus:latest
+    restart: always
+    container_name: orthrus
+    environment:
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      - ORTHRUS_SERVER_URL=${ORTHRUS_SERVER_URL}
+      - ORTHRUS_AGENT_ID=${ORTHRUS_AGENT_ID}
+      - ORTHRUS_AUTH_KEY=${ORTHRUS_AUTH_KEY}
+    volumes:
+      - ${DOCKER_SOCK}:/var/run/docker.sock:ro
+```
+
+`DOCKER_SOCK` is the path to the Docker socket on your machine. The default (`/var/run/docker.sock`) is right for most Linux systems. The `:ro` at the end mounts it **read-only**, so the agent cannot change or delete the socket file.
+
+**Good to know:**
+
+- **Never use `0`.** A value of `0` means the administrator (root). Orthrus refuses to start if `PUID` or `PGID` is `0`.
+- **Your own `user:` setting wins.** If you start the container with a `user:` line in Compose (or `-u` with `docker run`), the agent already runs as that user and `PUID` and `PGID` are ignored.
+- **Can't see any containers?** Almost always `PGID` is wrong. Run the `stat` command again, fix the number, and restart the agent.
+
+### Running as Root (Not Recommended)
+
+Orthrus will only run as root if you deliberately allow it. Set `ORTHRUS_ALLOW_ROOT=true` in the agent's environment, then `PUID` or `PGID` set to `0` is accepted. Use this only if you understand the risk: anyone who breaks into a root-level helper gets control of the whole machine. Orthrus prints a loud warning each time it starts this way.
 
 ## Agent Status Reference
 
@@ -213,6 +277,8 @@ One note on that last item: read-only here means the proxy can't change anything
 | Agent goes **Offline** after reboot | Not set to start automatically | Use the systemd snippet, or add `restart: always` to Docker Compose |
 | Auth key lost | Page closed before saving | Delete the agent and create a new one — the key cannot be recovered |
 | Agent connects but no containers appear | Docker socket not mounted | Add `/var/run/docker.sock:/var/run/docker.sock:ro` to the agent's volume list |
+| Agent connects but no containers appear, and it cannot open the Docker socket | `PGID` does not match the Docker group | Run `stat -c '%g' /var/run/docker.sock`, set `PGID` to that number, then restart the agent |
+| Agent refuses to start and mentions `PUID` or `PGID` being `0` | Root IDs are blocked by default | Set `PUID` and `PGID` to non-zero numbers, or see [Running as Root](#running-as-root-not-recommended) |
 | Third-party tool can't reach my agent's Docker API | Wrong port configured in the tool | Check the tool is using the External Proxy port shown in the gear-icon dialog — not Charon's main web port |
 
 ---

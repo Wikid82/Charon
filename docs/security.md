@@ -1477,6 +1477,7 @@ volumes:
 
 - Mounting the raw Docker socket grants broad system access regardless of the `:ro` flag
 - The recommended, more secure option is [Orthrus](features/orthrus.md): a small helper holds the socket so Charon never does. Mounting the socket directly remains supported
+- The Orthrus agent also runs as a low-privilege user, not as root. Its user and group are set with `PUID` and `PGID` (see [Orthrus permissions](features/orthrus.md#set-the-permissions-puid-pgid-and-tz))
 - If you keep the direct mount, replace it with a socket proxy scoped to container listing only
 - See [Docker Auto-Discovery](features/docker-integration.md#limiting-socket-access-with-a-proxy) for the recommended setup
 

@@ -6,8 +6,10 @@ package main
 
 import (
 	"context"
+	"errors"
 	"flag"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"os/signal"
@@ -17,9 +19,17 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/Wikid82/charon/agent/leash"
+	"github.com/Wikid82/charon/agent/privdrop"
 )
 
 func main() {
+	log := logrus.New()
+
+	// Drop root before any flag, config, or network work. No-op when not root.
+	if err := privdrop.DropPrivileges(log); err != nil {
+		log.WithError(err).Fatal("orthrus: privilege drop failed")
+	}
+
 	var (
 		serverURL  = flag.String("server-url", "", "WebSocket URL of the Charon Orthrus endpoint (wss://...)")
 		authKey    = flag.String("auth-key", "", "Orthrus auth key; env ORTHRUS_AUTH_KEY takes precedence")
@@ -29,7 +39,6 @@ func main() {
 	)
 	flag.Parse()
 
-	log := logrus.New()
 	lvl, err := logrus.ParseLevel(*logLevel)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "orthrus: invalid log level %q\n", *logLevel)
@@ -77,8 +86,14 @@ func main() {
 		"server_url":    svrURL,
 		"agent_id":      agentName,
 		"docker_socket": dockSock,
+		"uid":           os.Geteuid(),
+		"gid":           os.Getegid(),
 		"auth_key":      "[REDACTED]",
 	}).Info("orthrus agent starting")
+
+	if err := checkDockerSocket(dockSock); err != nil {
+		log.WithError(err).Warn("orthrus: docker socket is not usable; Docker proxy requests will fail")
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -95,6 +110,21 @@ func main() {
 		log.WithError(err).Fatal("orthrus agent exited with error")
 	}
 	log.Info("orthrus agent stopped")
+}
+
+// checkDockerSocket dials the Docker socket once to confirm the effective
+// uid/gid can reach it. The socket is mounted read-only and is owned by the
+// host docker group, so the agent's PGID must equal that group's GID.
+func checkDockerSocket(path string) error {
+	conn, err := net.Dial("unix", path)
+	if err != nil {
+		if errors.Is(err, os.ErrPermission) {
+			return fmt.Errorf("docker socket %s not accessible to uid=%d gid=%d: set PGID to the host docker group GID (`getent group docker`): %w",
+				path, os.Geteuid(), os.Getegid(), err)
+		}
+		return fmt.Errorf("dial docker socket %s: %w", path, err)
+	}
+	return conn.Close()
 }
 
 const orthrusConnectPath = "/api/v1/ws/orthrus/connect"

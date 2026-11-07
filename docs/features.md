@@ -236,7 +236,7 @@ Connect Docker with **Orthrus** (recommended: a small helper holds the Docker so
 
 ### � Orthrus — Remote Tunnel Agent
 
-Your HomeLab is behind a firewall? Orthrus is a small agent you install on any remote machine. It dials outward to Charon over a secure connection — no open inbound ports required. Once connected, Charon can discover and proxy Docker containers on that machine just like local ones.
+Your HomeLab is behind a firewall? Orthrus is a small agent you install on any remote machine. It dials outward to Charon over a secure connection — no open inbound ports required. Once connected, Charon can discover and proxy Docker containers on that machine just like local ones. The agent runs as a low-privilege user, not as the machine's administrator.
 
 → [Learn More](features/orthrus.md)
 
