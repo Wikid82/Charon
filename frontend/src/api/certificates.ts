@@ -110,18 +110,49 @@ export interface BulkDeleteCertificatesResponse {
 const BULK_DELETE_TIMEOUT_MS = 300000
 
 /**
- * Deletes several certificates in one request (one backup on the server).
- * Rejects with no certificates deleted when the backup or request fails.
+ * Maximum uuids the backend accepts in one bulk-delete request. Larger selections
+ * are split into sequential chunks, each with its own request and backup.
  */
-export async function bulkDeleteCertificates(
-  uuids: string[],
-): Promise<BulkDeleteCertificatesResponse> {
+export const BULK_DELETE_MAX = 200
+
+async function postBulkDeleteChunk(uuids: string[]): Promise<BulkDeleteCertificatesResponse> {
   const response = await client.post<BulkDeleteCertificatesResponse>(
     '/certificates/bulk-delete',
     { uuids },
     { timeout: BULK_DELETE_TIMEOUT_MS },
   )
   return response.data
+}
+
+/**
+ * Deletes several certificates in sequential chunks of at most BULK_DELETE_MAX uuids.
+ *
+ * If the first chunk's request rejects, nothing was deleted and the error is rethrown.
+ * If a later chunk rejects, earlier results are kept and every uuid in the rejected
+ * chunk and in the remaining chunks is reported as failed with reason 'error'.
+ */
+export async function bulkDeleteCertificates(
+  uuids: string[],
+): Promise<BulkDeleteCertificatesResponse> {
+  const merged: BulkDeleteCertificatesResponse = { deleted: [], failed: [] }
+
+  for (let start = 0; start < uuids.length; start += BULK_DELETE_MAX) {
+    const chunk = uuids.slice(start, start + BULK_DELETE_MAX)
+    let response: BulkDeleteCertificatesResponse
+    try {
+      response = await postBulkDeleteChunk(chunk)
+    } catch (error) {
+      if (start === 0) throw error
+      for (const uuid of uuids.slice(start)) {
+        merged.failed.push({ uuid, reason: 'error' })
+      }
+      return merged
+    }
+    merged.deleted.push(...response.deleted)
+    merged.failed.push(...response.failed)
+  }
+
+  return merged
 }
 
 export async function exportCertificate(

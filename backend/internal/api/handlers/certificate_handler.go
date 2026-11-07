@@ -540,6 +540,9 @@ func (h *CertificateHandler) respondCertificateDeleteError(c *gin.Context, certU
 // maxBulkDeleteCertificates caps how many certificates one bulk delete request may name.
 const maxBulkDeleteCertificates = 200
 
+// maxBulkDeleteBodyBytes caps the bulk delete request body. 200 canonical UUIDs fit well inside it.
+const maxBulkDeleteBodyBytes = 64 << 10
+
 var (
 	errBulkDeleteCount = errors.New("uuids must contain between 1 and 200 entries")
 	errBulkDeleteUUID  = errors.New("uuids must contain valid UUIDs")
@@ -601,6 +604,7 @@ func bulkDeleteReason(err error) string {
 // batch and is taken before any deletion. Per-certificate failures are reported
 // in the response and do not stop the remaining deletions.
 func (h *CertificateHandler) BulkDelete(c *gin.Context) {
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, maxBulkDeleteBodyBytes)
 	var req bulkDeleteCertificatesRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})

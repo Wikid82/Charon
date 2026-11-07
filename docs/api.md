@@ -969,9 +969,11 @@ DELETE /certificates/:id
 }
 ```
 
+**Note:** A backup is automatically created before deletion. The certificate files are removed from disk along with the database record.
+
 #### Bulk Delete Certificates
 
-Delete several certificates in one request. A single backup is taken before any deletion, so a batch of up to 200 certificates does not trigger one backup per certificate. Certificates in use, or not found, are reported in `failed` and do not stop the rest of the batch.
+Delete several certificates in one request. This endpoint is admin-only; other roles receive `403 Forbidden`. A single backup is taken before any deletion, so a batch of up to 200 certificates does not trigger one backup per certificate. Certificates in use, or not found, are reported in `failed` and do not stop the rest of the batch.
 
 ```http
 POST /certificates/bulk-delete
@@ -985,7 +987,7 @@ POST /certificates/bulk-delete
 }
 ```
 
-`uuids` must contain between 1 and 200 valid UUIDs. Duplicates are ignored.
+`uuids` must contain between 1 and 200 valid UUIDs. UUIDs are accepted case-insensitively and normalized to lowercase canonical form in the response. Duplicates are ignored.
 
 **Response 200:**
 
@@ -1003,8 +1005,6 @@ POST /certificates/bulk-delete
 **Response 500:** `{"error": "failed to create backup before deletion"}`. Nothing is deleted in this case.
 
 **Response 507:** `{"error": "insufficient disk space for backup"}`. Nothing is deleted in this case.
-
-**Note:** A backup is automatically created before deletion. The certificate files are removed from disk along with the database record.
 
 #### Export Certificate
 

@@ -285,3 +285,20 @@ func TestBulkDeleteCertificates_BindErrorReturnsGenericMessage(t *testing.T) {
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	assert.JSONEq(t, `{"error":"invalid request"}`, w.Body.String())
 }
+
+func TestBulkDeleteCertificates_OversizedBodyReturnsGenericBadRequest(t *testing.T) {
+	db := newBulkDeleteTestDB(t, "bulk_oversized.db")
+	a := bulkTestUUID("oversized-a")
+	createBulkTestCert(t, db, a)
+
+	// A body past the 64 KiB cap is cut off by MaxBytesReader and must fail binding with the generic message.
+	oversized := `{"uuids":["` + strings.Repeat("a", maxBulkDeleteBodyBytes) + `"]}`
+	backupCalls := 0
+	r := setupBulkDeleteRouter(db, countingBackup(&backupCalls), string(models.RoleAdmin))
+	w := postBulkDelete(r, oversized)
+
+	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+	assert.JSONEq(t, `{"error":"invalid request"}`, w.Body.String())
+	assert.Equal(t, 0, backupCalls)
+	assert.True(t, certExists(t, db, a))
+}
