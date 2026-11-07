@@ -155,6 +155,7 @@ export default function Layout({ children }: LayoutProps) {
         { name: t('navigation.system'), path: '/settings/system', icon: '⚙️' },
         { name: t('navigation.notifications'), path: '/settings/notifications', icon: '🔔' },
         { name: t('navigation.email'), path: '/settings/smtp', icon: '📧' },
+        { name: t('settings.appearance'), path: '/settings/appearance', icon: '🎨' },
         ...(user?.role === 'admin' ? [{ name: t('navigation.users'), path: '/settings/users', icon: '👥' }] : []),
       ]
     },

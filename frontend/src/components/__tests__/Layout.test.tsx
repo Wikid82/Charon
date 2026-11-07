@@ -787,6 +787,22 @@ describe('Layout', () => {
       expect(links.some((l) => l.getAttribute('href') === '/security/encryption')).toBe(false)
     })
 
+    it('shows the Appearance link under Settings for any user', async () => {
+      mockUser = { role: 'user' }
+      const user = userEvent.setup()
+      renderWithProviders(
+        <Layout>
+          <div>Test Content</div>
+        </Layout>
+      )
+
+      const buttons = await screen.findAllByRole('button', { name: /settings/i })
+      await user.click(buttons.find((b) => b.textContent?.trim().endsWith('Settings')) ?? buttons[0])
+
+      const links = await screen.findAllByRole('link', { name: 'Appearance' })
+      expect(links.some((l) => l.getAttribute('href') === '/settings/appearance')).toBe(true)
+    })
+
     describe('Tasks -> Database nav child', () => {
       const expandTasks = async () => {
         const user = userEvent.setup()
