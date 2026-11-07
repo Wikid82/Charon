@@ -481,12 +481,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		// Changelog / "What's New" — self-service, all authenticated
 		// roles (RolePassthrough rejected in-handler via
 		// rejectPassthrough, same as the profile routes above).
-		changelogService := changelog.NewService(version.Version)
-		if cfg.Environment != "production" {
-			if v := os.Getenv("CHARON_CHANGELOG_VERSION"); v != "" {
-				changelogService.SetCurrentVersion(v)
-			}
-		}
+		changelogService := newChangelogService(version.Version, cfg.Environment, os.Getenv("CHARON_CHANGELOG_VERSION"))
 		changelogHandler := handlers.NewChangelogHandler(db, changelogService)
 		protected.GET("/changelog/status", changelogHandler.Status)
 		protected.GET("/changelog/all", changelogHandler.All)
@@ -1254,4 +1249,21 @@ var precompressedPaths = []string{"/api/v1/admin/crowdsec/export"}
 // compressionMiddleware returns the router-wide gzip middleware, skipping precompressed downloads.
 func compressionMiddleware() gin.HandlerFunc {
 	return gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths(precompressedPaths))
+}
+
+// newChangelogService builds the What's New service. The CHARON_CHANGELOG_VERSION
+// override is a dev-only hook and is ignored in production. An unversioned
+// override is still applied (it turns What's New off, which is what local
+// iteration with "dev" expects), but it is logged so it is not mistaken for a
+// working override.
+func newChangelogService(currentVersion, environment, override string) *changelog.Service {
+	svc := changelog.NewService(currentVersion)
+	if environment == "production" || override == "" {
+		return svc
+	}
+	if version.IsUnversioned(override) {
+		logger.Log().WithField("override", override).Warn("CHARON_CHANGELOG_VERSION is not a SemVer version; What's New is disabled for this build")
+	}
+	svc.SetCurrentVersion(override)
+	return svc
 }

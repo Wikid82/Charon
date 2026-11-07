@@ -1,4 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useTranslation } from 'react-i18next';
 
 import {
   ackChangelog,
@@ -40,23 +41,25 @@ export function useChangelogAll(enabled: boolean) {
  */
 export function useAckChangelog() {
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
   return useMutation({
     mutationFn: (req: ChangelogAckRequest) => ackChangelog(req),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['changelog-status'] });
     },
-    onError: () => toast.error('Failed to update changelog preferences'),
+    onError: () => toast.error(t('whatsNew.ackError')),
   });
 }
 
 /** Re-enables automatic "What's New" changelog notifications. */
 export function useOptInChangelog() {
   const queryClient = useQueryClient();
+  const { t } = useTranslation();
   return useMutation({
     mutationFn: optInChangelog,
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['changelog-status'] });
     },
-    onError: () => toast.error('Failed to re-enable update notifications'),
+    onError: () => toast.error(t('whatsNew.optInError')),
   });
 }

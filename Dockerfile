@@ -285,8 +285,6 @@ COPY frontend/package*.json ./
 
 # Build-time project version (propagated from top-level build-arg)
 ARG VERSION=dev
-# Make version available to Vite as VITE_APP_VERSION during the frontend build
-ENV VITE_APP_VERSION=${VERSION}
 
 # Vite 8: Rolldown native bindings auto-resolved per platform via optionalDependencies
 ARG NPM_VERSION
@@ -312,11 +310,14 @@ RUN npm ci --ignore-scripts --fetch-retries=5 --fetch-retry-mintimeout=10000
 
 # Copy frontend source and build.
 # Sync package.json to the release version for semver builds; skip for
-# non-semver values like "dev" or branch names, which npm version rejects.
+# non-semver values like "dev", which npm version rejects. Build metadata such as
+# X.Y.Z+pr.N is not part of npm's version, so npm gets only X.Y.Z (any leading "v"
+# is stripped too).
 COPY frontend/ ./
 RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
-    if echo "${VERSION}" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+'; then \
-        npm version "${VERSION#v}" --no-git-tag-version --allow-same-version; \
+    if echo "${VERSION}" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+|$)'; then \
+        PKG_VERSION="${VERSION%%+*}" && \
+        npm version "${PKG_VERSION#v}" --no-git-tag-version --allow-same-version; \
     fi && \
     npm run build
 

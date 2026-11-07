@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
-	"time"
 
 	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/stretchr/testify/assert"
@@ -32,13 +31,6 @@ func TestUpdateService_CheckForUpdates(t *testing.T) {
 	err := us.SetAPIURL(server.URL + "/releases/latest")
 	assert.NoError(t, err)
 	us.SetHTTPClient(server.Client())
-	// us.currentVersion is private, so we can't set it directly in test unless we export it or add a setter.
-	// However, NewUpdateService sets it from version.Version.
-	// We can temporarily change version.Version if it's a var, but it's likely a const or var in another package.
-	// Let's check version package.
-	// Assuming version.Version is a var we can change, or we add a SetCurrentVersion method for testing.
-	// For now, let's assume we can't change it easily without a setter.
-	// Let's add SetCurrentVersion to UpdateService for testing purposes.
 	us.SetCurrentVersion("0.9.0")
 
 	// Test Update Available
@@ -47,36 +39,27 @@ func TestUpdateService_CheckForUpdates(t *testing.T) {
 	assert.True(t, info.Available)
 	assert.Equal(t, "v1.0.0", info.LatestVersion)
 	assert.Equal(t, "https://github.com/Wikid82/charon/releases/tag/v1.0.0", info.ChangelogURL)
+	assert.Equal(t, "0.9.0", info.CurrentVersion)
 
 	// Test No Update Available
 	us.SetCurrentVersion("1.0.0")
-	// us.cachedResult = nil // cachedResult is private
-	// us.lastCheck = time.Time{} // lastCheck is private
-	us.ClearCache() // Add this method
+	us.ClearCache()
 
 	info, err = us.CheckForUpdates()
 	assert.NoError(t, err)
 	assert.False(t, info.Available)
 	assert.Equal(t, "v1.0.0", info.LatestVersion)
+	assert.Equal(t, "1.0.0", info.CurrentVersion)
 
-	// Test Cache
-	// If we call again immediately, it should use cache.
-	// We can verify this by closing the server or changing the response, but cache logic is simple.
-	// Let's change the server handler? No, httptest server handler is fixed.
-	// But we can check if it returns the same object.
+	// A second call within the TTL returns the cached result.
 	info2, err := us.CheckForUpdates()
 	assert.NoError(t, err)
 	assert.Equal(t, info, info2)
 
-	// Test Error (Server Down)
+	// A refused connection surfaces as an error.
 	server.Close()
-	us.cachedResult = nil
-	us.lastCheck = time.Time{}
+	us.ClearCache()
 
-	// Depending on implementation, it might return error or just available=false
-	// Implementation:
-	// resp, err := client.Do(req) -> returns error if connection refused
-	// if err != nil { return nil, err }
 	_, err = us.CheckForUpdates()
 	assert.Error(t, err)
 }
@@ -186,5 +169,118 @@ func TestUpdateService_CheckForUpdates_RejectsReservedDestinations(t *testing.T)
 		if err == nil || !errors.Is(err, network.ErrBlockedAddress) {
 			t.Errorf("%s: expected policy rejection, got %v", target, err)
 		}
+	}
+}
+
+func TestReleaseURL(t *testing.T) {
+	tests := []struct {
+		name string
+		raw  string
+		want string
+	}{
+		{name: "valid GitHub release URL", raw: "https://github.com/Wikid82/charon/releases/tag/v1.0.0", want: "https://github.com/Wikid82/charon/releases/tag/v1.0.0"},
+		{name: "explicit default HTTPS port kept", raw: "https://github.com:443/Wikid82/charon/releases/tag/v1.0.0", want: "https://github.com:443/Wikid82/charon/releases/tag/v1.0.0"},
+		{name: "http scheme rejected", raw: "http://github.com/Wikid82/charon/releases/tag/v1.0.0", want: ""},
+		{name: "javascript scheme rejected", raw: "javascript:alert(document.domain)", want: ""},
+		{name: "data scheme rejected", raw: "data:text/html,<script>alert(1)</script>", want: ""},
+		{name: "other host rejected", raw: "https://example.com/Wikid82/charon/releases/tag/v1.0.0", want: ""},
+		{name: "api subdomain rejected", raw: "https://api.github.com/repos/Wikid82/charon/releases/latest", want: ""},
+		{name: "suffix lookalike host rejected", raw: "https://github.com.evil.example/Wikid82/charon", want: ""},
+		{name: "prefix lookalike host rejected", raw: "https://evilgithub.com/Wikid82/charon", want: ""},
+		{name: "uppercase host rejected by exact match", raw: "https://GITHUB.COM/Wikid82/charon", want: ""},
+		{name: "userinfo with github host rejected", raw: "https://user@github.com/Wikid82/charon", want: ""},
+		{name: "userinfo with password rejected", raw: "https://user:pass@github.com/Wikid82/charon", want: ""}, //nolint:gosec // G101: fixture URL with userinfo, asserted to be rejected
+		{name: "userinfo spoofing github host rejected", raw: "https://github.com@evil.example/Wikid82/charon", want: ""},
+		{name: "non-default port accepted by hostname check", raw: "https://github.com:8443/Wikid82/charon", want: "https://github.com:8443/Wikid82/charon"},
+		{name: "empty string rejected", raw: "", want: ""},
+		{name: "unparseable URL rejected", raw: "https://[::1", want: ""},
+		{name: "scheme-relative URL rejected", raw: "//github.com/Wikid82/charon", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, releaseURL(tt.raw))
+		})
+	}
+}
+
+func TestUpdateService_CheckForUpdates_SanitizesChangelogURL(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(githubRelease{
+			TagName: "v1.0.0",
+			HTMLURL: "javascript:alert(1)",
+		})
+	}))
+	defer server.Close()
+
+	us := NewUpdateService()
+	assert.NoError(t, us.SetAPIURL(server.URL+"/releases/latest"))
+	us.SetHTTPClient(server.Client())
+	us.SetCurrentVersion("0.9.0")
+
+	info, err := us.CheckForUpdates()
+	assert.NoError(t, err)
+	assert.Equal(t, "", info.ChangelogURL)
+	assert.True(t, info.Available)
+	assert.Equal(t, "0.9.0", info.CurrentVersion)
+}
+
+func TestUpdateService_CheckForUpdates_NonOKCarriesCurrentVersion(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	us := NewUpdateService()
+	assert.NoError(t, us.SetAPIURL(server.URL+"/releases/latest"))
+	us.SetHTTPClient(server.Client())
+	us.SetCurrentVersion("0.9.0")
+
+	info, err := us.CheckForUpdates()
+	assert.NoError(t, err)
+	assert.False(t, info.Available)
+	assert.Equal(t, "", info.ChangelogURL)
+	assert.Equal(t, "0.9.0", info.CurrentVersion)
+}
+
+func TestUpdateService_CheckForUpdates_SemanticAvailability(t *testing.T) {
+	tests := []struct {
+		name    string
+		running string
+		tag     string
+		want    bool
+	}{
+		{name: "newer patch release", running: "0.46.5", tag: "v0.46.6", want: true},
+		{name: "same release", running: "0.46.5", tag: "v0.46.5", want: false},
+		{name: "running ahead of latest", running: "0.46.6", tag: "v0.46.5", want: false},
+		{name: "dev suffix equal to latest", running: "0.46.5+dev", tag: "v0.46.5", want: false},
+		{name: "dev sha suffix equal to latest", running: "0.46.5+dev.abc1234", tag: "v0.46.5", want: false},
+		{name: "nightly suffix behind latest", running: "0.46.5+nightly.x", tag: "v0.46.6", want: true},
+		{name: "prerelease upgraded to release", running: "0.47.0-rc.1", tag: "v0.47.0", want: true},
+		{name: "unversioned dev build", running: "dev", tag: "v0.46.6", want: false},
+		{name: "unversioned nightly sha build", running: "nightly-a1b2c3d", tag: "v0.46.6", want: false},
+		{name: "non-semver nightly tag", running: "0.46.5", tag: "nightly-a1b2c3d", want: false},
+		{name: "shorthand latest tag", running: "0.46.5", tag: "v1.2", want: false},
+		{name: "empty latest tag", running: "0.46.5", tag: "", want: false},
+		{name: "double v prefix", running: "0.46.5", tag: "vv0.46.6", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				_ = json.NewEncoder(w).Encode(githubRelease{TagName: tt.tag})
+			}))
+			defer server.Close()
+
+			us := NewUpdateService()
+			assert.NoError(t, us.SetAPIURL(server.URL+"/releases/latest"))
+			us.SetHTTPClient(server.Client())
+			us.SetCurrentVersion(tt.running)
+
+			info, err := us.CheckForUpdates()
+			assert.NoError(t, err)
+			assert.Equal(t, tt.want, info.Available)
+			assert.Equal(t, tt.running, info.CurrentVersion)
+		})
 	}
 }

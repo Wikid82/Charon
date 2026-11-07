@@ -2486,15 +2486,20 @@
   },
   "whatsNew": {
     "title": "What's New",
-    "newFeatures": "✨ New Features",
-    "fixes": "🐛 Fixes",
-    "security": "🔒 Security",
+    "newFeatures": "New Features",
+    "fixes": "Fixes",
+    "security": "Security",
     "viewCommit": "view commit",
     "showMaintenanceDetails": "Show maintenance details",
     "remindLater": "Remind Me Next Time",
     "gotIt": "Got It, Thanks",
     "dontShowAgain": "Don't show me update notifications",
-    "closeButton": "Close"
+    "closeButton": "Close",
+    "loadError": "Could not load the release notes. Please try again later.",
+    "empty": "No release notes are available for this version yet.",
+    "showOlder": "Show older releases",
+    "ackError": "Failed to update changelog preferences",
+    "optInError": "Failed to re-enable update notifications"
   },
   "crowdsec": {
     "errors": {

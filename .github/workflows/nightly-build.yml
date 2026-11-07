@@ -182,8 +182,9 @@ jobs:
       packages: write
       id-token: write
     outputs:
-      version: ${{ steps.meta.outputs.version }}
+      version: ${{ steps.build_version.outputs.version }}
       digest: ${{ steps.resolve_digest.outputs.digest }}
+      built_sha: ${{ steps.built_commit.outputs.built_sha }}
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
@@ -208,6 +209,24 @@ jobs:
           persist-credentials: false
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
           fetch-depth: 0
+
+      # workflow_dispatch checks out github.ref, so origin/nightly is not necessarily the
+      # commit being built. The version and commit labels use this checked-out SHA.
+      - name: Record the built commit
+        id: built_commit
+        run: echo "built_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      # The nightly VERSION is X.Y.Z+nightly.<sha7> (§4.10), built from the checked-out
+      # commit and the manifest it carries. The version is only passed through env.
+      - name: Resolve build version
+        id: build_version
+        env:
+          BUILT_SHA: ${{ steps.built_commit.outputs.built_sha }}
+        run: |
+          set -euo pipefail
+          VERSION="$(bash scripts/ci/resolve-build-version.sh --channel nightly --sha "${BUILT_SHA}")"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Resolved nightly build VERSION: ${VERSION}"
 
       - name: Set lowercase image name
         run: echo "IMAGE_NAME_LC=${IMAGE_NAME,,}" >> "$GITHUB_ENV"
@@ -260,7 +279,9 @@ jobs:
             org.opencontainers.image.description=Nightly build of Charon
 
       - name: Generate Changelog Data
-        run: bash scripts/generate-changelog.sh
+        # Fail the nightly rather than embed an empty or dirty changelog. The
+        # guard is the same one the release path uses (see §4.4 of the spec).
+        run: bash scripts/generate-changelog.sh --require-entries && bash scripts/ci/check-changelog-data.sh backend/internal/changelog/data/changelog.json
 
       - name: Build and push Docker image
         id: build
@@ -272,8 +293,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=nightly-${{ github.sha }}
-            VCS_REF=${{ github.sha }}
+            VERSION=${{ steps.build_version.outputs.version }}
+            VCS_REF=${{ steps.built_commit.outputs.built_sha }}
             BUILD_DATE=${{ github.event.repository.pushed_at }}
             ALPINE_IMAGE=${{ steps.alpine.outputs.image }}
             CADDY_BUILDER_SRC=toolchain-prebuilt
@@ -471,6 +492,11 @@ jobs:
           ref: ${{ github.event_name == 'workflow_dispatch' && github.ref || 'nightly' }}
           fetch-depth: 0
 
+      # Same rule as the Charon job: label the checked-out commit, not origin/nightly.
+      - name: Record the built commit
+        id: built_commit
+        run: echo "built_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
       - name: Set lowercase image name
         run: echo "ORTHRUS_IMAGE_NAME_LC=${ORTHRUS_IMAGE_NAME,,}" >> "$GITHUB_ENV"
 
@@ -539,8 +565,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=nightly-${{ github.sha }}
-            GIT_COMMIT=${{ github.sha }}
+            VERSION=nightly-${{ steps.built_commit.outputs.built_sha }}
+            GIT_COMMIT=${{ steps.built_commit.outputs.built_sha }}
             BUILD_DATE=${{ github.event.repository.pushed_at }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
@@ -586,39 +612,37 @@ jobs:
       - name: Pull nightly image
         run: docker pull "${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}"
 
-      - name: Run container smoke test
+      # Replaces the old /health poll. That endpoint exists only on the emergency server, so
+      # the SPA's HTML fallback answered it and the check always passed. The script asserts
+      # the JSON health endpoint, the exact built version and commit, and the changelog data.
+      - name: Smoke test What's New on the nightly image
+        env:
+          IMAGE_REPO: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
+          IMAGE_DIGEST: ${{ needs.build-and-push-nightly.outputs.digest }}
+          BUILT_SHA: ${{ needs.build-and-push-nightly.outputs.built_sha }}
+          # The VERSION build-arg the nightly image received (X.Y.Z+nightly.<sha7>).
+          BUILT_VERSION: ${{ needs.build-and-push-nightly.outputs.version }}
         run: |
-          IMAGE_REF="${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}:nightly@${{ needs.build-and-push-nightly.outputs.digest }}"
-          docker run --name charon-nightly -d \
-            -p 8080:8080 \
-            "${IMAGE_REF}"
+          set -euo pipefail
 
-          # Wait for container to become healthy
-          echo "⏳ Waiting for Charon to be healthy..."
-          MAX_ATTEMPTS=30
-          ATTEMPT=0
-          while [[ ${ATTEMPT} -lt ${MAX_ATTEMPTS} ]]; do
-            ATTEMPT=$((ATTEMPT + 1))
-            echo "Attempt ${ATTEMPT}/${MAX_ATTEMPTS}..."
-            if docker exec charon-nightly wget -qO- http://127.0.0.1:8080/health > /dev/null 2>&1; then
-              echo "✅ Charon is healthy!"
-              docker exec charon-nightly wget -qO- http://127.0.0.1:8080/health
-              break
-            fi
-            sleep 2
-          done
-
-          if [[ ${ATTEMPT} -ge ${MAX_ATTEMPTS} ]]; then
-            echo "❌ Health check failed after ${MAX_ATTEMPTS} attempts"
-            docker logs charon-nightly
-            docker stop charon-nightly
-            docker rm charon-nightly
+          if [[ ! "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Nightly image digest is missing or malformed: '${IMAGE_DIGEST}'"
             exit 1
           fi
 
-          # Cleanup
-          docker stop charon-nightly
-          docker rm charon-nightly
+          # The nightly image is versioned, so the What's New modal shows for an unseeded user.
+          # The sha in the version must be the commit the job built (§4.7).
+          if [[ ! "${BUILT_VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\+nightly\.${BUILT_SHA:0:7}$ ]]; then
+            echo "::error::Nightly version '${BUILT_VERSION}' does not match the built commit ${BUILT_SHA:0:7}"
+            exit 1
+          fi
+
+          bash scripts/ci/smoke-whats-new.sh \
+            --image "${IMAGE_REPO}@${IMAGE_DIGEST}" \
+            --expect-version-exact "${BUILT_VERSION}" \
+            --expect-commit "${BUILT_SHA}" \
+            --expect-min-entries 100 \
+            --expect-status-for-unseeded shown
 
   # NOTE: Standalone binary builds removed - Charon uses Docker-only deployment
   # The build-nightly-release job that ran GoReleaser for Windows/macOS/Linux binaries

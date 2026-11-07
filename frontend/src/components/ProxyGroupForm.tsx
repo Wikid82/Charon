@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useCreateProxyGroup, useUpdateProxyGroup } from '../hooks/useProxyGroups';
 import {
   Dialog,
   DialogContent,
@@ -12,7 +13,6 @@ import {
   Input,
   Textarea,
 } from './ui';
-import { useCreateProxyGroup, useUpdateProxyGroup } from '../hooks/useProxyGroups';
 
 import type { ProxyGroup } from '../api/proxyGroups';
 

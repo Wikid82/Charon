@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
+import { useProxyGroups, useDeleteProxyGroup } from '../hooks/useProxyGroups';
 import { ProxyGroupForm } from './ProxyGroupForm';
 import {
   Dialog,
@@ -11,7 +12,6 @@ import {
   DialogTitle,
   Button,
 } from './ui';
-import { useProxyGroups, useDeleteProxyGroup } from '../hooks/useProxyGroups';
 
 import type { ProxyGroup } from '../api/proxyGroups';
 

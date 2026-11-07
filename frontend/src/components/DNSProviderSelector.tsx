@@ -1,6 +1,7 @@
 import { Star } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
+import { useDNSProviders } from '../hooks/useDNSProviders'
 import {
   Select,
   SelectContent,
@@ -9,7 +10,6 @@ import {
   SelectValue,
   Label,
 } from './ui'
-import { useDNSProviders } from '../hooks/useDNSProviders'
 
 interface DNSProviderSelectorProps {
   value?: string

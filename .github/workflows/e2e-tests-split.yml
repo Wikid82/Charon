@@ -261,7 +261,10 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           # Fork PRs cannot pull the private toolchain image -> compile inline.
+          # VERSION=dev keeps this image unversioned: the What's New E2E spec
+          # depends on the unversioned build and skips itself on versioned images.
           build-args: |
+            VERSION=dev
             CADDY_BUILDER_SRC=${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'caddy-inline' || 'toolchain-prebuilt' }}
             CROWDSEC_BUILDER_SRC=${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'crowdsec-inline' || 'toolchain-prebuilt' }}
 

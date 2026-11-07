@@ -245,6 +245,62 @@ jobs:
       - name: bats
         run: bats scripts/tests/check-nightly-sequencing.bats
 
+  changelog-data-tests:
+    permissions:
+      contents: read
+    name: Changelog generator and data guard (bats)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install bats + shellcheck + jq
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y bats shellcheck jq
+
+      - name: shellcheck (shell severity=error)
+        run: |
+          shellcheck --severity=error scripts/generate-changelog.sh scripts/ci/check-changelog-data.sh scripts/ci/detect-release-commit.sh scripts/ci/smoke-whats-new.sh
+
+      - name: bats
+        run: bats scripts/tests/generate-changelog.bats scripts/tests/check-changelog-data.bats scripts/tests/detect-release-commit.bats scripts/tests/smoke-whats-new.bats
+
+  build-version-resolver-tests:
+    permissions:
+      contents: read
+    name: Build version resolver (bats)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install bats + shellcheck + jq
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y bats shellcheck jq
+
+      - name: shellcheck (shell severity=error)
+        run: |
+          shellcheck --severity=error scripts/ci/resolve-build-version.sh
+
+      - name: bats
+        run: bats scripts/tests/resolve-build-version.bats
+
   verify-toolchain-pin:
     name: Toolchain pin freshness (verify-toolchain-pin)
     runs-on: ubuntu-latest

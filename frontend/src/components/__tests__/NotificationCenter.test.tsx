@@ -66,6 +66,7 @@ describe('NotificationCenter', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     vi.mocked(api.checkUpdates).mockResolvedValue({
+      current_version: '1.0.0',
       available: false,
       latest_version: '0.0.0',
       changelog_url: '',
@@ -174,5 +175,40 @@ describe('NotificationCenter', () => {
     await waitFor(() => {
       expect(screen.queryByText('Notifications')).not.toBeInTheDocument()
     })
+  })
+
+  it('shows the update notification with a changelog link when one is available', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.getNotifications).mockResolvedValue([])
+    vi.mocked(api.checkUpdates).mockResolvedValue({
+      current_version: '0.46.5',
+      available: true,
+      latest_version: '0.46.6',
+      changelog_url: 'https://github.com/Wikid82/Charon/releases/tag/v0.46.6',
+    })
+    render(<NotificationCenter />, { wrapper: createWrapper() })
+
+    await user.click(screen.getByRole('button', { name: /notifications/i }))
+
+    const link = await screen.findByRole('link', { name: /view changelog/i })
+    expect(link).toHaveAttribute('href', 'https://github.com/Wikid82/Charon/releases/tag/v0.46.6')
+    expect(screen.getByText('Update Available: 0.46.6')).toBeInTheDocument()
+  })
+
+  it('hides the changelog link when the update has no changelog_url', async () => {
+    const user = userEvent.setup()
+    vi.mocked(api.getNotifications).mockResolvedValue([])
+    vi.mocked(api.checkUpdates).mockResolvedValue({
+      current_version: '0.46.5',
+      available: true,
+      latest_version: '0.46.6',
+      changelog_url: '',
+    })
+    render(<NotificationCenter />, { wrapper: createWrapper() })
+
+    await user.click(screen.getByRole('button', { name: /notifications/i }))
+
+    await screen.findByText('Update Available: 0.46.6')
+    expect(screen.queryByRole('link', { name: /view changelog/i })).toBeNull()
   })
 })

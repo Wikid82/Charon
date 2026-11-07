@@ -167,6 +167,7 @@ dist/
 # otherwise ship them into /app/scripts/ in the runtime image.
 # -----------------------------------------------------------------------------
 scripts/tests/
+scripts/ci/
 scripts/toolchain-key.sh
 scripts/verify-toolchain-pin.sh
 scripts/lib/dockerfile-stage.sh

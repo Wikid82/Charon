@@ -1,5 +1,11 @@
 import { useState } from 'react'
 
+import {
+  REDIRECT_STATUS_CODES,
+  type RedirectionHost,
+  type RedirectStatusCode,
+} from '../api/redirectionHosts'
+import { useCertificates } from '../hooks/useCertificates'
 import DNSProviderSelector from './DNSProviderSelector'
 import {
   Alert,
@@ -18,12 +24,6 @@ import {
   SelectValue,
   Switch,
 } from './ui'
-import {
-  REDIRECT_STATUS_CODES,
-  type RedirectionHost,
-  type RedirectStatusCode,
-} from '../api/redirectionHosts'
-import { useCertificates } from '../hooks/useCertificates'
 
 import type { Certificate } from '../api/certificates'
 

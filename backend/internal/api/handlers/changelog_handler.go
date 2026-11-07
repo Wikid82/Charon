@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/changelog"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/version"
 )
 
 // ChangelogHandler serves the "What's New" changelog: the per-user
@@ -73,8 +75,10 @@ type AckRequest struct {
 }
 
 // Ack records the user's response to the changelog modal.
-// dismiss_permanent advances LastSeenVersion to the running version so
-// the modal won't reappear for these entries; dismiss_temporary leaves
+// dismiss_permanent advances LastSeenVersion to the bare SemVer form of the
+// running version so the modal won't reappear for these entries. It never
+// moves LastSeenVersion backwards, and an unversioned build writes nothing.
+// dismiss_temporary leaves
 // it untouched so the modal reappears next login. Either action may also
 // set ChangelogOptOut via opt_out.
 func (h *ChangelogHandler) Ack(c *gin.Context) {
@@ -88,22 +92,31 @@ func (h *ChangelogHandler) Ack(c *gin.Context) {
 
 	var req AckRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		// Fixed message on purpose: binder errors expose field names and
+		// validator internals. The details are not useful to the client.
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
 		return
 	}
 
 	updates := map[string]any{}
-	// Normal UI flow only reaches dismiss_permanent when show_changelog
-	// was already true, which itself requires !IsDevBuild() (see
-	// Status) — but a client can POST /changelog/ack directly, so guard
-	// here too: never write an unversioned/non-semver CurrentVersion()
-	// into LastSeenVersion, or the user would be permanently stuck once
-	// the deployment upgrades to a real tagged release (same failure
-	// mode as an unguarded seedLastSeenVersion; see
-	// changelog.IsUnversionedBuild). Leave last_seen_version untouched
-	// rather than writing a value we know is invalid.
-	if req.Action == "dismiss_permanent" && !h.svc.IsDevBuild() {
-		updates["last_seen_version"] = h.svc.CurrentVersion()
+	if req.Action == "dismiss_permanent" {
+		if anchor := h.svc.AnchorVersion(); anchor != "" {
+			var user models.User
+			if err := h.db.Select("id", "last_seen_version").First(&user, userID).Error; err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
+					c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
+					return
+				}
+				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update changelog state"})
+				return
+			}
+			// last_seen_version never moves backwards. After a downgrade, a
+			// stored higher version stays put (F15). An empty or invalid
+			// stored value is always replaced by the anchor.
+			if advancesLastSeen(user.LastSeenVersion, anchor) {
+				updates["last_seen_version"] = anchor
+			}
+		}
 	}
 	if req.OptOut {
 		updates["changelog_opt_out"] = true
@@ -124,6 +137,14 @@ func (h *ChangelogHandler) Ack(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "Acknowledged"})
+}
+
+// advancesLastSeen reports whether anchor should replace the stored
+// last-seen value. Compare is false when stored is empty or not valid SemVer,
+// and in that case the anchor always wins.
+func advancesLastSeen(stored, anchor string) bool {
+	cmp, ok := version.Compare(anchor, stored)
+	return !ok || cmp > 0
 }
 
 // OptIn re-enables changelog notifications for the current user (clears

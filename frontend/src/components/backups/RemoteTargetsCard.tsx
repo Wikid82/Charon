@@ -3,7 +3,6 @@ import { CloudOff, Pencil, Plug, Plus, Trash2, Zap } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { RemoteTargetFormDialog } from './RemoteTargetFormDialog'
 import {
   useRemoteTargets,
   useDeleteRemoteTarget,
@@ -28,6 +27,7 @@ import {
   DialogTitle,
   EmptyState,
 } from '../ui'
+import { RemoteTargetFormDialog } from './RemoteTargetFormDialog'
 
 import type { RemoteTargetOAuthStatus } from '../../api/backups'
 

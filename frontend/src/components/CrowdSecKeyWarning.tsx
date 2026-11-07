@@ -3,10 +3,10 @@ import { Copy, Check, AlertTriangle, X, Eye, EyeOff } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { Alert } from './ui/Alert'
-import { Button } from './ui/Button'
 import { getCrowdsecKeyStatus, type CrowdSecKeyStatus } from '../api/crowdsec'
 import { toast } from '../utils/toast'
+import { Alert } from './ui/Alert'
+import { Button } from './ui/Button'
 
 const DISMISSAL_STORAGE_KEY = 'crowdsec-key-warning-dismissed'
 

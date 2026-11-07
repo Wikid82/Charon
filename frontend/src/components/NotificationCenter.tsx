@@ -2,7 +2,8 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Bell, X, Info, AlertTriangle, AlertCircle, CheckCircle, ExternalLink } from 'lucide-react';
 import { useEffect, useState, type FC } from 'react';
 
-import { getNotifications, markNotificationRead, markAllNotificationsRead, checkUpdates } from '../api/system';
+import { getNotifications, markNotificationRead, markAllNotificationsRead } from '../api/system';
+import { useSystemUpdates } from '../hooks/useSystemUpdates';
 
 const NotificationCenter: FC = () => {
   const [isOpen, setIsOpen] = useState(false);
@@ -14,11 +15,7 @@ const NotificationCenter: FC = () => {
     refetchInterval: 30000, // Poll every 30s
   });
 
-  const { data: updateInfo } = useQuery({
-    queryKey: ['system-updates'],
-    queryFn: checkUpdates,
-    staleTime: 1000 * 60 * 60, // 1 hour
-  });
+  const { data: updateInfo } = useSystemUpdates();
 
   const markReadMutation = useMutation({
     mutationFn: markNotificationRead,
@@ -112,14 +109,16 @@ const NotificationCenter: FC = () => {
                     <p className="text-sm font-medium text-gray-900 dark:text-white">
                       Update Available: {updateInfo.latest_version}
                     </p>
-                    <a
-                      href={updateInfo.changelog_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="mt-1 text-sm text-blue-600 hover:text-blue-500 dark:text-blue-400 flex items-center"
-                    >
-                      View Changelog <ExternalLink className="w-3 h-3 ml-1" />
-                    </a>
+                    {updateInfo.changelog_url && (
+                      <a
+                        href={updateInfo.changelog_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1 text-sm text-blue-600 hover:text-blue-500 dark:text-blue-400 flex items-center"
+                      >
+                        View Changelog <ExternalLink className="w-3 h-3 ml-1" />
+                      </a>
+                    )}
                   </div>
                 </div>
               )}

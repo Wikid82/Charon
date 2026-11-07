@@ -1,335 +1,883 @@
-# Lint Sweep: Frontend Backlog (#1743) and Root E2E Linting (#1716, #1820)
+# What's New Pipeline Repair and SemVer Build-Metadata Versions
 
-Status: DRAFT for supervisor review. Base: `development` @ 77fbbb656. Date: 2026-11-05.
-Branch: `chore/lint-sweep-1743` (one PR into `development`, ordered commits). No worktrees.
-Scope owner agents: `frontend-dev` (src), `playwright-dev` (root `tests/` findings), `devops` (Makefile, lefthook, CI).
+Status: REVISED after the second supervisor review (APPROVE WITH CHANGES: R1-R10 and corrections a-h
+folded in, each re-verified against the repo). Base: `development` @ e023f53d2. Date: 2026-11-06.
 
-## 1. Introduction
+Workflow rule for every new or changed step in this PR: trigger context (`TRIGGER_*`, `github.*`) reaches
+shell code only through `env:`. Never put `${{ }}` inside `run:`.
 
-### Goals
+The user decided that the `+dev`/`+nightly` versioning is pointless while What's New is broken on shipped
+images (#1865). This spec therefore covers **one branch and one PR** that does two things:
 
-1. Take `cd frontend && npm run lint` from 1350 warnings to 0 outside the locale-sync category, fixing real
-   a11y, security-linter and React-correctness findings instead of waiving them (#1743).
-2. Give the root Playwright `tests/` tree a working ESLint step in lefthook and CI (#1716, #1820).
-3. Fix the Makefile `lint-backend` timeout (cold-cache exit 4) (#1820).
-4. Make new warnings fail CI so the backlog cannot regrow (`--max-warnings` ratchet).
+- fixes every What's New finding (bug-fix commits first), and
+- then adds build-metadata versions.
+
+The user explicitly overrides the usual "a high/critical fix ships as its own PR" rule.
+
+Branch: `fix/whats-new-pipeline-and-build-versions` → PR into `development`. No worktrees.
+
+Closes **#1865** and **#1867**. #1866 is closed as not planned (decision: non-release `main` builds keep reporting the manifest version; see §13).
+
+Scope owner agents:
+
+- `playwright-dev`: E2E pinning
+- `backend-dev`: Go
+- `frontend-dev`: modal, hook, update card
+- `devops`: generator, workflows, smoke script, Makefile, Dockerfile
+- `docs-writer`: docs
+- `qa-security`: runs the built-image verification matrix (§8)
+
+The previous lint-sweep spec is archived at `docs/plans/archive/lint_sweep_1743_spec.md`.
+
+---
+
+## 1. Goals
+
+1. Every shipped image embeds correct, novice-readable changelog data. This covers release (`latest`),
+   `development` (`:dev`), PR images and nightly.
+2. The What's New modal behaves correctly end to end on those images:
+   - It shows the right entries once.
+   - It never shows a history dump or entries newer than the binary.
+   - It never nags in a loop.
+3. CI fails loudly when a build would ship without changelog data, and a post-build smoke check proves the
+   behavior on the actual built image.
+4. Non-release builds report `<last release>+<channel metadata>` so the What's New feature, the update check
+   and backup validation can compare versions.
 
 ### Non-goals
 
-- No product behavior changes. The only behavior-adjacent edits are the React-compiler rule fixes
-  (Commit 9 to 11), which are isolated and individually tested.
-- No locale content edits (Crowdin owns `frontend/src/locales/**`).
-- No Go code changes besides the Makefile.
-- No new E2E specs: nothing user-visible is added, so the "E2E as `test.fixme`" step from the suggested
-  commit sequence is intentionally omitted. Existing component vitest files are the safety net; targeted
-  Playwright runs are only required for the a11y/hook commits that change rendered DOM (see gates).
+- Translating the What's New strings. Locales are owned by Crowdin and about 96% of all keys are untranslated
+  in most locales (`ja`/`nl`/`ar`: 2128 of 2215 strings equal English), so this is not What's New-specific.
+  This PR only adds new keys to `en`.
+- Orthrus agent *version semantics*. Only its wrong commit sha (#1867) is fixed here.
+- Rewriting commit subjects into prose. The generator filters and cleans them, but it does not rewrite them.
+- Scope filtering cannot catch **unscoped** test-only or internal fixes. Example: `fix: use a loadable
+  configuration in the hub mirror contract test` in v0.46.5 still lands under "Fixes". How readable What's
+  New is for novices still depends on commit-subject hygiene (the right scope, or `test:`/`chore:`
+  prefixes).
 
-## 2. Research Findings
+---
 
-Measured 2026-11-05 (`npm run lint`, JSON output): 0 errors, 1350 warnings, 219 auto-fixable, in 247 of 672 linted files (247 files carry at least one finding)
-(125 `import-x/order`, 42 `unicorn/prefer-ternary`, 21 `testing-library/prefer-find-by`, 16
-`unicorn/no-useless-undefined`, 12 `import-x/no-duplicates`, 1 each `sonarjs/prefer-immediate-return`,
-`testing-library/no-wait-for-multiple-assertions`, `unicorn/prefer-includes`).
+## 2. Research: what the published images actually contain and do
 
-Where the warnings live: ~1,000 of 1,350 are in test files (`src/pages/__tests__` 457,
-`src/components/__tests__` 315, `src/hooks/__tests__` 27, others small). Production files with the most:
-`components/dialogs` 81 (mostly `__tests__`), `components/hecate` 49, `components/theme` 48,
-`ProxyHostForm.tsx` 22, `ProxyHosts.tsx` 9, `Notifications.tsx` 8, `useProxyGroupDnD.ts` 8.
+### 2.1 Method (real artifacts only; E2E fixtures and live containers were not used as evidence)
 
-Existing config facts (`frontend/eslint.config.js`):
+- Rootless daemon (`DOCKER_HOST=unix:///run/user/1001/docker.sock`).
+- Pulled the three published images used as evidence:
 
-- Every react-hooks recommended-latest rule is forced to `warn` (the React Compiler diagnostics:
-  `set-state-in-effect`, `static-components`, `immutability`, `purity`, `globals`, `incompatible-library`).
-- Test override block sets six `testing-library/*` rules and `vitest/expect-expect` to `warn`.
-- Locale block sets `i18n-json/identical-keys` to `warn` on purpose ("Missing keys are expected until
-  Crowdin catches up"); placeholders and JSON validity are `error`.
-- `npm run lint` is `eslint . --report-unused-disable-directives` (no `--max-warnings`).
-- CI: `quality-checks.yml` job `frontend-quality`, step "Run frontend lint" (line ~694) has
-  `continue-on-error: true`, so lint does not gate today.
-- Lefthook: `frontend-lint` runs `cd frontend && npm run lint` (whole project, not staged files) for any
-  `frontend/**/*.{ts,tsx,js,jsx}` change. With `--max-warnings 0` this blocks any frontend commit if the
-  tree has a stray warning (intended, but see Risks).
-- Vitest coverage gate: `lines` threshold 87 (`CHARON_MIN_COVERAGE`); lead reports branch coverage 85.6%
-  vs the 85% floor, so test rewrites must be behavior-preserving.
+  | Tag | Image ID | Note |
+  | --- | --- | --- |
+  | `ghcr.io/wikid82/charon:latest` | d3ee3bfdb7b9 | Same image as `main-f2cb630`, the v0.46.5 release commit |
+  | `:dev` | dd4fd38b67f2 | |
+  | `:nightly` | 6d035bd42abb | |
 
-Root tree: no root `eslint.config.*`, `tests/` has 192 `.ts`/`.js` files, no `tests/tsconfig.json`,
-root `package.json` already lists `eslint ^10.14.0` and `@playwright/test` but not `typescript-eslint`,
-`@eslint/js` or `eslint-plugin-playwright`. Root `typescript` is aliased to `@typescript/typescript6@^6`.
-A scratch run (typescript-eslint `recommended` only, config in the scratchpad, nothing committed) over
-`tests/**/*.{ts,js}` produced 77 findings: 45 `no-explicit-any`, 30 `no-unused-vars`, 2 `prefer-const`
-(plus 1 file that yielded a null-rule parse/config message to triage). `eslint-plugin-playwright` findings
-are unmeasured (plugin not installed); Commit 12 must measure them first.
+- **No `vX.Y.Z` image tag exists.** None of the 791 GHCR tags and none of the Docker Hub tags are semver;
+  see F12. The release image is therefore `latest` / `main-f2cb630`.
+- Extracted `/app/charon` from each image via `docker create` + `docker cp`, and counted the embedded JSON
+  entries.
+- Ran a throwaway container for each image: `wn-research-*`, `127.0.0.1:18080-18083`, data under the
+  scratchpad, `CHARON_ENV=production`.
+- Ran the scripted flow `scratchpad/wn/exercise.sh` against each container:
+  - `POST /setup` and login
+  - `GET /changelog/status` and `/changelog/all`
+  - `POST /users`
+  - `POST /changelog/ack`: temp, permanent, permanent with opt-out, then an invalid action
+  - `POST /changelog/opt-in`
+  - unauthenticated `/changelog/status`
+  - `/system/updates`
+  - `users.last_seen_version` read from a read-only copy of SQLite after each step
+- A fourth container ran the real nightly image with `CHARON_ENV=development CHARON_CHANGELOG_VERSION=0.46.4`
+  to show how the real nightly data behaves once the build is versioned.
+- All `wn-research-*` containers and the pulled images were removed afterwards. No live container was touched.
 
-Open PRs: none (`gh pr list --state open` is empty). Remote branches ahead of `development` that touch
-affected paths: `origin/l10n_development` (Crowdin, 28 locale files; we do not edit locales, so no conflict)
-and `origin/chore/release-please-migration` (1 file in the watched set, stale since 2026-08-17).
-Every other remote branch is already merged or identical to development for these paths.
+### 2.2 Results per image
 
-## 3. Priorities & Ordering
+| | `latest` (v0.46.5 release) | `:dev` | `:nightly` |
+| --- | --- | --- | --- |
+| OCI `version` / `revision` label | `0.46.5` / f2cb630d5 | `dev` / dcce994a5 | `nightly` / **f3271ae35 (= `main` HEAD)**, but the build checked out `nightly` (F7/#1867) |
+| `/api/v1/health` `version` | `0.46.5` | `dev` | `nightly-f3271ae354631256169bf06a6194669274cddb30` |
+| Embedded entries (binary scan) | **0** | **0** | **171** (0.1.0 … 0.46.5) |
+| `GET /changelog/all` | `{"versions":[]}` (15 B) | `[]` | 171 entries, **818 KB** raw, 198 KB gzip |
+| `last_seen_version` after setup / `POST /users` | `'0.46.5'` / `'0.46.5'` | `''` / `''` | `''` / `''` |
+| `GET /changelog/status` (fresh admin) | `show_changelog:false`, 0 entries | false, 0 | false, 0 (unversioned gate) |
+| Ack `dismiss_temporary` | `No change` | `No change` | `No change` |
+| Ack `dismiss_permanent` | `Acknowledged` (re-writes `0.46.5`) | `No change` (guard) | `No change` (guard) |
+| Ack `+opt_out` / `opt-in` | `changelog_opt_out` 1 / 0 ✔ | ✔ | ✔ |
+| Ack invalid action | 400, body leaks the validator struct path `Key: 'AckRequest.Action' Error:…` | same | same |
+| Unauthenticated status | 401 ✔ | 401 | 401 |
+| `/system/updates` | `available:false` ✔ | **`available:true`** (false alarm) | **`available:true`** (false alarm) |
+| Settings → "revisit What's New" | Opens an **empty dialog** (no empty state) | Empty dialog | 171 versions, thousands of DOM nodes |
 
-Findings and what happens first:
+**Conclusion:** no published release image has ever shown What's New. The only image with data (nightly)
+hides it behind the unversioned gate.
 
-| # | Item | Class | Priority | Handling |
-| --- | ------ | ------- | ---------- | ---------- |
-| 1 | `security/detect-unsafe-regex` (3), `detect-non-literal-regexp` (4) | security linter | High within this PR | Fixed first among manual work (Commit 6), per #1743's own advice |
-| 2 | a11y: label association 45, interactions 27, autofocus 3, heading 2, aria props 2 | real user-facing defects | High | Fixed (Commit 7 and 8), not waived |
-| 3 | Makefile `--timeout=25m` | tooling bug (reproducible exit 4) | Medium, trivial | Commit 1, independent |
-| 4 | Root `tests/` has no lint | tooling gap, bug-fix class (#1716/#1820 are user-filed) | Medium | Commit 12 to 13 |
-| 5 | react-hooks compiler rules (53 total) | correctness, behavior-affecting | Medium, riskiest | Fixed last, one cluster per commit with tests (Commit 9 to 11) |
-| 6 | Mechanical style (import order, ternary, undefined, type imports) | style | Low | Auto-fix commits first (Commit 2 to 4) |
-| 7 | Test-hygiene rules (testing-library, vitest) | test quality | Low | Commit 5 plus the Decision 1 outcome |
-| 8 | 23 `identical-keys` | external sync (Crowdin) | Not a defect | Config split, Commit 14, no locale edits |
+### 2.3 Nightly data once the build is versioned (real image, override `0.46.4`)
 
-Rule applied: this is our own tooling/quality work (the three issues are filed chores, not user-reported
-product bugs), and there is no new `feat`. There are no critical/high out-of-scope findings. No security
-advisory is implied: the regex findings are lint-level (validated input in `cron.ts`/`validation.ts`;
-Commit 6 measures them with an adversarial-input test before deciding fix vs. proof-of-safety). If that
-measurement shows a real ReDoS on user-controlled input, stop, file a private advisory per `SECURITY.md`
-and ship the fix as its own PR with a vague `fix(security):` subject.
+```text
+unseeded user ('')        -> show_changelog:true, 171 entries (0.46.5 … 0.1.0), 818 KB, blocking modal
+dismiss_permanent         -> last_seen_version '0.46.4'
+status after dismissal    -> show_changelog:true, ["0.46.5"]   <- newer than the running version: nag loop
+```
 
-Out-of-scope findings discovered during the sweep: file a GitHub issue immediately (CLAUDE.md triage).
-Already known and to be filed if the user picks the matching option: the `no-node-access` residual
-(Decision 1, option B).
+Both hazards from the earlier spec (F3 ceiling, F8 first-view dump) are therefore **reproduced on real
+published data**.
 
-## 4. Decisions and Recommendations
+### 2.4 Pipeline history
 
-### Decision 1: per-rule disposition
+- **8cefab1a4** (2026-07-29, `ci(changelog): generate changelog data for docker-build and nightly images`):
+  - added `Generate Changelog Data` to `docker-build.yml`, and
+  - set `fetch-depth: 0` in that checkout.
 
-| Rule (count) | Disposition | Rationale and evidence |
+  At that point the build still ran in one job.
+- **2026-08-10 merges** (a02f62197 "Propagate changes from main into development (#1233)", 1ef633c91 /
+  9012d0801 "Merge branch 'development' into main") dropped the step. The `-m -S` search shows the string
+  leaving the file in those merges and never returning.
+- **aa7f21354** (2026-08-17) then documented nightly as "its one remaining real caller"
+  (ARCHITECTURE.md:1994).
+- Today `docker-build.yml` builds in `build-amd64` / `build-arm64` (`:429`, `:537`), which use **shallow
+  checkouts**. Only `setup` has `fetch-depth: 0` (`:119-123`).
+- **Releases that ever embedded real data: none.**
+  - The releases published since 2026-08-10 shipped `[]`.
+  - Between 2026-07-29 and 2026-08-10 the feature had not yet merged to `main` (#1196 merged 2026-08-03 into
+    `development`).
+  - Evidence: the current `latest` image (0.46.5) has 0 entries. No older semver image tags exist to inspect
+    (F12).
+- **Release timing race.**
+  - The v0.46.5 release commit f2cb630d5 was pushed at about 11:07:15Z.
+  - `docker-build.yml` (push, `main`) started at 11:07:19Z. `release-please.yml` started at the same time.
+  - The GitHub Release (and thus tag `v0.46.5`) was **published at 11:09:48Z**, after the build's checkout.
+  - So on a release build, the generator (which lists `git tag -l 'v*'`) would very likely **miss the very
+    version being released**.
+
+### 2.5 Generator quality (`scripts/generate-changelog.sh`, real output, 171 versions)
+
+| Measure | Value | Cause |
 | --- | --- | --- |
-| `import-x/order` (148), `import-x/no-duplicates` (24) | Auto-fix (125 + 12 fixable), hand-fix the remaining ~35 | Pure formatting; the unfixable ones are mostly type-import grouping |
-| `consistent-type-imports` (13) | Hand-fix (not auto-fixable here) | Mechanical |
-| `unicorn/prefer-ternary` (48), `no-useless-undefined` (16), `prefer-includes` (1), `sonarjs/prefer-immediate-return` (1) | Auto-fix, review diff | Touches production code, so vitest `related` must run |
-| `testing-library/prefer-find-by` (115) | Auto-fix 21, hand-fix ~94 | Real test hygiene: `await waitFor(() => getBy...)` to `await findBy...`; same semantics |
-| `testing-library/no-unnecessary-act` (18), `render-result-naming-convention` (15), `no-manual-cleanup` (2), `no-wait-for-multiple-assertions` (1), `vitest/expect-expect` (8) | Hand-fix | Small. `expect-expect`: add the missing assertion, or register the helper via `assertFunctionNames` if it wraps `expect` |
-| `testing-library/no-node-access` (734 in 84 files, with `no-container` 44) | **Recommended: option B, scope down for tests, with a tracking issue.** See below | |
-| `jsx-a11y/label-has-associated-control` (45) | Fix | Real defect: e.g. `ProxyHostForm.tsx:767` is a `<label>` with no `htmlFor`/nesting, so screen readers and `getByLabelText` cannot associate it. Fix with `htmlFor` + `id` (use `useId`) |
-| `no-static-element-interactions` (14), `click-events-have-key-events` (13) | Fix | e.g. `CertificateCleanupDialog.tsx:26-30`: modal backdrop `onClick={onCancel}` and an inner `stopPropagation` div. Fix by giving the overlay `role="presentation"`, the panel `role="dialog" aria-modal`, and Escape handling (check whether the repo already has a shared dialog primitive and reuse it, DRY) |
-| `jsx-a11y/no-autofocus` (3) | Fix | All in `CrowdSecConfig.tsx` modals (e.g. `:1756` ban-IP input). Replace the attribute with ref-based focus on open (`useEffect` + `ref.focus()`), preserving the focus-on-open UX |
-| `jsx-a11y/heading-has-content` (2), `role-has-required-aria-props` (2) | Fix | Real a11y |
-| `security/detect-unsafe-regex` (3) | Keep patterns, prove linear, reasoned inline disable (the one explicit exception to "no waivers") | `utils/cron.ts:29`, `utils/validation.ts:10`, test `crowdsecPresets.test.ts:19`. Add a long-adversarial-input test; if linear time, keep the pattern with a justified inline disable (preferred removal: rewrite with split/Number parsing, for `isIPv4` and cron fields) |
-| `security/detect-non-literal-regexp` (4) | Fix | All in tests/setup: escape input with a shared `escapeRegExp` helper (or use string matchers); 1 in `src/test/setup.ts` |
-| `react-hooks/set-state-in-effect` (37 findings in 27 files; only 4 in `src/hooks`: `useBackups` x3, `useMediaQuery` x1) | Fix (no waivers planned; `useMediaQuery` uses `useSyncExternalStore`) | Examples: `CertificateList.tsx:41` prunes `selectedIds` in an effect when `certificates` changes (derive instead); form components reset state from props (use `key` or derive during render). Each cluster gets tests. Last-resort inline disable only for a genuine external-system sync, listed in the PR description with a reason |
-| `react-hooks/static-components` (3), `immutability` (3), `purity` (2), `globals` (1, in test file `AuthContext.test.tsx:125`), `incompatible-library` (2), `exhaustive-deps` (1) | Fix | `CertificateList.tsx:185` component created in render (`SortIcon`), `CrowdSecConfig.tsx:128` and `ManualDNSChallenge.tsx:246` use `Date.now()` in render. For `incompatible-library` (TanStack/RHF style APIs), a one-line disable with reason is acceptable only if the library is the cause |
-| `promise/always-return` (2), `sonarjs/no-identical-functions` (2) | Fix | Trivial |
-| `i18n-json/identical-keys` (23) | See Decision 2 | |
+| `other` items | 6528, of which **2267 are `Merge …` subjects** | `git log "$prev..$tag"` (`:77-87`) has no `--no-merges` |
+| Duplicate items | 322 in features/fixes, 803 in other | The same change is reachable via several commits (squash plus branch commits, promotion and propagation), and subjects differ only by `(#NNN)` |
+| Internal scopes shown as user "Fixes" | `fix(deps)` 276, `fix(ci)` 161, `fix(e2e)` 63, `fix(tests)` 57, `fix(test)` 20, `fix(docs)` 17, `fix(workflow)` 7 … (whole-history counts) | Only `feat`/`fix` prefixes are checked, never the scope |
+| Release / promotion chores in `other` | `chore(main): release 0.46.5 (#1802)` appears **twice**, plus `chore: promote nightly to main …` | Not filtered |
+| Versions with no feature, fix or security entry | 32 of 171 | Expected. The modal handles this, but they add bulk |
+| Example: v0.46.5 | 0 features, 22 fixes (including test-only fixes such as "use a loadable configuration in the hub mirror contract test"), 105 other | |
+| Failure handling | `git log … 2>/dev/null`. Zero tags (shallow clone) still writes `[]` and **exits 0** | Silent. This is exactly how #1865 shipped unnoticed |
+| `(security)` routing | 158 entries, all shas valid hex. Routed only to `security` ✔ | |
+| Dates | Author date of the tagged commit ✔ | |
+| Ordering | Oldest-first, then reversed. The backend re-sorts by semver ✔ | |
 
-**`no-node-access` evidence.** All 734 hits share one message. Samples:
+### 2.6 Consumer side, reviewed fresh
 
-- `AccessListForm.test.tsx:102` `getAllByRole('button').find(b => b.querySelector('.lucide-x'))`: finding an
-  icon-only button by its SVG class. The correct fix is to give the button an accessible name
-  (`aria-label`), which is itself an a11y improvement, then `getByRole('button', {name})`. That edit touches
-  product code.
-- `ProxyHosts-coverage*.test.tsx` (54 hits in one file) are "coverage" tests that assert on DOM structure
-  and classes, not user behavior.
-- A hand rewrite of 734 sites across 84 files is realistically a multi-day, high-churn change whose payoff
-  is test style, with a real risk of weakening assertions and lowering branch coverage (85.6% vs 85%).
+| Area | Finding | Evidence |
+| --- | --- | --- |
+| `GetEntriesSince` | No ceiling (F3); full-history dump for `''` users (F8) | `changelog.go:145-157`; §2.3 |
+| Ack | `dismiss_permanent` writes the running version unconditionally. On a **downgrade** it *lowers* `last_seen_version`, so re-upgrading re-shows already-seen entries (F15) | `changelog_handler.go:102-104` |
+| Ack error body | Returns `err.Error()` from the binder, which exposes internal struct and validator names (F16, low). The same pattern exists app-wide | `changelog_handler.go:88-91`; §2.2 |
+| Security commit link | `href={GITHUB_COMMIT_URL + item.sha}` with no format check. The data is build-time and trusted, but neither the backend nor the frontend validates it (F17, low hardening) | `WhatsNewModal.tsx:20`, `:97-98`; `changelog.go:189-203` |
+| React list keys | `key={feature}` / `key={fix}` / `key={item}`. Real data has 1125 duplicate strings, so React gets duplicate keys (console errors, possible dropped or reused rows) (F18) | `WhatsNewModal.tsx:71`, `:82`, `:118` |
+| Browse ("revisit") mode | No loading, error or empty state. It opens a blank dialog on every release and dev image (F19). It renders all 171 versions at once (818 KB) (F20) | `WhatsNewModal.tsx:168-193`; §2.2 |
+| Headings | Emoji inside heading text is read aloud by screen readers (F21, low). It is not only English: the translated `de`/`es`/`fr`/`zh` values keep the emoji (`"✨ Neue Funktionen"`, `"✨ Nuevas funciones"`, `"✨ Nouvelles fonctionnalités"`, `"✨ 新功能"`), and the other 23 locales copy the English with emoji. The E2E aria snapshot asserts the emoji text | `locales/*/translation.json` `whatsNew.newFeatures/fixes/security`; `tests/settings/whats-new-changelog.spec.ts-snapshots/…behind-the-current-version-1.aria.yml:5,9,14,17,23` |
+| Toasts | Hard-coded English in mutation errors (F22, low) | `hooks/useChangelog.ts` `useAckChangelog`/`useOptInChangelog` `onError` |
+| Passthrough role | All four routes reject it with 403 via `rejectPassthrough`. The status-mode modal treats the error as "hide" ✔ | `changelog_handler.go:34-36`; `WhatsNewModal.tsx:198` |
+| Multi-user | Per-user columns, independent ✔ | |
+| Payload | Gzip enabled ✔ (198 KB). Shrinks to roughly 40 KB once F10 cleanup is applied, measured by re-running `git log --no-merges` over v0.46.4..v0.46.5 (107 vs 127 subjects; feat/fix 20 unique) | §2.5 |
+| Update checker | False "update available" on dev and nightly (C6 below); System Settings card contract drift (F2); `changelog_url` not validated (F9) | §2.2; `update_service.go:144-156`; `SystemSettings.tsx:37-42`, `:201-213` |
 
-Options:
+### 2.7 Test coverage, honestly
 
-- A. Rewrite all 734 (plus 44 `no-container`) by hand over about 10 test-only commits. Cleanest end state,
-  highest risk and review cost, may also require product `aria-label` additions.
-- **B (recommended).** Turn `no-node-access` and `no-container` to `off` in the test override, with a
-  comment stating the rationale, and file one tracking issue listing the 84 files and the preferred
-  replacement patterns (accessible names, `within`, `getByLabelText`). Fix opportunistically any such hit
-  in a file that another commit in this PR already rewrites, then re-measure. Rationale: 84 files of
-  legacy structural tests are low-value to churn in a lint PR; the rule remains valuable for new tests, so
-  scope it with a path-based override (`warn` for everything outside a named legacy glob list generated
-  from the 84 files, `off` for those) rather than a global `off`. This keeps the signal for new test files
-  and lets the legacy list only shrink.
-- C. Leave at `warn` and absorb in the ratchet baseline. Rejected: it makes `--max-warnings 0` impossible.
+- Backend unit tests (`changelog_test.go`, `changelog_handler_test.go`) inject entries through
+  `SetEntriesForTesting`. None loads the real embedded data or the generator output.
+- E2E (`whats-new-changelog.spec.ts`) **only** passes because `e2e-tests-split.yml:204-208` copies
+  `tests/fixtures/changelog-fixture.json` over the embedded file and sets `CHARON_CHANGELOG_VERSION=1.2.0`.
+- **No test exercises `generate-changelog.sh`, the workflow step, or a built image's embedded data.** A
+  #1865-class regression (data missing from shipped images) passes every existing test.
+- The nightly "smoke test" (`nightly-build.yml:589-622`) polls `http://127.0.0.1:8080/health`. That route
+  does not exist on the main server (only `emergency_server.go:148` has one). The request falls through to
+  the SPA and returns **200 `text/html`**, as verified on the real nightly image. **The smoke test passes
+  vacuously** (F13).
 
-Decision (approved): option B. File the tracking issue at the start of the PR (Commit 1 time); generate the
-legacy glob list from the lint JSON rather than by hand.
+### 2.8 Version consumers (carried over from the earlier spec, still valid)
 
-### Decision 2: the 23 `i18n-json/identical-keys` findings
+| Site | Change |
+| --- | --- |
+| `routes.go:484-489` changelog service and `CHARON_CHANGELOG_VERSION` override (non-production only) | Anchor, ceiling, cap; warn on an unversioned override |
+| `user_handler.go:37-42` `seedLastSeenVersion` | Seed the canonical form. Keep reading `version.Version`, not the override (E2E relies on this) |
+| `changelog_handler.go:102-104` Ack | Canonical anchor that never lowers the stored value (F15) |
+| `health_handler.go:33`, `main.go:204` | None |
+| `update_service.go:38`, `:144-156` | SemVer compare, `current_version`, URL validation |
+| `backup_upload.go:58`, `backup_service.go:1087`, `:1149` | None. The longest new value is about 25 chars, under `size:50` |
+| `backup_restore_safe.go:205-209` | **Advisory warning only**, never blocks a restore. Compare canonical forms and add a "newer archive" wording |
+| Frontend `Layout.tsx:411`, `SystemSettings.tsx:637` | None |
 
-Investigated. They are not typos or stray keys. `en/translation.json` has 2215 leaf keys; 23 of the 27
-other locales have 2143 (exactly 72 keys behind, identical gap in every one), and `de`, `es`, `fr`, `zh`
-are complete. A key diff of `en` vs `af` shows the 72 are all present in `en` only (CrowdSec hub install
-progress, `wafConfig.rulesSource`, `security.enforcement.*`, `crowdsec.errors.*`, etc.): new English
-strings added by recent features that Crowdin has not translated yet. There are no extra keys in any
-locale. i18next falls back to `en`, so this is intended behavior and the config comment already says so.
+---
 
-Recommendation: do not touch locale files (Crowdin would see copied English as "translated"; the open
-`l10n_development` branch edits these files). Split locale linting from code linting:
+## 3. Findings register
 
-- `lint` script: `eslint . --ignore-pattern 'src/locales/**' --max-warnings 0 --report-unused-disable-directives`.
-- New `lint:locales`: `eslint src/locales` (JSON validity and placeholder parity stay `error` and blocking;
-  `identical-keys` stays `warn` and informational, never gating).
-- CI and lefthook run both; only `lint:locales` errors fail. The finding count is one per locale file, so it
-  does not grow as more English keys are added, and it falls to 0 as Crowdin catches up.
+Every finding is **rolled into this PR** unless stated otherwise.
 
-### Decision 3: root `tests/` linting
+**Security-sensitive findings: none.** F9, F16 and F17 are low-severity hardening with no realistic exploit
+path, so no private advisory candidate was identified. F16's app-wide pattern is tracked separately.
 
-- New standalone root `eslint.config.js` (ESM; root `package.json` has `"type": "module"`), scoped to
-  `tests/**/*.{ts,js}`. Do not extend `frontend/eslint.config.js`: it is React, testing-library, vitest,
-  CSS/JSON/markdown oriented, resolves plugins from `frontend/node_modules`, and uses
-  `import.meta.dirname` paths for locales. Sharing it would couple unrelated toolchains.
-- Plugins (new root devDependencies, exact versions pinned by `frontend-dev`/`devops` against what
-  `frontend/package.json` already uses for `@eslint/js` and `typescript-eslint`): `@eslint/js`,
-  `typescript-eslint`, `eslint-plugin-playwright` (flat `recommended`).
-- Typed linting: add `tests/tsconfig.json` (noEmit, includes `tests/**/*`, Playwright types) and enable
-  `projectService` so `@typescript-eslint/no-floating-promises` and `await-thenable` run. Missing `await` on
-  Playwright calls is the highest-value bug class in E2E code. Typed linting is the decision (the `typescript-eslint` peer range covers TypeScript 6.0.x and
-  the frontend already uses the same alias, so no peer-conflict contingency is planned). `tests/example.spec.js`
-  gets `disableTypeChecked` (or `allowJs`), and root `playwright.config.js` sits outside `tests/` and is
-  linted untyped or ignored explicitly.
-- Severity policy: correctness rules are `error` (`missing-playwright-await`, `no-focused-test`,
-  `valid-expect`, `no-floating-promises`, `no-unused-vars`, `prefer-const`); style-ish and noisy rules are
-  `warn` first (`no-explicit-any`, `playwright/no-conditional-in-test`, `no-wait-for-timeout`,
-  `no-force-option`, `no-skipped-test`, `expect-expect`). Baseline after the first run drives which warn
-  rules get fixed vs. downgraded; target is 0 errors and a stable warning budget.
-- Findings treatment: fix `unused-vars`, `prefer-const`, `any` where a real type is available (replace with
-  `unknown` + narrowing or the Playwright types); anything requiring Playwright/test-semantics judgement
-  goes to `playwright-dev`. Do not skip or delete tests; anything un-fixable gets a per-line disable with a
-  reason. Code bugs found in specs are reported back, not fixed by `playwright-dev`.
-- Wiring: root script `"lint:e2e": "eslint tests --max-warnings <N>"`; lefthook step `e2e-lint`
-  (`glob: "tests/**/*.{ts,js}"`, runs `npx eslint {staged_files}` from repo root); new CI job `e2e-lint` in
-  `quality-checks.yml` (path-filtered to `tests/**`, `eslint.config.js`, root `package.json`/lockfile),
-  root `npm ci --ignore-scripts`, `npm run lint:e2e`. Blocking from day one (note: a path-filtered job cannot be marked a required status check without an always-run wrapper job; if branch protection should require it, add that wrapper) (the same commit fixes the
-  findings), unlike frontend's historical `continue-on-error`.
-- Housekeeping: `.dockerignore` already excludes `tests/`; add `eslint.config.js` at root to
-  `.dockerignore` if it is not covered; verify `.gitignore` and `.codecov.yml` need no change.
+| ID | Finding | Sev | Evidence | Disposition |
+| --- | --- | --- | --- | --- |
+| F1 / #1865 | Release, dev and PR images embed `[]`; the generation step was lost in the 2026-08-10 merges | High (feature dead on every release since launch) | §2.2, §2.4 | Commit 6 |
+| F10 | Generator output is unfit for novices: merges, duplicates, internal scopes under "Fixes", release chores | Medium | §2.5 | Commit 5 |
+| F11 | Generator is silent on the case that matters. `set -euo pipefail` (`generate-changelog.sh:7`) means a failing `git log` *does* fail the script, though its stderr is hidden by `2>/dev/null` (`:87`). But **zero `v*` tags (a shallow clone) writes `[]` and exits 0**. Separately, the build misses the version being released (tag race) | High (root enabler of #1865) | §2.4, §2.5; `generate-changelog.sh:7`, `:65`, `:87` | Commits 5, 6 |
+| F13 | Nightly smoke test hits SPA HTML and always passes; no build validates What's New | Medium | §2.7 | Commit 8 |
+| F3 | No ceiling, so a nag loop | Medium | §2.3 | Commit 3 |
+| F8 | History dump once data ships, in two forms. (1) Users with `last_seen_version ''` get all 171 entries / 818 KB (§2.3). (2) **Release users seeded long ago**: seeding exists since d17cff29a, first released in **v0.36.1** (`git tag --contains d17cff29a` gives 37 tags, v0.36.1 to v0.46.5). Those users have never acked, because no release shipped data. On the first data-bearing release they would get about 35 versions | High once data ships | §2.3; `user_handler.go:37-42` | Commit 3: cap **every** status response at the newest 3 |
+| F15 | Ack lowers `last_seen_version` on downgrade | Low | `changelog_handler.go:102-104` | Commit 3 |
+| F16 | Ack 400 body exposes binder internals | Low | §2.2 | Commit 3 (changelog handler only). **Not rolled in app-wide**: the same `err.Error()` pattern is in many handlers and is outside What's New, so file an issue |
+| F17 | Security-entry sha not validated before building the link | Low | `WhatsNewModal.tsx:97-98` | Commits 3 (backend drops a non-hex sha) and 4 |
+| F18 | Duplicate React keys in modal lists | Medium | `WhatsNewModal.tsx:71`, `:82`, `:118` | Commit 4 |
+| F19 | Browse mode has no loading, error or empty state, so it opens a blank dialog on release and dev | Medium | §2.2 | Commit 4 |
+| F20 | Browse mode renders the whole history at once | Low | §2.2 | Commit 4 (render the newest 10 with a "Show older releases" button; no API change) |
+| F21 | Emoji read aloud in headings, in all 28 locales | Low | `locales/*/translation.json`; aria snapshot | Commit 4: strip the leading emoji from all 28 locale files (a mechanical edit of the three keys, an accepted exception to "Crowdin owns locales" because it removes a shared prefix and changes no wording); render the icon `aria-hidden`; update the aria snapshot |
+| F22 | Hard-coded English toasts | Low | `useChangelog.ts` | Commit 4 |
+| F12 | No version image tags were ever published, although VERSION.md:51-56 promises `v1.0.0`, `1.0` and `1`. `type=semver` only fires on tag refs, and `docker-build.yml` has no tag trigger | Medium | 791 GHCR tags, 0 semver; Docker Hub likewise | Commit 7 publishes `X.Y.Z` and `X.Y` (no `v`, no major-only tag while on v0). Commit 7 also protects `X.Y` from pruning. Commit 12 corrects VERSION.md |
+| F7 / #1867 | Nightly (Charon `:275-276` and Orthrus `:542`) uses `github.sha` (= `main` on `schedule`) instead of the checked-out nightly commit | Medium | Nightly label `revision=f3271ae35` = `main` HEAD | Commit 8 |
+| F2 | System Settings Updates card reads fields that do not exist | Medium | `SystemSettings.tsx:37-42`, `:668-690` | Commit 9 |
+| F9 | `changelog_url` rendered without validation | Low | `NotificationCenter.tsx:116` | Commit 9 |
+| C6 | Update check is a string compare, so dev and nightly falsely report an update | Medium | §2.2 | Commit 10 |
+| C8 | Backup version warning is exact-match (noise) | Low | `backup_restore_safe.go:205-209` | Commit 10 |
+| #1866 | Non-release `main` builds (promotion merges) report the previous release version | Low | `docker-build.yml:392-394` | **Not planned (user decision):** `main` is the stable line, the window before the release-please merge is short, and the update check offers the real release; no label added |
+| F4 | Makefile versioned targets invalid; `docker-build-versioned` never runs (`Makefile:99` has a leading space); dead `.version`; dead `VITE_APP_VERSION` | Low | `make -n` prints "Nothing to be done" | Commit 11 |
+| F6 | Stale speculative comments in `update_service_test.go` | Low | `:35-41` etc. | Commit 10 |
+| F23 | Could a non-`main` source (a fork PR, or a branch named `main`) resolve to the `release` channel? | — | Verified in the repo: (1) The `setup` job `if:` (`docker-build.yml:96`) only admits `workflow_run` runs whose `workflow_run.head_repository.full_name == github.repository`, so a fork's `workflow_run` never runs `setup`. A same-repo `head_branch` of `main` *is* `main`. (2) The same `if:` skips `pull_request` runs whose `head_ref` is `main` or `development`. (3) `is_release` and the `release` channel additionally require `TRIGGER_EVENT != pull_request` (§4.5, §4.10), and a `workflow_run` started by a PR carries `workflow_run.event = pull_request` into `TRIGGER_EVENT` (`:65`). (4) `detect-release-commit.sh` also requires that the manifest version increased and that any existing `vX.Y.Z` tag points at HEAD | **Mitigated, closed.** No gap found. Bats tests cover the PR-event and non-`main` cases (§4.5) |
 
-### Decision 4: `--max-warnings` ratchet
+---
 
-- Frontend `lint` ships with `--max-warnings 0` in the last code commit, and the CI step loses
-  `continue-on-error: true` in the same commit. Because everything else in the PR drives code warnings to
-  0, no residual baseline number is needed. If Decision 1 option B is chosen, the path-scoped `warn` for
-  new test files provides the forward signal and the legacy list is `off`, so the count still reaches 0.
-- Avoiding blocking other work: there are no open PRs now; nothing else needs rebasing when this lands.
-  Any branch cut before merge that adds warnings will fail lint after rebase, which is the intent; the PR
-  description tells contributors to run `npm run lint -- --fix` after rebasing. If the sweep ends with a
-  non-zero residual (e.g. a deferred cluster), set the ratchet to that exact count, not 0, and file the
-  follow-up issue; never merge with the ratchet below the actual count.
-- The two-state ratchet (frontend and root `lint:e2e`) is stored in `package.json` scripts, so tightening is
-  a one-line change reviewed in a PR.
+## 4. Technical Specifications
 
-### Decision 5: Makefile timeout
+### 4.1 `internal/version`: the single SemVer authority (Commit 2)
 
-`lint-backend` (Makefile line 199) uses `--timeout=5m`; change to `--timeout=25m` per #1820 evidence for the
-pinned image on a cold cache. Apply the same to `lint-agent` (line 204), which has the identical failure mode,
-(DRY: define a `GOLANGCI_TIMEOUT ?= 25m` variable used by both). CI already uses 10m in the action
-(agent job `quality-checks.yml:587-588`, `--timeout=10m`) with a warm cache; leave it, and note in the commit body that CI is unaffected.
-Validation: `make -n lint-backend lint-agent` shows the new flag; actual cold-cache run is optional and
-long, run it foreground if executed.
+```go
+func Canonical(v string) (string, bool) // bare MAJOR.MINOR.PATCH[-PRE], metadata stripped; false if unversioned
+func IsUnversioned(v string) bool
+func Compare(a, b string) (cmp int, ok bool) // ignores build metadata; ok=false if either is unversioned
+```
 
-## 5. Risks and Mitigations
+- Unversioned means any of: `dev`, empty, a leading `v`, shorthand (`1`, `1.2`), or invalid.
+- Requiring the strict three-part form is deliberate, and it is a **small behavior change** despite the
+  `refactor:` label. Today `IsUnversionedBuild("1.2")` is false, because Go's semver accepts shorthand.
+  After this commit, `1.2` counts as unversioned. No build emits shorthand, so there is no user-visible
+  effect. The commit body must state this.
+- `changelog.IsUnversionedBuild` is deleted, and every reference to it in code, comments and docs is
+  updated. Gate: `grep -rn IsUnversionedBuild backend docs ARCHITECTURE.md VERSION.md
+  --exclude-dir=archive --exclude-dir=superpowers` must be empty.
+- This includes the stale comment at `user_handler_changelog_seeding_test.go:228-236`.
+- Tests:
+  - shorthand
+  - leading `v`
+  - prerelease: `Compare("0.47.0-rc.1","0.46.5+nightly.abc")` returns `(1,true)`, and
+    `Compare("0.47.0-rc.1","0.47.0")` returns `(-1,true)`
+
+### 4.2 Changelog backend fixes (Commit 3)
+
+`changelog.go`:
+
+| Item | Behavior |
+| --- | --- |
+| `IsDevBuild()` | `version.IsUnversioned(current)` |
+| **new** `AnchorVersion()` | Canonical current version, or `""` |
+| `GetEntriesSince(lastSeen)` | (1) An invalid non-empty `lastSeen` returns nothing (unchanged). (2) **Ceiling**: when versioned, keep only `Compare(e.Version, current) <= 0`. (3) Keep entries newer than `lastSeen` (all entries when it is `""`). (4) Sort newest-first. (5) **Cap every response** at the newest `firstViewEntryLimit = 3`, whatever `lastSeen` is (F8 form 2: release users seeded at v0.36.1 and never acked). The browse view (`GetAllEntries`, Settings → revisit) covers older history |
+| `GetAllEntries()` | Ceiling when versioned. No cap (opt-in browse). Everything when unversioned (local UI iteration) |
+| `normalizeEntry` | Also drops a `SecurityEntry` whose `SHA` fails `^[0-9a-f]{7,40}$` (F17), and dedupes each list while keeping order (defense in depth for F18) |
+
+Handlers:
+
+- `ChangelogHandler.Ack`:
+  - On `dismiss_permanent` with a versioned build, write `AnchorVersion()` **only if** the stored value is
+    empty, invalid, or `Compare(anchor, stored) > 0`. The stored value never decreases (F15).
+  - A bind failure returns `{"error":"invalid request"}` (F16).
+- `seedLastSeenVersion`: the canonical form of `version.Version`, or `""`.
+- `routes.go`: warn when `CHARON_CHANGELOG_VERSION` is set but unversioned.
+
+Tests (new or changed):
+
+- ceiling, with and without a versioned build
+- the cap of 3 when `lastSeen == ""`
+- the cap of 3 for a user many releases behind: stored `0.36.1`, running `0.46.6`, 40 fixture entries
+  returns exactly `0.46.6`, `0.46.5`, `0.46.4`
+- the cap with fewer than 3 newer entries returns only those (stored `0.46.5`, running `0.46.6` returns
+  `[0.46.6]`)
+- metadata in `lastSeen`
+- `AnchorVersion`
+- invalid sha dropped
+- dedupe
+- Ack:
+  - writes the canonical form for `0.46.5+nightly.x`
+  - an override of `1.2.0+dev` writes `1.2.0`
+  - a downgrade (stored `0.46.6`, running `0.46.5`) leaves `0.46.6`
+  - a bind error returns the generic message
+- seeding writes the canonical form
+
+Keep the legacy `nightly-<sha>` guards. The E2E fixture has exactly 3 entries and the override is `1.2.0`,
+so the ceiling and the cap change nothing there. Confirm by running the spec.
+
+### 4.3 Frontend What's New fixes (Commit 4)
+
+All in `WhatsNewModal.tsx`:
+
+- **Keys (F18).** List keys become `${index}-${text}`. Security items use `${item.sha}-${index}`.
+- **Commit link (F17).** Render it only when `/^[0-9a-f]{7,40}$/` matches the sha.
+- **Browse mode (F19, F20).**
+  - Show a loading state (`allQuery.isLoading`).
+  - Show an error state (`allQuery.isError`) with the new key `whatsNew.loadError`.
+  - Show an empty state with the new key `whatsNew.empty`: "No release notes are available for this
+    version yet."
+  - Render the newest 10 versions, then a "Show older releases" button (new key `whatsNew.showOlder`) that
+    reveals 10 more each time.
+- **Headings (F21).** Strip the leading emoji plus space from `whatsNew.newFeatures`, `whatsNew.fixes` and
+  `whatsNew.security` in **all 28** `frontend/src/locales/*/translation.json` files. The translated `de`,
+  `es`, `fr` and `zh` values keep their wording. Render the decorative icon in the component with
+  `aria-hidden="true"`.
+
+Other files:
+
+- `hooks/useChangelog.ts`: toasts use `t()` with the new keys `whatsNew.ackError` and `whatsNew.optInError`
+  (F22).
+- New keys (`loadError`, `empty`, `showOlder`, `ackError`, `optInError`) go into `en/translation.json` only.
+  Crowdin syncs the rest.
+- `frontend/src/hooks/__tests__/useChangelog.test.ts:166`, `:199`: the hard-coded toast strings become the
+  i18n keys or values.
+- `tests/settings/whats-new-changelog.spec.ts-snapshots/What-s-New-Changelog-shows-the-modal-on-login-when-the-user-is-behind-the-current-version-1.aria.yml`
+  (`:5`, `:9`, `:14`, `:17`, `:23` assert `"✨ New Features"` and `"🐛 Fixes"`): regenerate it to the
+  emoji-free headings.
+
+Tests: `WhatsNewModal.test.tsx` cases for:
+
+- duplicate strings render without key warnings (spy on `console.error`)
+- an invalid sha renders no link
+- browse loading, error and empty states
+- "Show older" pagination
+- toast i18n
+
+### 4.4 Generator hardening and data guard (Commit 5)
+
+`scripts/generate-changelog.sh` keeps its CLI and adds flags:
+
+```text
+generate-changelog.sh [--current-version X.Y.Z] [--require-entries] [--output PATH]
+```
+
+- **Commit selection.**
+  - `git log --no-merges "$range"`.
+  - Drop subjects matching `^chore\(main\): release` and `^chore: promote nightly to main`.
+  - Dedupe per version on the subject with any trailing `\(#[0-9]+\)` removed (keep the first occurrence).
+- **Categorization.**
+  - `(security)`-scoped `feat`/`fix` still go **only** to `security`. That rule is checked first and is
+    unchanged.
+  - `feat`/`fix` whose scope is in `INTERNAL_SCOPES = deps|dep|ci|e2e|test|tests|workflow|lint|docs|build|release|renovate`
+    move to `other`.
+  - `deps:`, `chore`, `docs`, `test`, `refactor`, `ci`, `build` and `perf` stay in `other`.
+- **Head entry (F11 race).** With `--current-version X.Y.Z` and no tag `vX.Y.Z`, emit one extra entry for
+  `<newest v* tag>..HEAD` with today's UTC date. Only the release channel passes this flag.
+- **Fail loudly.**
+  - `set -euo pipefail` (`:7`) already fails on a `git log` error, but `2>/dev/null` (`:87`) hides the reason.
+    Remove it so the error is visible.
+  - The real silent path: zero `v*` tags (a shallow clone, `:65`) still writes `[]` and exits 0. Exit 1 with
+    "no v* tags found (shallow clone?)".
+  - With `--require-entries`, exit 1 when the output is `[]`.
+  - Dedupe entries by version (protects against a synthesized head entry that duplicates a real tag).
+- **New `scripts/ci/check-changelog-data.sh <file> [--expect-newest X.Y.Z]`.** It asserts:
+  - valid JSON
+  - length at least 1
+  - every entry has the four arrays
+  - every `security[].sha` is hex
+  - no `^Merge` subject anywhere
+  - with `--expect-newest`, the first entry's version equals X.Y.Z
+- **Tests: new `scripts/tests/generate-changelog.bats`.**
+  - Builds a temp git repo with tags, merges, duplicates, internal scopes, a `(security)` fix and a missing
+    head tag, then asserts the exact JSON.
+  - Also covers the zero-tags failure and `--require-entries`.
+- New `scripts/tests/check-changelog-data.bats`.
+- Both are wired into `quality-checks.yml:241-246`: shellcheck plus bats.
+
+### 4.5 Data generation in `docker-build.yml` (Commit 6, #1865)
+
+#### New script: `scripts/ci/detect-release-commit.sh`
+
+```text
+detect-release-commit.sh --event <TRIGGER_EVENT> --ref <TRIGGER_REF> [--manifest .release-please-manifest.json]
+stdout: is_release=<true|false> and version=<X.Y.Z|>   (two lines, for $GITHUB_OUTPUT)
+```
+
+`is_release=true` only when **all** of these hold:
+
+1. `--event` is not `pull_request`.
+2. `--ref` is `refs/heads/main`.
+3. `git diff --name-only HEAD^1 HEAD` includes the manifest. `HEAD^1` is the first parent, which covers a
+   release-please two-parent merge like f2cb630d5 (parents 66b0a139f and 369a61213) as well as a squash.
+4. The manifest `"."` value at `HEAD` matches `^[0-9]+\.[0-9]+\.[0-9]+$` and is SemVer-greater than the
+   value at `HEAD^1`. For f2cb630d5 that is `0.46.4` to `0.46.5`.
+5. If tag `v<version>` already exists, `git rev-parse v<version>^{commit}` equals `HEAD`. A tag elsewhere
+   means the commit is not the release.
+
+Anything else gives `is_release=false` and an empty version. It never fails the build, and the safe
+direction is "not a release".
+
+Bats tests (`scripts/tests/detect-release-commit.bats`, temp repos) cover:
+
+- a release-please two-parent merge (true)
+- a squash release commit (true)
+- a weekly promotion merge with no manifest change (false)
+- a manifest edit that does not increase the version (false)
+- an invalid version (false)
+- `refs/heads/development` (false)
+- `--event pull_request` on `main` (false)
+- an existing tag on another commit (false)
+- a tag at HEAD (true)
+
+#### `setup` job steps (after checkout with `fetch-depth: 0`)
+
+Each new step is gated on `steps.skip.outputs.skip_build != 'true'`, so skipped builds never fail in
+`setup`. `TRIGGER_*` values are passed via `env:` only.
+
+1. **"Detect release commit"** runs the script and outputs `is_release` and `release_version`. It also checks
+   that the version matches `^[0-9]+\.[0-9]+\.[0-9]+$`, so Commits 6 and 7 are validated before the
+   Commit 11 resolver exists.
+2. **"Generate changelog data"**
+   - `bash scripts/generate-changelog.sh --require-entries`, plus `--current-version "$RELEASE_VERSION"` when
+     `is_release`.
+   - Then `bash scripts/ci/check-changelog-data.sh backend/internal/changelog/data/changelog.json`, plus
+     `--expect-newest "$RELEASE_VERSION"` when `is_release`.
+3. **Upload** with `actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2` (the pin
+   already used in `codecov-upload.yml:162`):
+   - name `changelog-data-${{ github.run_id }}`
+   - `overwrite: true`, so a re-run never hits 409 "artifact already exists"
+   - `retention-days: 1`
+
+#### Build jobs
+
+- **`build-amd64` / `build-arm64`**: before the build steps (`:493`, `:587`), download with
+  `actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8` (the pin already used in
+  `container-prune.yml:216`) into `backend/internal/changelog/data/`, then re-run `check-changelog-data.sh`.
+  The data is identical across arches, and the shallow checkouts stay shallow.
+- PR images get data too. Fork PRs stay on the inline builder path, and the artifact flow does not depend
+  on registry access.
+- `nightly-build.yml:262-263` becomes `generate-changelog.sh --require-entries` plus `check-changelog-data.sh`.
+- `e2e-tests-split.yml:204-208` (fixture injection) is unchanged.
+
+### 4.6 Semver image tags for release commits (Commit 7, F12)
+
+- In `docker-build.yml`'s metadata-action, add raw tags `X.Y.Z` (= `release_version`) and `X.Y`
+  (computed in `setup`), enabled only when `is_release == 'true'`.
+  - **No `v` prefix**, matching the version the binary reports.
+  - **No major-only tag while on v0**: `0` would mean "any 0.x", and under SemVer 0.x minors may break.
+- Remove the dead `type=semver` lines. They need a tag-ref event that this workflow never receives.
+- `container-prune.yml` `PROTECTED_REGEX` (`:46`, `:124`): add `"^[0-9]+\\.[0-9]+$"` so the floating `X.Y`
+  tags are never pruned. `X.Y.Z` is already protected by `^v?[0-9]+\.[0-9]+\.[0-9]+$`.
+- VERSION.md:51-56 currently promises `v1.0.0`, `1.0` and `1`. Commit 12 corrects it to the real set and
+  explains why there is no major tag.
+
+### 4.7 Real smoke test against the built image (Commit 8, F13), plus the nightly sha fix (F7 / #1867)
+
+New `scripts/ci/smoke-whats-new.sh`:
+
+```text
+smoke-whats-new.sh --image <ref> (--expect-version-exact <string> | --expect-version-regex <ERE>)
+                   [--expect-commit <sha>] [--expect-min-entries N] [--expect-newest X.Y.Z]
+                   [--expect-status-for-unseeded <shown|hidden>] [--port 18080]
+```
+
+Version flags:
+
+- `--expect-version-exact` compares the string exactly. CI always uses it.
+- `--expect-version-regex` is for ad-hoc local use. `+` is a regex quantifier, so `0.46.5+dev` never matches
+  itself as a regex; callers must escape it (`0\.46\.5\+dev`).
+- Exactly one of the two is required.
+
+What it does:
+
+- **Volume.** Creates a named volume `smoke-wn-<rand>-data`. There is no host bind mount, so it avoids the
+  image's uid 1000 vs the runner's uid 1001, the entrypoint `chown`, and rootless uid mapping.
+- **Container.** `docker run -d --name smoke-wn-<rand> -p 127.0.0.1:<port>:8080 -v
+  smoke-wn-<rand>-data:/app/data -e CHARON_ENV=production -e CHARON_ENCRYPTION_KEY=<random>`.
+- A `trap` always runs `docker rm -f smoke-wn-<rand>` and `docker volume rm smoke-wn-<rand>-data`.
+- Waits for `GET /api/v1/health` to return `application/json`, not the SPA's `text/html`. Then it asserts
+  the version, and `git_commit` when `--expect-commit` is given.
+- Calls `POST /api/v1/setup` and logs in.
+- Asserts the `GET /changelog/all` count is at least N and the newest entry matches.
+- **Unseeded user** (when `--expect-status-for-unseeded` is given):
+  - Creates a user via `POST /users`.
+  - Sets its `last_seen_version` to `''` with `docker exec smoke-wn-<rand> sqlite3 /app/data/charon.db
+    "UPDATE users SET last_seen_version='' WHERE email='…'"`. The image ships `sqlite` (`Dockerfile:1007`).
+    No stop or start is needed: the change is visible to the next request.
+  - Logs in as that user and asserts `show_changelog` with **3** entries (or `hidden`).
+  - Sends `dismiss_permanent` and asserts that the next status is hidden (no nag loop).
+- **Host dependencies:** `docker`, `curl` and `jq` only. No host `sqlite3`.
+- Never touches existing containers or volumes. The `smoke-wn-` prefix is unique.
+
+`scripts/tests/smoke-whats-new.bats` uses a stubbed `docker`/`curl` on PATH. It covers:
+
+- argument parsing, including that exactly one version flag is required
+- exact matching, including `0.46.5+dev` matching exactly
+- regex matching, including that the unescaped `0.46.5+dev` does **not** match while the escaped form does
+- the HTML-instead-of-JSON health failure
+- trap cleanup of the container and the volume
+
+Wiring:
+
+- **`docker-build.yml`** gets a new job `smoke-whats-new`.
+  - `needs: [setup, build-amd64]`, skipped for fork PRs and when `skip_build`.
+  - Explicit `permissions: { contents: read, packages: read }`.
+  - It pulls the **already-pushed per-arch image** `ghcr.io/<image>:build-${{ github.run_id }}-amd64` by
+    the digest from `needs.build-amd64.outputs.digest` (`:447`, written at `:533-534`).
+  - **`merge-and-publish.needs` (`:638`) adds `smoke-whats-new`**, and its `if:` adds
+    `needs.smoke-whats-new.result == 'success'` (or `'skipped'` for fork PRs).
+  - The smoke check therefore runs **before** any user-facing tag is published, and a failure stops a bad
+    release.
+  - arm64 is not smoke-tested. It is the same source and the same embedded data, and QEMU startup would add
+    several minutes.
+
+  | Build | Version flag | Other flags |
+  | --- | --- | --- |
+  | release (`is_release`) | `--expect-version-exact "$RELEASE_VERSION"` | `--expect-newest "$RELEASE_VERSION" --expect-min-entries 100 --expect-status-for-unseeded shown` |
+  | others (`main`, `development`, PR, branch) | `--expect-version-exact "$BUILD_VERSION"` (resolver output, §4.10) | `--expect-min-entries 100 --expect-status-for-unseeded shown` |
+
+  The step asserts that `BUILD_VERSION` is one of `X.Y.Z`, `X.Y.Z+dev.<sha7>`, `X.Y.Z+pr.<N>` or
+  `X.Y.Z+branch.<sha7>`. A degraded `dev` value therefore fails the gate before publish.
+
+- **`nightly-build.yml:589-622`**: replace the vacuous `/health` loop with the script against the pushed
+  nightly digest, using `--expect-commit "$BUILT_SHA"`.
+- **Nightly sha fix.**
+  - In `build-and-push-nightly`, a new step after checkout (`:205-210`) writes `sha=$(git rev-parse HEAD)` to
+    `$GITHUB_OUTPUT` and exposes it as a job output `built_sha`.
+  - `VCS_REF=` (`:276`) and the version (`:275`) use it.
+  - The smoke job asserts `git_commit == needs.build-and-push-nightly.outputs.built_sha`, the job's own
+    checkout. It does **not** use `origin/nightly`, because `workflow_dispatch` checks out `github.ref`
+    (`:209`).
+  - The Orthrus job (`:542`) gets the same treatment: a `git rev-parse HEAD` after its own checkout feeds
+    `VERSION=nightly-<sha>` and `GIT_COMMIT=<sha>`.
+
+### 4.8 Update card, hook, URL validation (Commit 9, F2/F9)
+
+- `update_service.go`:
+  - `UpdateInfo` gains `CurrentVersion string \`json:"current_version"\``.
+  - New `releaseURL(raw)` keeps the URL only when the scheme is `https` and `Hostname() == "github.com"`
+    with no userinfo; otherwise `""`.
+  - Table test: http, a look-alike host, userinfo, `javascript:`, empty.
+- New `frontend/src/hooks/useSystemUpdates.ts`: `useSystemUpdates({ enabled = true } = {})` with key
+  `['system-updates']`, staleTime 1h, and the `refetch` exposed.
+  - `SystemStatus.tsx` and `NotificationCenter.tsx` use the default (automatic, as today).
+  - `SystemSettings.tsx` keeps its manual-only behavior (today `enabled: false`, `:212`): it calls
+    `useSystemUpdates({ enabled: false })` and runs `refetchUpdates()` from its "Check for updates" button.
+  - Sharing the key means the button reuses data that NotificationCenter already fetched. That is intended:
+    the card shows the cached result immediately instead of a blank card.
+  - The hook test covers both `enabled` modes.
+- `SystemSettings.tsx`:
+  - Drop the local type (`:37-42`) and the inline query (`:201-213`).
+  - Rename the destructured `refetch` to `refetchUpdates` (it was `checkUpdates` at `:204`, colliding with
+    the API function).
+  - Render `current_version`, `available` and `changelog_url`.
+  - Hide the link when the URL is `""`, and do the same in `NotificationCenter.tsx:116`.
+
+### 4.9 Semantic compare: update check and backup (Commit 10)
+
+| Running | Latest | `available` |
+| --- | --- | --- |
+| `0.46.5` | `v0.46.6` | true |
+| `0.46.5` | `v0.46.5` | false |
+| `0.46.5+dev` / `+nightly.x` | `v0.46.5` | false |
+| `0.46.5+nightly.x` | `v0.46.6` | true |
+| `0.46.6` | `v0.46.5` | false |
+| any unversioned (`dev`, `nightly-<sha>`) | any | **false** (default, pending user confirmation) |
+| any | non-semver or empty tag | false |
+
+Backup `appVersionWarning(archive, running)`:
+
+| Archive vs running | Warning |
+| --- | --- |
+| Same canonical | none |
+| Archive older | existing text |
+| Archive **newer** | "archive was created by a newer Charon version (X) than the running version (Y); restoring it may fail or lose data" |
+| Either unversioned | Exact compare, as today |
+
+`Valid` stays `true` in every case. Also remove the stale comments in `update_service_test.go` (F6).
+
+### 4.10 Build-version resolver (Commit 11 and F4)
+
+```text
+scripts/ci/resolve-build-version.sh --channel <release|main|dev|nightly|pr|branch|local> [--sha S] [--pr N] [--manifest P]
+```
+
+| Channel | Output | Selected when (`docker-build.yml`, normalized `TRIGGER_*` only) |
+| --- | --- | --- |
+| `release` | `X.Y.Z` | `is_release == true` (§4.5) |
+| `main` | `X.Y.Z` (manifest version, no tags) | `TRIGGER_REF == refs/heads/main`, not a PR, not a release commit; no build metadata, because `main` is the stable line |
+| `dev` | `X.Y.Z+dev.<sha7>`, `--sha "$TRIGGER_HEAD_SHA"` | `TRIGGER_REF == refs/heads/development`, not a PR |
+| `pr` | `X.Y.Z+pr.<N>` | `TRIGGER_EVENT == pull_request` and `TRIGGER_PR_NUMBER` non-empty |
+| `branch` | `X.Y.Z+branch.<sha7>` | everything else (including `workflow_run`-of-PR with no number), `--sha "$TRIGGER_HEAD_SHA"` |
+| `nightly` | `X.Y.Z+nightly.<sha7>` | `nightly-build.yml`, `--sha` = checked-out HEAD (§4.7) |
+| `local` | `X.Y.Z+local.<sha7>[.dirty]` | Makefile |
+
+Rules:
+
+- `X.Y.Z` comes from `.release-please-manifest.json` (`jq`, with a strict `grep` fallback) and must match
+  `^[0-9]+\.[0-9]+\.[0-9]+$`.
+- Missing or invalid base gives `dev` and exit 0, **except `release`, which exits 1**.
+- Bad input exits 2.
+- The step asserts that `release` output contains no `+` and that a PR event never resolves to `release`.
+- Writes to the step summary.
+- bats test `scripts/tests/resolve-build-version.bats`; shellcheck in `quality-checks.yml`.
+
+Wiring:
+
+| Where | Change |
+| --- | --- |
+| `docker-build.yml:385-396` | Replace the metadata-version logic. Image tags are unchanged apart from Commit 7 |
+| `nightly-build.yml` | Version from the resolver (nightly channel) |
+| `Makefile:68-76` | `build-versioned` uses the `local` channel; drop `VITE_APP_VERSION` |
+| `Makefile:98-106` | `docker-build-versioned`: fix the `:99` leading space, use the `local` channel, tag with `+` replaced by `-`, drop `.version` |
+| `Dockerfile:287-289` | Drop the dead `ENV VITE_APP_VERSION` |
+| `Dockerfile:316-320` | Gate regex `^v?[0-9]+\.[0-9]+\.[0-9]+(\+\|$)`; `npm version "${VERSION%%+*}"` with any leading `v` stripped |
+| `Dockerfile:5`, `:406`, `:1197` | `ARG VERSION=dev` unchanged |
+| `.dockerignore:163-177` | No change in this commit. `scripts/ci/` is excluded in Commit 5 (see §7, "Ignore files") |
+| `codecov.yml:90` | Already ignores `scripts/**`. No change |
+
+The smoke job uses `--expect-version-exact` with the exact string the build received. Non-release
+images use the resolver output and add `--expect-status-for-unseeded shown`. The nightly job
+(`nightly-build.yml`) uses the same flags with `X.Y.Z+nightly.<sha7>` and `--expect-commit "$BUILT_SHA"`.
+
+**Orthrus does not use the resolver.** It keeps `nightly-<sha>`, with the corrected checked-out sha from
+Commit 8. Its version is only logged (non-goal).
+
+Unversioned-build E2E pinning (Commit 1) keeps E2E on `dev`.
+
+---
+
+## 5. How each channel works end to end once everything lands
+
+Every status response is capped at the newest 3 entries, at or below the running version (R1).
+
+| Image | Embedded data | Reported version | New user | Existing user `''` | User seeded long ago (`'0.36.1'`, never acked) | Existing user `0.46.5`, new release `0.46.6` | Update check (latest `v0.46.5`) |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Release commit on `main` (`latest`, `0.46.6`, `0.46`) | All tags plus the synthesized `0.46.6` entry | `0.46.6` | Seeded `0.46.6`, no modal | Modal: newest 3 (≤ 0.46.6); dismissal anchors `0.46.6` | Modal: **3** (`0.46.6`, `0.46.5`, `0.46.4`), not about 35 | Modal: `0.46.6` only, once | false |
+| Non-release `main` (promotion merge) | All tags (≤ base) | `0.46.5` | Seeded `0.46.5` | Newest 3 ≤ 0.46.5 | 3 | Nothing (base equals the seen version) | false |
+| `development` (`:dev`) | All tags | `0.46.5+dev.<sha7>` | Seeded `0.46.5` | Newest 3 ≤ 0.46.5 | 3 | Nothing | false |
+| PR (`pr-N`) | All tags | `0.46.5+pr.N` | Seeded `0.46.5` | Newest 3 | 3 | Nothing | false |
+| Nightly | All tags (may include `0.46.6` before the manifest propagates) | `0.46.5+nightly.<sha7>` (checked-out sha) | Seeded `0.46.5` | Newest 3 **≤ 0.46.5** (ceiling) | 3, ≤ 0.46.5 | Nothing, and no nag loop | false (true once `v0.46.6` is published) |
+| Local `go run` / E2E | `[]` / fixture | `dev` | Not seeded | Hidden (unversioned) | Hidden | Hidden | false |
+
+---
+
+## 6. Priorities and Ordering
+
+- **User override:** all fixes and the versioning work share one PR. Within it, **bug-fix commits come
+  first** (Commits 1-9), then the features (Commits 10-11), then docs (12).
+  - **Landed order differs:** Commit 10 (`feat`) landed before the CI Commits 6-8 and 11, because its dependencies (Commits 2 and 9) were already in. The consumer fixes (Commits 1-4) still land first. The real order is in §7.
+- Consumer fixes come **before** the pipeline starts shipping data (Commit 6). These are the cap on every
+  response, the ceiling, the never-lowering Ack and the frontend states. Shipping data first would let an
+  intermediate deploy dump 171 entries on `''` users and about 35 on users seeded at v0.36.1.
+- High-severity items (F1/#1865, F8, F11) are all in the bug-fix block.
+- The orchestrator still needs to file **one** issue: F16's app-wide pattern (binder error leakage in other
+  handlers). #1865 and #1867 close with this PR.
+- The fork-PR / branch-named-`main` concern (F23) is **mitigated and closed**, with evidence. Nothing to
+  file. No private advisory candidate.
+
+---
+
+## 7. Commit Slicing Strategy (one PR; the plan's 12 commits plus 2 extra, in the order they landed)
+
+Landed order on `fix/whats-new-pipeline-and-build-versions`, from `git log --oneline development..HEAD`. The `Commit N` labels are the plan numbers. They stay, because §§4, 6, 8 and 12 cite them. The **Landed** column is the real order. Two commits were not in the plan: the spec commit (row 1) and the import-order autofix (row 5). Supervisor review-fix commits are added after the last row.
+
+| Landed | Plan | Message | Files | Depends | Gate (foreground, targeted) |
+| --- | --- | --- | --- | --- | --- |
+| 1 | — | `docs: add what's new pipeline and build versions spec` | `docs/plans/current_spec.md` | — | Docs only; no code gate |
+| 2 | Commit 1 | `test: pin what's new e2e runs to unversioned dev images` | `e2e-tests-split.yml` (`VERSION=dev` build-arg + comment, `:264-266`), `.github/skills/docker-rebuild-e2e-scripts/run.sh` (`build_image` `--build-arg VERSION=dev`), `tests/settings/whats-new-changelog.spec.ts` (`beforeAll` reads `/api/v1/health`; when `version !== 'dev'` it calls **`test.skip(true, …)`** with the reason: "What's New E2E needs an unversioned VERSION=dev image; registry image_ref runs (e2e-tests-split.yml:28, :167-178) are versioned and lack the fixture") | — | `npx playwright test tests/settings/whats-new-changelog.spec.ts --project=firefox` (runs, not skipped, on the local `dev` image) |
+| 3 | Commit 2 | `refactor: centralize semver version checks in the version package` | `internal/version/*`, `internal/changelog/changelog.go` + test, `handlers/user_handler.go`, `handlers/changelog_handler.go` (comments), `handlers/user_handler_changelog_seeding_test.go` (stale comment `:228-236`). The commit body notes the one deliberate tightening: shorthand `1.2` becomes unversioned | — | `go test ./internal/version/... ./internal/changelog/... ./internal/api/handlers/ -run 'Changelog\|SeedLastSeen'`; `make lint-fast`; the `IsUnversionedBuild` grep (§4.1) is empty |
+| 4 | Commit 3 | `fix: cap and anchor the what's new changelog for every user` | `changelog.go` (anchor, ceiling, cap 3 on every response, sha validation, dedupe), `changelog_handler.go` (never-lowering Ack, generic bind error), `user_handler.go` (canonical seed), `routes.go` (override warning), tests including stored `0.36.1` / running `0.46.6` returns 3 | 2 | Scoped `go test` as above; **`./scripts/scan-gorm-security.sh --check`** (Ack's conditional update path changes); E2E spec from Commit 1 |
+| 5 | — | `chore: apply import-x/order autofix after the plugin bump` | 38 frontend files, import order only (`frontend/src/components/**`, `frontend/src/hooks/**`, `frontend/src/context/**`) | — | The frontend-lint hook passes with `--max-warnings 0`. Why it exists: `eslint-plugin-import-x` 4.18.0 flagged 60 import-order warnings on `development`, which blocked that hook. Autofix only, no behavior change |
+| 6 | Commit 4 | `fix: make the what's new dialog safe to browse and render` | `WhatsNewModal.tsx`, `hooks/useChangelog.ts`, **all 28** `frontend/src/locales/*/translation.json` (emoji stripped from 3 keys; new keys in `en` only), `components/dialogs/WhatsNewModal.test.tsx`, `hooks/__tests__/useChangelog.test.ts` (`:166`, `:199`), `tests/settings/whats-new-changelog.spec.ts-snapshots/What-s-New-Changelog-shows-the-modal-on-login-when-the-user-is-behind-the-current-version-1.aria.yml` | — | `npx vitest run src/components/dialogs/WhatsNewModal.test.tsx src/hooks/__tests__/useChangelog.test.ts`; `npm run type-check`; E2E spec (aria snapshot matches) |
+| 7 | Commit 9 | `fix: show the running version and update status in the system settings update card` | `update_service.go` (`CurrentVersion`, `releaseURL`) + test, `api/system.ts`, **new** `hooks/useSystemUpdates.ts` (with an `enabled` option) + test, `SystemSettings.tsx` (manual trigger kept), `SystemStatus.tsx`, `NotificationCenter.tsx`, their tests | — | `go test ./internal/services/ -run UpdateService`; vitest on those files; `npm run type-check`; `npx playwright test tests/security-enforcement/zzz-security-ui/system-security-settings.spec.ts --project=security-tests` |
+| 8 | Commit 5 | `fix(ci): generate clean changelog data and fail when it is missing` | `scripts/generate-changelog.sh`, **new** `scripts/ci/check-changelog-data.sh`, **new** `scripts/tests/generate-changelog.bats`, **new** `scripts/tests/check-changelog-data.bats`, `quality-checks.yml`, `nightly-build.yml:262-263`, `.dockerignore` (exclude all of `scripts/ci/`) | — | shellcheck; both bats files; on the real repo, `bash scripts/generate-changelog.sh --require-entries && bash scripts/ci/check-changelog-data.sh backend/internal/changelog/data/changelog.json` passes with 0 `Merge` subjects (then `git checkout -- backend/internal/changelog/data/changelog.json`) |
+| 9 | Commit 10 | `feat: compare versions semantically in update checks and backup validation` | `update_service.go` + test (stale comments removed), `backup_restore_safe.go` + `backup_restore_safe_coverage_test.go` | 2, 9 | `go test ./internal/services/ -run 'UpdateService\|ValidateBackup'` |
+| 10 | Commit 6 | `fix(ci): embed changelog data in release, development and pr images` (#1865) | **new** `scripts/ci/detect-release-commit.sh` + `scripts/tests/detect-release-commit.bats`, `docker-build.yml` (`setup`: detect, generate + guard, upload with `overwrite: true`, every step gated on `skip_build`; build jobs: download + guard), `quality-checks.yml` | 3, 4, 5 | shellcheck + bats; **local release simulation:** `bash scripts/generate-changelog.sh --current-version 0.46.6 --require-entries && bash scripts/ci/check-changelog-data.sh backend/internal/changelog/data/changelog.json --expect-newest 0.46.6` (then restore the placeholder); actionlint via lefthook; the PR's own run shows the guard passing and the artifact downloaded in both build jobs |
+| 11 | Commit 7 | `fix(ci): publish version tags for release images` | `docker-build.yml` metadata-action (raw `X.Y.Z` / `X.Y` on `is_release`, version regex-checked in `setup`; dead `type=semver` lines removed), `container-prune.yml` `PROTECTED_REGEX` `:46`, `:124` (+ `^[0-9]+\.[0-9]+$`) | 6 | actionlint; on the PR the metadata step shows the version tags disabled |
+| 12 | Commit 8 | `fix(ci): smoke test what's new on built images before publishing and label nightlies with the built commit` (#1867) | **new** `scripts/ci/smoke-whats-new.sh` + `scripts/tests/smoke-whats-new.bats`, `docker-build.yml` (`smoke-whats-new` job on the `build-<run_id>-amd64` digest, `permissions: contents: read, packages: read`; `merge-and-publish.needs` and `if:` updated), `nightly-build.yml` (checked-out `built_sha` for Charon `:275-276` and Orthrus `:542`; smoke replaces `:589-622`), `quality-checks.yml` | 6 | shellcheck, bats; the PR run shows `smoke-whats-new` passing **before** `merge-and-publish`; QA runs the script locally against the PR image (§8) |
+| 13 | Commit 11 | `feat(ci): stamp non-release builds with the released base version` | **new** `scripts/ci/resolve-build-version.sh` + bats, `docker-build.yml` (resolver feeds `BUILD_VERSION`, `is_release` selects `release`), `nightly-build.yml` (Charon only; Orthrus stays `nightly-<sha>`), `quality-checks.yml`, `Makefile` (F4 incl. `:99`), `Dockerfile` (`:287-289`, `:316-320`), smoke expectations | 3, 6, 8, 10 | shellcheck + bats; `make -n docker-build-versioned` prints the recipe; `make -n build-versioned` shows the resolver; the PR run logs `Resolved build VERSION: 0.46.5+pr.<N>`, and `smoke-whats-new` asserts it exactly and shows the 3-entry modal for an unseeded user |
+| 14 | Commit 12 | `docs: document the what's new pipeline and build-metadata versions` | `VERSION.md`, `ARCHITECTURE.md`, `docs/features.md`, `docs/features/security.md`, `docs/issues/whats-new-changelog-manual-test-plan.md` | 11 | `bash docs-site/scripts/sync-docs.sh && cd docs-site && zensical build --strict` (no manifest or nav change needed; `features.md` is already in `docs-site/scripts/docs-manifest.json:4`) |
+
+Dependency check on the landed order: every row depends only on rows above it. Commit 9 (update card) landed before every CI commit, because it has no dependency on them. Commit 10 (semantic compare) landed after Commit 5 and before Commits 6, 7, 8 and 11. It depends only on Commits 2 and 9, which are already in.
+
+**Review-fix commits:** to be added after the supervisor review of this branch. They are not listed yet.
+
+Every commit is independently deployable:
+
+- Before Commit 6, shipped images still embed `[]`, so the consumer fixes are inert but safe.
+- Commit 6 ships data only after the cap and ceiling (Commit 3) and the UI fixes (Commit 4) exist.
+- Nightly already ships data, but it stays hidden (unversioned) until Commit 11, by which point the cap and
+  ceiling are in place.
+- Commit 8 only adds a gate before publishing.
+
+Workflow hygiene (every new or changed step):
+
+- Trigger context goes through `env:`, never `${{ }}` inside `run:`.
+- Actions are pinned by full SHA.
+- New jobs declare minimal `permissions:`.
+
+Ignore files:
+
+- `.dockerignore` gains the whole `scripts/ci/` directory in Commit 5.
+  - Rationale: `scripts/ci/` already holds 9 CI-only files plus `lib/`. `Dockerfile:1166` (`COPY scripts/
+    /app/scripts/`) currently ships them into the runtime image at `/app/scripts/ci/`, and this PR adds four
+    more.
+  - Nothing at runtime uses `scripts/ci/`. The only non-CI mention is a doc comment in
+    `backend/internal/orthrus/muzzle.go:223`. Confirm with `grep -rn scripts/ci Dockerfile .docker/`.
+- `scripts/tests/` is already ignored.
+- `codecov.yml:90` already ignores `scripts/**`.
+
+Changelog visibility: every subject is public. None uses `(security)`.
+
+**Branch / PR.**
+
+- Create `fix/whats-new-pipeline-and-build-versions` from `development`.
+- The PR goes into `development` and is merged with "Create a merge commit".
+- The PR body says `Closes #1865, #1867`, lists the commits, and contains no session ID or link.
+- Let it ride nightly before promotion, per the user's soak preference.
+
+Contingency:
+
+- Revert individual commits inside the PR. Commits 7, 8 and 11 are self-contained CI layers.
+- If release detection misfires, it fails toward "not a release": no version tags, the plain manifest version
+  string, and the data guard still runs.
+- If the smoke job is flaky, revert only Commit 8's `merge-and-publish.needs` line. Do not weaken the
+  assertions.
+- Post-merge rollback reverts the merge commit. Stored `last_seen_version` values are canonical SemVer, so
+  no migration is needed.
+
+---
+
+## 8. Acceptance: verification matrix against BUILT images (QA runs this, not E2E fixtures)
+
+### 8.1 How
+
+- **CI.** `smoke-whats-new` (Commit 8) gates every `docker-build.yml` publish (release, `main`,
+  `development`, same-repo PRs) and runs in `nightly-build.yml`.
+- **Locally**, QA uses the same script against PR or published images. Run in the foreground, rootless
+  daemon only. The script creates only `smoke-wn-*` containers and volumes on `127.0.0.1` and removes them.
+  QA never touches existing containers.
+
+  ```bash
+  export DOCKER_HOST=unix:///run/user/1001/docker.sock
+  bash scripts/ci/smoke-whats-new.sh --image ghcr.io/wikid82/charon:pr-<N> \
+    --expect-version-exact '0.46.5+pr.<N>' --expect-min-entries 100 --expect-newest 0.46.5 \
+    --expect-status-for-unseeded shown
+  ```
+
+- **Upgrade path** (real artifacts; named volume `qa-wn-<rand>-data`, removed afterwards):
+  1. Run the **published** `ghcr.io/wikid82/charon:latest` (0.46.5) on the volume, run setup, and create
+     user A (seeded `'0.46.5'`).
+  2. With `docker exec … sqlite3`, set user B to `'0.36.1'` (simulates "seeded at v0.36.1, never acked") and
+     user C to `''`.
+  3. Remove that container, keep the volume, and start the PR image on the same volume.
+  4. Expect:
+     - A sees no modal (base 0.46.5).
+     - B sees exactly 3 entries, all ≤ base.
+     - C sees exactly 3 entries.
+     - After "Got it", B and C see nothing on the next 2 logins.
+
+### 8.2 Matrix
+
+| # | Image | Expected `/health.version` | `/changelog/all` | Fresh user status | `''` user status | After `dismiss_permanent` | `/system/updates.available` | Method |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| M1 | PR image (`pr-<N>`) | `0.46.5+pr.<N>` | ≥ 100 entries, newest `0.46.5`, 0 `Merge` subjects, no duplicates | hidden (seeded `0.46.5`) | **shown, 3 entries ≤ 0.46.5** | hidden; `last_seen_version='0.46.5'` | false | smoke script + curl |
+| M2 | `:dev` after merge | `0.46.5+dev.<sha7>` | same as M1 | hidden | shown, 3 | hidden | false | smoke script |
+| M3 | `:nightly` after merge | `0.46.5+nightly.<sha7>`; `git_commit` and the OCI `revision` equal the nightly job's own `built_sha` (`git rev-parse HEAD` after its checkout), **not** `origin/nightly` | same, plus any newer tags | hidden | shown, 3, **all ≤ 0.46.5** | hidden, also across 2 more logins (no nag loop) | false | smoke script `--expect-commit "$BUILT_SHA"` |
+| M4 | First release after merge (`latest`, `X.Y.Z`, `X.Y` tags exist; no major-only tag) | `X.Y.Z` | newest = `X.Y.Z` (synthesized if the tag lagged) | hidden (seeded `X.Y.Z`) | shown, 3 (newest `X.Y.Z`) | hidden | false | smoke script (release flags) + registry tag listing |
+| M5 | M4, user upgraded from 0.46.5 (`'0.46.5'`) | `X.Y.Z` | — | — | only the versions in `(0.46.5, X.Y.Z]`, at most 3 | hidden | false | upgrade path |
+| M5b | M4 or PR image, user seeded long ago (`'0.36.1'`, never acked) | — | — | — | **exactly 3** (the newest ≤ running), not about 35 | hidden | — | upgrade path (user B) |
+| M6 | Non-release `main` build | `X.Y.Z` (no tags) | ≤ base | hidden | shown, 3 | hidden | false | smoke script |
+| M7 | Downgrade: user at `X.Y.Z` runs an older image | older version | — | — | — | `last_seen_version` stays `X.Y.Z` | — | upgrade path in reverse + `docker exec sqlite3` read |
+| M8 | Any image, passthrough user | — | 403 | 403 (modal hidden) | — | 403 | — | API check: create a passthrough user, log in, then `curl` all four `/changelog/*` routes and expect 403 |
+| M9 | PR image, Settings → Appearance → revisit | — | — | Loading state, then the newest 10 plus "Show older releases"; no React key errors in the console; headings have no emoji in the accessible name. Empty state checked on a `dev`-default local build with `[]` | — | — | — | **Playwright MCP browser** against a throwaway PR-image container (snapshot + console messages) |
+| M10 | PR image, System Settings Updates card | — | — | Shows `current_version`; the "Check for updates" button triggers the fetch; correct status; link shown only for an https `github.com` URL | — | — | — | **Playwright MCP browser** against the same container |
+
+---
+
+## 9. Test plan summary
+
+| Layer | New or changed |
+| --- | --- |
+| Go unit | `version` helpers (incl. prerelease); changelog ceiling, cap on every response (incl. `0.36.1` → 3), anchor, sha, dedupe; Ack (canonical, override with metadata, downgrade, bind error); seeding; update compare + `releaseURL`; backup warning |
+| Vitest | `WhatsNewModal` (keys, sha, browse states, pagination, emoji-free headings); `useChangelog` toasts; `useSystemUpdates` (both `enabled` modes); SystemSettings / NotificationCenter / SystemStatus |
+| bats | `generate-changelog`, `check-changelog-data`, `detect-release-commit`, `smoke-whats-new` (exact vs regex, stubbed docker, trap cleanup), `resolve-build-version` |
+| E2E (targeted, firefox) | `whats-new-changelog.spec.ts` (with the `beforeAll` skip guard and the regenerated aria snapshot); `system-security-settings.spec.ts`. No new E2E spec: built-image behavior is covered by the smoke script and the matrix, which do not depend on fixtures |
+| Built-image | §8 matrix, in CI (smoke gate) and by QA |
+
+## 10. Definition of Done gates
+
+- Targeted firefox E2E (above).
+- **GORM security scan:** `./scripts/scan-gorm-security.sh --check` with zero CRITICAL/HIGH. It applies
+  because Commit 3 changes Ack's conditional `Updates` write path.
+- Patch-coverage preflight.
+- Backend and frontend coverage at or above 85%.
+- CodeQL Go/JS and Trivy (new feature surface).
+- `npm run type-check`.
+- `go build ./...` and `npm run build`.
+- `lefthook run pre-commit` (staticcheck, actionlint, hadolint, shellcheck).
+- All five bats suites green in `quality-checks.yml`.
+- The docs-site strict build.
+- The §8 matrix:
+  - M1, M5b, M7, M8, M9 and M10 against the PR image (method column)
+  - M2 and M3 after merge on the next dev and nightly builds
+  - M4 and M5 on the next release
+
+## 11. Documentation updates (Commit 12)
+
+- **`ARCHITECTURE.md`.**
+  - Changelog Subsystem (`:385-387`): ceiling, cap of 3 on every status response, never-lowering anchor,
+    sha validation.
+  - Release Workflow (`:1994-2001`):
+    - generation in `docker-build.yml` `setup` with the artifact handoff
+    - the data guard
+    - `detect-release-commit.sh` and the synthesized head entry
+    - the pre-publish smoke gate
+    - the resolver
+    - version tags
+  - Fix "its one remaining real caller".
+- **`VERSION.md`.**
+  - The channel/version table (replaces `:186-197`).
+  - "Development Builds" (`:236-253`), including `VERSION=dev` for E2E.
+  - Correct `:51-56` and `:105-121` to the **real** tag set: `X.Y.Z` and `X.Y` (no `v` prefix), `latest`,
+    `dev`, `nightly`, `nightly-<date>`, `nightly-<sha>`.
+  - Explain that there is **no major-only tag while on v0**, because SemVer treats 0.x minors as potentially
+    breaking.
+  - The generator's filtering rules.
+- **`docs/features.md` What's New (`:399-405`).**
+  - Nightly and development builds show it too.
+  - It shows the latest 3 releases; older history is under "Revisit", 10 at a time.
+- **`docs/features/security.md:5`.** Keep the "What's New" pointer, and note that the Security section is
+  now actually populated on releases.
+- **`docs/issues/whats-new-changelog-manual-test-plan.md`.** Replace the fixture-based steps with the §8
+  built-image matrix and the upgrade-path procedure.
+- **No docs-site manifest or nav changes.**
+
+## 12. Risks
 
 | Risk | Mitigation |
 | --- | --- |
-| Frontend branch coverage 85.6% vs 85% floor; test rewrites could drop it | Test rewrites are mechanical (`findBy`, `act` removal, renames); each commit's gate runs only the touched vitest files, and `qa-security` runs the full coverage script once at the end. Any commit that deletes assertions is rejected in review. Do not remove tests or `.skip` anything |
-| Sweep touches ~250 files; review fatigue | Slice by rule group and directory (Section 7), mostly mechanical commits with the exact `eslint --fix` command recorded in the commit body so a reviewer can reproduce the diff |
-| `--fix` changes semantics (`prefer-ternary` on side-effecting branches, `no-useless-undefined` on explicit `undefined` args) | Review diffs; `vitest related` on changed source files; `tsc --noEmit` |
-| React-compiler fixes alter render timing | Isolated commits, one component cluster each, with new/extended tests asserting the previous behavior (selection pruning, form reset on prop change, countdown/starting-cache timing) and targeted Playwright runs for `ProxyHostForm`, `CertificateList`, `UsersPage` flows |
-| Lefthook `frontend-lint` lints the whole tree, so a single stray warning blocks every frontend commit once `--max-warnings 0` lands | Intended post-sweep; release note in PR; Renovate `deps:` PRs touching frontend run the same check in CI |
-| `eslint --fix` import reorder fights `prettier` or editorconfig | Run `npx prettier --check` on touched files if the repo gates on it; otherwise none |
-| Merge conflicts | None open. `l10n_development` only edits locales, which this PR does not touch. Keep the PR short-lived and rebase on `development` before each remaining commit |
-| Autofocus fix regresses modal focus UX | Test that the input is focused after open (RTL `toHaveFocus`) and a targeted Playwright run on the CrowdSec ban modal if a spec exists |
+| Release-commit detection misfires | `detect-release-commit.sh` requires the manifest to change, the version to increase and be valid, and any existing tag to point at HEAD, and it fails toward "not a release". Bats-covered |
+| Synthesized head entry duplicates a real tag created later | It is synthesized only when `vX.Y.Z` is absent. The generator dedupes by version |
+| The smoke gate adds about 2 minutes before publishing | Accepted: it is what stops a bad release. It runs once (amd64), not per arch |
+| arm64 is not smoke-tested | Same source and same embedded data. The existing per-arch checks still run |
+| Workflow re-run hits a 409 artifact conflict | `overwrite: true` |
+| Skipped builds fail in `setup` | Every new step is gated on `skip_build != 'true'` |
+| Internal-scope filtering hides a genuinely user-facing `fix(docs)` | It still appears under maintenance details. The list is defined in one place |
+| Unscoped internal fixes still show as "Fixes" | Non-goal. Depends on commit hygiene |
+| E2E run on a versioned registry image | `beforeAll` skips with a reason (Commit 1) |
+| Locale edit touches Crowdin-owned files | Only a leading emoji prefix is removed and no wording changes. Crowdin keeps the source strings in sync on its next pull |
+| A user many releases behind sees only 3 | Intended (passive). The full history is under "Revisit" |
 
-## 6. Technical Specifications (per area)
+## 13. Open questions: defaults, pending user confirmation
 
-No API, DB or schema changes. File-level contract changes:
-
-- `frontend/eslint.config.js`: test override gains `assertFunctionNames` if needed; Decision 1 option B
-  adds a legacy-glob override; locales block unchanged (`warn` for identical-keys); `react-hooks` map stays
-  `warn` until Commit 11 flips the cleared rules to `error` so they cannot regress.
-- `frontend/package.json`: `lint`, `lint:locales` scripts (Decision 2 and 4).
-- Root: `eslint.config.js`, `tests/tsconfig.json`, `package.json` (`lint:e2e` + devDeps) and lockfile,
-  `lefthook.yml` (`e2e-lint`, `frontend-lint` also runs `lint:locales`), `.github/workflows/quality-checks.yml`
-  (new `e2e-lint` job; frontend lint blocking), `Makefile`.
-- Possible new shared test helper `frontend/src/test/escapeRegExp.ts` (Commit 6) and, if no shared dialog
-  primitive exists, a small `useDialogA11y` style helper (decided by `frontend-dev` after a code search;
-  reuse before adding, per DRY).
-- Docs: `CONTRIBUTING`/`docs/` lint section if one exists (search `docs/` for "npm run lint"); no
-  `ARCHITECTURE.md` change expected unless the directory/CI structure statement mentions lint steps.
-
-## 7. Implementation Plan: Commit Slicing Strategy
-
-Decision: single PR (`chore/lint-sweep-1743` into `development`), ordered logical commits. Commit prefixes
-(approved): `fix:` for Commits 7 and 8a (real a11y defects; and Commit 6 only if a pattern changes behavior);
-`refactor:` for 3, 9, 10a, 10b, 11; `test(frontend):` for 4 and 5; `chore:` for the Makefile, root lint
-config, CI/lefthook and docs. None qualify for `(security)`. No session ID or attribution lines in commit
-messages or PR body.
-
-Dev-agent rules for every commit: run commands foreground and blocking; run only scoped tests. Gate
-pattern (unless stated): `cd frontend && npx eslint <touched paths> --max-warnings 0 --rule` check that the
-targeted rule count in those paths is 0; `npm run type-check`; `npx vitest run --changed` or
-`npx vitest related <touched src files>` (explicit file list); no full suite, no coverage script. The
-orchestrator commits. Record the before/after count per rule in each commit body.
-
-Phase 1 (E2E specs as fixme): intentionally empty, see Non-goals.
-
-| # | Commit | Scope and files | Depends on | Validation gate |
-| --- | -------- | ----------------- | ------------ | ----------------- |
-| 1 | `chore: raise golangci-lint timeout for local lint targets` | `Makefile` only (`GOLANGCI_TIMEOUT ?= 25m` used by `lint-backend` line 199 and `lint-agent` line 204). **At this point the orchestrator also files the `no-node-access`/`no-container` legacy tracking issue** (see Decision 1) with the file list generated from the lint JSON | none | `make -n lint-backend lint-agent` shows `--timeout=25m`; no Go changes; issue URL recorded in the PR body |
-| 2 | `chore(frontend): auto-fix import order and duplicates` | `eslint . --fix` limited to `import-x/order` (148; 70 in non-test source, 78 in tests), `import-x/no-duplicates` (24; 22 in non-test source); hand-fix the residual and the 13 `consistent-type-imports`. Split 2a non-test source / 2b `**/__tests__` if the diff exceeds ~80 files | 1 | those 3 rules at 0 repo-wide; `npm run type-check`; `npm run build`; `vitest related` over touched non-test sources |
-| 3 | `refactor(frontend): apply unicorn and sonar auto-fixes` | `prefer-ternary` 48, `no-useless-undefined` 16, `prefer-includes`, `prefer-immediate-return`. Mostly `Notifications.tsx`, `UsersPage.tsx`, `Uptime.tsx`, `ProxyHostForm.tsx`, `CertificateList.tsx`, `useImport.test.tsx`. **Adds tests for any new branch an auto-fix introduces** (e.g. both arms of a converted ternary) | 2 | rules at 0; `npm run type-check`; `vitest related` on each touched source file (explicit list); diff reviewed for side-effecting branches |
-| 4 | `test(frontend): migrate waitFor+getBy to findBy` | `prefer-find-by` 115 (21 auto-fix, rest hand). Split by directory: 4a `pages/__tests__` (Security*, SecurityHeaders ... ~65 hits), 4b `components/**/__tests__` and `hooks/__tests__` | 2 | rule at 0 in scope; edited specs green (explicit list); **`expect(` count before vs. after the diff is equal or higher** (record both in the commit body) |
-| 5 | `test(frontend): fix remaining testing-library and vitest hygiene` | `no-unnecessary-act` 18, `render-result-naming-convention` 15, `no-manual-cleanup` 2, `no-wait-for-multiple-assertions` 1, `vitest/expect-expect` 8 | 4 | rules at 0; edited specs green; same `expect(` count diff check as Commit 4 |
-| 6 | `chore(frontend): resolve regex lint findings` (becomes `fix:` only if a pattern's behavior actually changes) | `utils/cron.ts:29`, `utils/validation.ts:10` (`isIPv4`): measured as linear-time (no ReDoS), so **keep the patterns**, add an adversarial long-input test for each (bounded runtime assertion) and a reasoned inline `eslint-disable-next-line security/detect-unsafe-regex` comment. This is the one explicit exception to "no waivers" in this plan. `crowdsecPresets.test.ts:19`: same treatment or a literal-safe rewrite. The 4 `detect-non-literal-regexp` test/setup sites are fixed (shared `src/test/escapeRegExp.ts` or string matchers), not waived | none | rules at 0 (or only the reasoned disables); `vitest run src/utils src/data` plus edited specs; if any measurement unexpectedly shows super-linear behavior, STOP per Section 3 |
-| 7 | `fix: associate form labels with their controls` | `label-has-associated-control` 45 (`AuditLogs.tsx` 15, `SecurityHeaderProfileForm.tsx` 15, `ProxyHostForm.tsx` 11, `UsersPage.tsx` 2, `PermissionsPolicyBuilder.tsx`); `htmlFor` + `useId`. Add or update `getByLabelText` assertions in their specs | none | rule at 0; those components' specs green (explicit list); targeted `npx playwright test <specs for proxy hosts / audit logs / security headers> --project=firefox` |
-| 8a | `fix: make clickable overlays keyboard and screen-reader accessible` | Minimal per-overlay change: `role` + Escape + keyboard handlers for `no-static-element-interactions` 14, `click-events-have-key-events` 13, `no-autofocus` 3 (ref-based focus), `heading-has-content` 2, `role-has-required-aria-props` 2: `CertificateCleanupDialog`, `UsersPage`, `CrowdSecConfig`, `WafConfig`, `Uptime`, `ProxyHostForm`, others. **Preserve the CrowdSec modal's three-layer pointer-events structure and its existing Escape / Ctrl+Enter handling** (do not restructure). Tests cover each new branch: Escape closes, Enter/Space activates, `toHaveFocus` on open, Ctrl+Enter still submits | 7 | rules at 0; edited components' specs green; targeted Playwright (firefox) for the CrowdSec ban modal and certificate cleanup if specs exist. **`qa-security` runs `scripts/frontend-test-coverage.sh` after this commit** |
-| 8b | (OUT OF THIS PR) migrate overlays to `src/components/ui/Dialog.tsx` | The shared `Dialog` primitive already exists; moving the ad-hoc overlays onto it is a refactor with wider blast radius. Default decision: not done here; **file a follow-up issue** listing the overlays migrated in 8a | n/a | n/a |
-| 9 | `refactor(frontend): remove effect-driven state sync in hooks and theme context` | Re-derived from the lint JSON: `src/hooks/useBackups.ts` x3, `src/hooks/useMediaQuery.ts` x1 (4 in `src/hooks`) and `src/context/ThemeContext.tsx` x1. `useMediaQuery` moves to `useSyncExternalStore` (subscribe to `matchMedia`, server snapshot = false); a reasoned inline disable only if that is demonstrably wrong. `useBackups` and `ThemeContext`: derive or initialise lazily. New/extended hook tests for every new branch (initial value, change event, unmount cleanup) | none | rule at 0 in these files; `vitest run src/hooks src/context` plus the specs of consumers of `useMediaQuery`/`ThemeContext` (explicit list); **targeted firefox Playwright smoke** (theme toggle plus a responsive layout spec, since both are global). Only the 4 hooks files plus ThemeContext: not `useProxyGroupDnD` or `useStats*` (they have no `set-state-in-effect` findings) |
-| 10a | `refactor(frontend): derive form state from props instead of effects` | The 37 `set-state-in-effect` findings span 27 files; hooks/context are in Commit 9. Forms/dialogs here: `ProxyHostForm.tsx` x4, `DNSProviderForm`, `RedirectionHostForm`, `RemoteServerForm`, `ProxyGroupForm`, `CredentialManager`, `CSPBuilder`, `PermissionsPolicyBuilder`, `CrowdSecKeyWarning`, `backups/RemoteTargetFormDialog`, `backups/RestoreDialog`, `hecate/AgentExternalProxyDialog`, `hecate/AgentWriteModeDialog`, `hecate/OrthrusInstallWizard`. Use `key` resets or derive during render. Tests for each new branch | 9 | rule at 0 in these files; each component's specs green; targeted Playwright (firefox) for proxy-host create/edit |
-| 10b | `refactor(frontend): derive list and page state instead of syncing in effects` | `CertificateList.tsx` (**first add a test pinning the current `selectedIds` retain/prune behavior when `certificates` changes, then change it; prefer a derived-at-use filter over state** so the effect disappears), `crowdsec/AlertsList`, pages: `UsersPage` x4, `CrowdSecConfig` x2, `Logs` x2, `EncryptionManagement`, `RateLimiting`, `SMTPSettings`, `Setup`, `SystemSettings`. Tests for each new branch | 10a | rule at 0 repo-wide (`set-state-in-effect`); specs green; targeted Playwright (firefox) for certificate list and users flows |
-| 11 | `refactor(frontend): resolve remaining React compiler diagnostics` | `static-components` 3 (`CertificateList` `SortIcon` x2, `SystemSettings`), `immutability` 3 (`CredentialManager`, `DNSProviderForm`, `ProxyHostForm`), `purity` 2 (`CrowdSecConfig.tsx:128`, `ManualDNSChallenge.tsx:246`), `incompatible-library` 2 (`Notifications.tsx`), `exhaustive-deps` 1 (`ProxyHostForm`), and `globals` 1, which is in the test file `context/__tests__/AuthContext.test.tsx:125`. Then in `eslint.config.js` flip the cleared compiler rules from `warn` to `error`. Tests for each new branch; timing specs use fake timers | 10b | all `react-hooks/*` at 0; affected specs green; `npm run type-check`; `npm run build`. **`qa-security` runs `scripts/frontend-test-coverage.sh` after this commit** (branch coverage must stay at or above the 85% floor) |
-| 12 | `chore: add root ESLint config for Playwright tests` | root `eslint.config.js`, `tests/tsconfig.json`, root `package.json` + lockfile (devDeps, `lint:e2e`), measure and record the baseline (TS + Playwright rules) in the commit body; severities per Decision 3; set `--max-warnings` to the measured count. Handle `tests/example.spec.js` (apply `tseslint.configs.disableTypeChecked` to `*.js`, or enable `allowJs` in the tests tsconfig) and the root-level `playwright.config.js` (outside `tests/`: lint it with the untyped config or ignore it explicitly) | none | `npx eslint tests` exits 0 against the committed baseline from the repo root; `npx playwright test --list` still parses |
-| 13 | `chore: clear root E2E lint findings` | `playwright-dev`: fix `no-unused-vars` 30, `prefer-const` 2, `any` 45 (types), Playwright-plugin findings, the one parse-message file; then lower `--max-warnings` to the new count (0 target). Anything needing logic judgement is reported back, not guessed | 12 | `npm run lint:e2e` green; a targeted run of up to three edited specs `--project=firefox` (only specs whose logic lines changed); no tests skipped or deleted |
-| 14 | `chore: enforce lint in lefthook and CI` | `frontend/package.json` (`lint` with `--max-warnings 0` + `--ignore-pattern 'src/locales/**'`, `lint:locales`), `lefthook.yml` (`e2e-lint`, locales step), `quality-checks.yml` (frontend lint step blocking, locales step, new `e2e-lint` job), `.dockerignore` if needed | 2 to 13 | `cd frontend && npm run lint` = 0 warnings and `npm run lint:locales` = 0 errors; `npm run lint:e2e` green; `lefthook run pre-commit` on staged frontend and tests files (foreground) passes; `actionlint` if available |
-| 15 | `docs: note lint policy` | brief note in the contributing/testing docs listing the three commands and the ratchet policy; PR description includes before/after counts. No `docs-site` edit unless a manifested page changes | 14 | markdownlint (`lefthook` runs it) |
-
-Per-commit sizing note: Commits 2 and 4 are the largest (dozens of files, mechanical); 2a/2b and 4a/4b
-split them if needed. All commits 2 to 11 are independent of each other except where "Depends on" says so,
-so `frontend-dev` can parallelize 6, 7, 8 only when they touch disjoint files (7 and 8 both touch
-`ProxyHostForm.tsx`, `UsersPage.tsx`, `CrowdSecConfig.tsx`: run sequentially). Do not run `qa-security` while
-any dev agent is still editing the same files.
-
-Rollback and contingency: every commit is independently revertable (`git revert <sha>`); mechanical commits
-leave no schema or API traces. If Commit 10 or 11 exposes a behavior regression that cannot be fixed in two
-attempts, drop that cluster from the PR, re-add the corresponding rule at `warn`, set the ratchet to the
-exact residual count, and file an issue (a decision for the user, not the dev agent). The Makefile commit can ship on its own via `development` if the rest stalls (it is independent).
-
-## 8. Final Verification (Definition of Done, run once by `qa-security` / orchestrator)
-
-1. Targeted Playwright (firefox): specs covering ProxyHostForm, CertificateList, UsersPage, CrowdSec ban
-   modal, security headers / audit logs forms. No full-suite or cross-browser runs locally.
-2. GORM scan, backend coverage: N/A (no backend change). Make sure `git diff --stat` shows only
-   `Makefile` as a non-frontend, non-tests, non-config change.
-3. Mid-PR checkpoints: `qa-security` runs `scripts/frontend-test-coverage.sh` after Commit 8a and after
-   Commit 11 (not only at the end), failing back to the dev agent with uncovered files. At the end,
-   `bash scripts/local-patch-report.sh` then `scripts/frontend-test-coverage.sh` (line and branch >=85%;
-   investigate any drop vs. the 85.6% branch baseline).
-4. Security scans (CodeQL/Trivy): deferred to CI (no new feature surface; `chore:`/`fix:` only).
-5. `lefthook run pre-commit`, `cd frontend && npm run type-check && npm run build`,
-   `npm run lint` (0 warnings), `npm run lint:locales`, `npm run lint:e2e`.
-6. Clean up: no stray `eslint-disable` without a reason comment; grep the diff for new `eslint-disable`,
-   count must be justified in the PR body.
-
-## 9. Acceptance Criteria
-
-- `cd frontend && npm run lint` reports 0 errors and 0 warnings (locale sync excluded and reported
-  separately by `npm run lint:locales`, 0 errors).
-- `npm run lint:e2e` from the repo root lints `tests/**` and passes; lefthook runs it on staged `tests/` files.
-- CI: frontend lint and the new `e2e-lint` job are blocking; `--max-warnings` is 0 (or the exact documented
-  residual).
-- `make lint-backend` and `make lint-agent` use a 25m timeout.
-- All real a11y, security-linter and react-hooks findings are fixed; any inline disable has a reason and is
-  listed in the PR body.
-- Frontend branch coverage did not drop below the 85% floor; all vitest and targeted Playwright runs green.
-- Issues #1743, #1716, #1820 are closed by the PR (PR body: `Closes #1743, closes #1716, closes #1820`).
-
-## 10. Resolved Decisions (user approved the plan with these recommendations)
-
-1. `no-node-access` / `no-container`: option B (path-scoped legacy list, rule kept for new tests). The
-   tracking issue is filed at the start of the PR (Commit 1 time), with the glob list generated from the lint
-   JSON (`jq` over `testing-library/no-node-access` and `no-container` file paths, unique, sorted).
-2. Locales: `lint` (gating) split from `lint:locales` (informational `identical-keys`).
-3. Root linting is typed (`tests/tsconfig.json` + `no-floating-promises`).
-4. Root `e2e-lint` job is blocking immediately.
-5. Commit prefixes as listed in Section 7.
-6. Commit 8b (migrating overlays to `src/components/ui/Dialog.tsx`) is a filed follow-up issue, not in this PR.
-
-Remaining small open item: none blocking.
+1. `development` metadata: **`+dev.<sha7>`** (decided by user: an issue reporter can tell which build they run from the version string alone).
+2. Update check on unversioned builds: **report no update** (pending user confirmation).
+3. PR and branch builds: **versioned** (`+pr.<N>`, `+branch.<sha7>`) (pending user confirmation; the
+   supervisor agrees).
+4. Status cap: **3 entries on every status response** (pending user confirmation).
+5. Non-release `main` builds: **decided (user):** keep reporting the manifest version `X.Y.Z`, no label; #1866 closed as not planned.
+6. Internal scopes kept out of user-facing "Fixes": `deps|dep|ci|e2e|test|tests|workflow|lint|docs|build|release|renovate`
+   (pending user confirmation).
+7. Browse-mode page size: **10** (pending user confirmation).
+8. *(New)* Release image tags: **`X.Y.Z` and `X.Y` only**, with no `v` prefix and no major-only tag while on
+   v0 (pending user confirmation).
