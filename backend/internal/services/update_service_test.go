@@ -189,7 +189,7 @@ func TestReleaseURL(t *testing.T) {
 		{name: "prefix lookalike host rejected", raw: "https://evilgithub.com/Wikid82/charon", want: ""},
 		{name: "uppercase host rejected by exact match", raw: "https://GITHUB.COM/Wikid82/charon", want: ""},
 		{name: "userinfo with github host rejected", raw: "https://user@github.com/Wikid82/charon", want: ""},
-		{name: "userinfo with password rejected", raw: "https://user:pass@github.com/Wikid82/charon", want: ""},
+		{name: "userinfo with password rejected", raw: "https://user:pass@github.com/Wikid82/charon", want: ""}, //nolint:gosec // G101: fixture URL with userinfo, asserted to be rejected
 		{name: "userinfo spoofing github host rejected", raw: "https://github.com@evil.example/Wikid82/charon", want: ""},
 		{name: "non-default port accepted by hostname check", raw: "https://github.com:8443/Wikid82/charon", want: "https://github.com:8443/Wikid82/charon"},
 		{name: "empty string rejected", raw: "", want: ""},
