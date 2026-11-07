@@ -98,7 +98,7 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.2 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
-	go.mongodb.org/mongo-driver/v2 v2.9.3 // indirect
+	go.mongodb.org/mongo-driver/v2 v2.10.0 // indirect
 	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0 // indirect
 	go.opentelemetry.io/otel v1.47.0 // indirect
@@ -113,5 +113,5 @@ require (
 	modernc.org/libc v1.80.1 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.12.1 // indirect
-	modernc.org/sqlite v1.61.1 // indirect
+	modernc.org/sqlite v1.62.0 // indirect
 )
