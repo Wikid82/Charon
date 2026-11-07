@@ -14,7 +14,7 @@ import { toast } from 'react-hot-toast'
 import { useTranslation } from 'react-i18next'
 
 import { createBackup } from '../api/backups'
-import { deleteCertificate } from '../api/certificates'
+import { bulkDeleteCertificates, deleteCertificate } from '../api/certificates'
 import { getSettings } from '../api/settings'
 import { getMonitors, type UptimeMonitor } from '../api/uptime'
 import CertificateCleanupDialog from '../components/dialogs/CertificateCleanupDialog'
@@ -296,16 +296,17 @@ export default function ProxyHosts() {
 
         // Delete certificates if user confirmed
         if (deleteCerts && certCleanupData.certificates.length > 0) {
+          const certUUIDs = certCleanupData.certificates.map(cert => cert.uuid)
           let certsDeleted = 0
           let certsFailed = 0
 
-          for (const cert of certCleanupData.certificates) {
-            try {
-              await deleteCertificate(cert.uuid)
-              certsDeleted++
-            } catch {
-              certsFailed++
-            }
+          // One request so the server takes a single backup for the whole batch.
+          try {
+            const result = await bulkDeleteCertificates(certUUIDs)
+            certsDeleted = result.deleted.length
+            certsFailed = result.failed.length
+          } catch {
+            certsFailed = certUUIDs.length
           }
 
           if (certsFailed > 0) {
