@@ -5,7 +5,7 @@ go 1.27.3
 require (
 	filippo.io/age v1.3.2
 	github.com/Wikid82/Hermes v0.3.7
-	github.com/gin-contrib/gzip v1.2.9
+	github.com/gin-contrib/gzip v1.2.10
 	github.com/gin-gonic/gin v1.12.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
