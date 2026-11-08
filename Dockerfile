@@ -36,6 +36,14 @@ ARG GOLANG_IMAGE=golang:1.27.3-alpine@sha256:fa3d596898d9f126af7c01d14ee7597bab3
 # renovate: datasource=docker depName=alpine versioning=docker
 ARG ALPINE_IMAGE=alpine:3.24.4@sha256:93b41ef40b1677fce8fcc64ff4af09daddfacf5040afde618bc46c1e2d1cc7d4
 
+# ---- Shared zlib Pin ----
+# zlib is pinned to an exact version so no image silently keeps an older vulnerable build
+# from the Alpine base layer (`apk upgrade` alone left Aikido flagging it). Consumed by BOTH
+# the final runtime stage and the toolchain-runtime stage (scanned separately as
+# ghcr.io/wikid82/charon-toolchain) so the two never drift.
+# renovate: datasource=apk depName=zlib versioning=loose
+ARG ZLIB_VERSION=1.4-r0
+
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
 ARG CROWDSEC_VERSION=1.8.2
@@ -949,6 +957,9 @@ RUN mkdir -p /crowdsec-out/config && \
 # inline stages produce, so the final-stage COPY --from lines need no change.
 FROM ${ALPINE_IMAGE} AS toolchain-runtime
 ARG CHARON_TOOLCHAIN_TAG
+ARG ZLIB_VERSION
+# Pin zlib so the published toolchain image does not carry the stale base-layer build.
+RUN apk add --no-cache "zlib=${ZLIB_VERSION}"
 COPY --from=caddy-inline    /usr/bin/caddy          /usr/bin/caddy
 COPY --from=crowdsec-inline /crowdsec-out/crowdsec  /crowdsec-out/crowdsec
 COPY --from=crowdsec-inline /crowdsec-out/cscli     /crowdsec-out/cscli
@@ -990,10 +1001,9 @@ WORKDIR /app
 # renovate: datasource=apk depName=libxml2 versioning=loose
 ARG LIBXML2_VERSION=2.13.9-r2
 #
-# zlib is pinned to an exact version so the image never silently keeps an older vulnerable
-# build from the base layer (`apk upgrade` alone left Aikido flagging it).
-# renovate: datasource=apk depName=zlib versioning=loose
-ARG ZLIB_VERSION=1.4-r0
+# zlib: exact-version pin is declared globally (ZLIB_VERSION, top of file) and shared with
+# the toolchain-runtime stage.
+ARG ZLIB_VERSION
 #
 # ca-certificates is a minimum-version floor so the image always carries a Mozilla bundle that
 # distrusts the compromised eMudhra intermediates' roots (Oct 2026) even when the base image
