@@ -1026,7 +1026,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=7ef3b24a63044aee370098795c0ed01cb53bb2aaee8407dfc6475c5b42394d87
+ARG GEOLITE2_COUNTRY_SHA256=2c2d05c474baeb669298cce912a6236b5ecc4e50f0316a93e01ba5cf22183600
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
