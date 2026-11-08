@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-601a39dcd9ff30bb
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:72a7ab803a0264d54454713f0a44cc1a27c77b8cb73db3e183cdf6988f73563f
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-a4f3ac6092c1f0d8
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:becd935ffe118b4b8f3b870e30e0ec61fe80f342497c2f423da652fe57c66f7d
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -34,7 +34,7 @@ ARG CROWDSEC_BUILDER_SRC=toolchain-prebuilt
 ARG GOLANG_IMAGE=golang:1.27.3-alpine@sha256:fa3d596898d9f126af7c01d14ee7597bab3f39cccf392ef36b69fe77cd681f18
 
 # renovate: datasource=docker depName=alpine versioning=docker
-ARG ALPINE_IMAGE=alpine:3.24.4@sha256:93b41ef40b1677fce8fcc64ff4af09daddfacf5040afde618bc46c1e2d1cc7d4
+ARG ALPINE_IMAGE=alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
 
 # ---- Shared zlib Pin ----
 # zlib is pinned to an exact version so no image silently keeps an older vulnerable build
