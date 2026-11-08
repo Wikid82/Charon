@@ -925,7 +925,14 @@
       "matchManagers": [
         "gomod"
       ],
-      "matchFileNames": [
+      "matchDepTypes"
+      : [
+        "indirect"
+      ],
+        "enabled": true
+    },  
+      {
+        "matchFileNames": [
         "plugins/powerdns/go.mod"
       ],
       "matchPackageNames": [
