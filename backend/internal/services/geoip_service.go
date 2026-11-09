@@ -3,6 +3,7 @@ package services
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"net/netip"
 	"sync"
@@ -49,20 +50,19 @@ func NewGeoIPService(dbPath string) (*GeoIPService, error) {
 }
 
 // Load opens or reloads the GeoIP database.
+// The new file is opened before the current one is replaced, so a failed reload keeps the database already in use.
 // This method is thread-safe and can be called to hot-reload the database.
 func (s *GeoIPService) Load() error {
+	db, err := geoip2.Open(s.dbPath)
+	if err != nil {
+		return fmt.Errorf("open geoip database %s: %w", s.dbPath, err)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Close existing database if open
 	if s.db != nil {
 		_ = s.db.Close()
-		s.db = nil
-	}
-
-	db, err := geoip2.Open(s.dbPath)
-	if err != nil {
-		return err
 	}
 	s.db = db
 	return nil

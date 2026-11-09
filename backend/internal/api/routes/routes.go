@@ -947,15 +947,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		// The service always exists, even without a database file, so a database added later is loaded by
 		// POST /security/geoip/reload and every consumer (including the proxy state) sees the same live service.
 		geoipSvc := services.NewUnloadedGeoIPService(geoipPath)
-		if _, err := os.Stat(geoipPath); err == nil { //nolint:gosec // G703: operator-configured path from CHARON_GEOIP_DB_PATH, read-only stat
-			if geoErr := geoipSvc.Load(); geoErr != nil {
-				logger.Log().WithError(geoErr).WithField("path", geoipPath).Warn("Failed to load GeoIP database - geo-blocking features will be unavailable")
-			} else {
-				logger.Log().WithField("path", geoipPath).Info("GeoIP database loaded successfully")
-			}
-		} else {
-			logger.Log().WithField("path", geoipPath).Info("GeoIP database not found - geo-blocking features will be unavailable")
-		}
+		loadGeoIPAtStartup(geoipSvc, geoipPath)
 		reportGeoIPBuildMarker(geoipPath, geoipSvc.IsLoaded())
 		caddyManager.SetGeoIPState(geoIPProxyState(geoipPath, geoipSvc))
 

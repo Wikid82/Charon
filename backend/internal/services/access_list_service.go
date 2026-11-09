@@ -334,13 +334,14 @@ func (s *AccessListService) validateAccessList(acl *models.AccessList) error {
 	}
 
 	// Validate country codes for geo types
+	// Codes are checked in the same normalized form that gets stored, so stray spaces, case and empty entries are
+	// not reported as invalid codes.
 	if strings.HasPrefix(acl.Type, "geo_") {
-		if acl.CountryCodes == "" {
+		normalized := models.NormalizeCountryCodes(acl.CountryCodes)
+		if normalized == "" {
 			return errors.New("country codes are required for geo-blocking")
 		}
-		codes := strings.Split(acl.CountryCodes, ",")
-		for _, code := range codes {
-			code = strings.TrimSpace(strings.ToUpper(code))
+		for _, code := range strings.Split(normalized, ",") {
 			if !s.isValidCountryCode(code) {
 				return fmt.Errorf("%w: %s", ErrInvalidCountryCode, code)
 			}
