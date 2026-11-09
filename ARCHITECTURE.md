@@ -723,36 +723,31 @@ export const useProxyHosts = () => {
 5. Caddy validates and applies new configuration
 6. Traffic flows through new proxy route
 
-**Route Pattern: Emergency + Main**
+**Route Pattern: Main Route (plus a recovery route for Charon's own host)**
 
-For each proxy host, Charon generates **two routes** with the same domain:
+For each proxy host, Charon generates a **main route** with the domain and no path matchers. Its handlers run the full Cerberus security pipeline before the reverse proxy. Locations are generated as separate path-matched routes that run the same pipeline.
 
-1. **Emergency Route** (with path matchers):
-   - Matches: `/api/v1/emergency/*` paths
-   - Purpose: Bypass security features for administrative access
-   - Priority: Evaluated first (more specific match)
-   - Handlers: No WAF, ACL, or Rate Limiting
-
-2. **Main Route** (without path matchers):
-   - Matches: All other paths for the domain
+1. **Main Route** (without path matchers):
+   - Matches: All paths for the domain
    - Purpose: Normal application traffic with full security
-   - Priority: Evaluated second (catch-all)
-   - Handlers: Full Cerberus security suite
+   - Handlers: Full Cerberus security suite, then the reverse proxy
 
-This pattern is **intentional and valid**:
+2. **Recovery Route** (exact path matchers, only for a host that proxies Charon itself):
+   - Matches: exactly `/api/v1/emergency/security-reset` and `/emergency/security-reset`, with no wildcards
+   - Purpose: Recovery route for the reset endpoint. The endpoint performs its own token and management-network checks.
+   - Handlers: Skips the security pre-handlers; no other path under `/emergency/` takes this route, token endpoints included
 
-- Emergency route provides break-glass access to security controls
-- Main route protects application with enterprise security features
-- Caddy processes routes in order (emergency matches first)
-- Validator allows duplicate hosts when one has paths and one doesn't
+A host that proxies Charon gets a recovery route for the reset endpoint. Every other host gets only its main route and its locations.
+
+Caddy processes routes in order, so the recovery route (when present) is evaluated before the main route. Validator allows duplicate hosts when one has paths and one doesn't.
 
 **Example:**
 
 ```json
-// Emergency Route (evaluated first)
+// Recovery Route (only for a host whose upstream is Charon; evaluated first)
 {
-  "match": [{"host": ["app.example.com"], "path": ["/api/v1/emergency/*"]}],
-  "handle": [/* Emergency handlers - no security */],
+  "match": [{"host": ["charon.example.com"], "path": ["/api/v1/emergency/security-reset", "/emergency/security-reset"]}],
+  "handle": [/* reverse proxy only */],
   "terminal": true
 }
 
