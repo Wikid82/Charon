@@ -238,7 +238,7 @@ func TestAccessListHandler_Update(t *testing.T) {
 				"description": "UUID update description",
 				"enabled":     true,
 				"type":        "whitelist",
-				"ip_rules":    `[]`,
+				"ip_rules":    `[{"cidr":"10.0.0.0/8"}]`,
 			},
 			wantStatus: http.StatusOK,
 		},
