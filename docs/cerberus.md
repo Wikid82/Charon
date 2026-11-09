@@ -271,7 +271,7 @@ Country lists (Geo Whitelist and Geo Blacklist) need the MaxMind GeoLite2-Countr
 - **Default location:** `/app/data/geoip/GeoLite2-Country.mmdb`.
 - **Custom location:** Set `CHARON_GEOIP_DB_PATH` to the full path of the `.mmdb` file. The file name must end in `.mmdb`. A file with any other ending is treated as unavailable.
 - **When the database is missing:** Country lists refuse every request until a database is provided. The build log shows a warning, and the Security page shows a note. Your other lists and sites are not affected.
-- **After adding or replacing the file:** Reload the database from the GeoIP status card. The proxy then applies your country lists again.
+- **After adding or replacing the file:** Restart Charon, or send `POST /api/v1/security/geoip/reload`. The proxy then applies your country lists again.
 - **Updates:** Download a new copy from MaxMind about once a month to keep country data accurate.
 
 ---

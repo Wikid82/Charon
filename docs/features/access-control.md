@@ -66,7 +66,7 @@ Common configurations:
 
 1. Get the MaxMind GeoLite2-Country database file (it ends in `.mmdb`).
 2. Make the file available to Charon and set the `CHARON_GEOIP_DB_PATH` environment variable to its full path. Your Docker Compose file sets environment variables.
-3. Go to the **Security** page, find the GeoIP database card, and use its reload option. Charon then applies your country lists again.
+3. Restart Charon, or send `POST /api/v1/security/geoip/reload`. Charon then applies your country lists again.
 
 The Security page shows a note while the database is missing. Your IP lists and your other sites keep working.
 
