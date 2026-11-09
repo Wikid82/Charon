@@ -595,7 +595,7 @@ func TestGenerateConfig_SecurityHeadersHandlerPrecedesReverseProxy_Deferred(t *t
 		// The pair must be contiguous and precede reverse_proxy.
 		assert.Less(t, headersIdx+1, proxyIdx)
 	}
-	assert.Equal(t, 3, found, "location, emergency and main routes must carry the headers pair")
+	assert.Equal(t, 2, found, "location and main routes must carry the headers pair")
 }
 
 func TestGenerateConfig_LocationRouteHeadersHandlerDeferred(t *testing.T) {

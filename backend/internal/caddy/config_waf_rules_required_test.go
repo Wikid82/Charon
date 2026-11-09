@@ -83,9 +83,9 @@ func TestGenerateConfig_AdvancedRulesetNameSkippedLeavesHandlerUntouched(t *test
 	cfgPlain, err := GenerateConfig([]models.ProxyHost{withoutName}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", rulesets, map[string]string{}, nil, nil, nil)
 	require.NoError(t, err)
 
-	namedHandlers, err := json.Marshal(cfgNamed.Apps.HTTP.Servers["charon_server"].Routes[1].Handle)
+	namedHandlers, err := json.Marshal(cfgNamed.Apps.HTTP.Servers["charon_server"].Routes[0].Handle)
 	require.NoError(t, err)
-	plainHandlers, err := json.Marshal(cfgPlain.Apps.HTTP.Servers["charon_server"].Routes[1].Handle)
+	plainHandlers, err := json.Marshal(cfgPlain.Apps.HTTP.Servers["charon_server"].Routes[0].Handle)
 	require.NoError(t, err)
 	assert.Equal(t, string(plainHandlers), string(namedHandlers))
 	assert.False(t, strings.Contains(string(namedHandlers), "Include"), "no Include directive may point at the skipped set")
