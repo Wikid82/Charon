@@ -31,6 +31,9 @@ type generateConfigOptions struct {
 	enforcement   func(EnforcementReport)
 	// bouncerKeyPath is the saved CrowdSec bouncer key file the proxy reads.
 	bouncerKeyPath string
+	// geoIPPath is the configured GeoIP database file, and geoIPAvailable says whether the proxy may use it now.
+	geoIPPath      string
+	geoIPAvailable bool
 }
 
 // resolveGenerateConfigOptions applies opts in order and returns the
@@ -93,4 +96,14 @@ func WithBouncerKeyPath(path string) GenerateConfigOption {
 // path, so a caller never keeps a report from an earlier generation.
 func WithEnforcementSink(sink func(EnforcementReport)) GenerateConfigOption {
 	return func(o *generateConfigOptions) { o.enforcement = sink }
+}
+
+// WithGeoIPDatabase supplies the GeoIP database the proxy's country lists read and whether it is usable now. The
+// caller decides usability with geoip.DatabaseAvailable. Without this option no database is available, so every
+// country list is refused.
+func WithGeoIPDatabase(path string, available bool) GenerateConfigOption {
+	return func(o *generateConfigOptions) {
+		o.geoIPPath = path
+		o.geoIPAvailable = available
+	}
 }

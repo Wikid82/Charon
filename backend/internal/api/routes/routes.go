@@ -957,6 +957,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 			logger.Log().WithField("path", geoipPath).Info("GeoIP database not found - geo-blocking features will be unavailable")
 		}
 		reportGeoIPBuildMarker(geoipPath, geoipSvc != nil)
+		caddyManager.SetGeoIPState(geoIPProxyState(geoipPath, geoipSvc))
 
 		// Security Status
 		securityHandler := handlers.NewSecurityHandlerWithDeps(cfg.Security, db, caddyManager, cerb).WithCrowdsecLifecycle(crowdsecHandler)

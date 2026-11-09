@@ -64,11 +64,21 @@ type CrowdSecApp struct {
 	EnableStreaming *bool  `json:"enable_streaming,omitempty"`
 }
 
+// GeoIP2App configures the caddy-geoip2 app module. Charon sets no account or licence key, so the module only reads
+// the local database and never downloads one. The module opens <DatabaseDirectory>/<EditionID>.mmdb.
+// Reference: https://github.com/zhangjiayin/caddy-geoip2
+type GeoIP2App struct {
+	DatabaseDirectory string   `json:"databaseDirectory"`
+	EditionIDs        []string `json:"editionID"`
+	LockFile          string   `json:"lockFile"`
+}
+
 // Apps contains all Caddy app modules.
 type Apps struct {
 	HTTP     *HTTPApp     `json:"http,omitempty"`
 	TLS      *TLSApp      `json:"tls,omitempty"`
 	CrowdSec *CrowdSecApp `json:"crowdsec,omitempty"`
+	GeoIP2   *GeoIP2App   `json:"geoip2,omitempty"`
 }
 
 // HTTPApp configures the HTTP app.

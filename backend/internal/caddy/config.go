@@ -55,6 +55,11 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		defer func() { resolvedOpts.enforcement(report) }()
 	}
 
+	// The module opens only <dir>/<edition>.mmdb, so a database path that does not name such a file cannot be used by
+	// the proxy, whatever the caller said. Country lists are refused while it is unavailable.
+	geoIPAvailable := resolvedOpts.geoIPAvailable && strings.HasSuffix(filepath.Base(resolvedOpts.geoIPPath), ".mmdb")
+	var geoRefusedLists []string
+
 	// Define log file paths for Caddy access logs.
 	// When CrowdSec is enabled, we use /var/log/caddy/access.log which is the standard
 	// location that CrowdSec's acquis.yaml is configured to monitor.
@@ -582,17 +587,30 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 
 		// Add Access Control List (ACL) handler if configured and global ACL is enabled
 		if aclEnabled && host.AccessListID != nil && host.AccessList != nil && host.AccessList.Enabled {
-			aclHandler, err := buildACLHandler(host.AccessList, adminWhitelist)
-			if err != nil && errors.Is(err, errAllowListFailClosed) {
-				failClosedACLHosts++
-				if failClosedACLErr == nil {
-					failClosedACLErr = err
+			if isCountryList(host.AccessList) && !geoIPAvailable {
+				// A country list cannot match without the database, so the host refuses every request instead.
+				securityHandlers = append(securityHandlers, geoUnavailableDenyHandler())
+				if !slices.Contains(geoRefusedLists, host.AccessList.Name) {
+					geoRefusedLists = append(geoRefusedLists, host.AccessList.Name)
 				}
-			} else if err != nil {
-				logger.Log().WithField("host", host.UUID).WithError(err).Warn("Failed to build ACL handler for host")
-			}
-			if aclHandler != nil {
-				securityHandlers = append(securityHandlers, aclHandler)
+			} else {
+				if isCountryList(host.AccessList) {
+					// The geoip2 handler sits directly before the country subroute and reads the database the app opens.
+					config.Apps.GeoIP2 = geoIP2AppFor(resolvedOpts.geoIPPath, storageDir)
+					securityHandlers = append(securityHandlers, geoIP2Handler())
+				}
+				aclHandler, err := buildACLHandler(host.AccessList, adminWhitelist)
+				if err != nil && errors.Is(err, errAllowListFailClosed) {
+					failClosedACLHosts++
+					if failClosedACLErr == nil {
+						failClosedACLErr = err
+					}
+				} else if err != nil {
+					logger.Log().WithField("host", host.UUID).WithError(err).Warn("Failed to build ACL handler for host")
+				}
+				if aclHandler != nil {
+					securityHandlers = append(securityHandlers, aclHandler)
+				}
 			}
 		}
 
@@ -742,6 +760,13 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	if failClosedACLHosts > 0 {
 		logger.Log().WithError(failClosedACLErr).WithField("hosts", failClosedACLHosts).Warn(
 			"Access list is enabled but has no usable IP rules; requests to those hosts are refused")
+	}
+
+	// A country list is enabled but no GeoIP database is usable, so its hosts refuse every request. One line per apply
+	// names the lists.
+	if len(geoRefusedLists) > 0 {
+		logger.Log().WithField("lists", geoRefusedLists).Warn(
+			"Country access list needs the GeoIP database, which is unavailable; requests to its hosts are refused")
 	}
 
 	// The rate limit is enabled but its request count or window is not set, so the hosts get no rate limit handler.
@@ -915,12 +940,58 @@ func NormalizeAdvancedConfig(parsed any) any {
 	}
 }
 
+// geoAccessDeniedBody is the response body for a request refused by a country list.
+const geoAccessDeniedBody = "Access denied: Geographic restriction"
+
+// geoIP2LockFileName is the lock file the caddy-geoip2 module uses, kept in Charon's Caddy data directory.
+const geoIP2LockFileName = "geoip2.lock"
+
+// isCountryList reports whether the access list matches on the visitor's country, which needs the GeoIP database.
+func isCountryList(acl *models.AccessList) bool {
+	return strings.HasPrefix(acl.Type, "geo_")
+}
+
+// geoIP2AppFor returns the caddy-geoip2 app settings for the database at path. The module opens
+// <databaseDirectory>/<editionID>.mmdb, so only a path whose file name ends in .mmdb can be expressed.
+func geoIP2AppFor(path, storageDir string) *GeoIP2App {
+	return &GeoIP2App{
+		DatabaseDirectory: filepath.Dir(path),
+		EditionIDs:        []string{strings.TrimSuffix(filepath.Base(path), ".mmdb")},
+		LockFile:          filepath.Join(storageDir, geoIP2LockFileName),
+	}
+}
+
+// geoIP2Handler returns the caddy-geoip2 handler. It reads the visitor address from the connection only: the trusted
+// proxy setting would let a forwarded header decide the country until the trust model is narrowed.
+func geoIP2Handler() Handler {
+	return Handler{"handler": "geoip2", "enable": "strict"}
+}
+
+// geoUnavailableDenyHandler refuses every request. It replaces a country list while no GeoIP database is usable.
+func geoUnavailableDenyHandler() Handler {
+	return Handler{
+		"handler": "subroute",
+		"routes": []map[string]any{
+			{
+				"handle": []map[string]any{
+					{
+						"handler":     "static_response",
+						"status_code": 403,
+						"body":        geoAccessDeniedBody,
+					},
+				},
+				"terminal": true,
+			},
+		},
+	}
+}
+
 // buildACLHandler creates access control handlers based on the AccessList configuration
 func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, error) {
 	// For geo-blocking, we use CEL (Common Expression Language) matcher with caddy-geoip2 placeholders
 	// For IP-based ACLs, we use Caddy's native remote_ip matcher
 
-	if strings.HasPrefix(acl.Type, "geo_") {
+	if isCountryList(acl) {
 		// Geo-blocking using caddy-geoip2
 		countryCodes := strings.Split(acl.CountryCodes, ",")
 		var trimmedCodes []string
@@ -950,7 +1021,7 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 							{
 								"handler":     "static_response",
 								"status_code": 403,
-								"body":        "Access denied: Geographic restriction",
+								"body":        geoAccessDeniedBody,
 							},
 						},
 						"terminal": true,
@@ -973,7 +1044,7 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 						{
 							"handler":     "static_response",
 							"status_code": 403,
-							"body":        "Access denied: Geographic restriction",
+							"body":        geoAccessDeniedBody,
 						},
 					},
 					"terminal": true,

@@ -5,6 +5,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/geoip"
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/services"
 )
 
 // reportGeoIPBuildMarker logs one Info line when the image build could not bundle the GeoIP database. It reports
@@ -17,4 +18,12 @@ func reportGeoIPBuildMarker(dbPath string, loaded bool) bool {
 		"Image was built without the GeoIP database; country access lists stay refused until one is provided at CHARON_GEOIP_DB_PATH",
 	)
 	return true
+}
+
+// geoIPProxyState returns the source of the GeoIP database state the proxy config reads at each apply. The database is
+// usable when the GeoIP service has loaded it and the file is a database the proxy module can open.
+func geoIPProxyState(path string, svc *services.GeoIPService) func() (string, bool) {
+	return func() (string, bool) {
+		return path, geoip.DatabaseAvailable(path, svc != nil && svc.IsLoaded())
+	}
 }

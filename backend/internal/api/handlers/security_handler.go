@@ -742,6 +742,16 @@ func (h *SecurityHandler) ReloadGeoIP(c *gin.Context) {
 		return
 	}
 
+	// The proxy reads the database only when its config is generated, so a reloaded database reaches traffic on the
+	// next apply. Apply now, so country lists follow the reload at once.
+	if h.caddyManager != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
+			log.WithError(err).Warn("failed to apply proxy config after GeoIP reload")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
+			return
+		}
+	}
+
 	// Log audit event
 	actor := auditActor(c)
 	_ = h.svc.LogAudit(&models.SecurityAudit{Actor: actor, Action: "reload_geoip", Details: "GeoIP database reloaded successfully"})
