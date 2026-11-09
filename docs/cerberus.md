@@ -256,13 +256,23 @@ Each `AccessList` defines:
 
 Multiple ACLs can be assigned to a proxy host. The first denial wins.
 
+**Required entries:**
+
+- An **enabled allow list** (Whitelist or Geo Whitelist) must contain at least one IP address, range or country. Saving an enabled allow list with no entries is refused with the error `access_list_rules_required`. An allow list with no entries that is not enabled is still saved.
+- A **block list** (Blacklist or Geo Blacklist) may be empty. An empty block list blocks nobody.
+
+**Refused requests:** When a list refuses a request, the response is a 403 (or 429 for rate limits) and still carries the security headers from the host's profile. See [HTTP Security Headers](features/security-headers.md).
+
 ### GeoIP Database
 
-Uses MaxMind GeoLite2-Country database:
+Country lists (Geo Whitelist and Geo Blacklist) need the MaxMind GeoLite2-Country database. The proxy reads it to find the country of each visitor.
 
-- Path configured via `CHARON_GEOIP_DB_PATH`
-- Default: `/app/data/GeoLite2-Country.mmdb` (Docker)
-- Update monthly from MaxMind for accuracy
+- **Where it comes from:** The Docker image tries to download the database when it is built. If the download fails, the image is still built without it.
+- **Default location:** `/app/data/geoip/GeoLite2-Country.mmdb`.
+- **Custom location:** Set `CHARON_GEOIP_DB_PATH` to the full path of the `.mmdb` file. The file name must end in `.mmdb`. A file with any other ending is treated as unavailable.
+- **When the database is missing:** Country lists refuse every request until a database is provided. The build log shows a warning, and the Security page shows a note. Your other lists and sites are not affected.
+- **After adding or replacing the file:** Reload the database from the GeoIP status card. The proxy then applies your country lists again.
+- **Updates:** Download a new copy from MaxMind about once a month to keep country data accurate.
 
 ---
 
