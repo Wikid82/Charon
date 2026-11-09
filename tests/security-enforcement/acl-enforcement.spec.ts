@@ -207,4 +207,173 @@ test.describe('ACL Enforcement', () => {
       console.log(`Note: Could not create test ACL: ${errorBody}`);
     }
   });
+
+  test.describe('Route handling on proxy hosts', () => {
+    // An IP allow-list cannot express a non-listed runner here: the runner is
+    // admin-whitelisted, and the proxy ACL merges the admin whitelist into every
+    // IP allow-list. A geo allow-list with no country match for the runner's
+    // private address refuses it without that merge.
+    const ROUTE_PATHS = [
+      '/',
+      '/emergency/security-reset',
+      '/emergency/x',
+      '/emergency/..;/admin',
+      '/api/v1/emergency/token/x',
+      '/api/v1/emergency/security-reset',
+    ];
+    // Paths under the reset prefix that the reset endpoint does not serve.
+    const NON_RESET_PATHS = ROUTE_PATHS.filter(
+      (path) => path !== '/emergency/security-reset' && path !== '/api/v1/emergency/security-reset'
+    );
+    const APP_BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
+    const RESET_API_PATH = '/api/v1/emergency/security-reset';
+    const RESET_APP_PATH = '/emergency/security-reset';
+
+    let proxyContext: APIRequestContext;
+    let aclUuid: string;
+    let allowListedProxyUuid: string;
+    let allowListedDomain: string;
+    let selfProxyUuid: string;
+    let selfProxyDomain: string;
+
+    /** Caddy proxy origin, derived the same way caddyProxyOrigin() does (no page here). */
+    function proxyOrigin(): string {
+      const url = new URL(APP_BASE_URL);
+      return `${url.protocol}//${url.hostname}:${process.env.PLAYWRIGHT_CADDY_PROXY_PORT || '80'}`;
+    }
+
+    /** Send a request through the proxy hop with the given Host header. */
+    async function proxied(domain: string, path: string, method = 'GET') {
+      return proxyContext.fetch(`${proxyOrigin()}${path}`, {
+        method,
+        headers: { Host: domain },
+        data: method === 'POST' ? {} : undefined,
+        failOnStatusCode: false,
+        maxRedirects: 0,
+      });
+    }
+
+    async function createProxyHost(
+      domain: string,
+      forwardPort: number,
+      name: string,
+      accessListUuid: string
+    ): Promise<string> {
+      const response = await requestContext.post('/api/v1/proxy-hosts', {
+        data: {
+          domain_names: domain,
+          forward_host: '127.0.0.1',
+          forward_port: forwardPort,
+          forward_scheme: 'http',
+          websocket_support: false,
+          enabled: true,
+          name,
+          access_list_id: accessListUuid,
+        },
+      });
+      expect(response.ok(), `create proxy host ${domain}`).toBe(true);
+      const body = await response.json();
+      return body.uuid ?? body.id;
+    }
+
+    test.beforeAll(async () => {
+      proxyContext = await request.newContext();
+
+      // Allow-list that only admits one country; the runner has no country, so it is
+      // not on the list. Attached to both hosts.
+      const aclResponse = await requestContext.post('/api/v1/access-lists', {
+        data: {
+          name: `Route Handling Allow List ${Date.now()}`,
+          type: 'geo_whitelist',
+          country_codes: 'US',
+          enabled: true,
+        },
+      });
+      expect(aclResponse.ok(), 'create allow list').toBe(true);
+      aclUuid = (await aclResponse.json()).uuid;
+
+      // Plain allow-listed host: upstream is a port nothing listens on, so any
+      // request that gets past the ACL would fail upstream with 502.
+      allowListedDomain = `route-allow-${Date.now()}.example.test`;
+      allowListedProxyUuid = await createProxyHost(allowListedDomain, 3001, 'Allow-listed host', aclUuid);
+
+      // Self-proxy host: upstream is Charon's own listener.
+      selfProxyDomain = `route-self-${Date.now()}.example.test`;
+      selfProxyUuid = await createProxyHost(selfProxyDomain, 8080, 'Self-proxy host', aclUuid);
+
+      // Wait for both routes to be loaded by the proxy. The ACL answers 403 on '/'.
+      for (const domain of [allowListedDomain, selfProxyDomain]) {
+        await expect
+          .poll(async () => (await proxied(domain, '/')).status(), {
+            timeout: 30_000,
+            message: `route for ${domain} should be loaded`,
+          })
+          .toBe(403);
+      }
+    });
+
+    test.afterAll(async () => {
+      for (const uuid of [selfProxyUuid, allowListedProxyUuid]) {
+        if (uuid) {
+          await requestContext.delete(`/api/v1/proxy-hosts/${uuid}`);
+        }
+      }
+      if (aclUuid) {
+        await requestContext.delete(`/api/v1/access-lists/${aclUuid}`);
+      }
+      await proxyContext.dispose();
+    });
+
+    test('refuses a non-listed client on every route handling path of an allow-listed host', async () => {
+      const results = await Promise.all(
+        ROUTE_PATHS.map(async (path) => {
+          const response = await proxied(allowListedDomain, path);
+          return { path, status: response.status() };
+        })
+      );
+
+      expect(results).toEqual(ROUTE_PATHS.map((path) => ({ path, status: 403 })));
+    });
+
+    test('keeps the reset endpoint reachable on a self-proxy host while other paths stay under the ACL', async () => {
+      await test.step('Non-reset paths under the prefix are refused by the ACL', async () => {
+        const results = await Promise.all(
+          NON_RESET_PATHS.map(async (path) => {
+            const response = await proxied(selfProxyDomain, path);
+            return { path, status: response.status() };
+          })
+        );
+
+        expect(results).toEqual(NON_RESET_PATHS.map((path) => ({ path, status: 403 })));
+      });
+
+      await test.step('API reset path answers from the reset handler without a token', async () => {
+        const response = await proxied(selfProxyDomain, RESET_API_PATH, 'POST');
+        const direct = await proxyContext.fetch(`${APP_BASE_URL}${RESET_API_PATH}`, {
+          method: 'POST',
+          data: {},
+          failOnStatusCode: false,
+        });
+
+        // The reset endpoint's own token check answers (401), the same as the app directly.
+        expect(response.status()).toBe(401);
+        expect(response.status()).toBe(direct.status());
+        expect(await response.json()).toMatchObject({ error: 'unauthorized' });
+      });
+
+      await test.step('Exact app-level reset path is answered by the app, not the ACL', async () => {
+        // The app has no API route at this path; its own router answers it. The
+        // proxied answer must match the direct answer and must not be the ACL refusal.
+        const response = await proxied(selfProxyDomain, RESET_APP_PATH, 'POST');
+        const direct = await proxyContext.fetch(`${APP_BASE_URL}${RESET_APP_PATH}`, {
+          method: 'POST',
+          data: {},
+          failOnStatusCode: false,
+        });
+
+        expect(response.status()).not.toBe(403);
+        expect(response.status()).toBe(direct.status());
+      });
+    });
+  });
 });
