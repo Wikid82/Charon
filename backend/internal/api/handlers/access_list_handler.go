@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"strconv"
@@ -26,6 +27,18 @@ func NewAccessListHandler(db *gorm.DB) *AccessListHandler {
 // SetGeoIPService sets the GeoIP service for geo-based ACL lookups.
 func (h *AccessListHandler) SetGeoIPService(geoipSvc *services.GeoIPService) {
 	h.service.SetGeoIPService(geoipSvc)
+}
+
+// accessListRulesRequiredCode is the stable error_code for ErrAccessListRulesRequired; the UI maps it to a message.
+const accessListRulesRequiredCode = "access_list_rules_required"
+
+// respondAccessListSaveError answers a refused create or update with 400. Known refusals carry a stable error_code.
+func respondAccessListSaveError(c *gin.Context, err error) {
+	if errors.Is(err, services.ErrAccessListRulesRequired) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "error_code": accessListRulesRequiredCode})
+		return
+	}
+	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 }
 
 // resolveAccessList resolves an access list by either numeric ID or UUID.
@@ -54,7 +67,7 @@ func (h *AccessListHandler) Create(c *gin.Context) {
 	}
 
 	if err := h.service.Create(&acl); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondAccessListSaveError(c, err)
 		return
 	}
 
@@ -118,7 +131,7 @@ func (h *AccessListHandler) Update(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "access list not found"})
 			return
 		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondAccessListSaveError(c, err)
 		return
 	}
 

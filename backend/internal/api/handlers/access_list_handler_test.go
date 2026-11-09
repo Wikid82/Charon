@@ -207,6 +207,7 @@ func TestAccessListHandler_Update(t *testing.T) {
 		UUID:    "test-uuid",
 		Name:    "Original Name",
 		Type:    "whitelist",
+		IPRules: `[{"cidr":"192.168.1.0/24"}]`,
 		Enabled: true,
 	}
 	db.Create(&acl)

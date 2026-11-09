@@ -79,6 +79,7 @@ func TestAccessListService_Create(t *testing.T) {
 		acl := &models.AccessList{
 			Name:    "",
 			Type:    "whitelist",
+			IPRules: testAllowListRules,
 			Enabled: true,
 		}
 
@@ -152,6 +153,7 @@ func TestAccessListService_GetByID(t *testing.T) {
 	acl := &models.AccessList{
 		Name:    "Test ACL",
 		Type:    "whitelist",
+		IPRules: testAllowListRules,
 		Enabled: true,
 	}
 	err := service.Create(acl)
@@ -179,6 +181,7 @@ func TestAccessListService_GetByUUID(t *testing.T) {
 	acl := &models.AccessList{
 		Name:    "Test ACL",
 		Type:    "whitelist",
+		IPRules: testAllowListRules,
 		Enabled: true,
 	}
 	err := service.Create(acl)
@@ -227,7 +230,7 @@ func TestAccessListService_List(t *testing.T) {
 	service := NewAccessListService(db)
 
 	// Create multiple ACLs
-	acl1 := &models.AccessList{Name: "ACL 1", Type: "whitelist", Enabled: true}
+	acl1 := &models.AccessList{Name: "ACL 1", Type: "whitelist", IPRules: testAllowListRules, Enabled: true}
 	acl2 := &models.AccessList{Name: "ACL 2", Type: "blacklist", Enabled: true}
 
 	err := service.Create(acl1)
@@ -261,6 +264,7 @@ func TestAccessListService_Update(t *testing.T) {
 	acl := &models.AccessList{
 		Name:    "Original Name",
 		Type:    "whitelist",
+		IPRules: testAllowListRules,
 		Enabled: true,
 	}
 	err := service.Create(acl)
@@ -286,14 +290,14 @@ func TestAccessListService_Update(t *testing.T) {
 	})
 
 	t.Run("fail update on non-existent ACL", func(t *testing.T) {
-		updates := &models.AccessList{Name: "Test", Type: "whitelist", Enabled: true}
+		updates := &models.AccessList{Name: "Test", Type: "whitelist", IPRules: testAllowListRules, Enabled: true}
 		err := service.Update(99999, updates)
 		assert.Error(t, err)
 		assert.Equal(t, ErrAccessListNotFound, err)
 	})
 
 	t.Run("fail update with invalid data", func(t *testing.T) {
-		updates := &models.AccessList{Name: "", Type: "whitelist", Enabled: true}
+		updates := &models.AccessList{Name: "", Type: "whitelist", IPRules: testAllowListRules, Enabled: true}
 		err := service.Update(acl.ID, updates)
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "name is required")
@@ -305,7 +309,7 @@ func TestAccessListService_Delete(t *testing.T) {
 	service := NewAccessListService(db)
 
 	t.Run("delete successfully", func(t *testing.T) {
-		acl := &models.AccessList{Name: "To Delete", Type: "whitelist", Enabled: true}
+		acl := &models.AccessList{Name: "To Delete", Type: "whitelist", IPRules: testAllowListRules, Enabled: true}
 		err := service.Create(acl)
 		assert.NoError(t, err)
 
@@ -326,7 +330,7 @@ func TestAccessListService_Delete(t *testing.T) {
 
 	t.Run("fail delete ACL in use", func(t *testing.T) {
 		// Create ACL
-		acl := &models.AccessList{Name: "In Use", Type: "whitelist", Enabled: true}
+		acl := &models.AccessList{Name: "In Use", Type: "whitelist", IPRules: testAllowListRules, Enabled: true}
 		err := service.Create(acl)
 		assert.NoError(t, err)
 
@@ -471,7 +475,7 @@ func TestAccessListService_TestIP(t *testing.T) {
 	})
 
 	t.Run("fail with invalid IP", func(t *testing.T) {
-		acl := &models.AccessList{Name: "Test", Type: "whitelist", Enabled: true}
+		acl := &models.AccessList{Name: "Test", Type: "whitelist", IPRules: testAllowListRules, Enabled: true}
 		err := service.Create(acl)
 		assert.NoError(t, err)
 
@@ -495,6 +499,9 @@ func TestAccessListService_GetTemplates(t *testing.T) {
 	assert.Contains(t, first, "description")
 	assert.Contains(t, first, "type")
 }
+
+// testAllowListRules is a rule set that keeps an enabled allow-list valid in fixtures that are not about rules.
+const testAllowListRules = `[{"cidr":"192.168.1.0/24"}]`
 
 func TestAccessListService_Validation(t *testing.T) {
 	db := setupTestDB(t)
@@ -624,6 +631,7 @@ func TestAccessListService_ListFunction(t *testing.T) {
 	acl1 := &models.AccessList{
 		Name:    "List 1",
 		Type:    "whitelist",
+		IPRules: testAllowListRules,
 		Enabled: true,
 	}
 	acl2 := &models.AccessList{

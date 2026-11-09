@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
+	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -207,6 +208,11 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		"enabled": rateLimitEnabled,
 	}
 	h.addAppliedState(wafStatus, rateLimitStatus, wafEnabled, rateLimitEnabled)
+	aclStatus := gin.H{
+		"mode":    aclMode,
+		"enabled": aclEnabled,
+	}
+	h.addACLGeoIPReason(aclStatus, aclEnabled)
 
 	c.JSON(http.StatusOK, gin.H{
 		"cerberus": gin.H{"enabled": enabled},
@@ -215,12 +221,9 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 			"api_url": crowdsec.LocalLAPIURL,
 			"enabled": crowdsecEnabled,
 		},
-		"waf":        wafStatus,
-		"rate_limit": rateLimitStatus,
-		"acl": gin.H{
-			"mode":    aclMode,
-			"enabled": aclEnabled,
-		},
+		"waf":          wafStatus,
+		"rate_limit":   rateLimitStatus,
+		"acl":          aclStatus,
 		"config_apply": latestConfigApplyState(h.db),
 	})
 }
@@ -698,21 +701,24 @@ func (h *SecurityHandler) GetRateLimitPresets(c *gin.Context) {
 }
 
 // GetGeoIPStatus returns the current status of the GeoIP service.
+// The reason is present only when the database is unavailable, so the card can show why country lists cannot match.
 func (h *SecurityHandler) GetGeoIPStatus(c *gin.Context) {
-	if h.geoipSvc == nil {
-		c.JSON(http.StatusOK, gin.H{
-			"loaded":  false,
-			"message": "GeoIP service not initialized",
-			"db_path": "",
-		})
-		return
+	available := geoipDatabaseAvailable(h.geoipSvc)
+	body := gin.H{
+		"available": available,
+		"loaded":    false,
+		"db_path":   "",
+		"message":   "GeoIP service not initialized",
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"loaded":  h.geoipSvc.IsLoaded(),
-		"db_path": h.geoipSvc.GetDatabasePath(),
-		"message": "GeoIP service available",
-	})
+	if h.geoipSvc != nil {
+		body["loaded"] = h.geoipSvc.IsLoaded()
+		body["db_path"] = h.geoipSvc.GetDatabasePath()
+		body["message"] = "GeoIP service available"
+	}
+	if !available {
+		body["reason"] = caddy.ReasonGeoIPUnavailable
+	}
+	c.JSON(http.StatusOK, body)
 }
 
 // ReloadGeoIP reloads the GeoIP database from disk.

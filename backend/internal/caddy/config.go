@@ -2,6 +2,7 @@ package caddy
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -442,6 +443,9 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	// see docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §4.2/§4.3).
 	processedDomains := make(map[string]bool)
 	wafUnprotectedHosts := 0
+	// Allow-lists that cannot admit anyone get a deny handler; counted so one Warn covers the whole apply.
+	failClosedACLHosts := 0
+	var failClosedACLErr error
 	redirectRoutes, redirectIPSubjects := BuildRedirectRoutes(redirectHosts, processedDomains)
 	routes = append(routes, redirectRoutes...)
 	ipSubjects = append(ipSubjects, redirectIPSubjects...)
@@ -579,9 +583,15 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		// Add Access Control List (ACL) handler if configured and global ACL is enabled
 		if aclEnabled && host.AccessListID != nil && host.AccessList != nil && host.AccessList.Enabled {
 			aclHandler, err := buildACLHandler(host.AccessList, adminWhitelist)
-			if err != nil {
+			if err != nil && errors.Is(err, errAllowListFailClosed) {
+				failClosedACLHosts++
+				if failClosedACLErr == nil {
+					failClosedACLErr = err
+				}
+			} else if err != nil {
 				logger.Log().WithField("host", host.UUID).WithError(err).Warn("Failed to build ACL handler for host")
-			} else if aclHandler != nil {
+			}
+			if aclHandler != nil {
 				securityHandlers = append(securityHandlers, aclHandler)
 			}
 		}
@@ -726,6 +736,12 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	if wafUnprotectedHosts > 0 {
 		logger.Log().WithField("hosts", wafUnprotectedHosts).WithField("reason", report.WAF.Reason).Warn(
 			"WAF is enabled but some hosts have no WAF handler; the security status shows the reason")
+	}
+
+	// An enabled allow-list has no usable rules, so its hosts refuse every request except admin whitelist addresses.
+	if failClosedACLHosts > 0 {
+		logger.Log().WithError(failClosedACLErr).WithField("hosts", failClosedACLHosts).Warn(
+			"Access list is enabled but has no usable IP rules; requests to those hosts are refused")
 	}
 
 	// The rate limit is enabled but its request count or window is not set, so the hosts get no rate limit handler.
@@ -997,17 +1013,23 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 		}, nil
 	}
 
-	// Parse IP rules
-	if acl.IPRules == "" {
-		return nil, nil
-	}
-
+	// Parse IP rules. A block-list with nothing to block adds no handler. An allow-list with no usable rules
+	// is never left out: it gets a deny handler, and the error tells the caller to log it.
 	var rules []models.AccessListRule
-	if err := json.Unmarshal([]byte(acl.IPRules), &rules); err != nil {
-		return nil, fmt.Errorf("invalid IP rules JSON: %w", err)
+	if acl.IPRules != "" {
+		if err := json.Unmarshal([]byte(acl.IPRules), &rules); err != nil {
+			parseErr := fmt.Errorf("invalid IP rules JSON: %w", err)
+			if acl.Type == "whitelist" {
+				return allowListFailClosed(adminWhitelist, parseErr)
+			}
+			return nil, parseErr
+		}
 	}
 
 	if len(rules) == 0 {
+		if acl.Type == "whitelist" {
+			return allowListFailClosed(adminWhitelist, errors.New("no IP rules"))
+		}
 		return nil, nil
 	}
 
@@ -1018,63 +1040,17 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 	}
 
 	if acl.Type == "whitelist" {
-		// Allow only these IPs (block everything else)
-		// Merge adminWhitelist into allowed cidrs so that admins always bypass whitelist checks
-		if adminWhitelist != "" {
-			adminParts := strings.Split(adminWhitelist, ",")
-			for _, p := range adminParts {
-				p = strings.TrimSpace(p)
-				if p == "" {
-					continue
-				}
-				cidrs = append(cidrs, p)
-			}
-		}
-		return Handler{
-			"handler": "subroute",
-			"routes": []map[string]any{
-				{
-					"match": []map[string]any{
-						{
-							"not": []map[string]any{
-								{
-									"remote_ip": map[string]any{
-										"ranges": cidrs,
-									},
-								},
-							},
-						},
-					},
-					"handle": []map[string]any{
-						{
-							"handler":     "static_response",
-							"status_code": 403,
-							"body":        "Access denied: IP not in whitelist",
-						},
-					},
-					"terminal": true,
-				},
-			},
-		}, nil
+		// Allow only these IPs (block everything else). Admin whitelist addresses always bypass whitelist checks.
+		cidrs = append(cidrs, parseAdminWhitelist(adminWhitelist)...)
+		return whitelistDenyHandler(cidrs), nil
 	}
 
 	if acl.Type == "blacklist" {
 		// Block these IPs (allow everything else)
 		// For blacklist, add an explicit 'not' clause excluding adminWhitelist ranges from the match
 		var adminExclusion any
-		if adminWhitelist != "" {
-			adminParts := strings.Split(adminWhitelist, ",")
-			trims := make([]string, 0)
-			for _, p := range adminParts {
-				p = strings.TrimSpace(p)
-				if p == "" {
-					continue
-				}
-				trims = append(trims, p)
-			}
-			if len(trims) > 0 {
-				adminExclusion = map[string]any{"not": []map[string]any{{"remote_ip": map[string]any{"ranges": trims}}}}
-			}
+		if trims := parseAdminWhitelist(adminWhitelist); len(trims) > 0 {
+			adminExclusion = map[string]any{"not": []map[string]any{{"remote_ip": map[string]any{"ranges": trims}}}}
 		}
 		// Build matcher parts
 		matchParts := []map[string]any{}
@@ -1101,6 +1077,44 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 	}
 
 	return nil, nil
+}
+
+// errAllowListFailClosed marks an allow-list that was replaced by a deny handler because it has no usable rules.
+var errAllowListFailClosed = errors.New("allow-list has no usable IP rules; requests are refused")
+
+// allowListFailClosed returns the deny handler for an allow-list without usable rules, with the reason as an error.
+func allowListFailClosed(adminWhitelist string, cause error) (Handler, error) {
+	return whitelistDenyHandler(parseAdminWhitelist(adminWhitelist)), fmt.Errorf("%w: %w", errAllowListFailClosed, cause)
+}
+
+// whitelistDenyHandler refuses every request whose address is not in allowed. With no allowed address it refuses all.
+func whitelistDenyHandler(allowed []string) Handler {
+	deny := map[string]any{
+		"handler":     "static_response",
+		"status_code": 403,
+		"body":        "Access denied: IP not in whitelist",
+	}
+	route := map[string]any{
+		"handle":   []map[string]any{deny},
+		"terminal": true,
+	}
+	if len(allowed) > 0 {
+		route["match"] = []map[string]any{
+			{"not": []map[string]any{{"remote_ip": map[string]any{"ranges": allowed}}}},
+		}
+	}
+	return Handler{"handler": "subroute", "routes": []map[string]any{route}}
+}
+
+// parseAdminWhitelist splits the comma-separated admin whitelist and drops blank entries.
+func parseAdminWhitelist(adminWhitelist string) []string {
+	var addresses []string
+	for _, p := range strings.Split(adminWhitelist, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			addresses = append(addresses, p)
+		}
+	}
+	return addresses
 }
 
 // buildCrowdSecHandler returns a minimal CrowdSec handler for the caddy-crowdsec-bouncer plugin.

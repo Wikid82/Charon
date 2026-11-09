@@ -13,6 +13,8 @@ const (
 	ReasonRulesetEmpty = "ruleset_empty"
 	// ReasonThresholdsUnset means the rate limit is on without a request count or a window.
 	ReasonThresholdsUnset = "thresholds_unset"
+	// ReasonGeoIPUnavailable means a country list is in use but no GeoIP database is loaded, so the list cannot match.
+	ReasonGeoIPUnavailable = "geoip_unavailable"
 )
 
 // ModuleEnforcement counts the hosts one security module applies to.

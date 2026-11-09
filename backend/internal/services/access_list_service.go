@@ -20,6 +20,9 @@ var (
 	ErrInvalidIPAddress      = errors.New("invalid IP address or CIDR")
 	ErrInvalidCountryCode    = errors.New("invalid country code")
 	ErrAccessListInUse       = errors.New("access list is in use by proxy hosts")
+	// ErrAccessListRulesRequired rejects an enabled allow-list that would admit nobody. A block-list
+	// with no rules is allowed because it blocks nobody.
+	ErrAccessListRulesRequired = errors.New("an enabled allow-list needs at least one IP rule or the local network option")
 )
 
 // ValidAccessListTypes defines allowed access list types
@@ -302,8 +305,8 @@ func (s *AccessListService) validateAccessList(acl *models.AccessList) error {
 	}
 
 	// Validate IP rules
+	var rules []models.AccessListRule
 	if acl.IPRules != "" {
-		var rules []models.AccessListRule
 		if err := json.Unmarshal([]byte(acl.IPRules), &rules); err != nil {
 			return fmt.Errorf("invalid IP rules JSON: %w", err)
 		}
@@ -313,6 +316,11 @@ func (s *AccessListService) validateAccessList(acl *models.AccessList) error {
 				return fmt.Errorf("%w: %s", ErrInvalidIPAddress, rule.CIDR)
 			}
 		}
+	}
+
+	// An enabled allow-list with nothing to admit would deny every request. The local-network option counts as a rule.
+	if acl.Enabled && acl.Type == "whitelist" && !acl.LocalNetworkOnly && len(rules) == 0 {
+		return ErrAccessListRulesRequired
 	}
 
 	// Validate country codes for geo types
