@@ -23,6 +23,13 @@ import {
   restoreSecurityState,
   SecurityStateSnapshot,
 } from '../utils/security-helpers';
+import {
+  createCountryAllowList,
+  createProxyHost,
+  deleteAccessList,
+  deleteProxyHost,
+  fetchThroughProxy,
+} from '../utils/proxy-refusal-helpers';
 
 /**
  * Configure admin whitelist to allow test runner IPs.
@@ -208,6 +215,85 @@ test.describe('ACL Enforcement', () => {
     }
   });
 
+  test('should refuse an enabled allow-list saved with no rules', async () => {
+    // An allow-list that is enabled but has no rules would admit nobody at save time, so the API refuses it with a
+    // stable error code the UI maps to a message.
+    const response = await requestContext.post('/api/v1/access-lists', {
+      data: {
+        name: `No Rules Allow List ${Date.now()}`,
+        type: 'whitelist',
+        ip_rules: '[]',
+        enabled: true,
+      },
+    });
+
+    expect(response.status()).toBe(400);
+    expect(await response.json()).toMatchObject({ error_code: 'access_list_rules_required' });
+  });
+
+  test.describe('Country lists', () => {
+    const domain = `country-list-${Date.now()}.example.test`;
+    let proxyContext: APIRequestContext;
+    let aclUuid: string;
+    let proxyUuid: string;
+
+    test.beforeAll(async () => {
+      proxyContext = await request.newContext();
+      aclUuid = await createCountryAllowList(requestContext, `Country Allow List ${Date.now()}`);
+      proxyUuid = await createProxyHost(requestContext, {
+        domain,
+        forwardPort: 3001,
+        name: 'Country list host',
+        accessListUuid: aclUuid,
+      });
+
+      // Wait for the route to be loaded: the country list refuses the runner, which has no country.
+      await expect
+        .poll(async () => (await fetchThroughProxy(proxyContext, domain, '/')).status(), {
+          timeout: 30_000,
+          message: 'country list route should be loaded',
+        })
+        .toBe(403);
+    });
+
+    test.afterAll(async () => {
+      if (proxyUuid) {
+        await deleteProxyHost(requestContext, proxyUuid);
+      }
+      if (aclUuid) {
+        await deleteAccessList(requestContext, aclUuid);
+      }
+      await proxyContext.dispose();
+    });
+
+    test('should refuse a client outside the listed countries and report the GeoIP database state', async () => {
+      await test.step('Refused with the geographic body', async () => {
+        const response = await fetchThroughProxy(proxyContext, domain, '/');
+
+        expect(response.status()).toBe(403);
+        expect(await response.text()).toContain('Access denied: Geographic restriction');
+      });
+
+      await test.step('Status reports geoip_unavailable exactly when the database is not loaded', async () => {
+        // The e2e image bundles the GeoLite2 database when its download succeeds at build time. The database state
+        // decides which path answers, so the check reads it from the API instead of assuming it.
+        const geoipResponse = await requestContext.get('/api/v1/security/geoip/status');
+        expect(geoipResponse.ok()).toBe(true);
+        const { available } = (await geoipResponse.json()) as { available: boolean };
+
+        const statusResponse = await requestContext.get('/api/v1/security/status');
+        expect(statusResponse.ok()).toBe(true);
+        const status = (await statusResponse.json()) as { acl: { reason?: string } };
+
+        if (available) {
+          expect(status.acl).not.toHaveProperty('reason');
+        } else {
+          expect(status.acl.reason).toBe('geoip_unavailable');
+        }
+      });
+    });
+  });
+
   test.describe('Route handling on proxy hosts', () => {
     // An IP allow-list cannot express a non-listed runner here: the runner is
     // admin-whitelisted, and the proxy ACL merges the admin whitelist into every
@@ -236,44 +322,9 @@ test.describe('ACL Enforcement', () => {
     let selfProxyUuid: string;
     let selfProxyDomain: string;
 
-    /** Caddy proxy origin, derived the same way caddyProxyOrigin() does (no page here). */
-    function proxyOrigin(): string {
-      const url = new URL(APP_BASE_URL);
-      return `${url.protocol}//${url.hostname}:${process.env.PLAYWRIGHT_CADDY_PROXY_PORT || '80'}`;
-    }
-
     /** Send a request through the proxy hop with the given Host header. */
-    async function proxied(domain: string, path: string, method = 'GET') {
-      return proxyContext.fetch(`${proxyOrigin()}${path}`, {
-        method,
-        headers: { Host: domain },
-        data: method === 'POST' ? {} : undefined,
-        failOnStatusCode: false,
-        maxRedirects: 0,
-      });
-    }
-
-    async function createProxyHost(
-      domain: string,
-      forwardPort: number,
-      name: string,
-      accessListUuid: string
-    ): Promise<string> {
-      const response = await requestContext.post('/api/v1/proxy-hosts', {
-        data: {
-          domain_names: domain,
-          forward_host: '127.0.0.1',
-          forward_port: forwardPort,
-          forward_scheme: 'http',
-          websocket_support: false,
-          enabled: true,
-          name,
-          access_list_id: accessListUuid,
-        },
-      });
-      expect(response.ok(), `create proxy host ${domain}`).toBe(true);
-      const body = await response.json();
-      return body.uuid ?? body.id;
+    function proxied(domain: string, path: string, method = 'GET') {
+      return fetchThroughProxy(proxyContext, domain, path, method);
     }
 
     test.beforeAll(async () => {
@@ -281,25 +332,26 @@ test.describe('ACL Enforcement', () => {
 
       // Allow-list that only admits one country; the runner has no country, so it is
       // not on the list. Attached to both hosts.
-      const aclResponse = await requestContext.post('/api/v1/access-lists', {
-        data: {
-          name: `Route Handling Allow List ${Date.now()}`,
-          type: 'geo_whitelist',
-          country_codes: 'US',
-          enabled: true,
-        },
-      });
-      expect(aclResponse.ok(), 'create allow list').toBe(true);
-      aclUuid = (await aclResponse.json()).uuid;
+      aclUuid = await createCountryAllowList(requestContext, `Route Handling Allow List ${Date.now()}`);
 
       // Plain allow-listed host: upstream is a port nothing listens on, so any
       // request that gets past the ACL would fail upstream with 502.
       allowListedDomain = `route-allow-${Date.now()}.example.test`;
-      allowListedProxyUuid = await createProxyHost(allowListedDomain, 3001, 'Allow-listed host', aclUuid);
+      allowListedProxyUuid = await createProxyHost(requestContext, {
+        domain: allowListedDomain,
+        forwardPort: 3001,
+        name: 'Allow-listed host',
+        accessListUuid: aclUuid,
+      });
 
       // Self-proxy host: upstream is Charon's own listener.
       selfProxyDomain = `route-self-${Date.now()}.example.test`;
-      selfProxyUuid = await createProxyHost(selfProxyDomain, 8080, 'Self-proxy host', aclUuid);
+      selfProxyUuid = await createProxyHost(requestContext, {
+        domain: selfProxyDomain,
+        forwardPort: 8080,
+        name: 'Self-proxy host',
+        accessListUuid: aclUuid,
+      });
 
       // Wait for both routes to be loaded by the proxy. The ACL answers 403 on '/'.
       for (const domain of [allowListedDomain, selfProxyDomain]) {
@@ -315,11 +367,11 @@ test.describe('ACL Enforcement', () => {
     test.afterAll(async () => {
       for (const uuid of [selfProxyUuid, allowListedProxyUuid]) {
         if (uuid) {
-          await requestContext.delete(`/api/v1/proxy-hosts/${uuid}`);
+          await deleteProxyHost(requestContext, uuid);
         }
       }
       if (aclUuid) {
-        await requestContext.delete(`/api/v1/access-lists/${aclUuid}`);
+        await deleteAccessList(requestContext, aclUuid);
       }
       await proxyContext.dispose();
     });

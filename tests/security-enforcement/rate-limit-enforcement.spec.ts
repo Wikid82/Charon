@@ -22,6 +22,16 @@ import {
   restoreSecurityState,
   SecurityStateSnapshot,
 } from '../utils/security-helpers';
+import { saveConfig } from '../utils/security-settings-api';
+import {
+  PROFILE_HEADER_EXPECTATIONS,
+  createHeaderProfile,
+  createProxyHost,
+  deleteHeaderProfile,
+  deleteProxyHost,
+  fetchThroughProxy,
+  type HeaderProfile,
+} from '../utils/proxy-refusal-helpers';
 
 /**
  * Configure admin whitelist to allow test runner IPs.
@@ -211,5 +221,62 @@ test.describe('Rate Limit Enforcement', () => {
     console.log(
       'Rate limiting configured - threshold enforcement active at Caddy layer'
     );
+  });
+
+  test.describe('Headers on rate limited responses', () => {
+    // Small enough that a few proxied requests from the runner exhaust it within the window.
+    const RATE_LIMIT_REQUESTS = 2;
+    const domain = `refusal-headers-429-${Date.now()}.example.test`;
+    let proxyContext: APIRequestContext;
+    let profile: HeaderProfile;
+    let proxyUuid: string;
+
+    test.beforeAll(async () => {
+      proxyContext = await request.newContext();
+      profile = await createHeaderProfile(requestContext, `Rate Limit Headers ${Date.now()}`);
+      proxyUuid = await createProxyHost(requestContext, {
+        domain,
+        // Nothing listens here: requests under the limit fail upstream with 502, requests over it are refused first.
+        forwardPort: 3001,
+        name: 'Rate limit headers host',
+        headerProfileUuid: profile.uuid,
+      });
+      await saveConfig(requestContext, {
+        name: 'default',
+        rate_limit_requests: RATE_LIMIT_REQUESTS,
+        rate_limit_window_sec: 60,
+      });
+    });
+
+    test.afterAll(async () => {
+      if (proxyUuid) {
+        await deleteProxyHost(requestContext, proxyUuid);
+      }
+      if (profile) {
+        await deleteHeaderProfile(requestContext, profile);
+      }
+      await proxyContext.dispose();
+    });
+
+    test('should send the profile security headers with a rate limit refusal', async () => {
+      let refusedHeaders: Record<string, string> | undefined;
+
+      // Requests are sent until the limit is exceeded once the route is loaded. The rate limit answers 429 on the
+      // first request past the limit, so this polls rather than assuming a fixed number of requests.
+      await expect
+        .poll(
+          async () => {
+            const response = await fetchThroughProxy(proxyContext, domain, '/');
+            if (response.status() === 429) {
+              refusedHeaders = response.headers();
+            }
+            return response.status();
+          },
+          { timeout: 30_000, message: 'rate limit should refuse requests over the limit' }
+        )
+        .toBe(429);
+
+      expect(refusedHeaders).toMatchObject(PROFILE_HEADER_EXPECTATIONS);
+    });
   });
 });
