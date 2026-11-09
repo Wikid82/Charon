@@ -6,6 +6,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -31,6 +32,14 @@ const serverShutdownGracePeriod = "5s"
 // crowdSecNoKeyWarning is logged once per generated config when CrowdSec is on
 // but no bouncer key exists yet, so CrowdSec is left out of the proxy config.
 const crowdSecNoKeyWarning = "CrowdSec is on but no bouncer key exists yet; CrowdSec is left out of the proxy configuration until a key is saved"
+
+// resetRecoveryPaths are the only paths the recovery route for the reset endpoint
+// matches. They are exact paths with no wildcard, so nothing under the prefix
+// (token endpoints included) takes the route.
+var resetRecoveryPaths = []string{
+	"/api/v1/emergency/security-reset",
+	"/emergency/security-reset",
+}
 
 // GenerateConfig creates a Caddy JSON configuration from proxy hosts.
 // This is the core transformation layer from our database model to Caddy config.
@@ -662,31 +671,31 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		// Build main handlers: security pre-handlers, other host-level handlers, then reverse proxy
 		// Determine if standard headers should be enabled (default true if nil)
 		enableStdHeaders := host.EnableStandardHeaders == nil || *host.EnableStandardHeaders
-		emergencyPaths := []string{
-			"/api/v1/emergency/security-reset",
-			"/api/v1/emergency/*",
-			"/emergency/security-reset",
-			"/emergency/*",
-		}
-		emergencyHandlers := append(append([]Handler{}, handlers...), resolvedOpts.proxyHandler(dial, resolvedOpts.isRemoteHost(host.UUID), host.Application, enableStdHeaders))
-		emergencyRoute := &Route{
-			Match: []Match{
-				{
-					Host: uniqueDomains,
-					Path: emergencyPaths,
+		// Recovery route for the reset endpoint. It skips the security pre-handlers,
+		// so it is emitted only for a host whose upstream is Charon itself, and it
+		// matches the exact reset paths only. The reset endpoint performs its own
+		// token and management-network checks.
+		if resolvedOpts.selfHop.isSelfUpstream(dial, resolvedOpts.isRemoteHost(host.UUID)) {
+			recoveryHandlers := append(append([]Handler{}, handlers...), resolvedOpts.proxyHandler(dial, resolvedOpts.isRemoteHost(host.UUID), host.Application, enableStdHeaders))
+			recoveryRoute := &Route{
+				Match: []Match{
+					{
+						Host: uniqueDomains,
+						Path: slices.Clone(resetRecoveryPaths),
+					},
 				},
-			},
-			Handle:   emergencyHandlers,
-			Terminal: true,
+				Handle:   recoveryHandlers,
+				Terminal: true,
+			}
+			logger.Log().WithFields(map[string]any{
+				"host_id":        host.ID,
+				"host_uuid":      host.UUID,
+				"unique_domains": uniqueDomains,
+				"has_paths":      true,
+				"path_count":     len(resetRecoveryPaths),
+			}).Debug("[CONFIG DEBUG] Creating recovery route for the reset endpoint")
+			routes = append(routes, recoveryRoute)
 		}
-		logger.Log().WithFields(map[string]any{
-			"host_id":        host.ID,
-			"host_uuid":      host.UUID,
-			"unique_domains": uniqueDomains,
-			"has_paths":      true,
-			"path_count":     len(emergencyPaths),
-		}).Debug("[CONFIG DEBUG] Creating EMERGENCY route")
-		routes = append(routes, emergencyRoute)
 
 		mainHandlers := append(append([]Handler{}, securityHandlers...), handlers...)
 		mainHandlers = append(mainHandlers, resolvedOpts.proxyHandler(dial, resolvedOpts.isRemoteHost(host.UUID), host.Application, enableStdHeaders))

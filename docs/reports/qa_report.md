@@ -1,87 +1,77 @@
-# QA Report: Single-Backup Bulk Certificate Delete
+# QA Report: Route Handling in the Proxy Layer
 
-- Branch: `fix/cert-bulk-delete-single-backup` (3 commits over `development` `9765dce2b`, HEAD `08870cca9`)
-- Scope: new admin-only `POST /api/v1/certificates/bulk-delete`, refactor of `CertificateHandler.Delete`, frontend `bulkDeleteCertificates` client, `useBulkDeleteCertificates` hook, and ProxyHosts orphaned-certificate cleanup.
-- Change type: `fix:` with no new feature surface. CodeQL and Trivy are deferred to CI per `CLAUDE.md`.
-- Date: 2026-11-07
+- Branch: `fix/proxy-route-handling` (3 commits over `origin/development` `d7a3af60a`, HEAD `17eef751c`)
+- Scope: how the proxy configuration generator builds routes for a proxy host (`backend/internal/caddy/config.go`), the unit tests that pin those routes, one Playwright case in `tests/security-enforcement/acl-enforcement.spec.ts`, and the matching `ARCHITECTURE.md` section.
+- Change type: `fix:` (security scope). CodeQL Go was run locally as the spec requires; Trivy is deferred to CI (no dependency or image input changed).
+- Date: 2026-11-09
 
 ## Verdict
 
-**PASS. No blockers.** All gates run locally passed. Findings below are low severity or informational.
+**PASS. No blockers.** Every gate run locally passed.
+
+## Generated Routes (behaviour)
+
+For each enabled proxy host the generator now emits:
+
+1. One route per custom location, matching the location path. Handlers: security pre-handlers, host-level handlers, then the reverse proxy.
+2. **Only when the host's main upstream is Charon itself** (same detection the generator already uses for the proxy hop headers; upstreams marked remote never qualify): a recovery route matching exactly `/api/v1/emergency/security-reset` and `/emergency/security-reset`, with no wildcard. Handlers: host-level handlers, then the reverse proxy. The reset endpoint performs its own token and management-network checks.
+3. The main route, matching the host with no path matcher. Handlers: security pre-handlers, host-level handlers, then the reverse proxy.
+
+Every other path, including everything else under `/emergency/` and `/api/v1/emergency/` (token endpoints included), is served by the main route or a location route and runs the security pre-handlers first. Hosts whose upstream is not Charon get no recovery route.
+
+Route table observed in the throwaway container (three hosts: allow-listed host, allow-listed host proxying Charon, WAF-only host):
+
+| Host | Path matcher | Handlers |
+|---|---|---|
+| WAF-only host | none | waf, headers, headers, vars, reverse_proxy |
+| Host proxying Charon | `/api/v1/emergency/security-reset`, `/emergency/security-reset` | headers, headers, vars, reverse_proxy |
+| Host proxying Charon | none | waf, access list, headers, headers, vars, reverse_proxy |
+| Allow-listed host | none | waf, access list, headers, headers, vars, reverse_proxy |
 
 ## Gate Results
 
 | Gate | Result | Evidence |
 |---|---|---|
-| GORM security scan | Skipped (not triggered) | No changes under `backend/internal/models/**`, no new GORM queries or migrations |
-| Backend coverage (`scripts/go-test-coverage.sh`) | PASS | Statement 93.2%, line 92.1% (gate 87%). `internal/api/handlers` ran fresh (not cached): 92.3%. Zero failures |
-| `go build ./...` | PASS | Clean |
-| `go vet ./internal/api/...` | PASS | Clean |
+| Diff review against the design (spec section 3, D1) | PASS | Recovery route only behind the self-upstream check; exact paths from one `resetRecoveryPaths` list; locations and main route unchanged and still start with the security pre-handlers; remote and agent upstreams excluded by the existing remote flag; redirect and location tests updated, not removed |
+| `go build ./...`, `go vet ./...` | PASS | Clean |
+| `go test ./internal/caddy/... ./internal/api/... ./internal/cerberus/... -count=1` | PASS | All packages `ok` (see note on one non-reproducible handlers failure below) |
+| Backend coverage (`scripts/go-test-coverage.sh`) | PASS | Statement 93.2%, line 92.1% (gate 87%). Zero failures |
+| Local patch coverage (`scripts/local-patch-report.sh`, strict) | PASS | Backend 100% (20/20 changed lines), overall 100% |
 | `make lint-fast` | PASS | 0 issues (backend and agent) |
-| Frontend coverage (`scripts/frontend-test-coverage.sh`) | PASS | 328 files, 4332 tests passed (2 todo). Lines 92.5%, statements 91.6%, branches 86.31% |
-| `npm run type-check` | PASS | Clean |
-| `npm run build` | PASS | Built |
-| Local patch coverage (`scripts/local-patch-report.sh`, strict) | PASS | Overall 95.2% (100/105), backend 94.7% (89/94), frontend 100% (11/11) |
-| Targeted E2E (`tests/certificate-bulk-delete.spec.ts`) | Deferred to CI | Requires a rebuilt E2E container for the new route; Docker was out of scope for this run |
-| CodeQL / Trivy | Deferred to CI | `fix:`-scoped change |
+| `make lint-backend` (golangci-lint v2.15.0, full) | PASS | 0 issues |
+| GORM security scan | Not triggered | No model, query or migration changes |
+| CodeQL Go (local, CLI 2.27.2, `go-security-and-quality`) | PASS | 4 results, all matched by non-expired entries in `.github/codeql/codeql-suppressions.yml`; 0 blocking; extraction parity 394/394. None in the diff |
+| Container gate (throwaway container built from this branch, own network, loopback-only ports, removed afterwards) | PASS | See below |
+| Playwright `acl-enforcement.spec.ts --project=security-tests --retries=0` | PASS | 9 passed (5.2 s) |
+| `npm run lint:e2e` | PASS | 124 warnings, 0 errors (budget 124); none in the touched spec |
 
-Coverage freshness: HEAD commit time 2026-11-07 03:39:23 UTC. `backend/coverage.txt` written 03:52:18 UTC and `frontend/coverage/lcov.info` written 04:05:54 UTC, both after HEAD, so the patch report used fresh coverage. Patch baseline `origin/development...HEAD`; `origin/development` equals local `development` and the merge base.
+### Container gate
 
-## Patch Coverage Gaps (non-blocking)
+Requests were sent from a separate container whose address is on no list.
 
-| File | Uncovered lines | What they are |
+| Check | Request | Result |
 |---|---|---|
-| `backend/internal/api/handlers/certificate_handler.go` | 469-471 | `Delete` (UUID path): `DeleteCertificate` returns an error after the usage check passed |
-| `backend/internal/api/handlers/certificate_handler.go` | 535-536 | `respondCertificateDeleteError` default branch (generic 500 "failed to delete certificate") |
+| (a) Allow-listed host refuses a non-listed client | `/`, `/emergency/x`, `/emergency/..;/admin`, `/api/v1/emergency/token/x`, `POST /api/v1/emergency/security-reset`, `POST /emergency/security-reset` | 403 on every path |
+| (b) Host proxying Charon, other paths | `/`, `/emergency/x`, `/emergency/..;/admin`, `/api/v1/emergency/token/x`, `/api/v1/emergency/token/status` | 403 on every path |
+| (b) Host proxying Charon, reset path without a token | `POST /api/v1/emergency/security-reset` | 401 from the reset handler |
+| (b) Host proxying Charon, reset path with a valid token | `POST /api/v1/emergency/security-reset` | 200; modules disabled as expected; the allow-listed host then stops refusing |
+| (b) Host proxying Charon, trailing-slash form | `POST /api/v1/emergency/security-reset/` | 403 (main route) |
+| (c) WAF host, test payload under the prefix | `/emergency/x?q=<probe>`, `/api/v1/emergency/<probe>`, `POST /api/v1/emergency/security-reset?q=<probe>` | 403 on every path; `/` without the payload reaches the (absent) upstream: 502 |
 
-Both are the race/DB-failure branch of single delete (a host gets assigned, or the row vanishes, or the DB fails, between the usage check and the conditional delete). Recommended test: in a `Delete` test, use the existing `gormfault` test helper (or a callback that fails the `Delete` on `ssl_certificates`) so `IsCertificateInUseByUUID` succeeds and `DeleteCertificate` fails, then assert 500 `{"error":"failed to delete certificate"}` and that the raw DB error is not in the body.
+On the host proxying Charon, the exact reset path is answered by Charon itself (route 2 above), so it is not subject to the proxy WAF or access list on that one host; the endpoint's own checks apply. This is the approved design (D1).
 
-## Security Review
+## CodeQL suppression re-review (D11)
 
-### Authorization: PASS
-- `routes.go:1151` registers `POST /certificates/bulk-delete` on the authenticated `management` group with `middleware.RequireRole(models.RoleAdmin)`, matching single `DELETE /certificates/:uuid`.
-- The static `bulk-delete` segment does not collide with `/:uuid` routes (POST `/:uuid/export` has an extra segment); route registration ran in the backend suite without panic.
-- `TestBulkDeleteCertificates_RoleGating` confirms a `user` role gets 403, no backup is taken, and nothing is deleted.
+| Rule | Location | Review by | Verdict |
+|---|---|---|---|
+| `go/cookie-secure-not-set` | `backend/internal/api/handlers/auth_handler.go:201` | 2026-12-05 | Still justified. `Secure` is false only for a plain-HTTP request whose connecting peer is local or private; every other request gets `Secure=true`. Behaviour and doc comment unchanged |
+| `go/log-injection` (two taint paths, one sink) | `backend/internal/api/handlers/remote_server_handler.go:148` | 2026-11-27 | Still justified. The logged value is a `uint` ID; `RemoteServer.ID` is `json:"-"`, so the request body cannot set it |
+| `go/log-injection` | `backend/internal/services/uptime_service.go:1551` | 2026-11-27 | Still justified. Logs the `uint remoteServerID` argument only |
 
-### Input validation: PASS
-- Body bound to a typed struct; bind errors return a fixed `{"error":"invalid request"}` (no decoder text).
-- 1 to 200 entries enforced (`maxBulkDeleteCertificates`); each entry parsed with `uuid.Parse` and canonicalized; duplicates (including case variants) dropped while keeping order. Numeric IDs are rejected, consistent with the UUID-only rule.
-- Validation failures return before the backup, so a bad request cannot trigger a backup.
+None has expired. Two entries reach their review date on 2026-11-27 and need renewal (or a fix) before then.
 
-### No raw error text in responses: PASS
-- 400 messages come from fixed sentinel errors (`errBulkDeleteCount`, `errBulkDeleteUUID`).
-- Per-certificate failures map to the fixed enum `in_use` / `not_found` / `error`; `TestBulkDeleteCertificates_UsageCheckErrorReportsGenericError` asserts the SQLite "no such table" text does not leak.
-- Backup and disk-space failures reuse the existing fixed messages.
+## Notes
 
-### Log injection: PASS
-- Every log field carrying a UUID goes through `util.SanitizeForLog`, and the values are already canonical UUIDs from `uuid.Parse`. `reason` is from a fixed set. `sendDeleteNotification` re-validates via `sanitizeCertRef`.
-
-### DoS bounds: PASS with one low finding
-- Work per request is capped at 200 certificates and one backup. The backup service's non-blocking lock still prevents concurrent backups.
-- **QA-1 (Low):** the handler does not cap the request body size before decoding. The 200-entry limit is checked only after the whole JSON body has been read, so an authenticated admin can make the server buffer an arbitrarily large body. No global body limit exists in the server, and most JSON handlers share this gap, so the risk is small (admin-only, authenticated). Remediation: wrap `c.Request.Body` with `http.MaxBytesReader` (for example 64 KiB, which is ample for 200 UUIDs) before `ShouldBindJSON`, the same pattern as `crowdsec_body_limit.go`. A server-wide default JSON body limit would close it for every handler.
-
-### `Delete` behavior unchanged: PASS
-- Numeric-ID path: same order (usage check, backup, delete), same status codes and messages; the backup block moved into `backupBeforeDelete` unchanged.
-- UUID path: usage check still runs before the backup; 404 / 409 / 500 "failed to check certificate usage" / 507 / 500 backup / 404, 409, 500 on delete map to the same statuses and messages as before via `respondCertificateDeleteError`. `errors.Is` works through the `%w: %w` wrap (Go 1.20+).
-- Only difference: the UUID path's low-disk branch now logs a warning it previously did not. No response change.
-
-## Informational Findings (no action required for this PR)
-
-- **QA-2 (Info):** `BulkDelete` takes the backup before the per-certificate usage checks, so a batch where every certificate is in use or missing still takes a backup. Single delete checks usage first. Acceptable trade-off (one backup per batch); a pre-pass that skips the backup when nothing is deletable would avoid wasted backups.
-- **QA-3 (Low):** neither the certificates page bulk action (`useBulkDeleteCertificates`) nor the ProxyHosts cleanup splits selections larger than 200. Above 200 the request returns 400 and the whole batch is reported as failed, with nothing deleted. Remediation: chunk into groups of 200 in `bulkDeleteCertificates` (one backup per chunk), or cap selection in the UI.
-- **QA-4 (Info):** one external "Certificate Deleted" notification is still sent per deleted certificate (up to 200 per request). This matches the old sequential behavior; a single summary notification for a batch would be quieter.
-
-## Documentation Review (`docs/api.md`)
-
-The new "Bulk Delete Certificates" section matches the code: path, admin-only POST, request shape, 1 to 200 UUID limit, duplicate handling, response shape with `deleted` and `failed` arrays (both always arrays), reason enum, and the exact 400 / 500 / 507 messages.
-
-- **QA-5 (Low, docs):** the new section was inserted between the single "Delete Certificate" responses and that section's trailing paragraph, "**Note:** A backup is automatically created before deletion. The certificate files are removed from disk along with the database record." That note now reads as part of the bulk section. Move it back above `#### Bulk Delete Certificates`.
-- Minor gaps: the section does not say the endpoint is admin-only (403 for other roles), and does not mention that UUIDs are returned in canonical lowercase form.
-
-## Gotify Token Review
-
-No Gotify tokens, notification URLs, or secrets appear in the changed code, tests, or docs.
-
-## Blockers
-
-None.
+- **Non-reproducible test failure:** the first scoped run reported `FAIL` for `internal/api/handlers` (209 s) without the failing test in the captured tail. The package then passed twice (a standalone rerun and the full coverage run). The package has no changes in this branch. Recorded for follow-up if it recurs.
+- **Branch base moved during the run:** the branch was rebased onto `origin/development` (`d7a3af60a`). The only tree difference from the earlier HEAD is one CI skill script, so results apply to the current HEAD.
+- **Wording:** commit subjects, the commit bodies (empty), code comments, test names and this report describe behaviour only.

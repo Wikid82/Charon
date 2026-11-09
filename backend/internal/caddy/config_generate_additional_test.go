@@ -118,7 +118,7 @@ func TestGenerateConfig_ACLHandlerIncluded(t *testing.T) {
 	require.NoError(t, err)
 	server := cfg.Apps.HTTP.Servers["charon_server"]
 	require.NotNil(t, server)
-	route := server.Routes[1] // Main route is at index 1 (after emergency route)
+	route := server.Routes[0] // Main route is at index 0 (no emergency route for a non-Charon upstream)
 
 	// Extract handler names
 	names := []string{}
@@ -144,7 +144,7 @@ func TestGenerateConfig_DecisionsBlockWithAdminExclusion(t *testing.T) {
 	dec := models.SecurityDecision{Action: "block", IP: "1.2.3.4"}
 	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, false, "10.0.0.1/32", nil, nil, []models.SecurityDecision{dec}, nil, nil)
 	require.NoError(t, err)
-	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[1] // Main route is at index 1
+	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0] // Main route is at index 0
 	b, _ := json.MarshalIndent(route.Handle, "", "  ")
 	t.Logf("handles: %s", string(b))
 	// Expect first security handler is a subroute that includes both remote_ip and a 'not' exclusion for adminWhitelist
@@ -176,7 +176,7 @@ func TestGenerateConfig_WAFModeAndRulesetReference(t *testing.T) {
 	require.NoError(t, err)
 	// Since a ruleset name was requested but none exists, NO waf handler should be created
 	// (Bug fix: don't create a no-op WAF handler without directives)
-	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[1] // Main route after emergency
+	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0] // Main route
 	for _, h := range route.Handle {
 		if hn, ok := h["handler"].(string); ok && hn == "waf" {
 			t.Fatalf("expected NO waf handler when referenced ruleset does not exist, but found: %v", h)
@@ -189,7 +189,7 @@ func TestGenerateConfig_WAFModeAndRulesetReference(t *testing.T) {
 	sec2 := &models.SecurityConfig{WAFMode: "block", WAFLearning: true}
 	cfg2, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", rulesets, rulesetPaths, nil, sec2, nil)
 	require.NoError(t, err)
-	route2 := cfg2.Apps.HTTP.Servers["charon_server"].Routes[1] // Main route
+	route2 := cfg2.Apps.HTTP.Servers["charon_server"].Routes[0] // Main route
 	monitorFound := false
 	for _, h := range route2.Handle {
 		if hn, ok := h["handler"].(string); ok && hn == "waf" {
@@ -204,7 +204,7 @@ func TestGenerateConfig_WAFModeDisabledSkipsHandler(t *testing.T) {
 	sec := &models.SecurityConfig{WAFMode: "disabled", WAFRulesSource: "owasp-crs"}
 	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", nil, nil, nil, sec, nil)
 	require.NoError(t, err)
-	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[1] // Main route after emergency
+	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0] // Main route
 	for _, h := range route.Handle {
 		if hn, ok := h["handler"].(string); ok && hn == "waf" {
 			t.Fatalf("expected NO waf handler when WAFMode disabled, found: %v", h)
@@ -219,7 +219,7 @@ func TestGenerateConfig_WAFSelectedSetsContentAndMode(t *testing.T) {
 	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp-crs.conf"}
 	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", []models.SecurityRuleSet{rs}, rulesetPaths, nil, sec, nil)
 	require.NoError(t, err)
-	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[1] // Main route after emergency
+	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0] // Main route
 	found := false
 	for _, h := range route.Handle {
 		if hn, ok := h["handler"].(string); ok && hn == "waf" {
@@ -238,7 +238,7 @@ func TestGenerateConfig_DecisionAdminPartsEmpty(t *testing.T) {
 	// Provide an adminWhitelist with an empty segment to trigger p == ""
 	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, false, ", 10.0.0.1/32", nil, nil, []models.SecurityDecision{dec}, nil, nil)
 	require.NoError(t, err)
-	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[1] // Main route is at index 1
+	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0] // Main route is at index 0
 	found := false
 	for _, h := range route.Handle {
 		b, _ := json.Marshal(h)
@@ -275,7 +275,7 @@ func TestGenerateConfig_WAFUsesRuleSet(t *testing.T) {
 	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp-crs.conf"}
 	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", []models.SecurityRuleSet{rs}, rulesetPaths, nil, nil, nil)
 	require.NoError(t, err)
-	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[1] // Main route after emergency
+	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0] // Main route
 	// check waf handler present with directives containing Include
 	found := false
 	for _, h := range route.Handle {
@@ -299,7 +299,7 @@ func TestGenerateConfig_WAFUsesRuleSetFromAdvancedConfig(t *testing.T) {
 	rulesetPaths := map[string]string{"host-rs": "/tmp/host-rs.conf"}
 	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", []models.SecurityRuleSet{rs}, rulesetPaths, nil, nil, nil)
 	require.NoError(t, err)
-	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[1] // Main route after emergency
+	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0] // Main route
 	// check waf handler present with directives containing Include from host AdvancedConfig
 	found := false
 	for _, h := range route.Handle {
@@ -320,7 +320,7 @@ func TestGenerateConfig_WAFUsesRuleSetFromAdvancedConfig_Array(t *testing.T) {
 	rulesetPaths := map[string]string{"host-rs-array": "/tmp/host-rs-array.conf"}
 	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", []models.SecurityRuleSet{rs}, rulesetPaths, nil, nil, nil)
 	require.NoError(t, err)
-	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[1] // Main route after emergency
+	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0] // Main route
 	// check waf handler present with directives containing Include from host AdvancedConfig array
 	found := false
 	for _, h := range route.Handle {
@@ -345,7 +345,7 @@ func TestGenerateConfig_WAFUsesRulesetFromSecCfgFallback(t *testing.T) {
 	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, true, false, false, "", nil, rulesetPaths, nil, sec, nil)
 	require.NoError(t, err)
 	// since secCfg requested owasp-crs and we have a path, the waf handler should include the path in directives
-	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[1] // Main route after emergency
+	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0] // Main route
 	found := false
 	for _, h := range route.Handle {
 		if hn, ok := h["handler"].(string); ok && hn == "waf" {
@@ -363,7 +363,7 @@ func TestGenerateConfig_RateLimitFromSecCfg(t *testing.T) {
 	sec := &models.SecurityConfig{RateLimitRequests: 10, RateLimitWindowSec: 60, RateLimitBurst: 5}
 	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, true, false, "", nil, nil, nil, sec, nil)
 	require.NoError(t, err)
-	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[1] // Main route after emergency
+	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0] // Main route
 	found := false
 	for _, h := range route.Handle {
 		if hn, ok := h["handler"].(string); ok && hn == "rate_limit" {
@@ -402,7 +402,7 @@ func TestGenerateConfig_CrowdSecHandlerFromSecCfg(t *testing.T) {
 	require.Contains(t, server.TrustedProxies.Ranges, "172.16.0.0/12", "Should trust Docker networks")
 
 	// Check handler is minimal
-	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[1] // Main route after emergency
+	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0] // Main route
 	found := false
 	for _, h := range route.Handle {
 		if hn, ok := h["handler"].(string); ok && hn == "crowdsec" {

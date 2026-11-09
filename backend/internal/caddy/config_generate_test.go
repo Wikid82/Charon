@@ -94,14 +94,9 @@ func TestGenerateConfig_EmergencyRoutesBypassSecurity(t *testing.T) {
 		}
 	}
 
-	require.NotNil(t, emergencyRoute, "expected emergency bypass route")
-
-	for _, handler := range emergencyRoute.Handle {
-		name, _ := handler["handler"].(string)
-		require.NotEqual(t, "rate_limit", name)
-		require.NotEqual(t, "waf", name)
-		require.NotEqual(t, "crowdsec", name)
-	}
+	// The host does not proxy Charon, so it gets no recovery route. Security
+	// handlers therefore cannot be skipped for it on any path.
+	require.Nil(t, emergencyRoute, "a host that does not proxy Charon must not get a recovery route")
 }
 
 func TestApplyOptionalServerKeepalive_OmitsWhenUnset(t *testing.T) {

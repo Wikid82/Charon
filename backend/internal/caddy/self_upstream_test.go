@@ -112,7 +112,7 @@ func TestGenerateConfig_SelfHopHeadersOnlyOnSelfUpstream(t *testing.T) {
 		_, hasSecret := p.set[selfhop.HeaderSecret]
 		switch p.dial {
 		case "127.0.0.1:8080", "localhost:8080":
-			// u-self (main + emergency + location) and u-remote (never self).
+			// u-self (main + recovery + location) and u-remote (never self).
 			if hasSecret {
 				selfCount++
 				assert.Equal(t, []string{secret.Reveal()}, p.set[selfhop.HeaderSecret])
@@ -127,7 +127,7 @@ func TestGenerateConfig_SelfHopHeadersOnlyOnSelfUpstream(t *testing.T) {
 			assert.NotContains(t, p.set, selfhop.HeaderClient)
 		}
 	}
-	// main route, emergency route and one self location of u-self.
+	// main route, recovery route and one self location of u-self.
 	assert.Equal(t, 3, selfCount)
 	assert.Positive(t, otherCount)
 
@@ -272,8 +272,8 @@ func TestManager_ApplyConfig_SelfHopWiringAndSnapshotRedaction(t *testing.T) {
 			without++
 		}
 	}
-	assert.Equal(t, 2, withProof) // main + emergency route of the self host
-	assert.Equal(t, 2, without)   // main + emergency route of the agent host
+	assert.Equal(t, 2, withProof) // main + recovery route of the self host
+	assert.Equal(t, 1, without)   // main route of the agent host (no recovery route)
 
 	// Snapshots on disk never hold the secret.
 	entries, err := os.ReadDir(dir)
