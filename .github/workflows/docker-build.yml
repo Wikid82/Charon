@@ -68,7 +68,6 @@ env:
   TRIGGER_REF: ${{ github.event_name == 'workflow_run' && format('refs/heads/{0}', github.event.workflow_run.head_branch) || github.ref }}
   TRIGGER_HEAD_REF: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.head_ref }}
   TRIGGER_PR_NUMBER: ${{ github.event_name == 'pull_request' && format('{0}', github.event.pull_request.number) || '' }}
-  TRIGGER_ACTOR: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.actor.login || github.actor }}
   TRIGGER_BASE_REF: ${{ github.event_name == 'workflow_run' && '' || github.base_ref }}
 
 jobs:
@@ -132,7 +131,6 @@ jobs:
       - name: Determine skip condition
         id: skip
         env:
-          ACTOR: ${{ env.TRIGGER_ACTOR }}
           EVENT: ${{ env.TRIGGER_EVENT }}
           REF: ${{ env.TRIGGER_REF }}
           HEAD_REF: ${{ env.TRIGGER_HEAD_REF }}
@@ -141,16 +139,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           should_skip=false
-          pr_title=""
           force_refresh=false
           changed_files=""
-          head_msg=$(git log -1 --pretty=%s)
           if [ "$EVENT" = "pull_request" ] && [ -n "$PR_NUMBER" ]; then
-            pr_title=$(curl -sS \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${REPO}/pulls/${PR_NUMBER}" | jq -r '.title // empty')
-
             files_url="https://api.github.com/repos/${REPO}/pulls/${PR_NUMBER}/files?per_page=100&page=1"
             while [ -n "$files_url" ]; do
               response_file=$(mktemp)
@@ -188,18 +179,11 @@ jobs:
             force_refresh=true
           fi
 
-          if [ "$ACTOR" = "renovate[bot]" ]; then should_skip=true; fi
-          if echo "$head_msg" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
-          if echo "$head_msg" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
-          if echo "$pr_title" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
-          if echo "$pr_title" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
-
           if [[ "$force_refresh" == "true" ]]; then
             should_skip=false
             echo "Force refresh enabled due to Docker/security workflow changes"
           fi
-          # A manual dispatch is an explicit request to build: never let the
-          # head commit's `chore:` subject skip it.
+          # A manual dispatch is an explicit request to build.
           if [[ "$EVENT" == "workflow_dispatch" ]]; then
             should_skip=false
             echo "Manual dispatch: building regardless of head commit message"
