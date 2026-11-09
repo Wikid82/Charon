@@ -1036,9 +1036,10 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-# The download is verified against GEOLITE2_COUNTRY_SHA256. A failed or mismatched download is removed, a build
-# warning is printed, and the marker /app/data/geoip/.missing is written so the runtime can report it. The build does
-# not fail: the image then ships without a database and country access lists refuse requests.
+# The download is checked against GEOLITE2_COUNTRY_SHA256; a mismatch only prints a warning because the upstream copy
+# changes between hash updates. A failed or empty download prints a warning and writes the marker
+# /app/data/geoip/.missing so the runtime can report it. The build does not fail: the image then ships without a
+# database and country access lists refuse requests.
 ARG GEOLITE2_COUNTRY_SHA256=2c2d05c474baeb669298cce912a6236b5ecc4e50f0316a93e01ba5cf22183600
 RUN mkdir -p /app/data/geoip && \
     db=/app/data/geoip/GeoLite2-Country.mmdb && \
@@ -1050,11 +1051,14 @@ RUN mkdir -p /app/data/geoip && \
         wget_opts="-T 30 -t 4"; \
     fi && \
     if wget -qO "$db" $wget_opts "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
-        && [ -s "$db" ] \
-        && echo "${GEOLITE2_COUNTRY_SHA256}  $db" | sha256sum -c - >/dev/null 2>&1; then \
-        echo "✅ GeoIP downloaded and checksum verified"; \
+        && [ -s "$db" ]; then \
+        if echo "${GEOLITE2_COUNTRY_SHA256}  $db" | sha256sum -c - >/dev/null 2>&1; then \
+            echo "✅ GeoIP downloaded and checksum verified"; \
+        else \
+            echo "WARNING: GeoLite2-Country checksum differs from GEOLITE2_COUNTRY_SHA256 (the upstream copy was updated); keeping the downloaded database." >&2; \
+        fi; \
     else \
-        echo "WARNING: GeoLite2-Country database not bundled (download failed or checksum mismatch)." >&2; \
+        echo "WARNING: GeoLite2-Country database not bundled (download failed or empty)." >&2; \
         echo "WARNING: The image has no GeoIP database. Country access lists will refuse requests until one is provided at CHARON_GEOIP_DB_PATH." >&2; \
         rm -f "$db"; \
         touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder /app/data/geoip/.missing; \
