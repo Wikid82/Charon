@@ -1001,10 +1001,13 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 
 	if isCountryList(acl) {
 		// Geo-blocking using caddy-geoip2
-		countryCodes := strings.Split(acl.CountryCodes, ",")
+		// Legacy rows may hold codes in any case; the matcher compares against upper-case ISO codes.
 		var trimmedCodes []string
-		for _, code := range countryCodes {
-			trimmedCodes = append(trimmedCodes, `"`+strings.TrimSpace(code)+`"`)
+		for _, code := range strings.Split(models.NormalizeCountryCodes(acl.CountryCodes), ",") {
+			if code == "" {
+				continue
+			}
+			trimmedCodes = append(trimmedCodes, `"`+code+`"`)
 		}
 
 		var expression string

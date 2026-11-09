@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
@@ -14,14 +15,38 @@ import (
 
 // AccessListHandler handles access list API requests.
 type AccessListHandler struct {
-	service *services.AccessListService
+	service      *services.AccessListService
+	caddyManager CaddyConfigManager
 }
 
-// NewAccessListHandler creates a new AccessListHandler.
+// NewAccessListHandler creates a new AccessListHandler without proxy apply, for callers that only manage lists.
 func NewAccessListHandler(db *gorm.DB) *AccessListHandler {
+	return NewAccessListHandlerWithDeps(db, nil)
+}
+
+// NewAccessListHandlerWithDeps creates an AccessListHandler that re-applies the proxy config when an edit reaches a
+// list that hosts use.
+func NewAccessListHandlerWithDeps(db *gorm.DB, caddyManager CaddyConfigManager) *AccessListHandler {
 	return &AccessListHandler{
-		service: services.NewAccessListService(db),
+		service:      services.NewAccessListService(db),
+		caddyManager: nilIfTypedNil(caddyManager),
 	}
+}
+
+// applyIfInUse re-applies the proxy config after a change to a list. A list no host uses is not part of the proxy
+// config, so nothing is applied for it. It returns the apply error, if any.
+func (h *AccessListHandler) applyIfInUse(c *gin.Context, aclID uint) error {
+	if h.caddyManager == nil {
+		return nil
+	}
+	inUse, err := h.service.InUse(aclID)
+	if err != nil {
+		return err
+	}
+	if !inUse {
+		return nil
+	}
+	return applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout)
 }
 
 // SetGeoIPService sets the GeoIP service for geo-based ACL lookups.
@@ -132,6 +157,13 @@ func (h *AccessListHandler) Update(c *gin.Context) {
 			return
 		}
 		respondAccessListSaveError(c, err)
+		return
+	}
+
+	// The edit is saved at this point; an apply failure is reported, and the next apply picks the saved rules up.
+	if err = h.applyIfInUse(c, acl.ID); err != nil {
+		middleware.GetRequestLogger(c).WithError(err).Warn("failed to apply proxy config after access list update")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "saved, but applying the configuration failed"})
 		return
 	}
 

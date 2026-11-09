@@ -22,7 +22,15 @@ import (
 // minimalCountryMMDB returns the smallest MaxMind DB the reader accepts: an empty search tree, the data separator and
 // one metadata map that names a country database. It holds no addresses, so every lookup finds nothing.
 func minimalCountryMMDB() []byte {
-	str := func(s string) []byte { return append([]byte{0x40 | byte(len(s))}, s...) }
+	// MaxMind strings with a one-byte size header hold at most 28 bytes; the guard keeps the byte conversion safe.
+	const maxOneByteSize = 28
+	str := func(s string) []byte {
+		n := len(s)
+		if n < 0 || n > maxOneByteSize {
+			panic("minimalCountryMMDB: string exceeds one-byte size header")
+		}
+		return append([]byte{0x40 | byte(n)}, s...)
+	}
 	uint16Value := func(v uint16) []byte {
 		b := make([]byte, 2)
 		binary.BigEndian.PutUint16(b, v)
@@ -115,4 +123,37 @@ func TestSecurityHandler_ReloadGeoIP_LoadFailureSkipsApply(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.Equal(t, 0, mgr.calls, "a failed reload does not apply")
+}
+
+func TestSecurityHandler_ReloadGeoIP_InitialisesServiceAddedAfterStartup(t *testing.T) {
+	// Startup without a database: the service exists but is not loaded.
+	path := filepath.Join(t.TempDir(), "GeoLite2-Country.mmdb")
+	svc := services.NewUnloadedGeoIPService(path)
+	mgr := &countingCaddyManager{}
+	h := NewSecurityHandler(config.SecurityConfig{}, openGeoIPReasonTestDB(t), mgr)
+	h.SetGeoIPService(svc)
+
+	w := httptest.NewRecorder()
+	reloadGeoIPRouter(h).ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/security/geoip/reload", bytes.NewReader(nil)))
+	require.Equal(t, http.StatusInternalServerError, w.Code, "reload fails while the file is missing")
+	require.Equal(t, 0, mgr.calls)
+
+	// The operator adds the database; the reload loads it and applies the proxy config.
+	require.NoError(t, os.WriteFile(path, minimalCountryMMDB(), 0o600))
+	t.Cleanup(func() { _ = svc.Close() })
+
+	w = httptest.NewRecorder()
+	reloadGeoIPRouter(h).ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/security/geoip/reload", bytes.NewReader(nil)))
+	require.Equal(t, http.StatusOK, w.Code)
+	require.Equal(t, 1, mgr.calls)
+	require.True(t, svc.IsLoaded())
+
+	statusW := httptest.NewRecorder()
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.GET("/security/geoip/status", h.GetGeoIPStatus)
+	r.ServeHTTP(statusW, httptest.NewRequest(http.MethodGet, "/security/geoip/status", http.NoBody))
+	require.Equal(t, http.StatusOK, statusW.Code)
+	require.Contains(t, statusW.Body.String(), `"available":true`)
+	require.Contains(t, statusW.Body.String(), `"message":"GeoIP service available"`)
 }

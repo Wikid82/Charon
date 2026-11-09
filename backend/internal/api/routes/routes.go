@@ -944,11 +944,11 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 			geoipPath = "/app/data/geoip/GeoLite2-Country.mmdb"
 		}
 
-		var geoipSvc *services.GeoIPService
+		// The service always exists, even without a database file, so a database added later is loaded by
+		// POST /security/geoip/reload and every consumer (including the proxy state) sees the same live service.
+		geoipSvc := services.NewUnloadedGeoIPService(geoipPath)
 		if _, err := os.Stat(geoipPath); err == nil { //nolint:gosec // G703: operator-configured path from CHARON_GEOIP_DB_PATH, read-only stat
-			var geoErr error
-			geoipSvc, geoErr = services.NewGeoIPService(geoipPath)
-			if geoErr != nil {
+			if geoErr := geoipSvc.Load(); geoErr != nil {
 				logger.Log().WithError(geoErr).WithField("path", geoipPath).Warn("Failed to load GeoIP database - geo-blocking features will be unavailable")
 			} else {
 				logger.Log().WithField("path", geoipPath).Info("GeoIP database loaded successfully")
@@ -956,14 +956,12 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		} else {
 			logger.Log().WithField("path", geoipPath).Info("GeoIP database not found - geo-blocking features will be unavailable")
 		}
-		reportGeoIPBuildMarker(geoipPath, geoipSvc != nil)
+		reportGeoIPBuildMarker(geoipPath, geoipSvc.IsLoaded())
 		caddyManager.SetGeoIPState(geoIPProxyState(geoipPath, geoipSvc))
 
 		// Security Status
 		securityHandler := handlers.NewSecurityHandlerWithDeps(cfg.Security, db, caddyManager, cerb).WithCrowdsecLifecycle(crowdsecHandler)
-		if geoipSvc != nil {
-			securityHandler.SetGeoIPService(geoipSvc)
-		}
+		securityHandler.SetGeoIPService(geoipSvc)
 
 		management.GET("/security/status", securityHandler.GetStatus)
 		// Security Config management
@@ -1086,10 +1084,8 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management.GET("/stats/ws", statsHandler.StatsWS)
 
 		// Access Lists
-		accessListHandler := handlers.NewAccessListHandler(db)
-		if geoipSvc != nil {
-			accessListHandler.SetGeoIPService(geoipSvc)
-		}
+		accessListHandler := handlers.NewAccessListHandlerWithDeps(db, caddyManager)
+		accessListHandler.SetGeoIPService(geoipSvc)
 		// ACLs are a security control: reads + the non-persisting /:id/test
 		// dry-run stay on management; create/update/delete are admin-only.
 		management.GET("/access-lists/templates", accessListHandler.GetTemplates)

@@ -31,6 +31,13 @@ type geoIPCountryReader interface {
 	Close() error
 }
 
+// NewUnloadedGeoIPService returns a service bound to dbPath that has not opened the database. Load opens it once the
+// file exists, so a database added after startup is picked up without restarting. Every consumer can hold the same
+// service from startup on.
+func NewUnloadedGeoIPService(dbPath string) *GeoIPService {
+	return &GeoIPService{dbPath: dbPath}
+}
+
 // NewGeoIPService creates a new GeoIPService and loads the database.
 // Returns an error if the database cannot be loaded.
 func NewGeoIPService(dbPath string) (*GeoIPService, error) {

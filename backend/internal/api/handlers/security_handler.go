@@ -713,9 +713,11 @@ func (h *SecurityHandler) GetGeoIPStatus(c *gin.Context) {
 	if h.geoipSvc != nil {
 		body["loaded"] = h.geoipSvc.IsLoaded()
 		body["db_path"] = h.geoipSvc.GetDatabasePath()
-		body["message"] = "GeoIP service available"
+		body["message"] = "GeoIP database unavailable"
 	}
-	if !available {
+	if available {
+		body["message"] = "GeoIP service available"
+	} else {
 		body["reason"] = caddy.ReasonGeoIPUnavailable
 	}
 	c.JSON(http.StatusOK, body)

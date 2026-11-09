@@ -87,6 +87,7 @@ func (s *AccessListService) Create(acl *models.AccessList) error {
 		return err
 	}
 
+	acl.CountryCodes = models.NormalizeCountryCodes(acl.CountryCodes)
 	acl.UUID = uuid.New().String()
 	return s.db.Create(acl).Error
 }
@@ -147,18 +148,27 @@ func (s *AccessListService) Update(id uint, updates *models.AccessList) error {
 	if err := s.validateAccessList(acl); err != nil {
 		return err
 	}
+	acl.CountryCodes = models.NormalizeCountryCodes(acl.CountryCodes)
 
 	return s.db.Save(acl).Error
 }
 
-// Delete deletes an access list if not in use
-func (s *AccessListService) Delete(id uint) error {
-	// Check if ACL is in use by any proxy hosts
+// InUse reports whether any proxy host uses the access list, so its rules are part of the proxy config.
+func (s *AccessListService) InUse(id uint) (bool, error) {
 	var count int64
 	if err := s.db.Model(&models.ProxyHost{}).Where("access_list_id = ?", id).Count(&count).Error; err != nil {
+		return false, fmt.Errorf("count proxy hosts using access list %d: %w", id, err)
+	}
+	return count > 0, nil
+}
+
+// Delete deletes an access list if not in use
+func (s *AccessListService) Delete(id uint) error {
+	inUse, err := s.InUse(id)
+	if err != nil {
 		return err
 	}
-	if count > 0 {
+	if inUse {
 		return ErrAccessListInUse
 	}
 
