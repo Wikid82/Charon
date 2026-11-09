@@ -1203,7 +1203,7 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 		return
 	}
 
-	if settingKey == models.SecurityACLEnabledSettingKey && enabled && !h.allowACLEnable(c) {
+	if settingKey == models.SecurityACLEnabledSettingKey && enabled && !allowACLEnable(c, h.db) {
 		return
 	}
 
@@ -1336,14 +1336,17 @@ func upsertSetting(db *gorm.DB, setting models.Setting) error {
 	return nil
 }
 
-func (h *SecurityHandler) allowACLEnable(c *gin.Context) bool {
+// allowACLEnable is a lock-out guard, not authorisation: it stops an admin from enabling the ACL from an address the
+// admin allow-list would already cut off. It does not decide who may change security settings (that is requireAdmin).
+// An empty allow-list allows.
+func allowACLEnable(c *gin.Context, db *gorm.DB) bool {
 	if middleware.IsEmergencyBypass(c) {
 		return true
 	}
 
-	cfg, err := h.svc.Get()
+	cfg, err := models.FindDefaultSecurityConfig(db)
 	if err != nil {
-		if errors.Is(err, services.ErrSecurityConfigNotFound) {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return true
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read security config"})

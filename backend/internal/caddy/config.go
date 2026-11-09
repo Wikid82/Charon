@@ -15,6 +15,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
 )
 
@@ -977,16 +978,7 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 							"not": []map[string]any{
 								{
 									"remote_ip": map[string]any{
-										"ranges": []string{
-											"10.0.0.0/8",
-											"172.16.0.0/12",
-											"192.168.0.0/16",
-											"127.0.0.0/8",
-											"169.254.0.0/16",
-											"fc00::/7",
-											"fe80::/10",
-											"::1/128",
-										},
+										"ranges": network.LocalNetworkCIDRs(),
 									},
 								},
 							},

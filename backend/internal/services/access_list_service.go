@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 )
@@ -23,18 +24,6 @@ var (
 
 // ValidAccessListTypes defines allowed access list types
 var ValidAccessListTypes = []string{"whitelist", "blacklist", "geo_whitelist", "geo_blacklist"}
-
-// RFC1918PrivateNetworks defines private IP ranges
-var RFC1918PrivateNetworks = []string{
-	"10.0.0.0/8",
-	"172.16.0.0/12",
-	"192.168.0.0/16",
-	"127.0.0.0/8",    // localhost
-	"169.254.0.0/16", // link-local
-	"fc00::/7",       // IPv6 ULA
-	"fe80::/10",      // IPv6 link-local
-	"::1/128",        // IPv6 localhost
-}
 
 // ISO 3166-1 alpha-2 country codes (comprehensive list for validation)
 var validCountryCodes = map[string]bool{
@@ -392,7 +381,7 @@ func (s *AccessListService) ipMatchesCIDR(ip net.IP, cidr string) bool {
 
 // isPrivateIP checks if an IP is in RFC1918 private ranges
 func (s *AccessListService) isPrivateIP(ip net.IP) bool {
-	for _, cidr := range RFC1918PrivateNetworks {
+	for _, cidr := range network.LocalNetworkCIDRs() {
 		_, ipNet, err := net.ParseCIDR(cidr)
 		if err != nil {
 			continue

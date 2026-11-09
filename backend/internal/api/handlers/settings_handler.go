@@ -320,6 +320,12 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 
 	// The module switches are written through the shared module writer, with the same proxy apply and restore as the
 	// toggle routes.
+	if req.Key == models.SecurityACLEnabledSettingKey {
+		if on, recognised := models.ParseModuleSettingValue(req.Value); recognised && on && !allowACLEnable(c, h.DB) {
+			return
+		}
+	}
+
 	if models.IsSecurityModuleKey(req.Key) {
 		setting, ok := h.writeModuleSwitchSetting(c, req.Key, req.Value)
 		if ok {
@@ -514,6 +520,11 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 			return
 		}
 		moduleSwitches[key] = on
+	}
+
+	// Turning the ACL on from an address the admin allow-list excludes is refused before any write.
+	if on, found := moduleSwitches[models.SecurityACLEnabledSettingKey]; found && on && !allowACLEnable(c, h.DB) {
+		return
 	}
 
 	// Validate the whole batch before opening the transaction so an invalid
