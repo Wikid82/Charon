@@ -191,5 +191,5 @@ func TestRecoveryRouteTokenPathUsesMainRoute(t *testing.T) {
 		}
 	}
 	require.NotNil(t, mainRoute, "self upstream host keeps a main route")
-	assertPipelineOrder(t, mainRoute.Handle)
+	assertPipelineOrder(t, mainRoute.Handle, false)
 }

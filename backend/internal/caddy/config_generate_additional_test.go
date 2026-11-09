@@ -85,12 +85,14 @@ func TestGenerateConfig_SecurityPipeline_Order_Locations(t *testing.T) {
 		}
 	}
 
-	// Expected pipeline: crowdsec -> waf -> rate_limit -> subroute (acl) -> headers -> vars (BlockExploits) -> reverse_proxy
-	require.GreaterOrEqual(t, len(names), 4)
-	require.Equal(t, "crowdsec", names[0])
-	require.Equal(t, "waf", names[1])
-	require.Equal(t, "rate_limit", names[2])
-	require.Equal(t, "subroute", names[3])
+	// Expected pipeline: headers (HSTS pair) -> crowdsec -> waf -> rate_limit -> subroute (acl) -> vars (BlockExploits) -> reverse_proxy
+	require.GreaterOrEqual(t, len(names), 6)
+	require.Equal(t, "headers", names[0])
+	require.Equal(t, "headers", names[1])
+	require.Equal(t, "crowdsec", names[2])
+	require.Equal(t, "waf", names[3])
+	require.Equal(t, "rate_limit", names[4])
+	require.Equal(t, "subroute", names[5])
 }
 
 func TestGenerateConfig_ACLLogWarning(t *testing.T) {

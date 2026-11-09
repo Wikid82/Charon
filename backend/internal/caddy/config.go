@@ -503,6 +503,10 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		// Build handlers for this host
 		handlers := make([]Handler, 0)
 
+		// Security header handlers run first on every route, so refusals from the
+		// security pre-handlers still carry the profile headers.
+		headerHandlers := make([]Handler, 0)
+
 		// Build security pre-handlers for this host, in pipeline order.
 		securityHandlers := make([]Handler, 0)
 
@@ -616,14 +620,14 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 
 		// Add Security Headers handler
 		secHeaderHandlers := buildSecurityHeaderHandlers(&host)
-		handlers = append(handlers, secHeaderHandlers...)
+		headerHandlers = append(headerHandlers, secHeaderHandlers...)
 
 		// Add HSTS header if enabled (legacy - deprecated in favor of SecurityHeaderProfile).
 		// A profile that already sets HSTS wins outright: the non-deferred and
 		// deferred passes apply handlers in opposite orders, so emitting both
 		// would make the winner depend on the response path.
 		if host.HSTSEnabled && !setsResponseHeader(secHeaderHandlers, hstsHeader) {
-			handlers = append(handlers, HeaderHandlers(map[string][]string{
+			headerHandlers = append(headerHandlers, HeaderHandlers(map[string][]string{
 				hstsHeader: {legacyHSTSValue(host.HSTSSubdomains)},
 			})...)
 		}
@@ -633,11 +637,15 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			handlers = append(handlers, BlockExploitsHandler())
 		}
 
+		// Pipeline order for every route of this host: header pair, then security
+		// pre-handlers, then the remaining host handlers and the reverse proxy.
+		prefixHandlers := append(append([]Handler{}, headerHandlers...), securityHandlers...)
+
 		// Handle custom locations first (more specific routes)
 		for _, loc := range host.Locations {
 			dial := fmt.Sprintf("%s:%d", loc.ForwardHost, loc.ForwardPort)
 			// For each location, we want the same security pre-handlers before proxy
-			locHandlers := append(append([]Handler{}, securityHandlers...), handlers...)
+			locHandlers := append(append([]Handler{}, prefixHandlers...), handlers...)
 			// Determine if standard headers should be enabled (default true if nil)
 			enableStdHeaders := host.EnableStandardHeaders == nil || *host.EnableStandardHeaders
 			locHandlers = append(locHandlers, resolvedOpts.proxyHandler(dial, false, host.Application, enableStdHeaders))
@@ -697,7 +705,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 				}
 			}
 		}
-		// Build main handlers: security pre-handlers, other host-level handlers, then reverse proxy
+		// Build main handlers: header pair, security pre-handlers, other host-level handlers, then reverse proxy
 		// Determine if standard headers should be enabled (default true if nil)
 		enableStdHeaders := host.EnableStandardHeaders == nil || *host.EnableStandardHeaders
 		// Recovery route for the reset endpoint. It skips the security pre-handlers,
@@ -705,7 +713,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		// matches the exact reset paths only. The reset endpoint performs its own
 		// token and management-network checks.
 		if resolvedOpts.selfHop.isSelfUpstream(dial, resolvedOpts.isRemoteHost(host.UUID)) {
-			recoveryHandlers := append(append([]Handler{}, handlers...), resolvedOpts.proxyHandler(dial, resolvedOpts.isRemoteHost(host.UUID), host.Application, enableStdHeaders))
+			recoveryHandlers := append(append(append([]Handler{}, headerHandlers...), handlers...), resolvedOpts.proxyHandler(dial, resolvedOpts.isRemoteHost(host.UUID), host.Application, enableStdHeaders))
 			recoveryRoute := &Route{
 				Match: []Match{
 					{
@@ -726,7 +734,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			routes = append(routes, recoveryRoute)
 		}
 
-		mainHandlers := append(append([]Handler{}, securityHandlers...), handlers...)
+		mainHandlers := append(append([]Handler{}, prefixHandlers...), handlers...)
 		mainHandlers = append(mainHandlers, resolvedOpts.proxyHandler(dial, resolvedOpts.isRemoteHost(host.UUID), host.Application, enableStdHeaders))
 
 		route := &Route{
