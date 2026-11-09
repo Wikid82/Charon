@@ -30,7 +30,7 @@
     "@types/node": "^26.6.6",
     "@typescript/native": "npm:typescript@^7.1.0-dev.20261108.1",
     "audit-ci": "^7.1.0",
-    "dotenv": "^18.0.9",
+    "dotenv": "^18.0.10",
     "eslint": "^10.14.0",
     "eslint-plugin-playwright": "^2.12.2",
     "lefthook": "^2.2.2",
