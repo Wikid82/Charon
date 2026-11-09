@@ -607,7 +607,10 @@
       "rate_limit": {
         "thresholds_unset": "速率限制已开启，但尚未设置限制。请在速率限制页面设置请求数和时间窗口。"
       },
-      "unknown": "尚未应用到所有主机。请查看此模块的设置页面。"
+      "unknown": "尚未应用到所有主机。请查看此模块的设置页面。",
+      "acl": {
+        "geoip_unavailable": "国家列表需要 GeoIP 数据库，但此安装中缺少该数据库，因此在提供之前会拒绝请求。请参阅文档。"
+      }
     }
   },
   "accessLists": {
@@ -640,7 +643,10 @@
     "deleteItems": "删除 {{count}} 项",
     "deleting": "删除中……",
     "noAccessLists": "无访问列表",
-    "noAccessListsDescription": "创建您的第一个访问列表来控制谁可以访问您的服务"
+    "noAccessListsDescription": "创建您的第一个访问列表来控制谁可以访问您的服务",
+    "errors": {
+      "access_list_rules_required": "已启用的允许列表至少需要一条规则。请添加规则，或关闭该列表后再次保存。"
+    }
   },
   "rateLimiting": {
     "title": "速率限制配置",

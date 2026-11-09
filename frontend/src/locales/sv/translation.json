@@ -581,7 +581,12 @@
       "loadError": "Login protection status could not be loaded."
     },
     "settingUpdated": "Security setting updated",
-    "settingUpdateFailed": "Failed to update setting: {{error}}"
+    "settingUpdateFailed": "Failed to update setting: {{error}}",
+    "enforcement": {
+      "acl": {
+        "geoip_unavailable": "Landlistor behöver GeoIP-databasen, som saknas i den här installationen, så de nekar förfrågningar tills den tillhandahålls. Se dokumentationen."
+      }
+    }
   },
   "accessLists": {
     "title": "Access Lists",
@@ -613,7 +618,10 @@
     "deleteItems": "Delete {{count}} Items",
     "deleting": "Deleting...",
     "noAccessLists": "No Access Lists",
-    "noAccessListsDescription": "Create your first access list to control who can access your services"
+    "noAccessListsDescription": "Create your first access list to control who can access your services",
+    "errors": {
+      "access_list_rules_required": "En aktiverad tillåtelselista behöver minst en regel. Lägg till en regel eller stäng av listan och spara igen."
+    }
   },
   "rateLimiting": {
     "title": "Rate Limiting Configuration",

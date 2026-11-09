@@ -19,6 +19,8 @@ interface AccessListFormProps {
   onDelete?: () => void;
   isLoading?: boolean;
   isDeleting?: boolean;
+  /** Translated text for a refused save, shown above the actions. */
+  saveErrorMessage?: string | null;
 }
 
 export interface AccessListFormData {
@@ -74,7 +76,15 @@ const COUNTRIES = [
   { code: 'VN', name: 'Vietnam' },
 ];
 
-export function AccessListForm({ initialData, onSubmit, onCancel, onDelete, isLoading, isDeleting }: AccessListFormProps) {
+export function AccessListForm({
+  initialData,
+  onSubmit,
+  onCancel,
+  onDelete,
+  isLoading,
+  isDeleting,
+  saveErrorMessage,
+}: AccessListFormProps) {
   const [formData, setFormData] = useState<AccessListFormData>({
     name: initialData?.name || '',
     description: initialData?.description || '',
@@ -528,6 +538,12 @@ export function AccessListForm({ initialData, onSubmit, onCancel, onDelete, isLo
             </div>
           )}
         </div>
+      )}
+
+      {saveErrorMessage && (
+        <p className="text-sm text-error" role="alert" data-testid="access-list-save-error">
+          {saveErrorMessage}
+        </p>
       )}
 
       {/* Actions */}

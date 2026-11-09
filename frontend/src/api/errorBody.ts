@@ -98,3 +98,26 @@ export function wafErrorMessage(err: unknown, t: TFunction, fallback: string): s
   const code = getApiErrorCode(err, WAF_CODED_MESSAGES)
   return code ? t(WAF_CODE_MESSAGE_KEYS[code]) : fallback
 }
+
+/**
+ * Coded access-list save refusals with a translated text of their own, keyed by the server's `error_code`.
+ * Every other code keeps the generic error toast.
+ */
+const ACCESS_LIST_CODE_MESSAGE_KEYS = {
+  access_list_rules_required: 'accessLists.errors.access_list_rules_required',
+} as const
+
+type AccessListCodedMessage = keyof typeof ACCESS_LIST_CODE_MESSAGE_KEYS
+
+const ACCESS_LIST_CODED_MESSAGES = Object.keys(ACCESS_LIST_CODE_MESSAGE_KEYS) as AccessListCodedMessage[]
+
+/**
+ * Translated text for a coded access-list save refusal, for display inside the form.
+ * @param err - The value thrown by the request
+ * @param t - The translation function of the calling component or hook
+ * @returns The text, or null when the refusal has no text of its own
+ */
+export function accessListErrorMessage(err: unknown, t: TFunction): string | null {
+  const code = getApiErrorCode(err, ACCESS_LIST_CODED_MESSAGES)
+  return code ? t(ACCESS_LIST_CODE_MESSAGE_KEYS[code]) : null
+}

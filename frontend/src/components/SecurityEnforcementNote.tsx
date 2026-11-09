@@ -3,12 +3,13 @@ import { useTranslation } from 'react-i18next'
 import type { SecurityEnforcement } from '../api/security'
 
 /** Modules that report whether the proxy applies them. */
-export type EnforcementModuleName = 'waf' | 'rate_limit'
+export type EnforcementModuleName = 'waf' | 'rate_limit' | 'acl'
 
 /** Reasons the backend reports per module. Any other reason shows the generic line. */
 const KNOWN_REASONS: Record<EnforcementModuleName, readonly string[]> = {
   waf: ['no_ruleset', 'ruleset_not_selected', 'ruleset_unavailable', 'ruleset_empty'],
   rate_limit: ['thresholds_unset'],
+  acl: ['geoip_unavailable'],
 }
 
 /** Translation key for a module's enforcement reason, or the generic line for an unknown reason. */

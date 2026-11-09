@@ -581,7 +581,12 @@
       "loadError": "Login protection status could not be loaded."
     },
     "settingUpdated": "Security setting updated",
-    "settingUpdateFailed": "Failed to update setting: {{error}}"
+    "settingUpdateFailed": "Failed to update setting: {{error}}",
+    "enforcement": {
+      "acl": {
+        "geoip_unavailable": "国別リストには GeoIP データベースが必要ですが、このインストールには含まれていません。提供されるまで、国別リストに一致するリクエストは拒否されます。ドキュメントを参照してください。"
+      }
+    }
   },
   "accessLists": {
     "title": "Access Lists",
@@ -613,7 +618,10 @@
     "deleteItems": "Delete {{count}} Items",
     "deleting": "Deleting...",
     "noAccessLists": "No Access Lists",
-    "noAccessListsDescription": "Create your first access list to control who can access your services"
+    "noAccessListsDescription": "Create your first access list to control who can access your services",
+    "errors": {
+      "access_list_rules_required": "有効な許可リストには、少なくとも 1 つのルールが必要です。ルールを追加するか、リストを無効にしてから、もう一度保存してください。"
+    }
   },
   "rateLimiting": {
     "title": "Rate Limiting Configuration",

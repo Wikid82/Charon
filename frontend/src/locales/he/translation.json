@@ -581,7 +581,12 @@
       "loadError": "Login protection status could not be loaded."
     },
     "settingUpdated": "Security setting updated",
-    "settingUpdateFailed": "Failed to update setting: {{error}}"
+    "settingUpdateFailed": "Failed to update setting: {{error}}",
+    "enforcement": {
+      "acl": {
+        "geoip_unavailable": "רשימות מדינות דורשות את מסד הנתונים של GeoIP, שחסר בהתקנה זו, ולכן הן דוחות בקשות עד שיסופק. ראו את התיעוד."
+      }
+    }
   },
   "accessLists": {
     "title": "Access Lists",
@@ -613,7 +618,10 @@
     "deleteItems": "Delete {{count}} Items",
     "deleting": "Deleting...",
     "noAccessLists": "No Access Lists",
-    "noAccessListsDescription": "Create your first access list to control who can access your services"
+    "noAccessListsDescription": "Create your first access list to control who can access your services",
+    "errors": {
+      "access_list_rules_required": "רשימת היתרים פעילה דורשת לפחות כלל אחד. הוסיפו כלל, או כבו את הרשימה, ושמרו שוב."
+    }
   },
   "rateLimiting": {
     "title": "Rate Limiting Configuration",

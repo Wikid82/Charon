@@ -581,7 +581,12 @@
       "loadError": "Login protection status could not be loaded."
     },
     "settingUpdated": "Security setting updated",
-    "settingUpdateFailed": "Failed to update setting: {{error}}"
+    "settingUpdateFailed": "Failed to update setting: {{error}}",
+    "enforcement": {
+      "acl": {
+        "geoip_unavailable": "Ülke listeleri, bu kurulumda eksik olan GeoIP veritabanını gerektirir; veritabanı sağlanana kadar istekleri reddederler. Belgelere bakın."
+      }
+    }
   },
   "accessLists": {
     "title": "Access Lists",
@@ -613,7 +618,10 @@
     "deleteItems": "Delete {{count}} Items",
     "deleting": "Deleting...",
     "noAccessLists": "No Access Lists",
-    "noAccessListsDescription": "Create your first access list to control who can access your services"
+    "noAccessListsDescription": "Create your first access list to control who can access your services",
+    "errors": {
+      "access_list_rules_required": "Etkin bir izin listesinin en az bir kurala ihtiyacı var. Bir kural ekleyin ya da listeyi kapatıp yeniden kaydedin."
+    }
   },
   "rateLimiting": {
     "title": "Rate Limiting Configuration",

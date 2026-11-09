@@ -607,7 +607,10 @@
       "rate_limit": {
         "thresholds_unset": "El límite de velocidad está activado, pero todavía no hay límites definidos. Define las solicitudes y la ventana en la página de límite de velocidad."
       },
-      "unknown": "Todavía no se aplica a todos los hosts. Revisa la página de configuración de este módulo."
+      "unknown": "Todavía no se aplica a todos los hosts. Revisa la página de configuración de este módulo.",
+      "acl": {
+        "geoip_unavailable": "Las listas de países necesitan la base de datos GeoIP, que falta en esta instalación, por lo que rechazan las solicitudes hasta que se proporcione. Consulta la documentación."
+      }
     }
   },
   "accessLists": {
@@ -640,7 +643,10 @@
     "deleteItems": "Eliminar {{count}} Elementos",
     "deleting": "Eliminando...",
     "noAccessLists": "Sin Listas de Acceso",
-    "noAccessListsDescription": "Crea tu primera lista de acceso para controlar quién puede acceder a tus servicios"
+    "noAccessListsDescription": "Crea tu primera lista de acceso para controlar quién puede acceder a tus servicios",
+    "errors": {
+      "access_list_rules_required": "Una lista de permitidos activada necesita al menos una regla. Añade una regla o desactiva la lista y guarda de nuevo."
+    }
   },
   "rateLimiting": {
     "title": "Configuración de Limitación de Tasa",

@@ -29,7 +29,7 @@ export interface SecurityStatus {
   } & SecurityEnforcement
   acl: {
     enabled: boolean
-  }
+  } & SecurityEnforcement
 }
 
 /**

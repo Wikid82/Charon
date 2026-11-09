@@ -607,7 +607,10 @@
       "rate_limit": {
         "thresholds_unset": "La limitation de débit est activée, mais aucune limite n'est encore définie. Définissez les requêtes et la fenêtre sur la page de limitation de débit."
       },
-      "unknown": "Pas encore appliqué à tous les hôtes. Consultez la page des paramètres de ce module."
+      "unknown": "Pas encore appliqué à tous les hôtes. Consultez la page des paramètres de ce module.",
+      "acl": {
+        "geoip_unavailable": "Les listes de pays nécessitent la base de données GeoIP, absente de cette installation : elles refusent les requêtes tant qu'elle n'est pas fournie. Voir la documentation."
+      }
     }
   },
   "accessLists": {
@@ -640,7 +643,10 @@
     "deleteItems": "Supprimer {{count}} Éléments",
     "deleting": "Suppression...",
     "noAccessLists": "Aucune Liste d'Accès",
-    "noAccessListsDescription": "Créez votre première liste d'accès pour contrôler qui peut accéder à vos services"
+    "noAccessListsDescription": "Créez votre première liste d'accès pour contrôler qui peut accéder à vos services",
+    "errors": {
+      "access_list_rules_required": "Une liste d'autorisation activée nécessite au moins une règle. Ajoutez une règle ou désactivez la liste, puis enregistrez à nouveau."
+    }
   },
   "rateLimiting": {
     "title": "Configuration de la Limitation de Débit",
