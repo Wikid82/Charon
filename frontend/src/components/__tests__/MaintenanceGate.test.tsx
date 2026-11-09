@@ -35,7 +35,7 @@ describe('MaintenanceGate', () => {
     expect(screen.queryByText('the app')).toBeNull()
     expect(screen.getByRole('heading', { name: /optimizing the database/i })).toBeInTheDocument()
     expect(screen.getByText(/your proxies are still running/i)).toBeInTheDocument()
-    await waitFor(() => expect(screen.getByText(/running for 42 seconds/i)).toBeInTheDocument())
+    expect(await screen.findByText(/running for 42 seconds/i)).toBeInTheDocument()
     expect(api.getMaintenanceStatus).toHaveBeenCalled()
     expect(isMaintenanceActive()).toBe(true)
   })

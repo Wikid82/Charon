@@ -30,8 +30,12 @@ chmod +x "$FAKEBIN/timeout"
 TEMPLATE='https://raw.githubusercontent.com/crowdsecurity/hub/%s/%s'
 TEMPLATE_LINE="  __hub_url_template__: \"$TEMPLATE\""
 
-# Fake cscli. `-c <config>` selects a config; the fake logs one line per call (cfg, whether the derived config
-# carries the template, whether its .local copy exists, and the arguments). FAKE_MODE decides the answers:
+# Fake cscli. `-c <config>` selects a config. Each call is classified by its content, not by its path: a config that
+# carries the mirror template line is the derived (mirror) config; the path the helper resolves from
+# CHARON_CSCLI_CONFIG (default /etc/crowdsec/config.yaml) is the live one. One log line per call:
+#   cfg=live|derived|none|other tpl=<0|1> local=<0|1> args=<arguments>
+# cfg=none is a call with no -c at all; cfg=other is a config that is neither the live nor the derived one.
+# FAKE_MODE decides the answers (a call that is not derived is answered by the live modes):
 #   live_ok      the live config succeeds
 #   live_net     the live config fails with a network error; the derived config succeeds
 #   live_bad     the live config fails with an item error; the derived config succeeds
@@ -41,6 +45,7 @@ TEMPLATE_LINE="  __hub_url_template__: \"$TEMPLATE\""
 #   live_term    the live config traps TERM, runs past its budget, prints "terminated signal received" and exits 1
 #                (the shape the real cscli shows when `timeout` ends it); the derived config succeeds
 #   live_quiet   the live config traps TERM, runs past its budget and exits 1 with no text; the derived config succeeds
+#   live_slow    the live config is a healthy run that takes 3 seconds and then succeeds; the derived config succeeds
 #   derived_net  the derived config fails with a network error; the live config succeeds
 #   both_net     both fail with a network error
 cat >"$FAKEBIN/cscli" <<'FAKE'
@@ -52,20 +57,33 @@ if [ "$1" = "-c" ]; then
 fi
 tpl=0
 localfile=0
+kind=none
 if [ -n "$cfg" ]; then
-    if grep -Fqx '  __hub_url_template__: "https://raw.githubusercontent.com/crowdsecurity/hub/%s/%s"' "$cfg"; then
+    if grep -Fqx '  __hub_url_template__: "https://raw.githubusercontent.com/crowdsecurity/hub/%s/%s"' "$cfg" 2>/dev/null; then
         tpl=1
     fi
     if [ -e "$cfg.local" ]; then
         localfile=1
     fi
+    if [ "$tpl" = 1 ]; then
+        kind=derived
+    elif [ "$cfg" = "${CHARON_CSCLI_CONFIG:-/etc/crowdsec/config.yaml}" ]; then
+        kind=live
+    else
+        kind=other
+    fi
 fi
-echo "cfg=${cfg:-live} tpl=$tpl local=$localfile args=$*" >>"$FAKE_LOG"
+echo "cfg=$kind tpl=$tpl local=$localfile args=$*" >>"$FAKE_LOG"
 net="failed http request for https://cdn-hub.crowdsec.net/x: dial tcp 127.0.0.1:443: connection refused"
 bad="item not found: crowdsecurity/nope"
 deadline="context deadline exceeded"
 transport="Get \"https://cdn-hub.crowdsec.net/x\": net/http: request canceled (Client.Timeout exceeded while awaiting headers)"
-if [ -z "$cfg" ]; then
+if [ "$kind" = derived ]; then
+    case "$FAKE_MODE" in
+        live_ok|live_net|live_bad|live_hang|live_deadline|live_transport|live_term|live_quiet|live_slow) echo ok; exit 0 ;;
+        derived_net|both_net) echo "$net"; exit 1 ;;
+    esac
+else
     case "$FAKE_MODE" in
         live_ok) echo ok; exit 0 ;;
         live_net) echo "$net"; exit 1 ;;
@@ -75,13 +93,9 @@ if [ -z "$cfg" ]; then
         live_transport) echo "$transport"; exit 1 ;;
         live_term) trap 'echo "terminated signal received"; exit 1' TERM; sleep 30 & wait $!; exit 1 ;;
         live_quiet) trap 'exit 1' TERM; sleep 30 & wait $!; exit 1 ;;
+        live_slow) sleep 3; echo ok; exit 0 ;;
         derived_net) echo ok; exit 0 ;;
         both_net) echo "$net"; exit 1 ;;
-    esac
-else
-    case "$FAKE_MODE" in
-        live_ok|live_net|live_bad|live_hang|live_deadline|live_transport|live_term|live_quiet) echo ok; exit 0 ;;
-        derived_net|both_net) echo "$net"; exit 1 ;;
     esac
 fi
 FAKE
@@ -138,11 +152,6 @@ derived_in() {
         fi
     done
     return 0
-}
-
-# normcalls <file>: the call log with the derived path replaced by the word derived.
-normcalls() {
-    sed 's#cfg=[^ ]*\.yaml#cfg=derived#' "$1"
 }
 
 # prepared <live config> <name>: runs hub_mirror_prepare in a subshell, leaves the derived path in $WORK/<name>.path
@@ -333,6 +342,7 @@ check "remove deletes the derived config and its copy" "" "$(derived_in "$C9")"
 
 (
     . "$HELPER"
+    # shellcheck disable=SC2030  # the change is only for this subshell, which is what the check needs
     CHARON_CSCLI_MIRROR_CONFIG="$C9/config.yaml"
     hub_mirror_remove
 )
@@ -343,6 +353,9 @@ echo "# cscli_hub retry rules"
 C10="$WORK/c10"
 make_live "$C10"
 printf 'hub_dir: /custom/hub\n' >"$C10/config.yaml.local"
+# The live config the entrypoint would export (CHARON_CSCLI_CONFIG) is the one the fake classifies as live.
+CHARON_CSCLI_CONFIG="$C10/config.yaml"
+export CHARON_CSCLI_CONFIG
 
 # run_case <name> <mode> <mirror first: 1|0> <prepare: 1|0> <budget> <cscli arguments...>
 # Runs cscli_hub in its own shell. Results go to $WORK/<name>.res, the call log to $WORK/<name>.calls.
@@ -381,17 +394,21 @@ ncalls() {
     wc -l <"$WORK/$1.calls" | tr -d ' '
 }
 call() {
-    normcalls "$WORK/$1.calls" | sed -n "$2p"
+    sed -n "$2p" "$WORK/$1.calls"
 }
 
 run_case live_ok live_ok 0 1 4 hub update
 check "live success: exit 0" "0" "$(res live_ok rc)"
 check "live success: one call, on the live config" "1" "$(ncalls live_ok)"
+check "live success: the call carries the live config file" \
+    "cfg=live tpl=0 local=1 args=hub update" "$(call live_ok 1)"
 check "live success: no mirror mode" "" "$(res live_ok flag)"
 
 run_case live_net live_net 0 1 4 hub update
 check "network failure: exit 0 after the retry" "0" "$(res live_net rc)"
 check "network failure: two calls" "2" "$(ncalls live_net)"
+check "network failure: the first attempt carries the live config file" \
+    "cfg=live tpl=0 local=1 args=hub update" "$(call live_net 1)"
 check "network failure: the retry sees the template and the .local copy" \
     "cfg=derived tpl=1 local=1 args=hub update" "$(call live_net 2)"
 check "network failure: mirror mode turned on" "1" "$(res live_net flag)"
@@ -445,6 +462,17 @@ check "item upgrade bare deadline: not retried" "1" "$(ncalls upgrade_deadline)"
 
 run_case hubupgrade_deadline live_deadline 0 1 4 hub upgrade
 check "hub upgrade bare deadline: not retried" "1" "$(ncalls hubupgrade_deadline)"
+
+# A healthy hub upgrade gets the whole budget for its first attempt, as Go does (runShare): a 3 second run inside a
+# 4 second budget is answered in one call. A hub update still gets half its budget, so the same run is cut and retried.
+run_case upgrade_slow live_slow 0 1 4 hub upgrade
+check "hub upgrade slow healthy run: exit 0 on the first attempt" "0" "$(res upgrade_slow rc)"
+check "hub upgrade slow healthy run: one call, not cut at half the budget" "1" "$(ncalls upgrade_slow)"
+
+run_case update_slow live_slow 0 1 4 hub update
+check "hub update slow run: cut at half the budget and retried" "2" "$(ncalls update_slow)"
+check "hub update slow run: the retry is on the derived config" \
+    "cfg=derived tpl=1 local=1 args=hub update" "$(call update_slow 2)"
 
 run_case hubupdate_deadline live_deadline 0 1 4 hub update
 check "hub update bare deadline: retried on the derived config" "2" "$(ncalls hubupdate_deadline)"
@@ -505,7 +533,9 @@ run_case rescued derived_net 1 1 60 collections install crowdsecurity/x
 check "mirror first, rescued by the live config: exit 0" "0" "$(res rescued rc)"
 check "mirror first, rescued: derived install, then live hub update and live install" "3" "$(ncalls rescued)"
 check "mirror first, rescued: the live hub update runs before the live install" \
-    "cfg=live tpl=0 local=0 args=hub update" "$(call rescued 2)"
+    "cfg=live tpl=0 local=1 args=hub update" "$(call rescued 2)"
+check "mirror first, rescued: the live install carries the live config file" \
+    "cfg=live tpl=0 local=1 args=collections install crowdsecurity/x" "$(call rescued 3)"
 check "mirror first, rescued: mirror mode turned off" "" "$(res rescued flag)"
 
 run_case clean live_ok 0 1 4 hub update
@@ -519,8 +549,12 @@ INSTALL_SRC="$REPO_DIR/configs/crowdsec/install_hub_items.sh"
 check "install script bounds each install with cscli_hub 60" "1" \
     "$(grep -c 'cscli_hub 60 "${type}" install "${name}"' "$INSTALL_SRC")"
 # shellcheck disable=SC2016
-check "install script keeps inspect plain (no mirror, no timeout)" "1" \
-    "$(grep -c 'cscli "\$1" inspect "\$2"' "$INSTALL_SRC")"
+check "install script reads the installed state through cscli_cfg" "1" \
+    "$(grep -c 'cscli_cfg "\$1" inspect "\$2"' "$INSTALL_SRC")"
+check "install script has no bare cscli call" "0" \
+    "$(grep -E '(^|[|;&(]|then|do|!)[[:space:]]*cscli[[:space:]]' "$INSTALL_SRC" | grep -vc 'cscli -c ')"
+check "install script lists the summaries through cscli_cfg" "3" \
+    "$(grep -c 'cscli_cfg \(parsers\|scenarios\|collections\) list' "$INSTALL_SRC")"
 
 # An install that hangs is cut at its budget and not retried (no network text in the output).
 run_case hang_install_budget live_hang 0 1 2 collections install crowdsecurity/x
@@ -560,32 +594,32 @@ run_install() {
 
 run_install inst_ok live_ok 0 0 "$HELPER"
 check "install ok: exit 0" "rc=0" "$(grep '^rc=' "$WORK/inst_ok.res")"
-check "install ok: installs run on the live config only" "0" "$(grep -c 'cfg=[^ ]*\.yaml' "$WORK/inst_ok.calls")"
+check "install ok: every install call runs on the live config" "0" "$(grep -vc '^cfg=live ' "$WORK/inst_ok.calls")"
 
 run_install inst_net live_net 0 1 "$HELPER"
 check "install network failure: exit 0 (failures are not fatal)" "rc=0" "$(grep '^rc=' "$WORK/inst_net.res")"
 check "install network failure: exactly one live install attempt" "1" \
     "$(grep -c 'cfg=live .*install' "$WORK/inst_net.calls")"
 check "install network failure: the retry runs hub update first" "1" \
-    "$(grep -c 'cfg=[^ ]*\.yaml .*args=hub update' "$WORK/inst_net.calls")"
+    "$(grep -c 'cfg=derived .*args=hub update' "$WORK/inst_net.calls")"
 check "install network failure: mirror mode turned on for later installs" "1" \
-    "$(grep -c 'cfg=[^ ]*\.yaml .*args=.*install' "$WORK/inst_net.calls" | awk '{ print ($1 >= 2) ? 1 : 0 }')"
+    "$(grep -c 'cfg=derived .*args=.*install' "$WORK/inst_net.calls" | awk '{ print ($1 >= 2) ? 1 : 0 }')"
 
 run_install inst_flag live_net 1 1 "$HELPER"
 check "install with mirror-first flag: no live install attempt at all" "0" \
     "$(grep -c 'cfg=live .*install' "$WORK/inst_flag.calls")"
 check "install with mirror-first flag: installs go to the derived config" "1" \
-    "$(grep -c 'cfg=[^ ]*\.yaml .*install' "$WORK/inst_flag.calls" | awk '{ print ($1 >= 1) ? 1 : 0 }')"
+    "$(grep -c 'cfg=derived .*install' "$WORK/inst_flag.calls" | awk '{ print ($1 >= 1) ? 1 : 0 }')"
 check "install with mirror-first flag: exit 0" "rc=0" "$(grep '^rc=' "$WORK/inst_flag.res")"
 
 run_install inst_bad live_bad 0 1 "$HELPER"
-check "install item error: not retried on the mirror" "0" "$(grep -c 'cfg=[^ ]*\.yaml' "$WORK/inst_bad.calls")"
+check "install item error: not retried on the mirror" "0" "$(grep -c 'cfg=derived' "$WORK/inst_bad.calls")"
 check "install item error: reported and the script goes on" "1" \
     "$(grep -c 'Failed to install' "$WORK/inst_bad.out" | awk '{ print ($1 >= 1) ? 1 : 0 }')"
 
 run_install inst_nohelper live_net 0 1 "$WORK/no-such-helper.sh"
 check "install without the helper: plain install, no mirror retry" "0" \
-    "$(grep -c 'cfg=[^ ]*\.yaml' "$WORK/inst_nohelper.calls")"
+    "$(grep -c 'cfg=derived' "$WORK/inst_nohelper.calls")"
 check "install without the helper: still exit 0" "rc=0" "$(grep '^rc=' "$WORK/inst_nohelper.res")"
 
 run_install inst_nohelper_ok live_ok 0 0 "$WORK/no-such-helper.sh"
@@ -634,6 +668,114 @@ check "set -e: sourcing twice is harmless" "sourced-twice" "$(cat "$WORK/source2
     cscli_hub 4 hub update
 ) >"$WORK/custom.out" 2>&1
 check "an existing run_interruptible is used, not replaced" "1" "$(grep -c '^custom-runner$' "$WORK/custom.out")"
+
+# ---------------------------------------------------------------------------
+echo "# live config file (CHARON_CSCLI_CONFIG)"
+# Unset: the helper falls back to cscli's own default, so a call by hand in the image behaves as before.
+(
+    unset CHARON_CSCLI_CONFIG
+    . "$HELPER"
+    FAKE_MODE=live_ok
+    FAKE_LOG="$WORK/default.calls"
+    export FAKE_MODE FAKE_LOG
+    : >"$FAKE_LOG"
+    cscli_hub 4 hub update >/dev/null 2>&1
+) >/dev/null 2>&1
+check "unset variable: the call goes to the default config file" "1" \
+    "$(grep -c '^cfg=live .*args=hub update$' "$WORK/default.calls")"
+
+# Set and missing: the live file is the one named, and a missing file fails closed. Nothing is derived, the live
+# attempt still carries -c, and the status is the one the attempt returned.
+C14="$WORK/c14"
+mkdir -p "$C14"
+(
+    . "$HELPER"
+    CHARON_CSCLI_CONFIG="$C14/config.yaml"
+    export CHARON_CSCLI_CONFIG
+    FAKE_MODE=live_net
+    FAKE_LOG="$WORK/missing.calls"
+    export FAKE_MODE FAKE_LOG
+    : >"$FAKE_LOG"
+    hub_mirror_prepare "$CHARON_CSCLI_CONFIG" || echo "prepare-failed"
+    _rc=0
+    cscli_hub 4 hub update >/dev/null 2>&1 || _rc=$?
+    echo "rc=$_rc"
+    # shellcheck disable=SC2031  # the derived path is read in the same subshell that sets it or fails before it
+    echo "exported=${CHARON_CSCLI_MIRROR_CONFIG:-}"
+) >"$WORK/missing.res" 2>&1
+check "missing live file: the prepare is refused" "1" "$(grep -c '^prepare-failed$' "$WORK/missing.res")"
+check "missing live file: nothing exported" "exported=" "$(grep '^exported=' "$WORK/missing.res")"
+check "missing live file: one live attempt, no retry" "cfg=live tpl=0 local=0 args=hub update" \
+    "$(cat "$WORK/missing.calls")"
+check "missing live file: the status of the attempt is returned" "rc=1" "$(grep '^rc=' "$WORK/missing.res")"
+
+# An empty helper argument never reads the variable: the prepare keeps its explicit path (the operator-template
+# refusal depends on that path, not on the environment).
+(
+    . "$HELPER"
+    CHARON_CSCLI_CONFIG="$C10/config.yaml"
+    export CHARON_CSCLI_CONFIG
+    if hub_mirror_prepare; then
+        echo "result=accepted"
+    else
+        echo "result=refused"
+    fi
+    # shellcheck disable=SC2031  # read in the subshell that may have set it, so the value is the one that matters
+    echo "exported=${CHARON_CSCLI_MIRROR_CONFIG:-}"
+) >"$WORK/noarg.res" 2>&1
+check "prepare without a path ignores the variable: refused" "result=refused" "$(grep '^result=' "$WORK/noarg.res")"
+check "prepare without a path ignores the variable: nothing exported" "exported=" "$(grep '^exported=' "$WORK/noarg.res")"
+
+# ---------------------------------------------------------------------------
+echo "# entrypoint wiring"
+# The entrypoint assigns the live file once, plainly (never defaulted), before any cscli call of the start.
+check "entrypoint assigns CHARON_CSCLI_CONFIG once" "1" "$(grep -c '^[[:space:]]*CHARON_CSCLI_CONFIG=' "$ENTRYPOINT")"
+# shellcheck disable=SC2016
+check "entrypoint never defaults CHARON_CSCLI_CONFIG" "0" "$(grep -c 'CHARON_CSCLI_CONFIG:=' "$ENTRYPOINT")"
+# shellcheck disable=SC2016
+check "entrypoint assigns the live file from the config directory" "1" \
+    "$(grep -c '^[[:space:]]*CHARON_CSCLI_CONFIG="\$CS_CONFIG_DIR/config.yaml"$' "$ENTRYPOINT")"
+ASSIGN_LINE=$(grep -n '^[[:space:]]*CHARON_CSCLI_CONFIG=' "$ENTRYPOINT" | head -n 1 | cut -d: -f1)
+MACHINES_LINE=$(grep -n 'cscli_cfg machines add -a --force' "$ENTRYPOINT" | head -n 1 | cut -d: -f1)
+check "entrypoint assigns the live file before the machine registration" "1" \
+    "$([ -n "$ASSIGN_LINE" ] && [ -n "$MACHINES_LINE" ] && [ "$ASSIGN_LINE" -lt "$MACHINES_LINE" ] && echo 1)"
+check "entrypoint registers the machine through cscli_cfg" "1" \
+    "$(grep -c 'cscli_cfg machines add -a --force' "$ENTRYPOINT")"
+check "entrypoint has no bare machine registration" "0" "$(grep -c 'cscli machines' "$ENTRYPOINT")"
+# shellcheck disable=SC2016
+check "entrypoint passes the live file to hub_mirror_prepare explicitly" "1" \
+    "$(grep -c 'hub_mirror_prepare "\$CS_CONFIG_DIR/config.yaml"' "$ENTRYPOINT")"
+
+# The assignment, run on its own with a stale value in the environment, names the file the entrypoint initialised.
+ASSIGN_CODE=$(grep -E '^[[:space:]]*(CHARON_CSCLI_CONFIG=|export CHARON_CSCLI_CONFIG$)' "$ENTRYPOINT")
+(
+    CS_CONFIG_DIR="$WORK/cs"
+    export CS_CONFIG_DIR
+    CHARON_CSCLI_CONFIG=/stale/config.yaml
+    export CHARON_CSCLI_CONFIG
+    eval "$ASSIGN_CODE"
+    printf '%s' "$CHARON_CSCLI_CONFIG"
+) >"$WORK/assign.out" 2>&1
+check "the assignment overrides a value set in the environment" "$WORK/cs/config.yaml" "$(cat "$WORK/assign.out")"
+
+# The entrypoint's own fallback (the helper file missing on an older image) must carry the flag too. The
+# run_interruptible and fallback blocks are copied from the entrypoint; the helper path is pointed at a missing file.
+EP_FALLBACK="$WORK/entrypoint-fallback.sh"
+{
+    echo 'set -e'
+    sed -n '/^run_interruptible() {$/,/^}$/p' "$ENTRYPOINT"
+    sed -n '/^CS_HUB_MIRROR_HELPER=/,/^fi$/p' "$ENTRYPOINT" | sed "s#/usr/local/lib/charon/cscli-hub-mirror.sh#$WORK/no-helper.sh#"
+    echo 'cscli_hub 4 hub update'
+    echo 'cscli_cfg machines add -a --force'
+} >"$EP_FALLBACK"
+FAKE_MODE=live_ok
+FAKE_LOG="$WORK/ep_fallback.calls"
+export FAKE_MODE FAKE_LOG
+: >"$FAKE_LOG"
+sh "$EP_FALLBACK" >"$WORK/ep_fallback.out" 2>&1 || true
+check "entrypoint fallback: both calls are logged" "2" "$(wc -l <"$FAKE_LOG" | tr -d ' ')"
+check "entrypoint fallback: every call carries the live config file" "2" \
+    "$(grep -c '^cfg=live ' "$FAKE_LOG")"
 
 # ---------------------------------------------------------------------------
 echo "# syntax of the helper and the entrypoint"

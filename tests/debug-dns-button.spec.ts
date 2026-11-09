@@ -1,4 +1,4 @@
-import { test } from './fixtures/test';
+import { test, expect } from './fixtures/test';
 import { waitForLoadingComplete } from './utils/wait-helpers';
 
 test('DEBUG: DNS Providers page state', async ({ page, baseURL, context }) => {
@@ -29,7 +29,7 @@ test('DEBUG: DNS Providers page state', async ({ page, baseURL, context }) => {
         try {
           const body = await response.text();
           console.log(`    Response: ${body.substring(0, 200)}`);
-        } catch (e) {
+        } catch {
           console.log(`    (Could not read response body)`);
         }
       }
@@ -40,7 +40,7 @@ test('DEBUG: DNS Providers page state', async ({ page, baseURL, context }) => {
   console.log(`  Page URL after goto: ${page.url()}`);
 
   // Wait for API calls to complete
-  await page.waitForLoadState('networkidle');
+  await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
 
   console.log(`\n  📊 API Calls Summary: ${apiCalls.length} total`);
 

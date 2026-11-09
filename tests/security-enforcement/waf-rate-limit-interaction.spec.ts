@@ -1,5 +1,7 @@
 import { test, expect, type Page } from '@playwright/test';
 
+import type { ProxyHostRecord } from '../utils/api-records';
+
 /**
  * Integration: WAF & Rate Limit Interaction
  *
@@ -13,10 +15,12 @@ test.describe('WAF & Rate Limit Interaction', () => {
     domain: 'waf-test.local',
     forwardHost: '127.0.0.1',
     forwardPort: '3001',
+    name: 'WAF rate limit test',
     description: 'Test proxy for WAF and rate limit',
   };
 
   const fillProxyForm = async (page: Page) => {
+    await page.locator('#proxy-name').fill(testProxy.name);
     await page.locator('#domain-names').fill(testProxy.domain);
     await page.locator('#forward-host').fill(testProxy.forwardHost);
     const forwardPortInput = page.locator('#forward-port');
@@ -49,38 +53,29 @@ test.describe('WAF & Rate Limit Interaction', () => {
     const saveButton = page.getByRole('button', { name: 'Save', exact: true });
     await saveButton.click();
     await dismissDomainDialog(page);
-    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('dialog')).toBeHidden({ timeout: 15000 });
   };
 
   test.beforeEach(async ({ page }) => {
     await page.goto('/', { waitUntil: 'domcontentloaded' });
-    await page.waitForLoadState('networkidle');
+    await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
   });
 
   test.afterEach(async ({ page }) => {
-    // Cleanup: Delete test proxy
-    try {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
-      const proxyRow = page.locator(`text=${testProxy.domain}`).first();
-      if (await proxyRow.isVisible()) {
-        const deleteButton = proxyRow.locator('..').getByRole('button', { name: /delete/i }).first();
-        await deleteButton.click();
-
-        const confirmButton = page.getByRole('button', { name: /confirm|delete/i }).first();
-        if (await confirmButton.isVisible()) {
-          await confirmButton.click();
-        }
-        await page.waitForLoadState('networkidle');
-      }
-    } catch {
-      // Ignore cleanup errors
+    // Remove the proxy through the API so a failed UI delete cannot leave a duplicate domain behind.
+    const list = await page.request.get('/api/v1/proxy-hosts');
+    expect(list.ok()).toBe(true);
+    const hosts = (await list.json()) as ProxyHostRecord[];
+    for (const host of hosts.filter((h) => (h.domain_names ?? h.domainNames ?? '').includes(testProxy.domain))) {
+      const response = await page.request.delete(`/api/v1/proxy-hosts/${host.uuid}`);
+      expect(response.ok()).toBe(true);
     }
   });
 
   // WAF blocks malicious request (403)
   test('WAF blocks malicious SQL injection payload', async ({ page }) => {
     await test.step('Create proxy with WAF enabled', async () => {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
+      await page.goto('/proxy-hosts');
 
       await openCreateProxyForm(page);
 
@@ -115,7 +110,7 @@ test.describe('WAF & Rate Limit Interaction', () => {
   // Rate limiting blocks excessive requests (429)
   test('Rate limiting blocks requests exceeding threshold', async ({ page }) => {
     await test.step('Create proxy with rate limiting enabled', async () => {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
+      await page.goto('/proxy-hosts');
 
       await openCreateProxyForm(page);
 
@@ -160,7 +155,7 @@ test.describe('WAF & Rate Limit Interaction', () => {
   // WAF and rate limit enforced independently
   test('WAF enforces regardless of rate limit status', async ({ page }) => {
     await test.step('Create proxy with both WAF and rate limiting', async () => {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
+      await page.goto('/proxy-hosts');
 
       await openCreateProxyForm(page);
 
@@ -213,7 +208,7 @@ test.describe('WAF & Rate Limit Interaction', () => {
   // Request within limit but triggers WAF
   test('Malicious request gets 403 (WAF) not 429 (rate limit)', async ({ page }) => {
     await test.step('Create proxy with both modules', async () => {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
+      await page.goto('/proxy-hosts');
 
       await openCreateProxyForm(page);
 
@@ -263,7 +258,7 @@ test.describe('WAF & Rate Limit Interaction', () => {
   // Request exceeds limit (429) without malicious content
   test('Clean request gets 429 when rate limit exceeded', async ({ page }) => {
     await test.step('Setup proxy with rate limiting', async () => {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
+      await page.goto('/proxy-hosts');
 
       await openCreateProxyForm(page);
 

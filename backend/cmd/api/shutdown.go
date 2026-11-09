@@ -1,6 +1,8 @@
 package main
 
 import (
+	"context"
+	"sync"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -24,4 +26,56 @@ func shutdownDrain(runner runnerWaiter, runnerWait time.Duration, steps ...func(
 	for _, step := range steps {
 		step()
 	}
+}
+
+// uptimeDrainTimeout bounds the uptime pipeline drain at shutdown. It runs alongside the registration drain, so the
+// two waits overlap rather than add up.
+const uptimeDrainTimeout = 25 * time.Second
+
+// drainUptime runs the uptime pipeline's shutdown function under a deadline of timeout. A nil function means there is
+// no uptime pipeline, so there is nothing to drain. A drain that fails or runs out of time is logged, not returned.
+func drainUptime(fn func(context.Context) error, timeout time.Duration) {
+	if fn == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	if err := fn(ctx); err != nil {
+		logger.Log().WithError(err).Warn("uptime pipeline did not drain within grace period")
+	}
+}
+
+// registrationDrainTimeout bounds the wait for bouncer registrations in flight at shutdown. A swap takes two
+// local cscli calls, so the wait is normally empty; the bound keeps shutdown inside the container stop grace.
+const registrationDrainTimeout = 30 * time.Second
+
+// registrationWaiter is the part of the CrowdSec lifecycle the shutdown path needs.
+type registrationWaiter interface {
+	WaitRegistrations(ctx context.Context) error
+}
+
+// drainRegistrations waits, for at most registrationDrainTimeout, for the bouncer registrations in flight. A nil
+// lifecycle has none. A wait that times out is logged; the registration is then retried on the next start.
+func drainRegistrations(w registrationWaiter) {
+	if w == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), registrationDrainTimeout)
+	defer cancel()
+	if err := w.WaitRegistrations(ctx); err != nil {
+		logger.Log().WithError(err).Warn("bouncer registration did not finish before shutdown; it is retried on the next start")
+	}
+}
+
+// runConcurrently runs every step at the same time and returns after all of them have returned.
+func runConcurrently(steps ...func()) {
+	var wg sync.WaitGroup
+	for _, step := range steps {
+		wg.Add(1)
+		go func(run func()) {
+			defer wg.Done()
+			run()
+		}(step)
+	}
+	wg.Wait()
 }

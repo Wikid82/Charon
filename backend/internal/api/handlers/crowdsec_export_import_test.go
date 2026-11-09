@@ -281,8 +281,12 @@ func TestImportConfigFailureKeepsSecretsAndRestoresConfig(t *testing.T) {
 		seedRealLayout(t, dir)
 		_, r := newImportRouter(t, dir)
 		w := httptest.NewRecorder()
-		r.ServeHTTP(w, importRequest(t, map[string]string{"config/config.yaml": importableConfig, "a": "file", "a/b": "nested"}))
+		// The entries are written in a fixed order: "a" is extracted as a regular file, so the nested "a/b" always
+		// fails to create at the same point. A map-built archive would fail at whichever entry came second.
+		archive := createOrderedTarGz(t, []tarEntry{{"config/config.yaml", importableConfig}, {"a", "file"}, {"a/b", "nested"}})
+		r.ServeHTTP(w, importRequestFromArchive(t, archive))
 		require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
+		require.JSONEq(t, `{"error":"extraction failed"}`, w.Body.String())
 		assertLiveSecretsIntact(t, dir)
 		require.Equal(t, "filenames: [x]\n", readTreeFile(t, filepath.Join(dir, "config", "acquis.yaml")))
 	})

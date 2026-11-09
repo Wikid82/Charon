@@ -105,6 +105,11 @@
   "proxyHosts": {
     "title": "Hôtes Proxy",
     "description": "Gérez vos configurations de proxy inverse",
+    "source": {
+      "local": "Local (socket Docker)",
+      "localUnavailable": "indisponible",
+      "localUnavailableHint": "Le socket Docker local n'est pas accessible par Charon. Utilisez plutôt un agent Orthrus (voir Hecate → Agent)."
+    },
     "addHost": "Ajouter un Hôte Proxy",
     "editHost": "Modifier l'Hôte Proxy",
     "deleteHost": "Supprimer l'Hôte Proxy",
@@ -421,8 +426,10 @@
       "noKeyConfigured": "Aucune clé de bouncer configurée. Activez CrowdSec pour l'enregistrement automatique.",
       "registered": "Enregistré",
       "notRegistered": "Non enregistré",
+      "registrationUnknown": "Status unknown",
       "sourceEnvVar": "Depuis une variable d'environnement",
       "sourceFile": "Depuis un fichier",
+      "keyHeldInMemory": "Conservée en mémoire jusqu'à ce que le fichier de clé puisse être écrit",
       "keyStoredAt": "Clé stockée dans",
       "keyWarning": {
         "title": "Clé API CrowdSec Mise à Jour",
@@ -594,7 +601,8 @@
       "waf": {
         "no_ruleset": "Le WAF est activé, mais aucun jeu de règles n'est disponible pour inspecter les requêtes. Ajoutez un jeu de règles sur la page du WAF.",
         "ruleset_not_selected": "Le WAF est activé, mais plusieurs jeux de règles existent et aucun n'est sélectionné. Choisissez le jeu de règles sur la page du WAF.",
-        "ruleset_unavailable": "Le WAF est activé, mais le jeu de règles sélectionné n'a pas pu être chargé. Vérifiez-le sur la page du WAF."
+        "ruleset_unavailable": "Le WAF est activé, mais le jeu de règles sélectionné n'a pas pu être chargé. Vérifiez-le sur la page du WAF.",
+        "ruleset_empty": "Le jeu de règles sélectionné ne contient aucune règle, il ne protège donc encore rien. Ajoutez-y des règles ou choisissez-en un autre."
       },
       "rate_limit": {
         "thresholds_unset": "La limitation de débit est activée, mais aucune limite n'est encore définie. Définissez les requêtes et la fenêtre sur la page de limitation de débit."
@@ -680,7 +688,7 @@
     "blockingDescription": "Les requêtes malveillantes seront bloquées avec HTTP 403",
     "detectionDescription": "Les requêtes malveillantes seront journalisées mais non bloquées",
     "sourceUrl": "URL Source (optionnel)",
-    "sourceUrlHelper": "URL pour récupérer les règles. Laissez vide pour utiliser le contenu en ligne.",
+    "sourceUrlHelper": "Facultatif. L'adresse est enregistrée à titre indicatif et n'est pas téléchargée.",
     "ruleContent": "Contenu des Règles",
     "ruleContentHelper": "Syntaxe de règles ModSecurity/Coraza. Chaque SecRule doit être sur sa propre ligne.",
     "source": "Source",
@@ -712,7 +720,8 @@
     "errors": {
       "waf_rules_source_unknown": "Ce jeu de règles n'existe pas. Choisissez-en un dans la liste.",
       "waf_ruleset_in_use": "Ce jeu de règles est celui utilisé par le WAF. Choisissez d'abord un autre jeu de règles.",
-      "invalid_waf_mode": "Le mode du WAF n'est pas valide. Rechargez la page et réessayez."
+      "invalid_waf_mode": "Le mode du WAF n'est pas valide. Rechargez la page et réessayez.",
+      "ruleset_empty": "Un jeu de règles doit contenir au moins une règle. Ajoutez une ligne SecRule."
     },
     "detectionMode": "Les jeux de règles sans mode propre ne journalisent les requêtes correspondantes que lorsque le mode WAF enregistré est la détection. Un jeu de règles réglé sur blocage bloque les requêtes correspondantes."
   },
@@ -1357,8 +1366,6 @@
     "general": {
       "title": "Configuration Générale",
       "description": "Configurer les préférences de Caddy et de l'interface.",
-      "caddyAdminApi": "Point d'Accès API Admin Caddy",
-      "caddyAdminApiHelper": "URL vers l'API admin de Caddy (généralement sur le port 2019)",
       "sslProvider": "Fournisseur SSL",
       "selectSslProvider": "Sélectionner le fournisseur SSL",
       "sslAuto": "Auto (Recommandé)",
@@ -1558,6 +1565,9 @@
     "importErrorKeptProfileDuplicate": "L'archive n'a pas de profiles.yaml, le fichier actuel a donc été conservé, mais un fichier de notification dont il a besoin définit un nom que l'archive définit déjà.",
     "importErrorKeepCurrentFailed": "Les fichiers CrowdSec actuels n'ont pas pu être conservés, l'importation a donc été arrêtée. Consultez les journaux du serveur pour plus de détails.",
     "importErrorConfigNotFound": "config.yaml est introuvable à la racine ou dans le dossier config/ de l'archive.",
+    "importErrorNotWritable": "Charon ne peut pas modifier le dossier de configuration de CrowdSec. Vérifiez que l'utilisateur de Charon en est le propriétaire et peut y écrire, et que le dossier n'est pas monté en lecture seule.",
+    "importErrorArchiveTooLarge": "L'archive dépasse la limite d'importation. Rien n'a été modifié.",
+    "importErrorRequestTooLarge": "Le fichier est trop volumineux pour être importé.",
     "exportPrompt": "Nom de l'archive d'exportation CrowdSec",
     "title": "Configuration CrowdSec",
     "checkNow": "Vérifier maintenant",
@@ -2312,6 +2322,15 @@
         "tarball": "Tarball",
         "kubernetes": "Kubernetes",
         "homebrew": "Homebrew"
+      },
+      "dockerGid": {
+        "title": "Replace <DOCKER_GID> with your Docker group ID",
+        "instructions": "Run this command on your server. It prints a number, which replaces <DOCKER_GID> in the commands below.",
+        "copyCommand": "Copy command",
+        "macHint": "On macOS, use this command instead: stat -f %g /var/run/docker.sock",
+        "noteComposeSystemd": "Set PGID to that number. The agent will refuse to start if <DOCKER_GID> is left in place.",
+        "noteTarballHomebrew": "Replace <DOCKER_GID> with that number and keep sudo in front of the command. Without sudo, PUID and PGID are ignored, so your user must be in the docker group instead.",
+        "noteKubernetes": "Replace <DOCKER_GID> in supplementalGroups with that number. Kubernetes does not use PUID or PGID."
       }
     },
     "tailscale": {
@@ -2476,9 +2495,9 @@
   },
   "whatsNew": {
     "title": "Nouveautés",
-    "newFeatures": "✨ Nouvelles fonctionnalités",
-    "fixes": "🐛 Corrections",
-    "security": "🔒 Sécurité",
+    "newFeatures": "Nouvelles fonctionnalités",
+    "fixes": "Corrections",
+    "security": "Sécurité",
     "viewCommit": "voir le commit",
     "showMaintenanceDetails": "Afficher les détails de maintenance",
     "remindLater": "Me le rappeler plus tard",

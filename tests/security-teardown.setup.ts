@@ -146,7 +146,7 @@ teardown('verify-security-state-for-ui-tests', async () => {
     }
   } catch (error) {
     console.error('Error verifying security state:', error);
-    throw new Error('Security teardown verification failed');
+    throw new Error('Security teardown verification failed', { cause: error });
   } finally {
     await requestContext.dispose();
   }

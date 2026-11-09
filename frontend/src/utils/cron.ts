@@ -26,6 +26,7 @@ function isValidCronField(field: string, range: FieldRange): boolean {
   if (field.length === 0) return false
 
   return field.split(',').every((part) => {
+    // eslint-disable-next-line security/detect-unsafe-regex -- linear: every `\d+` is delimited by a literal `-`, `/` or the anchored end, so no two quantifiers can match the same characters; verified linear in cron.test.ts
     const match = part.match(/^(\*|\d+(?:-\d+)?)(\/(\d+))?$/)
     if (!match) return false
 
@@ -49,9 +50,7 @@ export function isValidCronExpression(expression: string): boolean {
   if (!trimmed) return false
 
   const fields = trimmed.split(/\s+/)
-  if (fields.length !== 5) return false
-
-  return fields.every((field, i) => isValidCronField(field, FIELD_RANGES[i]))
+  return fields.length !== 5 ? false : fields.every((field, i) => isValidCronField(field, FIELD_RANGES[i]))
 }
 
 /** UI-level schedule frequency preset (spec §3.8 — Daily/Weekly presets + a custom-cron escape hatch). */
@@ -72,8 +71,7 @@ export function parseCronPreset(cron: string): {
     return { frequency: 'daily', time: `${dailyMatch[1].padStart(2, '0')}:00`, dayOfWeek: '0' }
   }
   const weeklyMatch = cron.match(/^0 (\d{1,2}) \* \* ([0-6])$/)
-  if (weeklyMatch) {
-    return { frequency: 'weekly', time: `${weeklyMatch[1].padStart(2, '0')}:00`, dayOfWeek: weeklyMatch[2] }
-  }
-  return { frequency: 'custom', time: '03:00', dayOfWeek: '0' }
+  return weeklyMatch
+    ? { frequency: 'weekly', time: `${weeklyMatch[1].padStart(2, '0')}:00`, dayOfWeek: weeklyMatch[2] }
+    : { frequency: 'custom', time: '03:00', dayOfWeek: '0' }
 }

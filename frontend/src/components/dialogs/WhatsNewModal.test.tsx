@@ -2,9 +2,9 @@ import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
-import WhatsNewModal from './WhatsNewModal'
 import { useAuth } from '../../hooks/useAuth'
 import { useAckChangelog, useChangelogAll, useChangelogStatus } from '../../hooks/useChangelog'
+import WhatsNewModal from './WhatsNewModal'
 
 import type { ChangelogEntry, ChangelogStatus, ChangelogAll } from '../../api/changelog'
 
@@ -139,16 +139,16 @@ describe('WhatsNewModal', () => {
       setStatusData({ show_changelog: true, versions: [entry] })
       render(<WhatsNewModal mode="status" />)
 
-      expect(screen.queryByText('whatsNew.newFeatures')).not.toBeInTheDocument()
-      expect(screen.getByText('whatsNew.fixes')).toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'whatsNew.newFeatures' })).not.toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'whatsNew.fixes' })).toBeInTheDocument()
     })
 
     it('omits the fixes group when the entry has no fixes', () => {
       setStatusData({ show_changelog: true, versions: [entryFeaturesOnly] })
       render(<WhatsNewModal mode="status" />)
 
-      expect(screen.getByText('whatsNew.newFeatures')).toBeInTheDocument()
-      expect(screen.queryByText('whatsNew.fixes')).not.toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'whatsNew.newFeatures' })).toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'whatsNew.fixes' })).not.toBeInTheDocument()
     })
 
     it('renders the Other section collapsed by default behind a details disclosure', () => {
@@ -172,7 +172,7 @@ describe('WhatsNewModal', () => {
       setStatusData({ show_changelog: true, versions: [entryWithEverything] })
       render(<WhatsNewModal mode="status" />)
 
-      expect(screen.getByText('whatsNew.security')).toBeInTheDocument()
+      expect(screen.getByRole('heading', { name: 'whatsNew.security' })).toBeInTheDocument()
       expect(
         screen.getByText('Hardened input validation in the API layer', { exact: false })
       ).toBeInTheDocument()
@@ -203,7 +203,7 @@ describe('WhatsNewModal', () => {
       setStatusData({ show_changelog: true, versions: [entryFeaturesOnly] })
       render(<WhatsNewModal mode="status" />)
 
-      expect(screen.queryByText('whatsNew.security')).not.toBeInTheDocument()
+      expect(screen.queryByRole('heading', { name: 'whatsNew.security' })).not.toBeInTheDocument()
       expect(screen.queryByRole('link', { name: 'whatsNew.viewCommit' })).not.toBeInTheDocument()
     })
 
@@ -219,9 +219,9 @@ describe('WhatsNewModal', () => {
         setStatusData({ show_changelog: true, versions: [entry] })
 
         expect(() => render(<WhatsNewModal mode="status" />)).not.toThrow()
-        expect(screen.queryByText('whatsNew.security')).not.toBeInTheDocument()
+        expect(screen.queryByRole('heading', { name: 'whatsNew.security' })).not.toBeInTheDocument()
         // Sibling groups still render normally.
-        expect(screen.getByText('whatsNew.newFeatures')).toBeInTheDocument()
+        expect(screen.getByRole('heading', { name: 'whatsNew.newFeatures' })).toBeInTheDocument()
       })
 
       it('renders without throwing and omits the group when `features` is null', () => {
@@ -229,8 +229,8 @@ describe('WhatsNewModal', () => {
         setStatusData({ show_changelog: true, versions: [entry] })
 
         expect(() => render(<WhatsNewModal mode="status" />)).not.toThrow()
-        expect(screen.queryByText('whatsNew.newFeatures')).not.toBeInTheDocument()
-        expect(screen.getByText('whatsNew.fixes')).toBeInTheDocument()
+        expect(screen.queryByRole('heading', { name: 'whatsNew.newFeatures' })).not.toBeInTheDocument()
+        expect(screen.getByRole('heading', { name: 'whatsNew.fixes' })).toBeInTheDocument()
       })
 
       it('renders without throwing and omits the group when `fixes` is null', () => {
@@ -238,8 +238,8 @@ describe('WhatsNewModal', () => {
         setStatusData({ show_changelog: true, versions: [entry] })
 
         expect(() => render(<WhatsNewModal mode="status" />)).not.toThrow()
-        expect(screen.queryByText('whatsNew.fixes')).not.toBeInTheDocument()
-        expect(screen.getByText('whatsNew.newFeatures')).toBeInTheDocument()
+        expect(screen.queryByRole('heading', { name: 'whatsNew.fixes' })).not.toBeInTheDocument()
+        expect(screen.getByRole('heading', { name: 'whatsNew.newFeatures' })).toBeInTheDocument()
       })
 
       it('renders without throwing and omits the disclosure when `other` is null', () => {
@@ -248,7 +248,7 @@ describe('WhatsNewModal', () => {
 
         expect(() => render(<WhatsNewModal mode="status" />)).not.toThrow()
         expect(screen.queryByText('whatsNew.showMaintenanceDetails')).not.toBeInTheDocument()
-        expect(screen.getByText('whatsNew.newFeatures')).toBeInTheDocument()
+        expect(screen.getByRole('heading', { name: 'whatsNew.newFeatures' })).toBeInTheDocument()
       })
 
       it('renders without throwing when all four group fields are null', () => {
@@ -264,9 +264,9 @@ describe('WhatsNewModal', () => {
 
         expect(() => render(<WhatsNewModal mode="status" />)).not.toThrow()
         expect(screen.getByText('1.4.0')).toBeInTheDocument()
-        expect(screen.queryByText('whatsNew.newFeatures')).not.toBeInTheDocument()
-        expect(screen.queryByText('whatsNew.fixes')).not.toBeInTheDocument()
-        expect(screen.queryByText('whatsNew.security')).not.toBeInTheDocument()
+        expect(screen.queryByRole('heading', { name: 'whatsNew.newFeatures' })).not.toBeInTheDocument()
+        expect(screen.queryByRole('heading', { name: 'whatsNew.fixes' })).not.toBeInTheDocument()
+        expect(screen.queryByRole('heading', { name: 'whatsNew.security' })).not.toBeInTheDocument()
         expect(screen.queryByText('whatsNew.showMaintenanceDetails')).not.toBeInTheDocument()
       })
     })
@@ -542,6 +542,187 @@ describe('WhatsNewModal', () => {
 
       expect(onClose).toHaveBeenCalledTimes(1)
       expect(ackMutate).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('browse mode loading, error and empty states', () => {
+    function setAllQueryState(state: Record<string, unknown>) {
+      mockUseChangelogAll.mockReturnValue({
+        data: undefined,
+        isError: false,
+        isLoading: false,
+        isPending: false,
+        isSuccess: false,
+        ...state,
+      } as unknown as ReturnType<typeof useChangelogAll>)
+    }
+
+    it('shows a loading status while the history is fetching', () => {
+      setAllQueryState({ isLoading: true })
+      render(<WhatsNewModal mode="browse" open onClose={vi.fn()} />)
+
+      expect(screen.getByRole('status')).toHaveTextContent('common.loading')
+      expect(screen.queryByRole('region')).not.toBeInTheDocument()
+    })
+
+    it('shows an alert when the history fails to load', () => {
+      setAllQueryState({ isError: true })
+      render(<WhatsNewModal mode="browse" open onClose={vi.fn()} />)
+
+      expect(screen.getByRole('alert')).toHaveTextContent('whatsNew.loadError')
+      expect(screen.queryByRole('region')).not.toBeInTheDocument()
+    })
+
+    it('shows the empty message when there are no versions', () => {
+      setAllData({ versions: [] })
+      render(<WhatsNewModal mode="browse" open onClose={vi.fn()} />)
+
+      expect(screen.getByText('whatsNew.empty')).toBeInTheDocument()
+      expect(screen.queryByRole('button', { name: 'whatsNew.showOlder' })).not.toBeInTheDocument()
+    })
+
+    it('shows the empty message when the response carries no data', () => {
+      setAllQueryState({ isSuccess: true })
+      render(<WhatsNewModal mode="browse" open onClose={vi.fn()} />)
+
+      expect(screen.getByText('whatsNew.empty')).toBeInTheDocument()
+    })
+
+    it('still shows the Close button in every state', () => {
+      setAllQueryState({ isError: true })
+      render(<WhatsNewModal mode="browse" open onClose={vi.fn()} />)
+
+      expect(screen.getByRole('button', { name: 'whatsNew.closeButton' })).toBeInTheDocument()
+    })
+  })
+
+  describe('browse mode paging', () => {
+    const manyVersions: ChangelogAll = {
+      versions: Array.from({ length: 25 }, (_, i) => ({
+        version: `2.${i}.0`,
+        date: '2026-01-01',
+        features: [`Feature ${i}`],
+        fixes: [],
+        other: [],
+        security: [],
+      })),
+    }
+
+    it('renders only the newest 10 versions initially', () => {
+      setAllData(manyVersions)
+      render(<WhatsNewModal mode="browse" open onClose={vi.fn()} />)
+
+      expect(screen.getAllByRole('region')).toHaveLength(10)
+      expect(screen.getByRole('region', { name: '2.0.0' })).toBeInTheDocument()
+      expect(screen.getByRole('region', { name: '2.9.0' })).toBeInTheDocument()
+      expect(screen.queryByRole('region', { name: '2.10.0' })).not.toBeInTheDocument()
+    })
+
+    it('reveals 10 more versions each time "Show older releases" is clicked', async () => {
+      const user = userEvent.setup()
+      setAllData(manyVersions)
+      render(<WhatsNewModal mode="browse" open onClose={vi.fn()} />)
+
+      const showOlder = screen.getByRole('button', { name: 'whatsNew.showOlder' })
+      await user.click(showOlder)
+      expect(screen.getAllByRole('region')).toHaveLength(20)
+      expect(screen.getByRole('region', { name: '2.19.0' })).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'whatsNew.showOlder' }))
+      expect(screen.getAllByRole('region')).toHaveLength(25)
+      expect(screen.queryByRole('button', { name: 'whatsNew.showOlder' })).not.toBeInTheDocument()
+    })
+
+    it('omits the "Show older releases" button when everything fits on one page', () => {
+      setAllData({ versions: manyVersions.versions.slice(0, 10) })
+      render(<WhatsNewModal mode="browse" open onClose={vi.fn()} />)
+
+      expect(screen.getAllByRole('region')).toHaveLength(10)
+      expect(screen.queryByRole('button', { name: 'whatsNew.showOlder' })).not.toBeInTheDocument()
+    })
+
+    it('resets to the first page each time the dialog is reopened', async () => {
+      const user = userEvent.setup()
+      const onClose = vi.fn()
+      setAllData(manyVersions)
+      const { rerender } = render(<WhatsNewModal mode="browse" open onClose={onClose} />)
+
+      await user.click(screen.getByRole('button', { name: 'whatsNew.showOlder' }))
+      expect(screen.getAllByRole('region')).toHaveLength(20)
+
+      rerender(<WhatsNewModal mode="browse" open={false} onClose={onClose} />)
+      rerender(<WhatsNewModal mode="browse" open onClose={onClose} />)
+
+      expect(screen.getAllByRole('region')).toHaveLength(10)
+    })
+  })
+
+  describe('rendering safety', () => {
+    it('renders duplicate strings across groups without React duplicate-key warnings', () => {
+      const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {})
+      const duplicated: ChangelogEntry = {
+        version: '1.5.0',
+        date: '2026-08-01',
+        features: ['Same text', 'Same text'],
+        fixes: ['Same text'],
+        other: ['Same text', 'Same text'],
+        security: [
+          { summary: 'Same security item', sha: 'abcdef1' },
+          { summary: 'Same security item', sha: 'abcdef1' },
+        ],
+      }
+      setStatusData({ show_changelog: true, versions: [duplicated] })
+      render(<WhatsNewModal mode="status" />)
+
+      expect(screen.getAllByText('Same text')).toHaveLength(5)
+      expect(screen.getAllByText('Same security item', { exact: false })).toHaveLength(2)
+
+      const keyWarnings = consoleError.mock.calls.filter((args: unknown[]) =>
+        /same key|unique "key"/i.test(String(args[0]))
+      )
+      expect(keyWarnings).toHaveLength(0)
+      consoleError.mockRestore()
+    })
+
+    it.each(['not-a-sha', 'ABCDEF1234', 'abc12', 'abc123g', 'a'.repeat(41), 'abc1234 onclick=x'])(
+      'renders no commit link for the non-hex or out-of-range sha %j',
+      (sha) => {
+        const entry: ChangelogEntry = {
+          ...entryFeaturesOnly,
+          security: [{ summary: 'Hardened the API layer', sha }],
+        }
+        setStatusData({ show_changelog: true, versions: [entry] })
+        render(<WhatsNewModal mode="status" />)
+
+        expect(screen.getByText('Hardened the API layer')).toBeInTheDocument()
+        expect(screen.queryByRole('link', { name: 'whatsNew.viewCommit' })).not.toBeInTheDocument()
+      }
+    )
+
+    it.each(['abc1234', 'a'.repeat(40)])('links a valid commit sha %s at the length boundaries', (sha) => {
+      const entry: ChangelogEntry = {
+        ...entryFeaturesOnly,
+        security: [{ summary: 'Hardened the API layer', sha }],
+      }
+      setStatusData({ show_changelog: true, versions: [entry] })
+      render(<WhatsNewModal mode="status" />)
+
+      expect(screen.getByRole('link', { name: 'whatsNew.viewCommit' })).toHaveAttribute(
+        'href',
+        `https://github.com/Wikid82/Charon/commit/${sha}`
+      )
+    })
+
+    it('hides the decorative heading icons from assistive technology', () => {
+      setStatusData({ show_changelog: true, versions: [entryWithEverything] })
+      render(<WhatsNewModal mode="status" />)
+
+      const fixesHeading = screen.getByRole('heading', { name: 'whatsNew.fixes' })
+      expect(fixesHeading.querySelector('[aria-hidden="true"]')).toHaveTextContent('🐛')
+      expect(screen.getByRole('heading', { name: 'whatsNew.newFeatures' }).querySelector('[aria-hidden="true"]'))
+        .toHaveTextContent('✨')
+      expect(screen.getByRole('heading', { name: 'whatsNew.security' }).querySelector('[aria-hidden="true"]'))
+        .toHaveTextContent('🔒')
     })
   })
 })

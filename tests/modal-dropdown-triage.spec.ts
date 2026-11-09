@@ -1,4 +1,4 @@
-import { test, expect } from '@playwright/test'
+import { test, expect, type Page } from '@playwright/test'
 
 /**
  * Modal Dropdown Z-Index Triage Tests
@@ -13,7 +13,7 @@ test.describe('Modal Dropdown Z-Index Triage', () => {
   const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080'
 
   // Helper to check if a dropdown can be opened
-  async function testDropdownInteraction(page: any, labelText: RegExp, stepName: string) {
+  async function testDropdownInteraction(page: Page, labelText: RegExp, stepName: string) {
     const select = page.getByLabel(labelText).first()
     const selectVisible = await select.isVisible({ timeout: 3000 }).catch(() => false)
 
@@ -47,7 +47,7 @@ test.describe('Modal Dropdown Z-Index Triage', () => {
 
     await test.step('Navigate to Proxy Hosts page', async () => {
       await page.goto(`${baseURL}/proxy-hosts`)
-      await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {})
+      await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 }).catch(() => {});
     })
 
     await test.step('Click "Add Proxy Host" button', async () => {
@@ -231,7 +231,7 @@ test.describe('Modal Dropdown Z-Index Triage', () => {
 
     await test.step('Navigate to Uptime page', async () => {
       await page.goto(`${baseURL}/uptime`)
-      await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {})
+      await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 }).catch(() => {});
     })
 
     await test.step('Click "Create Monitor" button', async () => {
@@ -319,7 +319,7 @@ test.describe('Modal Dropdown Z-Index Triage', () => {
 
     await test.step('Navigate to CrowdSec page', async () => {
       await page.goto(`${baseURL}/security/crowdsec`)
-      await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {})
+      await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 }).catch(() => {});
     })
 
     await test.step('Find and click Ban IP button', async () => {
@@ -364,7 +364,7 @@ test.describe('Modal Dropdown Z-Index Triage', () => {
   test('Accessibility Verification - Modal 3-Layer Architecture', async ({ page }) => {
     await test.step('Verify 3-layer modal structure in ProxyHostForm', async () => {
       await page.goto(`${baseURL}/proxy-hosts`)
-      await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {})
+      await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 }).catch(() => {});
 
       const addButton = page.getByRole('button', { name: /^add proxy host$/i }).first()
       if (await addButton.isVisible()) {

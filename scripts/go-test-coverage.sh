@@ -127,7 +127,7 @@ export CHARON_HARNESS_GOCOVERDIR="$HARNESS_COVDIR"
 # exit if certain coverage tooling is unavailable (e.g. covdata) while still
 # producing a usable coverage file. Capture the status so we can report real
 # test failures after the coverage check.
-# Note: Using -v for verbose output and -race for race detection
+# Note: -race for race detection; no -v, so output stays small (failures still print --- FAIL)
 GO_TEST_STATUS=0
 TEST_OUTPUT_FILE=$(mktemp)
 trap 'rm -f "$TEST_OUTPUT_FILE"' EXIT
@@ -139,7 +139,7 @@ if command -v gotestsum &> /dev/null; then
     set -e
 else
     set +e
-    go test -race -v -timeout="$TEST_TIMEOUT" -mod=readonly -coverprofile="$COVERAGE_FILE" ./... 2>&1 | tee "$TEST_OUTPUT_FILE"
+    go test -race -timeout="$TEST_TIMEOUT" -mod=readonly -coverprofile="$COVERAGE_FILE" ./... 2>&1 | tee "$TEST_OUTPUT_FILE"
     GO_TEST_STATUS=$?
     set -e
 fi

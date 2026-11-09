@@ -10,6 +10,7 @@
 
 import { test, expect } from '@playwright/test';
 import { EMERGENCY_TOKEN } from '../fixtures/security';
+import type { AuditLogRecord } from '../utils/api-records';
 
 // CI-specific timeout multiplier: CI environments have higher I/O latency
 const CI_TIMEOUT_MULTIPLIER = process.env.CI ? 3 : 1;
@@ -195,7 +196,7 @@ test.describe('Emergency Token Break Glass Protocol', () => {
     }
   });
 
-  test('Test 1: Emergency token bypasses ACL', async ({ request }, testInfo) => {
+  test('Emergency token bypasses ACL', async ({ request }) => {
     // ACL is guaranteed to be enabled by beforeAll hook
     console.log('🧪 Testing emergency token bypass with ACL enabled...');
 
@@ -268,7 +269,7 @@ test.describe('Emergency Token Break Glass Protocol', () => {
     console.log('✅ Test 1 passed: Emergency token bypasses ACL');
   });
 
-  test('Test 2: Emergency endpoint has NO rate limiting', async ({ request }) => {
+  test('Emergency endpoint has NO rate limiting', async ({ request }) => {
     console.log('🧪 Verifying emergency endpoint has no rate limiting...');
     console.log('  ℹ️  Emergency endpoints are "break-glass" - they must work immediately without artificial delays');
 
@@ -277,7 +278,6 @@ test.describe('Emergency Token Break Glass Protocol', () => {
     // Make 10 rapid attempts with wrong token to verify NO rate limiting applied
     const responses = [];
     for (let i = 0; i < 10; i++) {
-      // eslint-disable-next-line no-await-in-loop
       const response = await request.post('/api/v1/emergency/security-reset', {
         headers: { 'X-Emergency-Token': wrongToken },
       });
@@ -295,7 +295,7 @@ test.describe('Emergency Token Break Glass Protocol', () => {
     console.log('  ℹ️  Emergency endpoints protected by: token validation + IP restrictions + audit logging');
   });
 
-  test('Test 3: Emergency token requires valid token', async ({ request }) => {
+  test('Emergency token requires valid token', async ({ request }) => {
     console.log('🧪 Testing emergency token validation...');
 
     // Test with wrong token
@@ -320,7 +320,7 @@ test.describe('Emergency Token Break Glass Protocol', () => {
     console.log('✅ Test 3 passed: Invalid token properly rejected');
   });
 
-  test('Test 4: Emergency token audit logging', async ({ request }) => {
+  test('Emergency token audit logging', async ({ request }) => {
     console.log('🧪 Testing emergency token audit logging...');
 
     // Use valid emergency token
@@ -346,7 +346,7 @@ test.describe('Emergency Token Break Glass Protocol', () => {
 
     // Look for emergency reset event
     const emergencyLog = auditLogs.find(
-      (log: any) =>
+      (log: AuditLogRecord) =>
         log.action === 'emergency_reset_success' || log.details?.includes('emergency')
     );
 
@@ -364,16 +364,14 @@ test.describe('Emergency Token Break Glass Protocol', () => {
     console.log('✅ Test 4 passed: Audit logging verified');
   });
 
-  test('Test 5: Emergency token from unauthorized IP (documentation test)', async ({
-    request,
-  }) => {
+  test('Emergency token from unauthorized IP (documentation test)', async () => {
     // IP restriction testing requires requests to route through Caddy's middleware.
     console.log(
       '  ℹ️  Manual test required: Verify production blocks IPs outside management CIDR'
     );
   });
 
-  test('Test 6: Emergency token minimum length validation', async ({ request }) => {
+  test('Emergency token minimum length validation', async ({ request }) => {
     console.log('🧪 Testing emergency token minimum length validation...');
 
     // The backend requires minimum 32 characters for the emergency token
@@ -394,7 +392,7 @@ test.describe('Emergency Token Break Glass Protocol', () => {
     console.log('  ℹ️  Backend unit test required: Verify startup rejects short tokens');
   });
 
-  test('Test 7: Emergency token header stripped', async ({ request }) => {
+  test('Emergency token header stripped', async ({ request }) => {
     console.log('🧪 Testing emergency token header security...');
 
     // Use emergency token
@@ -438,7 +436,7 @@ test.describe('Emergency Token Break Glass Protocol', () => {
     console.log('✅ Test 7 passed: Emergency token properly stripped for security');
   });
 
-  test('Test 8: Emergency reset idempotency', async ({ request }) => {
+  test('Emergency reset idempotency', async ({ request }) => {
     console.log('🧪 Testing emergency reset idempotency...');
 
     // First reset

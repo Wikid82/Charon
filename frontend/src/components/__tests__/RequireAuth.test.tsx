@@ -2,8 +2,8 @@ import { render, screen } from '@testing-library/react'
 import { MemoryRouter, Route, Routes } from 'react-router'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
-import RequireAuth from '../RequireAuth'
 import { AuthContext, type AuthContextType, type User } from '../../context/AuthContextValue'
+import RequireAuth from '../RequireAuth'
 
 const TOKEN_KEY = 'charon_auth_token'
 

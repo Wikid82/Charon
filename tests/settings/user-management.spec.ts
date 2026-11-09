@@ -34,7 +34,7 @@ test.describe('User Management', () => {
     await gotoTolerant(page, '/users');
     await waitForLoadingComplete(page);
     // Wait for page to stabilize - needed for parallel test runs
-    await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+    await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 }).catch(() => {});
   });
 
   test.describe('User List', () => {
@@ -323,8 +323,7 @@ test.describe('User Management', () => {
 
       await test.step('Verify admin is selected', async () => {
         const roleSelect = page.locator('select').first();
-        const selectedValue = await roleSelect.inputValue();
-        expect(selectedValue).toBe('admin');
+        await expect(roleSelect).toHaveValue('admin');
       });
 
       await test.step('Select user role', async () => {
@@ -334,8 +333,7 @@ test.describe('User Management', () => {
 
       await test.step('Verify user is selected', async () => {
         const roleSelect = page.locator('select').first();
-        const selectedValue = await roleSelect.inputValue();
-        expect(selectedValue).toBe('user');
+        await expect(roleSelect).toHaveValue('user');
       });
     });
 
@@ -366,8 +364,7 @@ test.describe('User Management', () => {
 
       await test.step('Verify permission mode changed', async () => {
         const permissionSelect = page.locator('select').nth(1);
-        const selectedValue = await permissionSelect.inputValue();
-        expect(selectedValue).toBeTruthy();
+        await expect(permissionSelect).not.toHaveValue('');
       });
     });
 
@@ -862,7 +859,7 @@ test.describe('User Management', () => {
         await page.reload({ waitUntil: 'domcontentloaded' });
         await waitForLoadingComplete(page);
         // Wait for table to have data
-        await page.waitForSelector('table tbody tr', { timeout: 10000 });
+        await expect(page.locator('table tbody tr').first()).toBeVisible({ timeout: 10000 });
       });
 
       await test.step('Find user row and toggle switch', async () => {
@@ -884,8 +881,7 @@ test.describe('User Management', () => {
         // Wait for API response
         await page.waitForTimeout(500);
 
-        const newState = await enableSwitch.isChecked();
-        expect(newState).not.toBe(initialState);
+        await expect(enableSwitch).toBeChecked({ checked: !initialState });
       });
 
       await test.step('Verify success toast', async () => {
@@ -1492,12 +1488,12 @@ test.describe('User Management', () => {
 
       await test.step('Verify Change Password button is NOT visible (other-user edit)', async () => {
         const dialog = page.getByRole('dialog');
-        await expect(dialog.getByRole('button', { name: 'Change Password' })).not.toBeVisible();
+        await expect(dialog.getByRole('button', { name: 'Change Password' })).toBeHidden();
       });
 
       await test.step('Verify API Key section is NOT visible (other-user edit)', async () => {
         const dialog = page.getByRole('dialog');
-        await expect(dialog.getByText('Regenerate API Key')).not.toBeVisible();
+        await expect(dialog.getByText('Regenerate API Key')).toBeHidden();
       });
 
       await test.step('Cleanup: close modal and delete the test user', async () => {

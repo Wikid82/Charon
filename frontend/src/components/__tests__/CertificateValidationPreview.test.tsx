@@ -1,8 +1,9 @@
 import { render, screen } from '@testing-library/react'
 import { describe, it, expect, vi } from 'vitest'
 
-import type { ValidationResult } from '../../api/certificates'
 import CertificateValidationPreview from '../CertificateValidationPreview'
+
+import type { ValidationResult } from '../../api/certificates'
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({

@@ -43,7 +43,7 @@ describe('ImportCrowdSec', () => {
   it('renders configuration packages heading', async () => {
     renderPage()
 
-    await waitFor(() => screen.getByText('CrowdSec Configuration Packages'))
+    await screen.findByText('CrowdSec Configuration Packages')
     expect(screen.getByText('CrowdSec Configuration Packages')).toBeInTheDocument()
   })
 

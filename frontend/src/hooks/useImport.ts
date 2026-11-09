@@ -30,10 +30,7 @@ export function useImport() {
     refetchInterval: (query) => {
       const data = query.state.data;
       // Poll if we have a pending session in reviewing state (but not transient, as those don't change)
-      if (data?.has_pending && data?.session?.state === 'reviewing') {
-        return 3000;
-      }
-      return false;
+      return data?.has_pending && data?.session?.state === 'reviewing' ? 3000 : false;
     },
   });
 

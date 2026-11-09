@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Shared bats helper: builds an isolated fake repo containing the real
 # scripts/lib/dockerfile-stage.sh + scripts/toolchain-key.sh +
-# scripts/verify-toolchain-pin.sh alongside a synthetic Dockerfile / .trivyignore
-# fixture that is structurally valid for toolchain-key.sh's sanity checks
+# scripts/verify-toolchain-pin.sh alongside a synthetic Dockerfile fixture (plus a
+# .trivyignore that the key must NOT depend on) that is structurally valid for toolchain-key.sh's sanity checks
 # (>= 20 body lines per inline stage, each containing a `go build` / `xx-go build`).
 #
 # Usage from a .bats file:
@@ -49,7 +49,7 @@ tf_write_dockerfile() {
 
   cat > "$TF_DF" <<EOF
 # syntax=docker/dockerfile:1
-ARG GO_VERSION=1.27.3
+ARG GOLANG_IMAGE=golang:1.27.3-alpine@${golang_digest}
 ARG ALPINE_IMAGE=${alpine_image}
 ARG CROWDSEC_VERSION=1.8.1
 ARG EXPR_LANG_VERSION=1.17.8
@@ -58,8 +58,6 @@ ARG XCRYPTO_VERSION=0.56.0
 ARG KLAUSPOST_COMPRESS_VERSION=1.20.0
 ARG GRPC_VERSION=1.83.1
 ARG CADDY_VERSION=${caddy_version}
-ARG CADDY_CANDIDATE_VERSION=2.11.4
-ARG CADDY_USE_CANDIDATE=0
 ARG CADDY_PATCH_SCENARIO=B
 ARG CADDY_SECURITY_VERSION=1.1.64
 ARG CORAZA_CADDY_VERSION=2.6.0
@@ -74,7 +72,7 @@ ARG CHARON_TOOLCHAIN_DIGEST=sha256:000000000000000000000000000000000000000000000
 FROM --platform=\$BUILDPLATFORM ${xx_pin} AS xx
 
 # renovate: datasource=docker depName=golang
-FROM --platform=\$BUILDPLATFORM golang:\${GO_VERSION}-alpine@${golang_digest} AS caddy-inline
+FROM --platform=\$BUILDPLATFORM \${GOLANG_IMAGE} AS caddy-inline
 ARG CADDY_VERSION
 ARG CADDY_SECURITY_VERSION
 ARG CORAZA_CADDY_VERSION
@@ -100,7 +98,7 @@ ${caddy_get_line}
     test -x /usr/bin/caddy'
 
 # renovate: datasource=docker depName=golang
-FROM --platform=\$BUILDPLATFORM golang:\${GO_VERSION}-alpine@${golang_digest} AS crowdsec-inline
+FROM --platform=\$BUILDPLATFORM \${GOLANG_IMAGE} AS crowdsec-inline
 COPY --from=xx / /
 WORKDIR /tmp/crowdsec
 ARG CROWDSEC_VERSION

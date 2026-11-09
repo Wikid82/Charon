@@ -259,8 +259,12 @@ func (h *CrowdsecHandler) lapiAnswers(ctx context.Context) bool {
 	return err == nil
 }
 
-// signalOSProcess sends sig to the process with the given PID.
+// signalOSProcess sends sig to the process with the given PID. Pids Charon may never signal (see signalable)
+// are refused before any signal is sent.
 func signalOSProcess(pid int, sig syscall.Signal) error {
+	if !signalable(pid) {
+		return fmt.Errorf("refusing to signal pid %d: not a process Charon may signal", pid)
+	}
 	proc, err := os.FindProcess(pid)
 	if err != nil {
 		return fmt.Errorf("find process %d: %w", pid, err)

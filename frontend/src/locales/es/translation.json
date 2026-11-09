@@ -105,6 +105,11 @@
   "proxyHosts": {
     "title": "Hosts Proxy",
     "description": "Gestiona tus configuraciones de proxy inverso",
+    "source": {
+      "local": "Local (socket de Docker)",
+      "localUnavailable": "no disponible",
+      "localUnavailableHint": "El socket de Docker local no está disponible para Charon. Usa un agente de Orthrus en su lugar (consulta Hecate → Agent)."
+    },
     "addHost": "Añadir Host Proxy",
     "editHost": "Editar Host Proxy",
     "deleteHost": "Eliminar Host Proxy",
@@ -421,8 +426,10 @@
       "noKeyConfigured": "No hay clave de bouncer configurada. Active CrowdSec para el registro automático.",
       "registered": "Registrado",
       "notRegistered": "No registrado",
+      "registrationUnknown": "Status unknown",
       "sourceEnvVar": "Desde variable de entorno",
       "sourceFile": "Desde archivo",
+      "keyHeldInMemory": "Se mantiene en memoria hasta que se pueda escribir el archivo de la clave",
       "keyStoredAt": "Clave almacenada en",
       "keyWarning": {
         "title": "Clave API de CrowdSec Actualizada",
@@ -594,7 +601,8 @@
       "waf": {
         "no_ruleset": "El WAF está activado, pero no hay ningún conjunto de reglas disponible para inspeccionar las solicitudes. Añade un conjunto de reglas en la página del WAF.",
         "ruleset_not_selected": "El WAF está activado, pero hay varios conjuntos de reglas y ninguno está seleccionado. Elige el conjunto de reglas en la página del WAF.",
-        "ruleset_unavailable": "El WAF está activado, pero no se pudo cargar el conjunto de reglas seleccionado. Revísalo en la página del WAF."
+        "ruleset_unavailable": "El WAF está activado, pero no se pudo cargar el conjunto de reglas seleccionado. Revísalo en la página del WAF.",
+        "ruleset_empty": "El conjunto de reglas seleccionado no tiene reglas, así que todavía no protege nada. Añádele reglas o elige otro."
       },
       "rate_limit": {
         "thresholds_unset": "El límite de velocidad está activado, pero todavía no hay límites definidos. Define las solicitudes y la ventana en la página de límite de velocidad."
@@ -680,7 +688,7 @@
     "blockingDescription": "Las solicitudes maliciosas serán bloqueadas con HTTP 403",
     "detectionDescription": "Las solicitudes maliciosas serán registradas pero no bloqueadas",
     "sourceUrl": "URL de Origen (opcional)",
-    "sourceUrlHelper": "URL para obtener reglas. Déjalo vacío para usar contenido en línea.",
+    "sourceUrlHelper": "Opcional. La dirección se guarda solo como referencia y no se descarga.",
     "ruleContent": "Contenido de Reglas",
     "ruleContentHelper": "Sintaxis de reglas ModSecurity/Coraza. Cada SecRule debe estar en su propia línea.",
     "source": "Origen",
@@ -712,7 +720,8 @@
     "errors": {
       "waf_rules_source_unknown": "Ese conjunto de reglas no existe. Elige uno de la lista.",
       "waf_ruleset_in_use": "Este conjunto de reglas es el que usa el WAF. Elige primero otro conjunto de reglas.",
-      "invalid_waf_mode": "El modo del WAF no es válido. Recarga la página e inténtalo de nuevo."
+      "invalid_waf_mode": "El modo del WAF no es válido. Recarga la página e inténtalo de nuevo.",
+      "ruleset_empty": "Un conjunto de reglas necesita al menos una regla. Añade una línea SecRule."
     },
     "detectionMode": "Los conjuntos de reglas sin modo propio solo registran las solicitudes coincidentes mientras el modo WAF guardado sea detección. Un conjunto de reglas con modo bloqueo bloquea las solicitudes coincidentes."
   },
@@ -1357,8 +1366,6 @@
     "general": {
       "title": "Configuración General",
       "description": "Configurar preferencias de Caddy y UI.",
-      "caddyAdminApi": "Endpoint de API Admin de Caddy",
-      "caddyAdminApiHelper": "URL a la API admin de Caddy (usualmente en puerto 2019)",
       "sslProvider": "Proveedor SSL",
       "selectSslProvider": "Seleccionar proveedor SSL",
       "sslAuto": "Auto (Recomendado)",
@@ -1558,6 +1565,9 @@
     "importErrorKeptProfileDuplicate": "El archivo comprimido no tiene profiles.yaml, por lo que se conservó el actual, pero un archivo de notificación que necesita define un nombre que el archivo comprimido ya define.",
     "importErrorKeepCurrentFailed": "No se pudieron conservar los archivos actuales de CrowdSec, por lo que se detuvo la importación. Consulte los registros del servidor para más detalles.",
     "importErrorConfigNotFound": "No se encontró config.yaml en el nivel superior ni en la carpeta config/ del archivo comprimido.",
+    "importErrorNotWritable": "Charon no puede modificar la carpeta de configuración de CrowdSec. Comprueba que el usuario de Charon sea su propietario y pueda escribir en ella, y que no esté montada en modo de solo lectura.",
+    "importErrorArchiveTooLarge": "El archivo es mayor que el límite de importación. No se ha cambiado nada.",
+    "importErrorRequestTooLarge": "El archivo es demasiado grande para importarlo.",
     "exportPrompt": "Nombre del archivo de exportación de CrowdSec",
     "title": "Configuración de CrowdSec",
     "checkNow": "Comprobar ahora",
@@ -2312,6 +2322,15 @@
         "tarball": "Tarball",
         "kubernetes": "Kubernetes",
         "homebrew": "Homebrew"
+      },
+      "dockerGid": {
+        "title": "Replace <DOCKER_GID> with your Docker group ID",
+        "instructions": "Run this command on your server. It prints a number, which replaces <DOCKER_GID> in the commands below.",
+        "copyCommand": "Copy command",
+        "macHint": "On macOS, use this command instead: stat -f %g /var/run/docker.sock",
+        "noteComposeSystemd": "Set PGID to that number. The agent will refuse to start if <DOCKER_GID> is left in place.",
+        "noteTarballHomebrew": "Replace <DOCKER_GID> with that number and keep sudo in front of the command. Without sudo, PUID and PGID are ignored, so your user must be in the docker group instead.",
+        "noteKubernetes": "Replace <DOCKER_GID> in supplementalGroups with that number. Kubernetes does not use PUID or PGID."
       }
     },
     "tailscale": {
@@ -2476,9 +2495,9 @@
   },
   "whatsNew": {
     "title": "Novedades",
-    "newFeatures": "✨ Nuevas funciones",
-    "fixes": "🐛 Correcciones",
-    "security": "🔒 Seguridad",
+    "newFeatures": "Nuevas funciones",
+    "fixes": "Correcciones",
+    "security": "Seguridad",
     "viewCommit": "ver commit",
     "showMaintenanceDetails": "Mostrar detalles de mantenimiento",
     "remindLater": "Recordarme más tarde",

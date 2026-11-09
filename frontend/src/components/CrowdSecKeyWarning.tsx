@@ -1,12 +1,12 @@
 import { useQuery } from '@tanstack/react-query'
 import { Copy, Check, AlertTriangle, X, Eye, EyeOff } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { Alert } from './ui/Alert'
-import { Button } from './ui/Button'
 import { getCrowdsecKeyStatus, type CrowdSecKeyStatus } from '../api/crowdsec'
 import { toast } from '../utils/toast'
+import { Alert } from './ui/Alert'
+import { Button } from './ui/Button'
 
 const DISMISSAL_STORAGE_KEY = 'crowdsec-key-warning-dismissed'
 
@@ -48,7 +48,11 @@ export function CrowdSecKeyWarning() {
     retry: 1,
   })
 
-  useEffect(() => {
+  // Re-check the stored dismissal whenever a new status object arrives. Adjusting
+  // during render replaces the former effect.
+  const [seenStatus, setSeenStatus] = useState(keyStatus)
+  if (seenStatus !== keyStatus) {
+    setSeenStatus(keyStatus)
     if (keyStatus?.env_key_rejected && keyStatus.full_key) {
       const storedState = getDismissedState()
       // If dismissed but for a different key, show the warning again
@@ -58,7 +62,7 @@ export function CrowdSecKeyWarning() {
         setDismissed(true)
       }
     }
-  }, [keyStatus])
+  }
 
   const handleCopy = async () => {
     if (!keyStatus?.full_key) return

@@ -290,6 +290,22 @@ describe('crowdsec API', () => {
       expect(client.get).toHaveBeenCalledWith('/admin/crowdsec/key-status')
       expect(result).toEqual(mockData)
     })
+
+    it('should pass through a memory-held key with an unknown LAPI check', async () => {
+      const mockData = {
+        key_source: 'memory' as const,
+        key_check: 'unknown' as const,
+        env_key_rejected: false,
+        current_key_preview: 'abc***xyz',
+        message: 'Held in memory',
+      }
+      vi.mocked(client.get).mockResolvedValue({ data: mockData })
+
+      const result = await crowdsec.getCrowdsecKeyStatus()
+
+      expect(result.key_source).toBe('memory')
+      expect(result.key_check).toBe('unknown')
+    })
   })
 
   describe('listWhitelists', () => {
@@ -366,6 +382,27 @@ describe('crowdsec API', () => {
 describe('getCrowdsecImportError', () => {
   const failure = (data: unknown) =>
     new AxiosError('x', 'ERR_BAD_REQUEST', undefined, undefined, { status: 422, data } as AxiosResponse)
+
+  it('accepts the request-too-large refusal code', () => {
+    expect(crowdsec.getCrowdsecImportError(failure({ error: 'e', error_code: 'request_too_large' }))).toEqual({
+      code: 'request_too_large',
+      names: [],
+    })
+  })
+
+  it('accepts the archive-too-large refusal code', () => {
+    expect(crowdsec.getCrowdsecImportError(failure({ error: 'e', error_code: 'import_archive_too_large' }))).toEqual({
+      code: 'import_archive_too_large',
+      names: [],
+    })
+  })
+
+  it('accepts the not-writable refusal code', () => {
+    expect(crowdsec.getCrowdsecImportError(failure({ error: 'e', error_code: 'import_config_not_writable' }))).toEqual({
+      code: 'import_config_not_writable',
+      names: [],
+    })
+  })
 
   it('returns the code and names of a known refusal', () => {
     expect(

@@ -60,7 +60,7 @@ async function loginWithStoredState(page: import('@playwright/test').Page): Prom
   // background polling can otherwise keep the page from ever going idle and
   // hang until the whole-test timeout instead of just this best-effort wait.
   await gotoTolerant(page, '/');
-  await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+  await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 }).catch(() => {});
 }
 
 /**
@@ -85,7 +85,7 @@ async function goToAppearance(page: import('@playwright/test').Page): Promise<vo
   }
   // Bounded and non-fatal — see loginWithStoredState above for why a bare,
   // uncaught networkidle wait can hang a whole test instead of just this step.
-  await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+  await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 }).catch(() => {});
   await page.getByRole('radiogroup').waitFor({ state: 'visible', timeout: 15000 });
 }
 
@@ -198,7 +198,7 @@ test.describe('Banner Customization', () => {
     await test.step('Navigate away and back to verify the banner persists in the sidebar', async () => {
       // Same Firefox navigation-commit race as loginWithStoredState/goToAppearance.
       await gotoTolerant(page, '/');
-      await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+      await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 }).catch(() => {});
     });
 
     await test.step('Sidebar contains the uploaded banner image', async () => {
@@ -444,7 +444,7 @@ test.describe('Named User Themes', () => {
       });
 
       await test.step('Original name is no longer in the list', async () => {
-        await expect(page.getByText(uniqueName, { exact: true })).not.toBeVisible();
+        await expect(page.getByText(uniqueName, { exact: true })).toBeHidden();
       });
     } finally {
       await page.request.delete(`/api/v1/themes/${created.id}`).catch(() => {});

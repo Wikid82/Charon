@@ -226,53 +226,14 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	}
 	router.Use(middleware.SecurityHeaders(securityHeadersCfg))
 
-	// AutoMigrate all models for Issue #5 persistence layer
-	if err := db.AutoMigrate(
-		&models.ProxyGroup{}, // must precede ProxyHost (FK dependency)
-		&models.ProxyHost{},
-		&models.Location{},
-		&models.RedirectionHost{}, // Issue #1367: 301/302/307/308 redirect hosts (peer to ProxyHost)
-		&models.CaddyConfig{},
-		&models.RemoteServer{},
-		&models.SSLCertificate{},
-		&models.AccessList{},
-		&models.SecurityHeaderProfile{},
-		&models.User{},
-		&models.Setting{},
-		&models.ImportSession{},
-		&models.Notification{},
-		&models.NotificationProvider{},
-		&models.WebPushSubscription{}, // Web Push subscriptions — FK to NotificationProvider (Type="webpush")
-		&models.NotificationTemplate{},
-		&models.NotificationConfig{},
-		&models.UptimeMonitor{},
-		&models.UptimeHeartbeat{},
-		&models.UptimeHost{},
-		&models.UptimeNotificationEvent{},
-		&models.Domain{},
-		&models.SecurityConfig{},
-		&models.SecurityDecision{},
-		&models.SecurityAudit{},
-		&models.SecurityRuleSet{},
-		&models.UserPermittedHost{}, // Join table for user permissions
-		&models.CrowdsecPresetEvent{},
-		&models.CrowdsecConsoleEnrollment{},
-		&models.CrowdsecApplyJob{},
-		&models.DNSProvider{},
-		&models.DNSProviderCredential{}, // Multi-credential support (Phase 3)
-		&models.Plugin{},                // Phase 5: DNS provider plugins
-		&models.ManualChallenge{},       // Phase 1: Manual DNS challenges
-		&models.CrowdSecWhitelist{},     // Issue #939: CrowdSec IP whitelist management
-		&models.TunnelConfig{},          // Issue #368: Hecate tunnel provider configs
-		&models.OrthrusAgent{},          // Issue #369: Orthrus reverse-proxy agent registry
-		&models.RequestLog{},            // Issue #25: Enhanced dashboard statistics
-		&models.CustomTheme{},           // User-created named color-scheme themes
-		&models.RemoteStorageTarget{},   // Issue #32: S3/SFTP remote backup targets
-		&models.BackupRecord{},          // Issue #32: backup history (must precede BackupRemoteCopy FK)
-		&models.BackupRemoteCopy{},      // Issue #32: per-target remote upload status
-		&models.BackupJob{},             // Async Backup/Restore Jobs: tracks in-flight create/restore jobs
-	); err != nil {
-		return Registered{UptimeShutdown: uptimeShutdown}, fmt.Errorf("auto migrate: %w", err)
+	// Create or update the schema first (shared with the server boot and the migrate command).
+	if err := MigrateSchema(db); err != nil {
+		return Registered{UptimeShutdown: uptimeShutdown}, err
+	}
+	// main.go runs the same carry-over fatally before the reconciliation. This second pass is cleanup of anything an
+	// older build wrote since, so a failure here is logged and the mode row is retried on the next start.
+	if _, err := models.RetireCrowdSecModeSetting(db); err != nil {
+		logger.Log().WithError(err).Warn("Failed to retire CrowdSec mode setting — continuing startup")
 	}
 
 	// Decide synchronously, before the backup scheduler and every pipeline
@@ -280,16 +241,6 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	// never block or fail startup (SafePlan); an unaffected install pays
 	// milliseconds and the gate stays idle.
 	startDatabaseMaintenance(ctx, gate, db, cfg)
-
-	// Enforce the Web Push provider singleton invariant at the database
-	// level — a service-layer COUNT-then-INSERT check alone is not atomic
-	// under concurrent requests (see docs/plans/current_spec.md §3.1).
-	// IF NOT EXISTS makes this idempotent across restarts, matching every
-	// other startup migration step in this function.
-	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_webpush_singleton
-		ON notification_providers(type) WHERE type = 'webpush'`).Error; err != nil {
-		return Registered{UptimeShutdown: uptimeShutdown}, fmt.Errorf("create webpush singleton index: %w", err)
-	}
 
 	migrateViewerToPassthrough(db)
 
@@ -530,12 +481,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		// Changelog / "What's New" — self-service, all authenticated
 		// roles (RolePassthrough rejected in-handler via
 		// rejectPassthrough, same as the profile routes above).
-		changelogService := changelog.NewService(version.Version)
-		if cfg.Environment != "production" {
-			if v := os.Getenv("CHARON_CHANGELOG_VERSION"); v != "" {
-				changelogService.SetCurrentVersion(v)
-			}
-		}
+		changelogService := newChangelogService(version.Version, cfg.Environment, os.Getenv("CHARON_CHANGELOG_VERSION"))
 		changelogHandler := handlers.NewChangelogHandler(db, changelogService)
 		protected.GET("/changelog/status", changelogHandler.Status)
 		protected.GET("/changelog/all", changelogHandler.All)
@@ -1202,6 +1148,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management.GET("/certificates/:uuid", certHandler.Get)
 		management.PUT("/certificates/:uuid", middleware.RequireRole(models.RoleAdmin), certHandler.Update)
 		management.POST("/certificates/:uuid/export", middleware.RequireRole(models.RoleAdmin), certHandler.Export)
+		management.POST("/certificates/bulk-delete", middleware.RequireRole(models.RoleAdmin), certHandler.BulkDelete)
 		management.DELETE("/certificates/:uuid", middleware.RequireRole(models.RoleAdmin), certHandler.Delete)
 
 		// Start certificate expiry checker
@@ -1303,4 +1250,21 @@ var precompressedPaths = []string{"/api/v1/admin/crowdsec/export"}
 // compressionMiddleware returns the router-wide gzip middleware, skipping precompressed downloads.
 func compressionMiddleware() gin.HandlerFunc {
 	return gzip.Gzip(gzip.DefaultCompression, gzip.WithExcludedPaths(precompressedPaths))
+}
+
+// newChangelogService builds the What's New service. The CHARON_CHANGELOG_VERSION
+// override is a dev-only hook and is ignored in production. An unversioned
+// override is still applied (it turns What's New off, which is what local
+// iteration with "dev" expects), but it is logged so it is not mistaken for a
+// working override.
+func newChangelogService(currentVersion, environment, override string) *changelog.Service {
+	svc := changelog.NewService(currentVersion)
+	if environment == "production" || override == "" {
+		return svc
+	}
+	if version.IsUnversioned(override) {
+		logger.Log().WithField("override", override).Warn("CHARON_CHANGELOG_VERSION is not a SemVer version; What's New is disabled for this build")
+	}
+	svc.SetCurrentVersion(override)
+	return svc
 }

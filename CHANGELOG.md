@@ -17,7 +17,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Real-time tunnel log streaming to browser via WebSocket
   - Orthrus agent provisioning with one-time auth key display and multi-method install wizard (Docker Compose, systemd, Tarball, Homebrew, Kubernetes)
   - `TunnelStatusBadge` component on the Remote Servers page showing live connection state
-  - Orthrus agent binary published as `ghcr.io/wikid82/charon-orthrus-agent` (~2.4 MB, scratch-based)
+  - Orthrus agent binary published as `wikid82/orthrus` (~2.4 MB, scratch-based)
   - CI workflow for automated Orthrus agent image publishing
   - E2E Playwright test coverage for tunnel manager and agent install wizard
 

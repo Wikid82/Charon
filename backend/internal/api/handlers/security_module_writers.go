@@ -20,6 +20,8 @@ const (
 	msgWAFRulesSourceUnknown  = "That rule set does not exist. Choose one from the list."
 	codeWAFRulesetInUse       = "waf_ruleset_in_use"
 	msgWAFRulesetInUse        = "This rule set is the one the WAF uses. Choose another rule set first."
+	codeRulesetEmpty          = "ruleset_empty"
+	msgRulesetEmpty           = "A rule set needs at least one rule. Add a SecRule line."
 	msgModuleApplyFailed      = "Failed to reload configuration"
 	msgModuleWriteFailed      = "Failed to update security module"
 )
@@ -45,10 +47,11 @@ func writeModuleToggle(tx *gorm.DB, settingKey string, enabled bool, actor strin
 	return upsertSetting(tx, models.Setting{Key: models.CerberusLegacySettingKey, Value: value, Category: "security", Type: "bool"})
 }
 
-// restoreModuleState puts the pre-image of a failed module write back and drops the Cerberus cache so the restored
-// state is what the middleware reads. The settings keys and the default row are restored in separate write-locked
-// transactions, so a failure in one does not undo the other. Restore errors are logged: the caller answers with the
-// apply failure either way.
+// restoreModuleState puts back the values a failed module write changed and drops the Cerberus cache so the restored
+// state is what the middleware reads. Only the keys and columns the write touched are restored, and only while they
+// still hold the value the write left: a newer concurrent write is kept (see models.ModuleStateSnapshot). The settings
+// keys and the default row are restored in separate write-locked transactions, so a failure in one does not undo the
+// other. Restore errors are logged: the caller answers with the apply failure either way.
 func restoreModuleState(db *gorm.DB, cerberus CacheInvalidator, snapshot models.ModuleStateSnapshot) {
 	err := services.WithWriteLock(db, &models.Setting{}, snapshot.RestoreSettings)
 	if err != nil {

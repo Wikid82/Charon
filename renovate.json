@@ -32,8 +32,7 @@
     "github.com/gorilla/websocket",
     "github.com/golang-jwt/jwt/v5",
     "@types/eslint-plugin-jsx-a11y",
-    "google.golang.org/grpc",
-    "github.com/go-jose/go-jose/v4"
+    "google.golang.org/grpc"
   ],
 
   "minimumReleaseAge": null,
@@ -132,7 +131,7 @@
         "/^Dockerfile$/"
       ],
       "matchStrings": [
-        "#\\s*renovate:\\s*datasource=docker\\s+depName=golang.*\\nARG GO_VERSION=(?<currentValue>[^\\s]+)"
+        "#\\s*renovate:\\s*datasource=docker\\s+depName=golang.*\\nARG GOLANG_IMAGE=golang:(?<currentValue>[^@\\s]+)@(?<currentDigest>sha256:[a-f0-9]+)"
       ],
       "depNameTemplate": "golang",
       "datasourceTemplate": "docker",
@@ -284,19 +283,6 @@
     },
     {
       "customType": "regex",
-      "description": "Track GO_VERSION in Actions workflows",
-      "managerFilePatterns": [
-        "/^\\.github/workflows/.*\\.yml$/"
-      ],
-      "matchStrings": [
-        "GO_VERSION: ['\"]?(?<currentValue>[\\d\\.]+)['\"]?"
-      ],
-      "depNameTemplate": "golang/go",
-      "datasourceTemplate": "golang-version",
-      "versioningTemplate": "semver"
-    },
-    {
-      "customType": "regex",
       "description": "Track Syft version in workflows and scripts",
       "managerFilePatterns": [
         "/^\\.github/workflows/nightly-build\\.yml$/",
@@ -380,8 +366,7 @@
         "/^Dockerfile$/"
       ],
       "matchStrings": [
-        "#\\s*renovate:\\s*datasource=go\\s+depName=github\\.com/caddyserver/caddy[^\\s]*\\s*\\nARG CADDY_VERSION=(?<currentValue>[^\\s]+)",
-        "#\\s*renovate:\\s*datasource=go\\s+depName=github\\.com/caddyserver/caddy[^\\s]*\\s*\\nARG CADDY_CANDIDATE_VERSION=(?<currentValue>[^\\s]+)"
+        "#\\s*renovate:\\s*datasource=go\\s+depName=github\\.com/caddyserver/caddy[^\\s]*\\s*\\nARG CADDY_VERSION=(?<currentValue>[^\\s]+)"
       ],
       "depNameTemplate": "github.com/caddyserver/caddy/v2",
       "datasourceTemplate": "go",
@@ -964,7 +949,14 @@
       "matchManagers": [
         "gomod"
       ],
-      "matchFileNames": [
+      "matchDepTypes"
+      : [
+        "indirect"
+      ],
+        "enabled": true
+    },  
+      {
+        "matchFileNames": [
         "plugins/powerdns/go.mod"
       ],
       "matchPackageNames": [

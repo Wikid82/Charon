@@ -225,7 +225,7 @@ test.describe('Certificate Export', () => {
       await navigateToCertificates(page);
       const certRow = page.getByRole('row').filter({ hasText: certName });
       await expect(certRow).toBeVisible({ timeout: 10000 });
-      certRow.getByRole('button', { name: /export/i }).click();
+      await certRow.getByRole('button', { name: /export/i }).click();
       await waitForDialog(page);
     });
 
@@ -268,7 +268,7 @@ test.describe('Certificate Export', () => {
       await navigateToCertificates(page);
       const certRow = page.getByRole('row').filter({ hasText: certName });
       await expect(certRow).toBeVisible({ timeout: 10000 });
-      certRow.getByRole('button', { name: /export/i }).click();
+      await certRow.getByRole('button', { name: /export/i }).click();
       await waitForDialog(page);
     });
 
@@ -295,7 +295,7 @@ test.describe('Certificate Export', () => {
       await navigateToCertificates(page);
       const certRow = page.getByRole('row').filter({ hasText: certName });
       await expect(certRow).toBeVisible({ timeout: 10000 });
-      certRow.getByRole('button', { name: /export/i }).click();
+      await certRow.getByRole('button', { name: /export/i }).click();
       await waitForDialog(page);
     });
 
@@ -338,7 +338,7 @@ test.describe('Certificate Export', () => {
       await navigateToCertificates(page);
       const certRow = page.getByRole('row').filter({ hasText: certName });
       await expect(certRow).toBeVisible({ timeout: 10000 });
-      certRow.getByRole('button', { name: /export/i }).click();
+      await certRow.getByRole('button', { name: /export/i }).click();
       await waitForDialog(page);
     });
 
@@ -374,7 +374,7 @@ test.describe('Certificate Export', () => {
       await navigateToCertificates(page);
       const certRow = page.getByRole('row').filter({ hasText: certName });
       await expect(certRow).toBeVisible({ timeout: 10000 });
-      certRow.getByRole('button', { name: /export/i }).click();
+      await certRow.getByRole('button', { name: /export/i }).click();
       await waitForDialog(page);
     });
 
@@ -408,7 +408,7 @@ test.describe('Certificate Export', () => {
       await navigateToCertificates(page);
       const certRow = page.getByRole('row').filter({ hasText: certName });
       await expect(certRow).toBeVisible({ timeout: 10000 });
-      certRow.getByRole('button', { name: /export/i }).click();
+      await certRow.getByRole('button', { name: /export/i }).click();
       await waitForDialog(page);
     });
 
@@ -435,7 +435,7 @@ test.describe('Certificate Export', () => {
       await navigateToCertificates(page);
       const certRow = page.getByRole('row').filter({ hasText: certName });
       await expect(certRow).toBeVisible({ timeout: 10000 });
-      certRow.getByRole('button', { name: /export/i }).click();
+      await certRow.getByRole('button', { name: /export/i }).click();
       await waitForDialog(page);
     });
 
@@ -473,7 +473,7 @@ test.describe('Certificate Export', () => {
       await navigateToCertificates(page);
       const certRow = page.getByRole('row').filter({ hasText: certName });
       await expect(certRow).toBeVisible({ timeout: 10000 });
-      certRow.getByRole('button', { name: /export/i }).click();
+      await certRow.getByRole('button', { name: /export/i }).click();
       await waitForDialog(page);
     });
 
@@ -555,7 +555,7 @@ test.describe('Certificate Export', () => {
       await navigateToCertificates(page);
       const certRow = page.getByRole('row').filter({ hasText: certName });
       await expect(certRow).toBeVisible({ timeout: 10000 });
-      certRow.getByRole('button', { name: /export/i }).click();
+      await certRow.getByRole('button', { name: /export/i }).click();
       await waitForDialog(page);
     });
 
@@ -577,7 +577,7 @@ test.describe('Certificate Export', () => {
 
     await test.step('Reopen dialog and verify form is reset', async () => {
       const certRow = page.getByRole('row').filter({ hasText: certName });
-      certRow.getByRole('button', { name: /export/i }).click();
+      await certRow.getByRole('button', { name: /export/i }).click();
       await waitForDialog(page);
 
       const dialog = page.getByRole('dialog');
@@ -612,7 +612,7 @@ test.describe('Certificate Export', () => {
       await navigateToCertificates(page);
       const certRow = page.getByRole('row').filter({ hasText: certName });
       await expect(certRow).toBeVisible({ timeout: 10000 });
-      certRow.getByRole('button', { name: /export/i }).click();
+      await certRow.getByRole('button', { name: /export/i }).click();
       await waitForDialog(page);
     });
 

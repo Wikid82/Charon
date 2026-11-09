@@ -225,3 +225,52 @@ describe('DNSProviderForm', () => {
     expect(screen.getByLabelText('Set as default provider')).toBeInTheDocument();
   });
 });
+
+describe('DNSProviderForm form seeding', () => {
+  const providerA = {
+    uuid: 'prov-a',
+    name: 'Provider A',
+    provider_type: 'cloudflare' as const,
+    is_default: false,
+    enabled: true,
+    propagation_timeout: 180,
+    polling_interval: 10,
+    has_credentials: true,
+    success_count: 0,
+    failure_count: 0,
+    created_at: '2023-01-01',
+    updated_at: '2023-01-01',
+  };
+  const providerB = { ...providerA, uuid: 'prov-b', name: 'Provider B' };
+
+  const form = (open: boolean, provider: typeof providerA | null) => (
+    <DNSProviderForm open={open} onOpenChange={vi.fn()} onSuccess={vi.fn()} provider={provider} />
+  );
+
+  it('re-seeds the name when the provider changes while open', () => {
+    const { rerender } = render(form(true, providerA));
+    expect(screen.getByDisplayValue('Provider A')).toBeInTheDocument();
+
+    rerender(form(true, providerB));
+    expect(screen.getByDisplayValue('Provider B')).toBeInTheDocument();
+    expect(screen.queryByDisplayValue('Provider A')).not.toBeInTheDocument();
+  });
+
+  it('discards unsaved edits when reopened', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(form(true, providerA));
+    await user.clear(screen.getByLabelText('Provider Name'));
+    await user.type(screen.getByLabelText('Provider Name'), 'Edited');
+
+    rerender(form(false, providerA));
+    rerender(form(true, providerA));
+    expect(screen.getByLabelText('Provider Name')).toHaveValue('Provider A');
+  });
+
+  it('resets to blank add-mode values when the provider is cleared', () => {
+    const { rerender } = render(form(true, providerA));
+    rerender(form(true, null));
+    expect(screen.getByLabelText('Provider Name')).toHaveValue('');
+    expect(screen.getByText('Add DNS Provider')).toBeInTheDocument();
+  });
+});

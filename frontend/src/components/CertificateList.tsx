@@ -1,7 +1,11 @@
 import { Download, Eye, Trash2, ChevronUp, ChevronDown } from 'lucide-react'
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { type Certificate } from '../api/certificates'
+import { useCertificates, useDeleteCertificate, useBulkDeleteCertificates } from '../hooks/useCertificates'
+import { isInUse, isDeletable } from '../utils/certificateUtils'
+import { toast } from '../utils/toast'
 import BulkDeleteCertificateDialog from './dialogs/BulkDeleteCertificateDialog'
 import CertificateDetailDialog from './dialogs/CertificateDetailDialog'
 import CertificateExportDialog from './dialogs/CertificateExportDialog'
@@ -10,13 +14,28 @@ import { LoadingSpinner, ConfigReloadOverlay } from './LoadingStates'
 import { Button } from './ui/Button'
 import { Checkbox } from './ui/Checkbox'
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from './ui/Tooltip'
-import { type Certificate } from '../api/certificates'
-import { useCertificates, useDeleteCertificate, useBulkDeleteCertificates } from '../hooks/useCertificates'
-import { isInUse, isDeletable } from '../utils/certificateUtils'
-import { toast } from '../utils/toast'
 
 type SortColumn = 'name' | 'expires'
 type SortDirection = 'asc' | 'desc'
+
+/**
+ * Renders the direction chevron for the column currently being sorted; renders
+ * nothing for inactive columns.
+ */
+export function SortIcon({
+  column,
+  sortColumn,
+  sortDirection,
+}: {
+  column: SortColumn
+  sortColumn: SortColumn
+  sortDirection: SortDirection
+}) {
+  if (sortColumn !== column) return null
+  return sortDirection === 'asc'
+    ? <ChevronUp size={14} data-testid="sort-icon-asc" />
+    : <ChevronDown size={14} data-testid="sort-icon-desc" />
+}
 
 function daysUntilExpiry(expiresAt: string): number {
   const now = new Date()
@@ -32,19 +51,17 @@ export default function CertificateList() {
   const [certToDelete, setCertToDelete] = useState<Certificate | null>(null)
   const [certToView, setCertToView] = useState<Certificate | null>(null)
   const [certToExport, setCertToExport] = useState<Certificate | null>(null)
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [pickedIds, setPickedIds] = useState<Set<string>>(new Set())
   const [showBulkDeleteDialog, setShowBulkDeleteDialog] = useState(false)
 
   const deleteMutation = useDeleteCertificate()
 
-  useEffect(() => {
-    setSelectedIds(prev => {
-      const validIds = new Set(certificates.map(c => c.uuid).filter(Boolean))
-      const reconciled = new Set([...prev].filter(id => validIds.has(id)))
-      if (reconciled.size === prev.size) return prev
-      return reconciled
-    })
-  }, [certificates])
+  // Selection is derived at use: ids that are no longer in the list are ignored
+  // rather than pruned from state in an effect.
+  const selectedIds = useMemo<Set<string>>(() => {
+    const currentIds = new Set(certificates.map(c => c.uuid).filter(Boolean))
+    return new Set([...pickedIds].filter(id => currentIds.has(id)))
+  }, [certificates, pickedIds])
 
   const handleDelete = (cert: Certificate) => {
     deleteMutation.mutate(cert.uuid, {
@@ -100,11 +117,7 @@ export default function CertificateList() {
     selectedIds.size > 0 && selectedIds.size < selectableCertIds.size
 
   const handleSelectAll = () => {
-    if (selectedIds.size === selectableCertIds.size) {
-      setSelectedIds(new Set())
-    } else {
-      setSelectedIds(new Set(selectableCertIds))
-    }
+    setPickedIds(selectedIds.size === selectableCertIds.size ? new Set() : new Set(selectableCertIds))
   }
 
   const handleSelectRow = (uuid: string) => {
@@ -114,7 +127,7 @@ export default function CertificateList() {
     } else {
       next.add(uuid)
     }
-    setSelectedIds(next)
+    setPickedIds(next)
   }
 
   const handleSort = (column: SortColumn) => {
@@ -124,11 +137,6 @@ export default function CertificateList() {
       setSortColumn(column)
       setSortDirection('asc')
     }
-  }
-
-  const SortIcon = ({ column }: { column: SortColumn }) => {
-    if (sortColumn !== column) return null
-    return sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
   }
 
   if (isLoading) return <LoadingSpinner />
@@ -182,7 +190,7 @@ export default function CertificateList() {
               >
                 <div className="flex items-center gap-1">
                   Name
-                  <SortIcon column="name" />
+                  <SortIcon column="name" sortColumn={sortColumn} sortDirection={sortDirection} />
                 </div>
               </th>
               <th className="px-6 py-3">Domain</th>
@@ -193,7 +201,7 @@ export default function CertificateList() {
               >
                 <div className="flex items-center gap-1">
                   Expires
-                  <SortIcon column="expires" />
+                  <SortIcon column="expires" sortColumn={sortColumn} sortDirection={sortDirection} />
                 </div>
               </th>
               <th className="px-6 py-3">Status</th>
@@ -357,7 +365,7 @@ export default function CertificateList() {
         open={showBulkDeleteDialog}
         onConfirm={() => bulkDeleteMutation.mutate(Array.from(selectedIds), {
           onSuccess: ({ succeeded, failed }) => {
-            setSelectedIds(new Set())
+            setPickedIds(new Set())
             setShowBulkDeleteDialog(false)
             if (failed > 0) {
               toast.error(t('certificates.bulkDeletePartial', { deleted: succeeded, failed }))

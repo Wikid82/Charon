@@ -219,18 +219,18 @@ func TestBuildACLHandler_UnknownIPTypeReturnsNil(t *testing.T) {
 }
 
 func TestGenerateConfig_SecurityPipeline_Order(t *testing.T) {
-	withTestBouncerKey(t)
+	keyPath := withTestBouncerKey(t)
 	// Create host with ACL and HSTS/BlockExploits
 	ipRules := `[ { "cidr": "192.168.1.0/24" } ]`
 	acl := models.AccessList{ID: 200, Name: "WL", Enabled: true, Type: "whitelist", IPRules: ipRules}
 	host := models.ProxyHost{UUID: "pipeline1", DomainNames: "pipe.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080, AccessListID: &acl.ID, AccessList: &acl, HSTSEnabled: true, BlockExploits: true}
 
 	// Provide rulesets and paths so WAF handler is created with directives
-	rulesets := []models.SecurityRuleSet{{Name: "owasp-crs"}}
+	rulesets := []models.SecurityRuleSet{{Name: "owasp-crs", Content: testRuleSetContent}}
 	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp.conf"}
 	// Set rate limit values so rate_limit handler is included (uses caddy-ratelimit format)
 	secCfg := &models.SecurityConfig{CrowdSecMode: "local", RateLimitRequests: 100, RateLimitWindowSec: 60}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, true, true, true, true, "", rulesets, rulesetPaths, nil, secCfg, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, true, true, true, true, "", rulesets, rulesetPaths, nil, secCfg, nil, WithBouncerKeyPath(keyPath))
 	require.NoError(t, err)
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[1]
 

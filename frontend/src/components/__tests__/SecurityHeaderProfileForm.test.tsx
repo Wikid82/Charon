@@ -389,6 +389,38 @@ describe('SecurityHeaderProfileForm', () => {
     expect(cacheSwitch).toBeChecked();
   });
 
+  it('should associate each field label with its control', () => {
+    render(<SecurityHeaderProfileForm {...defaultProps} />, { wrapper: createWrapper() });
+
+    expect(screen.getByLabelText('Profile Name *')).toHaveAttribute('type', 'text');
+    expect(screen.getByLabelText('Description').tagName).toBe('TEXTAREA');
+    expect(screen.getByLabelText('Max Age (seconds)')).toHaveAttribute('type', 'number');
+    expect(screen.getByLabelText('Include Subdomains')).toBeChecked();
+    expect(screen.getByLabelText('Preload')).not.toBeChecked();
+    expect(screen.getByLabelText('X-Frame-Options').tagName).toBe('SELECT');
+    expect(screen.getByLabelText('X-Content-Type-Options: nosniff')).toBeChecked();
+    expect(screen.getByLabelText('Referrer-Policy').tagName).toBe('SELECT');
+    expect(screen.getByLabelText('Cross-Origin-Opener-Policy').tagName).toBe('SELECT');
+    expect(screen.getByLabelText('Cross-Origin-Resource-Policy').tagName).toBe('SELECT');
+    expect(screen.getByLabelText('Cross-Origin-Embedder-Policy').tagName).toBe('SELECT');
+    expect(screen.getByLabelText('X-XSS-Protection')).toBeChecked();
+    expect(screen.getByLabelText('Cache-Control: no-store')).not.toBeChecked();
+  });
+
+  it('should keep label associations unique across multiple form instances', () => {
+    render(
+      <>
+        <SecurityHeaderProfileForm {...defaultProps} />
+        <SecurityHeaderProfileForm {...defaultProps} />
+      </>,
+      { wrapper: createWrapper() }
+    );
+
+    expect(screen.getAllByLabelText('Profile Name *')).toHaveLength(2);
+    const [first, second] = screen.getAllByLabelText('Profile Name *');
+    expect(first.id).not.toBe(second.id);
+  });
+
   it('should update permissions policy', () => {
      render(<SecurityHeaderProfileForm {...defaultProps} />, { wrapper: createWrapper() });
 

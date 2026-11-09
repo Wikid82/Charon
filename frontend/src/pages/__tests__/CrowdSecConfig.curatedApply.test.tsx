@@ -103,9 +103,9 @@ const hubPreset = {
 }
 
 const renderPage = async () => {
-  const result = renderWithQueryClient(<CrowdSecConfig />)
-  await waitFor(() => screen.getByText('CrowdSec Configuration'))
-  return result
+  const view = renderWithQueryClient(<CrowdSecConfig />)
+  await screen.findByText('CrowdSec Configuration')
+  return view
 }
 
 describe('CrowdSecConfig curated preset apply', () => {

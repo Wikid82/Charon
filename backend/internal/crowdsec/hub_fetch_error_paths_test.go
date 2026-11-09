@@ -72,7 +72,7 @@ func TestFetchWithLimitFromURLReportsBodyReadFailure(t *testing.T) {
 
 	_, err := svc.fetchWithLimitFromURL(context.Background(), "https://user:pw-s3cret@hub.crowdsec.net/x.yaml?token=tok-s3cret", 1024)
 	require.Error(t, err)
-	require.ErrorContains(t, err, "read ")
+	require.ErrorContains(t, err, "(request failed)")
 	require.ErrorContains(t, err, "connection reset mid-body")
 	require.ErrorContains(t, err, "hub.crowdsec.net/x.yaml")
 	require.NotContains(t, err.Error(), "pw-s3cret")

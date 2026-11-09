@@ -2,7 +2,6 @@ package caddy
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -325,20 +324,20 @@ func TestGenerateConfig_HTTPChallenge_ExcludesIPDomains(t *testing.T) {
 }
 
 func TestGetCrowdSecAPIKey_EnvPriority(t *testing.T) {
-	useBouncerKeyFile(t, filepath.Join(t.TempDir(), "missing_bouncer_key"))
+	keyPath := isolateBouncerKeyFile(t)
 	clearCrowdSecKeyEnv(t)
 
 	t.Setenv("CROWDSEC_BOUNCER_API_KEY", "bouncer")
 	t.Setenv("CROWDSEC_API_KEY", "primary")
-	require.Equal(t, "primary", getCrowdSecAPIKey())
+	require.Equal(t, "primary", getCrowdSecAPIKey(keyPath))
 
 	// CHARON_SECURITY_CROWDSEC_API_KEY has highest priority among env vars
 	t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", "charon")
-	require.Equal(t, "charon", getCrowdSecAPIKey())
+	require.Equal(t, "charon", getCrowdSecAPIKey(keyPath))
 
 	t.Setenv("CHARON_SECURITY_CROWDSEC_API_KEY", "")
 	t.Setenv("CROWDSEC_API_KEY", "")
-	require.Equal(t, "bouncer", getCrowdSecAPIKey())
+	require.Equal(t, "bouncer", getCrowdSecAPIKey(keyPath))
 }
 
 func TestHasWildcard_TrueFalse(t *testing.T) {

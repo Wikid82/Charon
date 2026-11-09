@@ -263,7 +263,6 @@ type securitySettingWrite struct {
 // not listed: the framework stays enabled so break glass testing keeps working.
 var emergencySecuritySettings = []securitySettingWrite{
 	{key: models.CrowdSecEnabledSettingKey, value: "false"},
-	{key: models.CrowdSecDeprecatedModeSettingKey, value: "disabled"},
 	{key: "security.acl.enabled", value: "false"},
 	{key: "security.waf.enabled", value: "false"},
 	{key: "security.rate_limit.enabled", value: "false"},

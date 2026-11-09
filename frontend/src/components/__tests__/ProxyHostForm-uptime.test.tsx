@@ -97,6 +97,8 @@ describe('ProxyHostForm Add Uptime flow', () => {
     const { within } = await import('@testing-library/react')
     const spinbuttons = within(uptimeContainer).getAllByRole('spinbutton')
     // first spinbutton is interval, second is max retries
+    expect(screen.getByLabelText('Check Interval (seconds)')).toBe(spinbuttons[0])
+    expect(screen.getByLabelText('Max Retries')).toBe(spinbuttons[1])
     fireEvent.change(spinbuttons[0], { target: { value: '30' } })
     fireEvent.change(spinbuttons[1], { target: { value: '2' } })
 

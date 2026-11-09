@@ -1,7 +1,6 @@
 import { Loader2 } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import type { Certificate } from '../../api/certificates'
 import { useCertificateDetail } from '../../hooks/useCertificates'
 import CertificateChainViewer from '../CertificateChainViewer'
 import {
@@ -10,6 +9,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from '../ui'
+
+import type { Certificate } from '../../api/certificates'
 
 interface CertificateDetailDialogProps {
   certificate: Certificate | null

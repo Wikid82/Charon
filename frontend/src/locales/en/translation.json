@@ -426,8 +426,10 @@
       "noKeyConfigured": "No bouncer key configured. Enable CrowdSec to auto-register.",
       "registered": "Registered",
       "notRegistered": "Not Registered",
+      "registrationUnknown": "Status unknown",
       "sourceEnvVar": "From environment variable",
       "sourceFile": "From file",
+      "keyHeldInMemory": "Held in memory until the key file can be written",
       "keyStoredAt": "Key stored at",
       "keyWarning": {
         "title": "CrowdSec API Key Updated",
@@ -599,7 +601,8 @@
       "waf": {
         "no_ruleset": "The WAF is on, but no rule set is available to inspect requests. Add a rule set on the WAF page.",
         "ruleset_not_selected": "The WAF is on, but several rule sets exist and none is selected. Choose the rule set on the WAF page.",
-        "ruleset_unavailable": "The WAF is on, but the selected rule set could not be loaded. Check it on the WAF page."
+        "ruleset_unavailable": "The WAF is on, but the selected rule set could not be loaded. Check it on the WAF page.",
+        "ruleset_empty": "The selected rule set has no rules, so it is not protecting anything yet. Add rules to it or choose another."
       },
       "rate_limit": {
         "thresholds_unset": "Rate limiting is on, but no limits are set yet. Set the requests and window on the Rate Limiting page."
@@ -685,7 +688,7 @@
     "blockingDescription": "Malicious requests will be blocked with HTTP 403",
     "detectionDescription": "Malicious requests will be logged but not blocked",
     "sourceUrl": "Source URL (optional)",
-    "sourceUrlHelper": "URL to fetch rules from. Leave empty to use inline content.",
+    "sourceUrlHelper": "Optional. The address is stored for reference and is not downloaded.",
     "ruleContent": "Rule Content",
     "ruleContentHelper": "ModSecurity/Coraza rule syntax. Each SecRule should be on its own line.",
     "source": "Source",
@@ -717,7 +720,8 @@
     "errors": {
       "waf_rules_source_unknown": "That rule set does not exist. Choose one from the list.",
       "waf_ruleset_in_use": "This rule set is the one the WAF uses. Choose another rule set first.",
-      "invalid_waf_mode": "The WAF mode is not valid. Reload the page and try again."
+      "invalid_waf_mode": "The WAF mode is not valid. Reload the page and try again.",
+      "ruleset_empty": "A rule set needs at least one rule. Add a SecRule line."
     },
     "detectionMode": "Rule sets without a mode of their own only log matching requests while the saved WAF mode is detection. A rule set set to blocking blocks matching requests."
   },
@@ -1362,8 +1366,6 @@
     "general": {
       "title": "General Configuration",
       "description": "Configure Caddy and UI preferences.",
-      "caddyAdminApi": "Caddy Admin API Endpoint",
-      "caddyAdminApiHelper": "URL to the Caddy admin API (usually on port 2019)",
       "sslProvider": "SSL Provider",
       "selectSslProvider": "Select SSL provider",
       "sslAuto": "Auto (Recommended)",
@@ -1563,6 +1565,9 @@
     "importErrorKeptProfileDuplicate": "The archive has no profiles.yaml, so the current one was kept, but a notification file it needs defines a name the archive already defines.",
     "importErrorKeepCurrentFailed": "The current CrowdSec files could not be kept, so the import was stopped. See the server logs for details.",
     "importErrorConfigNotFound": "config.yaml was not found at the top level or in the config/ folder of the archive.",
+    "importErrorNotWritable": "Charon cannot change the CrowdSec configuration folder. Check that the Charon user owns it and can write to it, and that it is not mounted read-only.",
+    "importErrorArchiveTooLarge": "The archive is larger than the import limit. Nothing was changed.",
+    "importErrorRequestTooLarge": "The file is too large to import.",
     "exportPrompt": "Name your CrowdSec export archive",
     "title": "CrowdSec Configuration",
     "checkNow": "Check Now",
@@ -2317,6 +2322,15 @@
         "tarball": "Tarball",
         "kubernetes": "Kubernetes",
         "homebrew": "Homebrew"
+      },
+      "dockerGid": {
+        "title": "Replace <DOCKER_GID> with your Docker group ID",
+        "instructions": "Run this command on your server. It prints a number, which replaces <DOCKER_GID> in the commands below.",
+        "copyCommand": "Copy command",
+        "macHint": "On macOS, use this command instead: stat -f %g /var/run/docker.sock",
+        "noteComposeSystemd": "Set PGID to that number. The agent will refuse to start if <DOCKER_GID> is left in place.",
+        "noteTarballHomebrew": "Replace <DOCKER_GID> with that number and keep sudo in front of the command. Without sudo, PUID and PGID are ignored, so your user must be in the docker group instead.",
+        "noteKubernetes": "Replace <DOCKER_GID> in supplementalGroups with that number. Kubernetes does not use PUID or PGID."
       }
     },
     "tailscale": {
@@ -2481,15 +2495,20 @@
   },
   "whatsNew": {
     "title": "What's New",
-    "newFeatures": "✨ New Features",
-    "fixes": "🐛 Fixes",
-    "security": "🔒 Security",
+    "newFeatures": "New Features",
+    "fixes": "Fixes",
+    "security": "Security",
     "viewCommit": "view commit",
     "showMaintenanceDetails": "Show maintenance details",
     "remindLater": "Remind Me Next Time",
     "gotIt": "Got It, Thanks",
     "dontShowAgain": "Don't show me update notifications",
-    "closeButton": "Close"
+    "closeButton": "Close",
+    "loadError": "Could not load the release notes. Please try again later.",
+    "empty": "No release notes are available for this version yet.",
+    "showOlder": "Show older releases",
+    "ackError": "Failed to update changelog preferences",
+    "optInError": "Failed to re-enable update notifications"
   },
   "crowdsec": {
     "errors": {

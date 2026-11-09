@@ -40,10 +40,7 @@ vi.mock('react-i18next', () => ({
         'plugins.disabled': 'Disabled',
         'common.close': 'Close',
       }
-      if (typeof defaultValue === 'string') {
-        return translations[key] || defaultValue
-      }
-      return translations[key] || key
+      return typeof defaultValue === 'string' ? translations[key] || defaultValue : translations[key] || key
     },
   }),
 }))

@@ -25,6 +25,7 @@ async function getAuthToken(page: import('@playwright/test').Page): Promise<stri
           return parsed.token;
         }
       } catch {
+        // Malformed auth storage: fall through to the next token source.
       }
     }
 
@@ -67,7 +68,7 @@ test.describe('DNS Provider CRUD Operations', () => {
       await test.step('Wait for DNS Providers page content', async () => {
         // Wait for the nested DNS page content area to be visible
         // DNS route has parent DNS component + child DNSProviders component via Outlet
-        await page.waitForLoadState('networkidle');
+        await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
         await page.waitForTimeout(1000); // Allow React nested routing to complete
       });
 
@@ -356,7 +357,7 @@ test.describe('DNS Provider CRUD Operations', () => {
       }
     });
 
-    test('should update provider name', async ({ page, request }) => {
+    test('should update provider name', async ({ page }) => {
       let createdProviderId: number | string | undefined;
       const initialName = `Update Target ${Date.now()}`;
       const updatedName = `Updated Provider ${Date.now()}`;

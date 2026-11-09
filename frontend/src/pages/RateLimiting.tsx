@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { Gauge, Info } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { STANDARD_RATE_LIMIT } from '../api/security'
@@ -10,6 +10,7 @@ import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
 import { Input } from '../components/ui/Input'
 import { useSecurityStatus, useSecurityConfig, useUpdateSecurityConfig } from '../hooks/useSecurity'
+import { useSeedOnChange } from '../hooks/useSeedOnChange'
 import { toast } from '../utils/toast'
 
 type RateLimitField = 'requests' | 'burst' | 'window'
@@ -53,15 +54,13 @@ export default function RateLimiting() {
   const config = configData?.config
 
   // Sync local state with fetched config
-  useEffect(() => {
-    if (config) {
-      setFields({
-        requests: toFieldText(config.rate_limit_requests, STANDARD_RATE_LIMIT.requests),
-        burst: toFieldText(config.rate_limit_burst, STANDARD_RATE_LIMIT.burst),
-        window: toFieldText(config.rate_limit_window_sec, STANDARD_RATE_LIMIT.windowSec),
-      })
-    }
-  }, [config])
+  useSeedOnChange(config, (loaded) => {
+    setFields({
+      requests: toFieldText(loaded.rate_limit_requests, STANDARD_RATE_LIMIT.requests),
+      burst: toFieldText(loaded.rate_limit_burst, STANDARD_RATE_LIMIT.burst),
+      window: toFieldText(loaded.rate_limit_window_sec, STANDARD_RATE_LIMIT.windowSec),
+    })
+  })
 
   const updateField = (field: RateLimitField, text: string) => {
     setFields((prev) => ({ ...prev, [field]: text }))
@@ -185,6 +184,7 @@ export default function RateLimiting() {
               </p>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
+              <span className="sr-only">{t('rateLimiting.enableRateLimiting')}</span>
               <input
                 type="checkbox"
                 checked={enabled}

@@ -5,12 +5,13 @@ import { MemoryRouter } from 'react-router'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import * as crowdsecApi from '../../api/crowdsec'
-import type { CrowdSecStatus } from '../../api/crowdsec'
 import * as featureFlagsApi from '../../api/featureFlags'
 import * as presetsApi from '../../api/presets'
 import * as securityApi from '../../api/security'
 import { toast } from '../../utils/toast'
 import CrowdSecConfig from '../CrowdSecConfig'
+
+import type { CrowdSecStatus } from '../../api/crowdsec'
 
 const BUSY_TEXT = 'CrowdSec is busy installing a preset. Try again when it finishes.'
 
@@ -153,6 +154,19 @@ describe('CrowdSecConfig — isStartingUp banner suppression', () => {
 
     await act(async () => { await vi.advanceTimersByTimeAsync(3001) })
 
+    expect(screen.getByTestId('lapi-not-running-warning')).toBeInTheDocument()
+  })
+
+  it('LAPI not-running banner appears once the 90-second starting window elapses', async () => {
+    renderWithSeed(
+      { isStarting: true, startedAt: Date.now() },
+      { running: false, lapi_ready: false }
+    )
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(3001) })
+    expect(screen.queryByTestId('lapi-not-running-warning')).not.toBeInTheDocument()
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(90_000) })
     expect(screen.getByTestId('lapi-not-running-warning')).toBeInTheDocument()
   })
 

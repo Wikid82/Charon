@@ -5,7 +5,7 @@
  * and asserts the exact status and message the backend answers with:
  * - Accepted archives (required file only, with optional files)
  * - Rejected archives (missing config.yaml, unusable config.yaml, wrong format, corrupted,
- *   oversized, high compression ratio, path traversal)
+ *   over the upload size limit, over the decompressed content limit, too many entries, path traversal)
  * - Rollback: a rejected import leaves the previous configuration untouched
  *
  * The result of an import is read back through the configuration file API.
@@ -35,6 +35,8 @@ import { restoreShippedCrowdsecConfig, SHIPPED_CROWDSEC_FILES } from '../utils/c
 
 const ADMIN = '/api/v1/admin/crowdsec';
 const MAX_ARCHIVE_BYTES = 50 * 1024 * 1024;
+/** Tar entries an import accepts, directories and zero-length files included (backend MaxImportEntries). */
+const IMPORT_ENTRY_LIMIT = 20_000;
 
 /**
  * A configuration the engine can load. The import check runs the engine on the archive's config.yaml, and a
@@ -177,21 +179,37 @@ test.describe('CrowdSec Config Import Validation', () => {
 
       const response = await upload(request, archive, 'oversized.tar.gz');
 
-      expect(response.status()).toBe(422);
-      expect((await response.json()).error).toMatch(
-        new RegExp(`^validation failed: archive exceeds maximum size: \\d+ > ${MAX_ARCHIVE_BYTES}$`),
-      );
+      expect(response.status()).toBe(413);
+      const body = await response.json();
+      expect(body.error_code).toBe('request_too_large');
+      expect(body.error).toBe('the request body is too large');
     });
 
-    test('should reject an archive with a suspicious compression ratio', async ({ request }, testInfo) => {
-      const archive = await createZipBomb(testInfo.outputPath('zipbomb.tar.gz'), 150);
+    test('should reject an archive over the decompressed import limit', async ({ request }, testInfo) => {
+      const archive = await createZipBomb(testInfo.outputPath('ratio-limit.tar.gz'), 150);
 
-      const response = await upload(request, archive, 'zipbomb.tar.gz');
+      const response = await upload(request, archive, 'ratio-limit.tar.gz');
 
       expect(response.status()).toBe(422);
-      expect((await response.json()).error).toMatch(
-        /^validation failed: suspicious compression ratio: \d+\.\d+x \(potential zip bomb\)$/,
-      );
+      const body = await response.json();
+      expect(body.error_code).toBe('import_archive_too_large');
+      expect(body.error).toBe('the archive is larger than the import limit');
+    });
+
+    test('should reject an archive with more entries than the import limit', async ({ request }, testInfo) => {
+      const entries = [{ name: 'config/config.yaml', content: VALID_CONFIG }];
+      for (let i = 0; i < IMPORT_ENTRY_LIMIT; i++) {
+        // Zero-length entries: each one still counts toward the entry limit, and the archive stays small.
+        entries.push({ name: `config/empty-${i}.txt`, content: '' });
+      }
+      const archive = await createRawTarGz(entries, testInfo.outputPath('too-many-entries.tar.gz'));
+
+      const response = await upload(request, archive, 'too-many-entries.tar.gz');
+
+      expect(response.status()).toBe(422);
+      const body = await response.json();
+      expect(body.error_code).toBe('import_archive_too_large');
+      expect(body.error).toBe('the archive is larger than the import limit');
     });
 
     test('should reject a corrupted archive', async ({ request }, testInfo) => {

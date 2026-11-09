@@ -179,7 +179,7 @@ test.describe('Backups Page - Creation and List', () => {
 
       // After loading completes, skeleton should disappear
       await waitForLoadingComplete(page, { timeout: 5000 });
-      await expect(skeleton).not.toBeVisible();
+      await expect(skeleton).toBeHidden();
     });
   });
 
@@ -227,7 +227,7 @@ test.describe('Backups Page - Creation and List', () => {
 
       // Clicking "Create Backup" opens a confirmation dialog (encryption option,
       // spec §3.8) rather than submitting immediately — confirm inside the dialog.
-      await page.click(SELECTORS.createBackupButton);
+      await page.locator(SELECTORS.createBackupButton).click();
       const dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible();
 
@@ -270,7 +270,7 @@ test.describe('Backups Page - Creation and List', () => {
 
       // Clicking "Create Backup" opens a confirmation dialog (encryption option,
       // spec §3.8) rather than submitting immediately — confirm inside the dialog.
-      await page.click(SELECTORS.createBackupButton);
+      await page.locator(SELECTORS.createBackupButton).click();
       const dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible();
       await dialog.getByRole('button', { name: /^create$/i }).click();
@@ -314,11 +314,11 @@ test.describe('Backups Page - Creation and List', () => {
       await waitForLoadingComplete(page);
 
       // Initial state - should not show new backup
-      await expect(page.getByText('backup_2024-01-16_120000.zip')).not.toBeVisible();
+      await expect(page.getByText('backup_2024-01-16_120000.zip')).toBeHidden();
 
       // Clicking "Create Backup" opens a confirmation dialog (encryption option,
       // spec §3.8) rather than submitting immediately — confirm inside the dialog.
-      await page.click(SELECTORS.createBackupButton);
+      await page.locator(SELECTORS.createBackupButton).click();
       const dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible();
       await dialog.getByRole('button', { name: /^create$/i }).click();
@@ -361,7 +361,7 @@ test.describe('Backups Page - Creation and List', () => {
       // Clicking "Create Backup" opens a confirmation dialog (encryption option,
       // spec §3.8) — the in-progress disabled state lives on the dialog's
       // "Create" confirm button, not the header button that opens it.
-      await page.click(SELECTORS.createBackupButton);
+      await page.locator(SELECTORS.createBackupButton).click();
       const dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible();
       const confirmButton = dialog.getByRole('button', { name: /^create$/i });
@@ -387,7 +387,7 @@ test.describe('Backups Page - Creation and List', () => {
       await waitForToast(page, /success|created/i, { type: 'success' });
 
       // On success the dialog closes (Backups.tsx handleCreateConfirm onSuccess).
-      await expect(dialog).not.toBeVisible();
+      await expect(dialog).toBeHidden();
     });
 
     test('should handle backup creation failure', async ({ page, adminUser }) => {
@@ -411,7 +411,7 @@ test.describe('Backups Page - Creation and List', () => {
 
       // Clicking "Create Backup" opens a confirmation dialog (encryption option,
       // spec §3.8) rather than submitting immediately — confirm inside the dialog.
-      await page.click(SELECTORS.createBackupButton);
+      await page.locator(SELECTORS.createBackupButton).click();
       const dialog = page.getByRole('dialog');
       await expect(dialog).toBeVisible();
       await dialog.getByRole('button', { name: /^create$/i }).click();
@@ -496,7 +496,7 @@ test.describe('Backups Page - Creation and List', () => {
       expect(deleteRequested).toBe(true);
 
       // Dialog should close
-      await expect(dialog).not.toBeVisible();
+      await expect(dialog).toBeHidden();
     });
 
     test('should cancel delete when clicking cancel button', async ({ page, adminUser }) => {
@@ -537,7 +537,7 @@ test.describe('Backups Page - Creation and List', () => {
       await cancelButton.click();
 
       // Dialog should close
-      await expect(dialog).not.toBeVisible();
+      await expect(dialog).toBeHidden();
 
       // DELETE should not have been called
       expect(deleteRequested).toBe(false);

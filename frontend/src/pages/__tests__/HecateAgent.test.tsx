@@ -4,6 +4,7 @@ import userEvent from '@testing-library/user-event'
 import { BrowserRouter } from 'react-router'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+import { useAgentList, useProvisionAgent, useOrthrus } from '../../hooks/useOrthrus'
 import HecateAgent from '../HecateAgent'
 
 vi.mock('../../hooks/useOrthrus', () => ({
@@ -29,7 +30,6 @@ vi.mock('react-i18next', () => ({
   }),
 }))
 
-import { useAgentList, useProvisionAgent, useOrthrus } from '../../hooks/useOrthrus'
 
 const mockUseAgentList = vi.mocked(useAgentList)
 const mockUseProvisionAgent = vi.mocked(useProvisionAgent)

@@ -12,8 +12,9 @@ import { useDeleteProxyGroup, useProxyGroups } from '../../hooks/useProxyGroups'
 import { useProxyHosts } from '../../hooks/useProxyHosts'
 import ProxyHosts from '../ProxyHosts'
 
-import type { ProxyHost } from '../../api/proxyHosts'
 import type { ProxyGroup } from '../../api/proxyGroups'
+import type { ProxyHost } from '../../api/proxyHosts'
+import type * as DndCore from '@dnd-kit/core'
 
 vi.mock('../../hooks/useProxyHosts', () => ({ useProxyHosts: vi.fn() }))
 vi.mock('../../hooks/useCertificates', () => ({ useCertificates: vi.fn() }))
@@ -33,6 +34,20 @@ vi.mock('../../api/backups', () => ({ createBackup: vi.fn() }))
 vi.mock('react-hot-toast', () => ({
   toast: { success: vi.fn(), error: vi.fn(), loading: vi.fn(), dismiss: vi.fn() },
 }))
+
+// Captures the drag-and-drop accessibility announcements so they can be exercised directly.
+type DragAnnouncements = Record<string, (event: { over: { id: string } | null; active?: { id: string } }) => string>
+const dndCapture: { announcements?: DragAnnouncements } = {}
+vi.mock('@dnd-kit/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof DndCore>()
+  return {
+    ...actual,
+    DndContext: ({ children, accessibility }: { children: React.ReactNode; accessibility?: { announcements?: DragAnnouncements } }) => {
+      dndCapture.announcements = accessibility?.announcements
+      return <>{children}</>
+    },
+  }
+})
 
 const createQueryClient = () =>
   new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } })
@@ -306,6 +321,29 @@ describe('ProxyHosts group rendering', () => {
 
     const ungroupedSection = await screen.findByRole('region', { name: 'Ungrouped' })
     expect(within(ungroupedSection).getByText('UngroupedVisible')).toBeInTheDocument()
+  })
+
+  it('names the target group in drag announcements and falls back to the raw id for unknown targets', async () => {
+    vi.mocked(useProxyGroups).mockReturnValue({
+      data: [makeGroup()],
+      isLoading: false,
+      error: null,
+    } as ReturnType<typeof useProxyGroups>)
+
+    renderWithProviders(<ProxyHosts />)
+    await screen.findByText('Production')
+
+    const announcements = dndCapture.announcements
+    expect(announcements).toBeDefined()
+    const onDragOver = announcements!.onDragOver!
+    const onDragEnd = announcements!.onDragEnd!
+
+    expect(onDragOver({ over: null })).toBe('')
+    expect(onDragOver({ over: { id: 'ungrouped' } })).not.toContain('Production')
+    expect(onDragOver({ over: { id: 'grp-1' } })).toContain('Production')
+    expect(onDragEnd({ over: { id: 'grp-1' } })).toContain('Production')
+    expect(onDragEnd({ over: { id: 'unknown-group' } })).toContain('unknown-group')
+    expect(onDragEnd({ over: null })).not.toContain('Production')
   })
 
   it('renders groups container div (line 871) when groups exist with no hosts', async () => {

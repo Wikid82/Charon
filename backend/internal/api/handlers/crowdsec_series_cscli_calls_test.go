@@ -71,7 +71,7 @@ func TestBouncerCalls_PassTheConfigFile(t *testing.T) {
 		ex := &pr4Exec{respond: func(context.Context, []string) ([]byte, error) { return []byte(`[]`), nil }}
 		h := pr4Handler(t, ex, dir)
 
-		h.validateBouncerKey(context.Background())
+		h.bouncerRegistration(context.Background())
 
 		require.NotZero(t, ex.callCount())
 		assert.Equal(t, []string{"-c", cfg}, ex.lastCall(t)[:2])
@@ -103,7 +103,7 @@ func TestBouncerCalls_KeepTheirDeadlines(t *testing.T) {
 	ex := &pr4Exec{respond: func(context.Context, []string) ([]byte, error) { return []byte(`[]`), nil }}
 	h := pr4Handler(t, ex, t.TempDir())
 
-	h.validateBouncerKey(context.Background())
+	h.bouncerRegistration(context.Background())
 
 	left := ex.lastRemaining(t)
 	assert.Positive(t, left)

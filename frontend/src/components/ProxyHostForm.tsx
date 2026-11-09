@@ -1,14 +1,9 @@
 import { CircleHelp, AlertCircle, Check, X, Loader2, Copy, Info, AlertTriangle, RefreshCw } from 'lucide-react'
-import { useState, useEffect, useRef, useCallback } from 'react'
+import { useState, useEffect, useRef, useCallback, useId } from 'react'
 import { toast } from 'react-hot-toast'
 import { useTranslation } from 'react-i18next'
 import { parse } from 'tldts'
 
-import AccessListSelector from './AccessListSelector'
-import { DNSDetectionResult } from './DNSDetectionResult'
-import DNSProviderSelector from './DNSProviderSelector'
-import ProxyGroupSelector from './ProxyGroupSelector'
-import { SecurityScoreDisplay } from './SecurityScoreDisplay'
 import { testProxyHostConnection, type ProxyHost, type ApplicationPreset  } from '../api/proxyHosts'
 import { syncMonitors } from '../api/uptime'
 import { useCertificates } from '../hooks/useCertificates'
@@ -18,8 +13,13 @@ import { useDockerStatus } from '../hooks/useDockerStatus'
 import { useDomains } from '../hooks/useDomains'
 import { useRemoteServers } from '../hooks/useRemoteServers'
 import { useSecurityHeaderProfiles } from '../hooks/useSecurityHeaders'
-import { Alert } from './ui/Alert'
 import { isLikelyDockerContainerIP, isPrivateOrDockerIP } from '../utils/validation'
+import AccessListSelector from './AccessListSelector'
+import { DNSDetectionResult } from './DNSDetectionResult'
+import DNSProviderSelector from './DNSProviderSelector'
+import ProxyGroupSelector from './ProxyGroupSelector'
+import { SecurityScoreDisplay } from './SecurityScoreDisplay'
+import { Alert } from './ui/Alert'
 import {
   Select,
   SelectContent,
@@ -165,21 +165,8 @@ function normalizeNullableID(value: unknown): number | null | undefined {
   return undefined
 }
 
-function normalizeAccessListReference(value: unknown): number | string | null | undefined {
-  const numericValue = normalizeNullableID(value)
-  if (numericValue !== undefined) {
-    return numericValue
-  }
-
-  if (typeof value !== 'string') {
-    return undefined
-  }
-
-  const trimmed = value.trim()
-  return trimmed === '' ? null : trimmed
-}
-
-function normalizeSecurityHeaderReference(value: unknown): number | string | null | undefined {
+/** Normalizes a reference to another entity (access list, certificate, security header profile). */
+function normalizeReferenceID(value: unknown): number | string | null | undefined {
   const numericValue = normalizeNullableID(value)
   if (numericValue !== undefined) {
     return numericValue
@@ -253,8 +240,38 @@ function getEntityToken(entity: { id?: number; uuid?: string }): string | null {
   return null
 }
 
+/**
+ * Returns a warning when the forward host looks like a Docker container IP or
+ * a private address, since those can change on container restart. Returns null
+ * when no warning applies.
+ */
+function getForwardHostWarning(forwardHost: string | undefined): string | null {
+  const host = forwardHost?.trim() || ''
+  if (isLikelyDockerContainerIP(host)) {
+    return (
+      'This looks like a Docker container IP address. Docker IPs can change when containers restart. ' +
+      'Consider using the container name (e.g., "my-app" or "my-app:8080") for more reliable connections.'
+    )
+  }
+  if (isPrivateOrDockerIP(host)) {
+    return (
+      'Using a private IP address. Make sure Charon can reach it (for example over your LAN or VPN). ' +
+      'If this is a Docker container, its IP may change on restart; container names are more reliable.'
+    )
+  }
+  return null
+}
+
+/** Reads the "don't ask about new base domains" preference (legacy key still honored). */
+function readDontAskDomainPreference(): boolean {
+  const stored = localStorage.getItem('charon_dont_ask_domain') ?? localStorage.getItem('cpmp_dont_ask_domain')
+  return stored === 'true'
+}
+
 export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFormProps) {
   const { t } = useTranslation()
+  const idPrefix = useId()
+  const fieldId = (name: string) => `${idPrefix}-${name}`
   type ProxyHostFormState = Omit<Partial<ProxyHost>, 'access_list_id' | 'security_header_profile_id' | 'certificate_id' | 'proxy_group_id'> & {
     access_list_id?: number | string | null
     security_header_profile_id?: number | string | null
@@ -266,9 +283,12 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   }
   const [formData, setFormData] = useState<ProxyHostFormState>(buildInitialFormData(host))
 
-  useEffect(() => {
+  // Re-seed when the edited host changes (adjust-during-render, replacing an effect).
+  const [seededHostUuid, setSeededHostUuid] = useState(host?.uuid)
+  if (seededHostUuid !== host?.uuid) {
+    setSeededHostUuid(host?.uuid)
     setFormData(buildInitialFormData(host))
-  }, [host?.uuid])
+  }
 
   // Charon internal IP for config helpers (previously CPMP internal IP)
   const [charonInternalIP, setCharonInternalIP] = useState<string>('')
@@ -284,11 +304,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   useEffect(() => {
     fetch('/api/v1/health')
       .then(res => res.json())
-      .then(data => {
-        if (data.internal_ip) {
-          setCharonInternalIP(data.internal_ip)
-        }
-      })
+      .then(data => (data.internal_ip ? setCharonInternalIP(data.internal_ip) : undefined))
       .catch(() => {})
   }, [])
 
@@ -340,6 +356,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   // Auto-select suggested provider if confidence is high
   useEffect(() => {
     if (detectionResult?.suggested_provider && detectionResult.confidence === 'high' && !manualProviderSelection && !formData.dns_provider_id) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- auto-select reacts to an async detection result and must also toast in the same step; a derived value would move the toast into render
       setFormData(prev => ({ ...prev, dns_provider_id: detectionResult.suggested_provider!.uuid }))
       toast.success(`Auto-selected: ${detectionResult.suggested_provider.name}`)
     }
@@ -383,8 +400,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   // Get the external URL for this proxy host
   const getExternalUrl = () => {
     const domain = (formData.domain_names ?? '').split(',')[0]?.trim()
-    if (!domain) return ''
-    return `https://${domain}:443`
+    return !domain ? '' : `https://${domain}:443`
   }
 
   const { servers: remoteServers } = useRemoteServers()
@@ -411,11 +427,14 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   const { data: dockerStatus } = useDockerStatus()
   const localDockerUnavailable = dockerStatus?.available === false
 
-  useEffect(() => {
+  // Fall back from Local to Custom when Docker becomes unavailable (adjust-during-render).
+  const [prevDockerUnavailable, setPrevDockerUnavailable] = useState(localDockerUnavailable)
+  if (prevDockerUnavailable !== localDockerUnavailable) {
+    setPrevDockerUnavailable(localDockerUnavailable)
     if (localDockerUnavailable) {
       setConnectionSource(current => (current === 'local' ? 'custom' : current))
     }
-  }, [localDockerUnavailable])
+  }
 
   const [selectedDomain, setSelectedDomain] = useState('')
   const [selectedContainerId, setSelectedContainerId] = useState<string>('')
@@ -423,14 +442,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   // New Domain Popup State
   const [showDomainPrompt, setShowDomainPrompt] = useState(false)
   const [pendingDomain, setPendingDomain] = useState('')
-  const [dontAskAgain, setDontAskAgain] = useState(false)
-
-  useEffect(() => {
-    const stored = localStorage.getItem('charon_dont_ask_domain') ?? localStorage.getItem('cpmp_dont_ask_domain')
-    if (stored === 'true') {
-      setDontAskAgain(true)
-    }
-  }, [])
+  const [dontAskAgain, setDontAskAgain] = useState(readDontAskDomainPreference)
 
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
   const [showPresetConfirmModal, setShowPresetConfirmModal] = useState(false)
@@ -521,28 +533,12 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     }
   }
 
-  // Validate forward_host for IP address warnings
-  useEffect(() => {
-    const host = formData.forward_host?.trim() || ''
-    if (isLikelyDockerContainerIP(host)) {
-      setForwardHostWarning(
-        'This looks like a Docker container IP address. Docker IPs can change when containers restart. ' +
-        'Consider using the container name (e.g., "my-app" or "my-app:8080") for more reliable connections.'
-      )
-    } else if (isPrivateOrDockerIP(host)) {
-      setForwardHostWarning(
-        'Using a private IP address. If this is a Docker container, the IP may change on restart. ' +
-        'Container names are more reliable for Docker services.'
-      )
-    } else {
-      setForwardHostWarning(null)
-    }
-  }, [formData.forward_host])
+  // IP address warning for forward_host is derived from the current value
+  const forwardHostWarning = getForwardHostWarning(formData.forward_host)
 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [nameError, setNameError] = useState<string | null>(null)
-  const [forwardHostWarning, setForwardHostWarning] = useState<string | null>(null)
   const [addUptime, setAddUptime] = useState(false)
   const [uptimeInterval, setUptimeInterval] = useState(60)
   const [uptimeMaxRetries, setUptimeMaxRetries] = useState(3)
@@ -584,9 +580,9 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
       const submitPayload: Partial<ProxyHost> = {
         ...payloadWithoutUptime,
-        access_list_id: normalizeAccessListReference(payloadWithoutUptime.access_list_id),
-        security_header_profile_id: normalizeSecurityHeaderReference(payloadWithoutUptime.security_header_profile_id),
-        certificate_id: normalizeAccessListReference(payloadWithoutUptime.certificate_id),
+        access_list_id: normalizeReferenceID(payloadWithoutUptime.access_list_id),
+        security_header_profile_id: normalizeReferenceID(payloadWithoutUptime.security_header_profile_id),
+        certificate_id: normalizeReferenceID(payloadWithoutUptime.certificate_id),
       }
 
       const res = await onSubmit(submitPayload)
@@ -706,7 +702,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   return (
     <>
       {/* Layer 1: Background overlay (z-40) */}
-      <div className="fixed inset-0 bg-black/50 z-40" onClick={onCancel} />
+      <div className="fixed inset-0 bg-black/50 z-40" role="presentation" onClick={onCancel} />
 
       {/* Layer 2: Form container (z-50, pointer-events-none) */}
       <div className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-50">
@@ -764,7 +760,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {/* Docker Container Quick Select */}
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label htmlFor="connection-source" className="block text-sm font-medium text-gray-300 mb-2">
                 Source
               </label>
               <Select value={connectionSource} onValueChange={setConnectionSource}>
@@ -795,7 +791,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">
+              <label htmlFor="quick-select-docker" className="block text-sm font-medium text-gray-300 mb-2">
                 Containers
               </label>
 
@@ -856,11 +852,11 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
           <div className="space-y-4">
             {safeDomains.length > 0 && (
               <div>
-                <label className="block text-sm font-medium text-gray-300 mb-2">
+                <label htmlFor={fieldId('base-domain')} className="block text-sm font-medium text-gray-300 mb-2">
                   Base Domain (Auto-fill)
                 </label>
                 <Select value={selectedDomain} onValueChange={handleBaseDomainChange}>
-                  <SelectTrigger className="w-full bg-gray-900 border-gray-700 text-white" aria-label="Base Domain (Auto-fill)">
+                  <SelectTrigger id={fieldId('base-domain')} className="w-full bg-gray-900 border-gray-700 text-white" aria-label="Base Domain (Auto-fill)">
                     <SelectValue placeholder="Select a base domain" />
                   </SelectTrigger>
                   <SelectContent>
@@ -893,9 +889,9 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
           {/* Forward Details */}
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Scheme</label>
+              <label htmlFor={fieldId('scheme')} className="block text-sm font-medium text-gray-300 mb-2">Scheme</label>
               <Select value={formData.forward_scheme} onValueChange={scheme => setFormData(prev => ({ ...prev, forward_scheme: scheme }))}>
-                <SelectTrigger className="w-full bg-gray-900 border-gray-700 text-white" aria-label="Scheme">
+                <SelectTrigger id={fieldId('scheme')} className="w-full bg-gray-900 border-gray-700 text-white" aria-label="Scheme">
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
@@ -951,14 +947,14 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
           {/* SSL Certificate Selection */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label htmlFor={fieldId('ssl-certificate')} className="block text-sm font-medium text-gray-300 mb-2">
               SSL Certificate
             </label>
             <Select
               value={resolveSelectToken(formData.certificate_id as number | string | null | undefined)}
               onValueChange={token => setFormData(prev => ({ ...prev, certificate_id: resolveTokenToFormValue(token) }))}
             >
-              <SelectTrigger className="w-full bg-gray-900 border-gray-700 text-white" aria-label="SSL Certificate">
+              <SelectTrigger id={fieldId('ssl-certificate')} className="w-full bg-gray-900 border-gray-700 text-white" aria-label="SSL Certificate">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1026,11 +1022,11 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
           {/* Proxy Group */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label htmlFor={fieldId('proxy-group')} className="block text-sm font-medium text-gray-300 mb-2">
               Proxy Group
               <span className="text-gray-500 font-normal ml-2">(Optional)</span>
             </label>
-            <ProxyGroupSelector
+            <ProxyGroupSelector id={fieldId('proxy-group')}
               value={formData.proxy_group_id ?? null}
               onChange={(uuid) => setFormData(prev => ({ ...prev, proxy_group_id: uuid }))}
             />
@@ -1041,7 +1037,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
           {/* Security Headers Profile */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label htmlFor={fieldId('security-headers')} className="block text-sm font-medium text-gray-300 mb-2">
               Security Headers
               <span className="text-gray-500 font-normal ml-2">(Optional)</span>
             </label>
@@ -1055,7 +1051,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                 }))
               }}
             >
-              <SelectTrigger className="w-full bg-gray-900 border-gray-700 text-white" aria-label="Security Headers">
+              <SelectTrigger id={fieldId('security-headers')} className="w-full bg-gray-900 border-gray-700 text-white" aria-label="Security Headers">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
@@ -1155,7 +1151,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
           {/* Application Preset */}
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">
+            <label htmlFor="application-preset" className="block text-sm font-medium text-gray-300 mb-2">
               Application Preset
               <span className="text-gray-500 font-normal ml-2">(Optional)</span>
             </label>
@@ -1502,8 +1498,8 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
             {addUptime && (
               <div className="grid grid-cols-2 gap-4 mt-3">
                 <div>
-                  <label className="block text-sm text-gray-400 mb-1">Check Interval (seconds)</label>
-                  <input
+                  <label htmlFor={fieldId('uptime-interval')} className="block text-sm text-gray-400 mb-1">Check Interval (seconds)</label>
+                  <input id={fieldId('uptime-interval')}
                     type="number"
                     min={10}
                     value={uptimeInterval}
@@ -1512,8 +1508,8 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                   />
                 </div>
                 <div>
-                  <label className="block text-sm text-gray-400 mb-1">Max Retries</label>
-                  <input
+                  <label htmlFor={fieldId('uptime-max-retries')} className="block text-sm text-gray-400 mb-1">Max Retries</label>
+                  <input id={fieldId('uptime-max-retries')}
                     type="number"
                     min={1}
                     value={uptimeMaxRetries}
@@ -1631,7 +1627,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
             <p className="text-gray-400 text-sm mb-4">A backup of your existing configuration will be created when the host is saved.</p>
 
             <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-300 mb-2">Preset Preview</label>
+              <span className="block text-sm font-medium text-gray-300 mb-2">Preset Preview</span>
               <pre className="bg-gray-900 px-3 py-2 rounded text-sm text-green-400 font-mono overflow-x-auto whitespace-pre-wrap">
                 {PRESET_ADVANCED_CONFIG[pendingPreset]}
               </pre>

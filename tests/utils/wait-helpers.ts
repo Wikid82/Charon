@@ -464,7 +464,8 @@ export async function waitForModal(
   } catch (e) {
     // If neither is found, throw a more helpful error
     throw new Error(
-      `waitForModal: Could not find visible modal dialog or slide-out panel matching "${titleText}". Error: ${e instanceof Error ? e.message : String(e)}`
+      `waitForModal: Could not find visible modal dialog or slide-out panel matching "${titleText}". Error: ${e instanceof Error ? e.message : String(e)}`,
+      { cause: e }
     );
   }
 
@@ -1169,6 +1170,7 @@ export async function waitForDebounce(
       await page.waitForTimeout(delay);
     }
     // Wait for network to be idle (default debounce strategy)
+    // eslint-disable-next-line playwright/no-networkidle -- debounce helper: no request-agnostic element signals the debounced fetch settled
     await page.waitForLoadState('networkidle', { timeout });
   }
 }

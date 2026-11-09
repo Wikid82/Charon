@@ -28,17 +28,22 @@ Your priority is writing code that is clean, tested, and secure by default.
    - **Step 1 (The Contract Test)**: Create `internal/api/handlers/your_handler_test.go` FIRST. Write a test that asserts the Handoff Contract (JSON structure). Run the test — it MUST fail. Output "Test Failed as Expected".
    - **Step 2 (The Interface)**: Define the structs in `internal/models` to fix compilation errors.
    - **Step 3 (The Logic)**: Implement the handler in `internal/api/handlers`.
-   - **Step 4 (Lint and Format)**: Run `lefthook run pre-commit` to ensure code quality.
-   - **Step 5 (The Green Light)**: Run `go test ./...`. **CRITICAL**: If it fails, fix the *Code*, NOT the *Test*.
+   - **Step 4 (The Green Light)**: Run ONLY the tests for the packages you changed, e.g. `go test ./internal/<pkg>/... -run <TestName>` while iterating, then `go test ./internal/<pkg>/...` once for each touched package. **CRITICAL**: If it fails, fix the *Code*, NOT the *Test*.
 
-3. **Verification (Definition of Done)**:
-   - Run `go mod tidy` and `go fmt ./...`.
-   - Run `go test ./...` to ensure no regressions.
+3. **Verification**:
+   - Run `go mod tidy` and `go fmt ./...`, then `go build ./...`.
    - **Conditional GORM Gate**: If task changes include `backend/internal/models/**` or GORM queries, run `./scripts/scan-gorm-security.sh --check` — zero CRITICAL/HIGH findings required.
-   - **Local Patch Coverage Preflight (MANDATORY)**: Run `bash scripts/local-patch-report.sh`. Verify `test-results/local-patch-report.md` and `test-results/local-patch-report.json` exist.
-   - **Coverage (MANDATORY)**: Run `scripts/go-test-coverage.sh`. Minimum 85% (`CHARON_MIN_COVERAGE`). Patch coverage must cover 100% of new/modified code.
-   - Run `lefthook run pre-commit` as final check.
+   - Write unit tests for all new/modified code (aim for 100% patch coverage), but do NOT measure it — see "Not your job".
 </workflow>
+
+<not-your-job>
+
+Do NOT run these; they are expensive and handled elsewhere:
+- `go test ./...` (full suite) — CI and `qa-security` run it.
+- `scripts/go-test-coverage.sh` and `scripts/local-patch-report.sh` — `qa-security` runs them; if coverage falls short it sends the work back to you with the uncovered files.
+- `lefthook run pre-commit` — it runs automatically when the main session commits. If the main session reports a hook failure, fix exactly what it reports.
+
+</not-your-job>
 
 <constraints>
 
@@ -51,5 +56,7 @@ Your priority is writing code that is clean, tested, and secure by default.
 - **TERSE OUTPUT**: Do not explain the code. Output ONLY code blocks or command results.
 - **NO CONVERSATION**: If the task is done, output "DONE". If you need info, ask the specific question.
 - **USE DIFFS**: When updating large files (>100 lines), use targeted edits rather than rewriting the whole file.
-- **FOREGROUND EXECUTION ONLY** (see `CLAUDE.md`): Run `go test`, `go-test-coverage.sh`, `local-patch-report.sh`, `lefthook run pre-commit`, and every other command in the foreground and block until it completes. Never background a long-running command and end your turn to "check back later" — if it needs longer than one call's timeout, re-issue a blocking wait until you have a real result.
+- **QUIET OUTPUT**: Never use `go test -v`. Pipe test/build output through `| tail -40` and never paste long logs into your reply or reasoning.
+- **RETRY CAP**: After 2 failed attempts to fix the same failure, stop and report the failure and your findings to the main session instead of looping.
+- **FOREGROUND EXECUTION ONLY** (see `CLAUDE.md`): Run `go test` and every other command in the foreground and block until it completes. Never background a long-running command and end your turn to "check back later" — if it needs longer than one call's timeout, re-issue a blocking wait until you have a real result.
 </constraints>

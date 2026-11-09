@@ -7,8 +7,10 @@ const (
 	ReasonNoRuleset = "no_ruleset"
 	// ReasonRulesetNotSelected means rulesets exist, but none is chosen for the host.
 	ReasonRulesetNotSelected = "ruleset_not_selected"
-	// ReasonRulesetUnavailable means the chosen ruleset has no file on disk.
+	// ReasonRulesetUnavailable means the chosen ruleset has rules but no file on disk.
 	ReasonRulesetUnavailable = "ruleset_unavailable"
+	// ReasonRulesetEmpty means the chosen ruleset has no rules, or every ruleset has none.
+	ReasonRulesetEmpty = "ruleset_empty"
 	// ReasonThresholdsUnset means the rate limit is on without a request count or a window.
 	ReasonThresholdsUnset = "thresholds_unset"
 )

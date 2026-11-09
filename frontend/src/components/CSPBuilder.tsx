@@ -1,6 +1,7 @@
 import { Plus, X, AlertCircle, Check, Code } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 
+import { parseJsonArray } from '../utils/parseJsonArray';
 import { Alert } from './ui/Alert';
 import { Badge } from './ui/Badge';
 import { Button } from './ui/Button';
@@ -76,25 +77,19 @@ const CSP_PRESETS: Record<string, CSPDirective[]> = {
 };
 
 export function CSPBuilder({ value, onChange, onValidate }: CSPBuilderProps) {
-  const [directives, setDirectives] = useState<CSPDirective[]>([]);
+  const [directives, setDirectives] = useState<CSPDirective[]>(() => parseJsonArray<CSPDirective>(value));
   const [newDirective, setNewDirective] = useState('default-src');
   const [newValue, setNewValue] = useState('');
   const [validationErrors, setValidationErrors] = useState<string[]>([]);
   const [showPreview, setShowPreview] = useState(false);
 
-  // Parse initial value
-  useEffect(() => {
-    try {
-      if (value) {
-        const parsed = JSON.parse(value) as CSPDirective[];
-        setDirectives(parsed);
-      } else {
-        setDirectives([]);
-      }
-    } catch {
-      setDirectives([]);
-    }
-  }, [value]);
+  // Re-parse when the parent replaces `value`. Adjusting state during render
+  // (instead of an effect) avoids a stale first paint and an extra commit.
+  const [syncedValue, setSyncedValue] = useState(value);
+  if (value !== syncedValue) {
+    setSyncedValue(value);
+    setDirectives(parseJsonArray<CSPDirective>(value));
+  }
 
   // Generate CSP string preview
   const generateCSPString = (dirs: CSPDirective[]): string => {

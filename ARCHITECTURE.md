@@ -386,6 +386,11 @@ fork/offline fallback.
 
 Powers the post-login "What's New" modal. `internal/changelog.Service` reads a `//go:embed`-ed `data/changelog.json` (generated at release build time from conventional-commit history — see "Release Workflow" below) and answers "what's new since version X" against the `User.last_seen_version` / `User.changelog_opt_out` columns, via four authenticated routes under `/api/v1/changelog`. No runtime network calls or external dependencies.
 
+- **Version ceiling:** a versioned build never shows entries newer than its own `X.Y.Z`. An unversioned `dev` build has no ceiling, so local UI work sees all entries.
+- **Cap:** every status response returns at most the newest 3 entries, whatever the user's stored version is. The full history is available only through the browse route, which the UI pages 10 at a time.
+- **Anchor:** "dismiss permanently" stores only the bare `X.Y.Z` of the running build (build labels removed). The stored version never moves backwards, so a downgrade cannot re-show old notes.
+- **Validation:** a Security entry whose commit ID is not 7 to 40 hexadecimal characters is dropped before it reaches the browser.
+
 #### Stats Subsystem (`internal/services/stats_*`, `internal/api/handlers/stats_*`)
 
 The stats subsystem collects, aggregates, and broadcasts request metrics for the Dashboard Statistics feature.
@@ -598,7 +603,7 @@ check.
 #### Security Suite (`internal/cerberus/`)
 
 - **ACL (Access Control Lists):** IP-based allow/deny rules, GeoIP blocking
-- **WAF (Web Application Firewall):** Coraza engine with OWASP CRS
+- **WAF (Web Application Firewall):** Coraza engine with user-provided rule sets (CRS-compatible)
 - **CrowdSec:** Behavior-based threat detection with global intelligence
 - **Rate Limiter:** Opt-in per-client API throttling (shared `internal/ratelimit` component)
 - **Login Protection:** Always-on per-client throttle in front of `/api/v1/auth/*` and every password-verifying route, independent of Cerberus settings
@@ -849,7 +854,7 @@ graph LR
     RateLimit -->|Throttled| CrowdSec[CrowdSec Bouncer]
     CrowdSec -->|Threat Intel| ACL[Access Control Lists]
     ACL -->|IP Whitelist| WAF[Web Application Firewall]
-    WAF -->|OWASP CRS| Caddy[Caddy Proxy]
+    WAF -->|User rule sets| Caddy[Caddy Proxy]
     Caddy -->|Proxied| Upstream[Upstream Server]
 
     style RateLimit fill:#f9f,stroke:#333,stroke-width:2px
@@ -888,11 +893,21 @@ Sign-in protection is a separate, always-on limiter described under "Management 
 
 **CrowdSec bouncer key precedence:** the bouncer key is the shared secret the Caddy bouncer uses to talk to the CrowdSec Local API. One rule set, in `backend/internal/crowdsec/bouncerkey`, is used by the proxy config, the handlers and startup:
 
-1. A saved key file (`bouncer_key` in the CrowdSec data folder, `/app/data/crowdsec/bouncer_key` by default) that the Local API accepts wins. Environment values are not tested in this case.
+0. A key held in memory (only after a failed save of a new key) is tested first. It is dropped once the key file holds the same key or the Local API rejects it.
+1. A saved key file (`bouncer_key` in the CrowdSec data folder, `/app/data/crowdsec/bouncer_key` by default; one function, `bouncerkey.PathFor`, derives the path for the handlers, startup and the proxy config, and `CHARON_CROWDSEC_BOUNCER_KEY_PATH` overrides it everywhere) that the Local API accepts wins. Environment values are not tested in this case.
 2. Otherwise the first non-empty environment variable is tested and, if accepted, saved to the key file. Lookup order: `CHARON_SECURITY_CROWDSEC_API_KEY`, `CROWDSEC_API_KEY`, `CROWDSEC_BOUNCER_API_KEY`, `CERBERUS_SECURITY_CROWDSEC_API_KEY`, `CPM_SECURITY_CROWDSEC_API_KEY`.
 3. Otherwise a new bouncer is registered and its key saved.
 
 Key writes go through `crowdsec.SaveBouncerKey`: a temporary file is written and renamed over the key (mode `0600`). A bind-mounted single file, where rename is not allowed, falls back to an in-place write. A symlinked key file is replaced by a regular file. A failed save is logged as an error. Nothing keeps the new key in memory: Caddy and the key check read the key file, so blocking may not work until the file can be written (fix write access to the data directory, then restart CrowdSec).
+
+Only a definite rejection (HTTP 403) of every candidate key leads to step 3. An unreachable or unclear Local API answer (timeout, 401, 5xx, redirect) leaves the saved key and the bouncer untouched, and the check runs again at the next start. With no saved key yet, the key already in use (the environment value, not yet checked) stays in use, no new bouncer is registered, and the check runs again at the next start.
+
+**Key check address and registration details:**
+
+- Key checks always use the local engine address (`http://127.0.0.1:8085`). `CHARON_SECURITY_CROWDSEC_API_URL` is ignored for key checks. When it is set to any other value, one warning is logged per start, without the address. The variable still seeds the stored address that the status readers (dashboard, health, decisions, Caddy) use.
+- The manual register endpoint (`POST /admin/crowdsec/bouncer/register`) answers 409 `crowdsec_busy` while another CrowdSec change holds the lock, and 503 `shutting_down` during shutdown. The bouncer status reports `registration: "unknown"` when the bouncer list cannot be read; the UI shows this as "Status unknown", and `registered` is false.
+- The default security row is kept in step with the CrowdSec setting at startup, so the stored row and the setting agree after the first start.
+- Shutdown waits up to 30 seconds for a registration that is already in progress (`WaitRegistrations`, run beside the uptime drain). Registrations that start after shutdown has begun are refused.
 
 **Preset apply and config edits:** Applying a hub preset, importing a
 configuration, and saving a file in the config editor never rename or empty the
@@ -938,6 +953,10 @@ busy flag; while it is set, data-changing CrowdSec handlers answer 409
 restart as interrupted and restores the pre-install snapshot. Lock order is busy
 flag, then `dataMu`; `acquisMu` is a leaf lock. The synchronous apply route
 remains but is deprecated for large presets. Job views never expose `backup_path`.
+
+**Startup order:** on every boot, `cmd/api/main.go` runs `MigrateSchema` first (creates or updates every table, so the startup checks never meet a missing table), then `RetireCrowdSecModeSetting` (copies the retired `security.crowdsec.mode` value into `security.crowdsec.enabled` when that setting has no value, then deletes the old key), then `ReconcileCrowdSecOnStartup`. Reconciliation therefore always sees the carried-over value, and it still runs before the first proxy apply. `security.crowdsec.enabled` is the only CrowdSec on/off setting; the retired key is no longer written or read, and the settings API refuses writes to it. After a backup restore, an old mode row that the restored database carries is retired at the next start by the same step. The `migrate` subcommand uses the same shared model list as `MigrateSchema`.
+
+**CrowdSec config file for cscli:** every `cscli` call made by the entrypoint and the hub helpers names the live config with `-c`. The entrypoint exports that path as `CHARON_CSCLI_CONFIG` (default `/etc/crowdsec/config.yaml`). Like the mirror variables, it is internal state, not an operator setting.
 
 **Start, reload and import checks:** `api/handlers/crowdsec_reload.go` is the only sender of SIGHUP to the managed engine. A reload requested before the engine is ready (LAPI answers and the engine has run for a settle window) is queued as one pending reload, and the apply and restore results report it with `reload_pending`. The engine is launched through a small `sh` wrapper that ignores SIGHUP and then `exec`s the engine, so the process ID is kept; the process-identity check recognises both the wrapper and the engine command line. While Start waits for LAPI it polls the process, and two consecutive not-running polls end the start with `crowdsec_engine_exited` (500) and restore the recorded state, as for a failed spawn. Import validation requires `config_paths` in the archive's `config.yaml`: an archive without it is refused with a plain 422 `config validation failed: config.yaml has no config_paths section` (no error code). The engine's own `crowdsec -t -c` check then runs on the candidate file; only the engine's own non-zero exit refuses the import (422 `import_config_invalid`), while a check that cannot run or hits a busy port or database is logged and skipped. A failed whitelist regeneration during import rolls back to the live configuration.
 
@@ -996,7 +1015,7 @@ pin (the stage already carries ~40 such pins).
 
 **Purpose:** Inspect HTTP requests for malicious payloads
 
-**Engine:** Coraza with OWASP Core Rule Set (CRS)
+**Engine:** Coraza with user-provided rule sets (CRS-compatible)
 
 **Detection Categories:**
 
@@ -1088,7 +1107,7 @@ users; every subsequent account is created by an existing admin — directly
 **3-Tier Recovery System:**
 
 1. **Admin Dashboard:** Standard access recovery via web UI
-2. **Recovery Server:** Localhost-only HTTP server on port 2019
+2. **Recovery Server:** Localhost-only HTTP server on port 2020
 3. **Direct Database Access:** Manual SQLite update as last resort
 
 **Emergency Token:**
@@ -1386,7 +1405,9 @@ image build. Instead:
   version ARG (incl. the pinned xcaddy plugins — 2 security/observability
   plugins plus the 27 `caddy-dns/*` DNS-01 provider modules and 2 forced
   transitive `libdns/*` pins, see `docs/plans/current_spec.md` §4.1) + the
-  digest-pinned `golang`/`xx` bases + `.trivyignore`. `scripts/verify-toolchain-pin.sh` runs on
+  digest-pinned `golang`/`xx` bases + a `SCHEMA_VERSION`. Scan ignore lists
+  (`.trivyignore`, `.grype.yaml`) are intentionally **not** inputs: they are
+  scan-time filters that never change the image bytes. `scripts/verify-toolchain-pin.sh` runs on
   every PR (required check) and is **failure-closed** on trusted same-repo runs:
   it fails if the Dockerfile's pinned tag/digest is stale for the current
   recipe. When the daily rebuild produces a new digest, a bot opens
@@ -1406,7 +1427,8 @@ Operator runbook: `docs/ci/toolchain-image.md`.
 | 80 | HTTP | Caddy reverse proxy | 0.0.0.0 |
 | 443 | HTTPS | Caddy reverse proxy (TLS) | 0.0.0.0 |
 | 443 | UDP | HTTP/3 QUIC (optional) | 0.0.0.0 |
-| 2019 | HTTP | Emergency recovery (localhost only) | 127.0.0.1 |
+| 2019 | HTTP | Proxy admin interface (used by Charon inside the container; not exposed) | 127.0.0.1 |
+| 2020 | HTTP | Emergency recovery (localhost only) | 127.0.0.1 |
 
 ### Volume Mounts
 
@@ -1455,7 +1477,6 @@ services:
     volumes:
       - ./data:/app/data
       # Optional: direct local discovery. Orthrus is the recommended, more secure alternative (no socket mount in Charon).
-      - /var/run/docker.sock:/var/run/docker.sock:ro
     environment:
       - CHARON_ENV=production
       - CHARON_ENCRYPTION_KEY=${CHARON_ENCRYPTION_KEY}
@@ -1877,7 +1898,9 @@ go test ./integration/...
 - `1.1.1` - Bug fix (GORM query fix)
 - `1.2.0-beta.1` - Beta release for testing
 
-**Version File:** `VERSION.md` (single source of truth)
+**Version Source:** `.release-please-manifest.json` (managed by release-please) holds the
+`X.Y.Z` base. Non-release images add a build label such as `+pr.<N>` (see `VERSION.md`,
+"Build Versions"), resolved by `scripts/ci/resolve-build-version.sh`. Comparisons ignore the label.
 
 ### Build Pipeline (Multi-Platform)
 
@@ -1967,22 +1990,38 @@ its branch pushes and PRs, and the nightly Orthrus job is gated on an
 Triggered independently by every push to `main`/`development` (branch
 push, not the release tag):
 
-1. **Build:** Multi-platform Docker images
-2. **Test:** Run E2E tests against built image
+0. **Setup:** Decide whether the commit is a release (`detect-release-commit.sh`), generate and check the What's New data once (`generate-changelog.sh`, then `check-changelog-data.sh`), and resolve the build version (`resolve-build-version.sh`). The data is shared with the build jobs as an artifact, so every image embeds the same validated list.
+1. **Build:** Multi-platform Docker images (each build job re-checks the shared data before building)
+2. **Smoke test:** `smoke-whats-new.sh` starts the built amd64 image and checks its version, its What's New list and the modal behavior for a new user. Publishing waits for this to pass. Fork pull requests skip the smoke test, because the job cannot pull their image.
 3. **Security:** Scan for vulnerabilities (block if Critical/High)
 4. **SBOM:** Generate Software Bill of Materials (Syft)
 5. **Sign:** Cryptographic signature with Cosign
 6. **Provenance:** Generate SLSA provenance attestation
 7. **Publish:** Push to Docker Hub and GHCR
 
-**In-app changelog data:** `scripts/generate-changelog.sh` runs during
-`nightly-build.yml` (its one remaining real caller) to parse
-conventional-commit history into `backend/internal/changelog/data/changelog.json`,
-which is `//go:embed`-ed into the binary and powers the in-app "What's
-New" modal (see "Changelog Subsystem" above). It depends only on real
-`v*` tags existing in git history — not on release-please's PR/Release
-mechanism directly — so it keeps working unchanged by this migration
-as long as release-please continues creating bare `v*` tags.
+**In-app changelog data:** `scripts/generate-changelog.sh` parses conventional-commit
+history into `backend/internal/changelog/data/changelog.json`, which is `//go:embed`-ed
+into the binary and powers the in-app "What's New" modal (see "Changelog Subsystem"
+above). It is run in two places: the `setup` job of `docker-build.yml` (every
+push and pull request that builds an image) and `nightly-build.yml`. It depends only on
+real `v*` tags existing in git history, not on release-please's PR/Release mechanism directly.
+
+- **Release commits:** `detect-release-commit.sh` marks a commit as a release only
+  when it is on `main`, the release-please manifest version went up compared with
+  the commit before it, and the `vX.Y.Z` tag (if it exists yet) points at that commit.
+  The generator then adds the release being built as the newest entry, because its tag
+  does not exist yet. This is the "synthesized head entry".
+- **Data guard:** `check-changelog-data.sh` fails the build if the file is missing,
+  malformed, empty, contains a merge-commit subject, or (on a release) does not have the
+  release version as its newest entry. Failing loudly is intentional, so a broken list is never shipped.
+- **Version tags:** On a release commit, images get `X.Y.Z` and `X.Y` (no `v` prefix).
+  There is no major-only tag while on 0.x.
+
+**Build version resolver:** `scripts/ci/resolve-build-version.sh` is the single place that
+decides the version string an image reports. Non-release images get `X.Y.Z+dev.<sha7>`,
+`+pr.<N>`, `+branch.<sha7>` or (for `main`) plain `X.Y.Z`. The nightly job uses the `nightly`
+channel, `X.Y.Z+nightly.<sha7>`, built from the commit it checked out. The Orthrus agent image
+keeps its own `nightly-<sha>` naming. See `VERSION.md` ("Build Versions") for the user-facing table.
 
 **Mandatory rollout gates (sign-off block):**
 

@@ -1,11 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { isAxiosError } from 'axios'
-import type { TFunction } from 'i18next'
 import { useTranslation } from 'react-i18next'
 
 import { listWhitelists, addWhitelist, deleteWhitelist, type AddWhitelistPayload } from '../api/crowdsec'
 import { crowdsecErrorMessage, isCrowdsecBusyError } from '../api/errorBody'
 import { toast } from '../utils/toast'
+
+import type { TFunction } from 'i18next'
 
 /**
  * True when a failed whitelist add is a problem with the submitted entry, which belongs on the IP field:

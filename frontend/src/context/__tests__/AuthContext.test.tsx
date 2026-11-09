@@ -3,8 +3,8 @@ import { toast } from 'react-hot-toast'
 import { describe, it, expect, beforeEach, vi } from 'vitest'
 
 import client, { setAuthToken, setAuthErrorHandler } from '../../api/client'
-import { AuthProvider } from '../AuthContext'
 import { useAuth } from '../../hooks/useAuth'
+import { AuthProvider } from '../AuthContext'
 
 const TOKEN_KEY = 'charon_auth_token'
 
@@ -120,15 +120,15 @@ describe('<AuthProvider /> session validation on mount (page reload)', () => {
     mockClient.get.mockResolvedValue({ data: sessionUser, status: 200 })
 
     let loginFn: ((token?: string) => Promise<void>) | undefined
-    const LoginProbe = () => {
+    const LoginProbe = ({ onLogin }: { onLogin: (login: (token?: string) => Promise<void>) => void }) => {
       const { login } = useAuth()
-      loginFn = login
+      onLogin(login)
       return null
     }
 
     render(
       <AuthProvider>
-        <LoginProbe />
+        <LoginProbe onLogin={login => { loginFn = login }} />
         <AuthStateProbe />
       </AuthProvider>
     )

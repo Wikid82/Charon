@@ -192,16 +192,24 @@ func (s *OrthrusService) GetInstallSnippets(uuid, charonURL string) (*orthrus.In
 	serverURL := wsURL(charonURL)
 
 	return &orthrus.InstallSnippets{
+		// The agent drops from root to PUID/PGID at startup (agent/privdrop), so
+		// every snippet starts it as root. PGID must equal the host Docker
+		// socket's group GID: `stat -c %g /var/run/docker.sock`.
 		DockerCompose: fmt.Sprintf(`services:
   %s:
     image: wikid82/orthrus:latest
+    restart: always
+    container_name: orthrus
     environment:
+      # Run as this user/group. Replace <DOCKER_GID> with the output of: stat -c %%g /var/run/docker.sock
+      - PUID=65532
+      - PGID=<DOCKER_GID>
+      - TZ=UTC
       - ORTHRUS_SERVER_URL=%s
       - ORTHRUS_AGENT_ID=%s
       - ORTHRUS_AUTH_KEY=<AUTH_KEY>
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-    restart: unless-stopped
 `, name, serverURL, agentUUID),
 
 		Systemd: fmt.Sprintf(`[Unit]
@@ -209,6 +217,10 @@ Description=Charon Orthrus Agent (%s)
 After=network.target
 
 [Service]
+# Do not set a non-root account: the agent must start as root to drop to PUID/PGID.
+# PGID must equal the Docker socket's group GID: stat -c %%g /var/run/docker.sock
+Environment="PUID=65532"
+Environment="PGID=<DOCKER_GID>"
 Environment="ORTHRUS_SERVER_URL=%s"
 Environment="ORTHRUS_AGENT_ID=%s"
 Environment="ORTHRUS_AUTH_KEY=<AUTH_KEY>"
@@ -219,12 +231,15 @@ Restart=on-failure
 WantedBy=multi-user.target
 `, name, serverURL, agentUUID),
 
+		// sudo keeps the process root so the agent can drop to PUID/PGID. A
+		// plain (non-root) run ignores PUID/PGID, so that user must be in the
+		// docker group instead. Replace <DOCKER_GID> with: stat -c %%g /var/run/docker.sock
 		Tarball: fmt.Sprintf(`curl -fsSL https://github.com/Wikid82/charon/releases/latest/download/charon-agent-linux-amd64.tar.gz | tar xz
-ORTHRUS_SERVER_URL=%s ORTHRUS_AGENT_ID=%s ORTHRUS_AUTH_KEY=<AUTH_KEY> ./charon-agent
+sudo env PUID=65532 PGID=<DOCKER_GID> ORTHRUS_SERVER_URL=%s ORTHRUS_AGENT_ID=%s ORTHRUS_AUTH_KEY=<AUTH_KEY> ./charon-agent
 `, serverURL, agentUUID),
 
 		Homebrew: fmt.Sprintf(`brew install wikid82/tap/charon-agent
-ORTHRUS_SERVER_URL=%s ORTHRUS_AGENT_ID=%s ORTHRUS_AUTH_KEY=<AUTH_KEY> charon-agent
+sudo env PUID=65532 PGID=<DOCKER_GID> ORTHRUS_SERVER_URL=%s ORTHRUS_AGENT_ID=%s ORTHRUS_AUTH_KEY=<AUTH_KEY> charon-agent
 `, serverURL, agentUUID),
 
 		KubernetesDaemonSet: fmt.Sprintf(`apiVersion: apps/v1
@@ -240,6 +255,15 @@ spec:
       labels:
         app: orthrus-agent
     spec:
+      # The container starts non-root, so the agent skips privilege dropping and
+      # PUID/PGID are not needed. The socket group GID (<DOCKER_GID>) is granted
+      # as a supplemental group so the process can open the mounted socket.
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65532
+        runAsGroup: 65532
+        supplementalGroups:
+          - <DOCKER_GID>
       containers:
         - name: agent
           image: wikid82/orthrus:latest
@@ -250,6 +274,12 @@ spec:
               value: "%s"
             - name: ORTHRUS_AUTH_KEY
               value: "<AUTH_KEY>"
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop:
+                - ALL
           volumeMounts:
             - name: docker-sock
               mountPath: /var/run/docker.sock
@@ -258,6 +288,7 @@ spec:
         - name: docker-sock
           hostPath:
             path: /var/run/docker.sock
+            type: Socket
 `, serverURL, agentUUID),
 	}, nil
 }

@@ -1,5 +1,5 @@
 import { AlertTriangle, CheckCircle2, Circle, Copy, XCircle } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { type OrthrusAgent } from '../../api/orthrus';
@@ -46,13 +46,17 @@ export function AgentExternalProxyDialog({
     open && isOnline,
   );
 
-  useEffect(() => {
+  // Re-seed on open or when the stored port changes. Adjusting during render
+  // replaces the former effect; closing alone never reseeds.
+  const [seededFor, setSeededFor] = useState({ open, port: agent.external_proxy_port });
+  if (seededFor.open !== open || seededFor.port !== agent.external_proxy_port) {
+    setSeededFor({ open, port: agent.external_proxy_port });
     if (open) {
       setPortValue(agent.external_proxy_port ?? 0);
       setPortError(null);
       setCopied(false);
     }
-  }, [open, agent.external_proxy_port]);
+  }
 
   const handlePortChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const raw = parseInt(e.target.value, 10);

@@ -30,15 +30,13 @@ const statusWith = (overrides: {
 
 const renderPage = async (queryClient: QueryClient) => {
   vi.spyOn(authHook, 'useAuth').mockReturnValue({ user: { user_id: 1, role: 'admin' } } as unknown as AuthContextType)
-  await act(async () => {
-    render(
-      <QueryClientProvider client={queryClient}>
-        <BrowserRouter>
-          <Security />
-        </BrowserRouter>
-      </QueryClientProvider>
-    )
-  })
+  render(
+    <QueryClientProvider client={queryClient}>
+      <BrowserRouter>
+        <Security />
+      </BrowserRouter>
+    </QueryClientProvider>
+  )
 }
 
 const newClient = () => new QueryClient({ defaultOptions: { queries: { retry: false } } })

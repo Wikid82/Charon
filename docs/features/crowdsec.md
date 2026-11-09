@@ -108,7 +108,7 @@ Hub presets are applied on the server too, with the same safety net: before anyt
 - The backup taken before a hub preset is applied is a light one: it does not copy CrowdSec's downloaded hub files, so it stays small and quick however large the hub grows. If the apply fails, your settings are put back and any hub files the failed apply added are removed.
 - Charon keeps the 5 most recent full backups and the 10 most recent single-file backups, and quietly deletes older ones. Backups of your acquisition settings (`acquis.yaml.backup.<timestamp>`) are kept to the latest 5 as well.
 - If an automatic restore fails too, Charon keeps that backup for manual recovery. It stays protected for 7 days. After that, only the newest 3 kept backups stay protected, and older ones become eligible for normal cleanup. See [CrowdSec troubleshooting](../troubleshooting/crowdsec.md#common-issues) for where to find them and how to release one for cleanup sooner.
-- A preset install never runs alongside another CrowdSec change. If you start a preset install while another CrowdSec change is still finishing, you will see "CrowdSec is finishing another change. Try again in a moment." A preset install in progress still shows the "busy installing" message instead.
+- A preset install never runs alongside another CrowdSec change. If you start a preset install while another CrowdSec change is still finishing, you will see "CrowdSec is finishing another change. Try again in a moment." A preset install in progress still shows the "busy installing" message instead. A preset install is refused right away with the busy message while a hub item restore is running.
 - The config file editor only accepts common text and settings files (`.yaml`, `.yml`, `.json`, `.txt`, `.conf`) up to 1 MiB, and validates file type, size and YAML. Extremely large or deeply nested YAML files are refused with an "invalid YAML" message.
 - The config file editor does not list CrowdSec's account and connection credential files. They stay safely on disk; an operator can still reach them from the container shell if needed.
 - An exported CrowdSec configuration is meant for moving settings, not for sharing. CrowdSec's account and connection details are not included. In the main `config.yaml` (and `config.yaml.local`), database passwords and other credentials, such as the database user and the automatic registration token, are blanked the same way. This is a best-effort list of known credential settings: any setting whose name ends in `password`, `passwd`, `secret`, `token`, `secret_key`, `apikey`, `api_key` or `private_key`, or contains `_password` or `_token`, is blanked, except settings that only point to a credential (names ending in `_path`, `_file` or `_dir`) or limit its use (such as `tokens_per_minute`). Credentials stored under other names are not recognised, so review the file before sharing it. If you import the export on the same server, the blanked values are put back from the file it replaces; on another host they stay blank and the import card lists the file as one that still needs values. In your notification files, passwords, tokens and webhook addresses are blanked and replaced with `<charon-redacted>`, while names, types and other plain settings stay readable. Settings written as `${NAME}` environment references are kept as they are, comments in notification files are not kept, and stray non-YAML files (such as `.bak` or `.txt`) in a notifications folder are left out. Database settings and anything else in the configuration are still included, so keep treating the file as private. When you import one, your running system keeps its own. Its installed hub items and runtime state stay as they are, so an import cannot remove or change them. An exported configuration no longer contains the downloaded hub data; CrowdSec downloads it again when needed. CrowdSec re-creates its local connection details on its own. If you move to a new host and use community blocklists or the CrowdSec Console, re-enable console enrollment there.
@@ -125,6 +125,21 @@ Hub presets are applied on the server too, with the same safety net: before anyt
 - The export and import messages are translated into your language.
 - The CrowdSec import accepts only `.tar.gz` archives and checks that the main configuration file is valid YAML before applying anything. If it isn't, Charon tells you what's wrong, for example `config.yaml is not valid YAML` or `only .tar.gz archives are supported`.
 - Backups are shown by name and are stored next to the CrowdSec data folder (for example `/app/data/`). Full snapshots are named `crowdsec.backup.<timestamp>`, single-file saves `crowdsec.filebackup.<timestamp>`. Saved acquisition settings are backed up as `acquis.yaml.backup.<timestamp>` right beside the acquisition file instead. If Charon cannot keep the acquisition file's original owner, it saves the file as the Charon user. To recover by hand, stop CrowdSec, copy the backup you want back into place, and start it again.
+
+#### Import and Export Size Limits
+
+Charon checks the size of a configuration before it changes anything. A file that is too large is turned away, and your current setup stays as it is.
+
+- **Archive size:** an imported configuration archive (`.tar.gz`) can be up to 50 MiB.
+- **Unpacked size:** once unpacked, its files can total up to 500 MiB.
+- **Compression:** the unpacked size can be at most 100 times the archive size.
+- **File count:** an archive can hold up to 20,000 files and folders, counting folders too.
+
+A small allowance for the archive's own packaging is added on top of these numbers, so a normal archive close to a limit is not refused for that alone.
+
+If the upload is too large to accept at all, the import stops with "the request body is too large". If the archive goes over one of the limits above, the import stops with "the archive is larger than the import limit". In both cases nothing on your system changes.
+
+Exports follow the same limits. Charon never creates an export that an import would refuse. If the configuration is too large, or has more than 20,000 files and folders, the export stops with "crowdsec config is too large to export". If its compression would be too high for an import, the export stops with "crowdsec config cannot be exported in an importable form".
 
 ### Console Enrollment
 
@@ -186,9 +201,12 @@ The bouncer key is the password Charon's built-in firewall layer uses to talk to
 
 **Which key Charon uses (in order):**
 
-1. **The saved key file.** If it exists and CrowdSec still accepts it, Charon uses it. This always wins.
-2. **A key you set in your compose file.** Charon uses it only when there is no working saved key. Charon then saves it to the file, so it is kept after restarts.
-3. **Otherwise,** Charon registers a new key with CrowdSec and saves it.
+1. **A key held in memory.** This happens only when Charon got a new key but could not write it to the key file (see "If Charon cannot save the key" below). Charon keeps using it until it restarts.
+2. **The saved key file.** If it exists and CrowdSec accepts it, Charon uses it.
+3. **A key you set in your compose file.** Charon uses it only when there is no working saved key. Charon then saves it to the file, so it is kept after restarts.
+4. **Otherwise,** Charon registers a new key with CrowdSec and saves it.
+
+**When Charon checks the key:** Charon asks CrowdSec whether the saved key still works. Charon replaces a key only when CrowdSec clearly rejects it. If CrowdSec cannot be reached, or its answer is unclear (for example, it is slow, stopped or restarting), Charon keeps the saved key and does not register a new one. It checks again the next time CrowdSec starts. If there is no saved key yet, Charon keeps using the key it already has (for example, the one from your compose file, which Charon has not been able to check yet) and does not register a new one.
 
 If you set a key in your compose file, use one of these variable names. Charon checks them in this order and uses the first one that is set:
 
@@ -197,6 +215,13 @@ If you set a key in your compose file, use one of these variable names. Charon c
 3. `CROWDSEC_BOUNCER_API_KEY`
 4. `CERBERUS_SECURITY_CROWDSEC_API_KEY`
 5. `CPM_SECURITY_CROWDSEC_API_KEY`
+
+**Advanced: folder and file locations (usually left unset):**
+
+- `CHARON_CROWDSEC_CONFIG_DIR` sets the folder where Charon keeps CrowdSec's data. In the container it is `/app/data/crowdsec`.
+- `CHARON_CROWDSEC_DATA` is an older name for the same setting and still works. If both are set to different folders, Charon writes a warning to the log and uses `CHARON_CROWDSEC_CONFIG_DIR`.
+- `CHARON_CROWDSEC_BOUNCER_KEY_PATH` sets the exact file for the key. It now takes priority over the folder setting. If your compose file already sets it, Charon uses a different key file after this update and registers a new key once.
+- Outside the container, Charon keeps CrowdSec's files in `data/crowdsec` inside your Charon folder, the same place the CrowdSec settings pages already use.
 
 **Changing the key through your compose file:** changing the variable alone does not replace a saved key that still works. To switch to the key in your variable, do both of these:
 
@@ -207,7 +232,7 @@ If you set a key in your compose file, use one of these variable names. Charon c
 
 **Symlinks:** if `bouncer_key` is a shortcut (a symlink) to another file, the next save replaces the shortcut with a normal private file. The file the shortcut pointed to is not changed.
 
-**If Charon cannot save the key:** Charon writes an error to the log, and it does not keep the key anywhere else. Blocking may not work until the key file can be written. To fix it, give Charon write access to the data folder, then restart CrowdSec.
+**If Charon cannot save the key:** Charon writes an error to the log and keeps the new key in memory, so it keeps working for now. The CrowdSec page shows the key as "held in memory" until the key file can be written. The key is not kept in a file, so it is lost when Charon restarts. After a restart, Charon starts from the key file again and may register a new key, and blocking may not work until the key file can be written. To fix it, give Charon write access to the data folder, then restart CrowdSec.
 
 **See it in the UI:** Open the CrowdSec page and look at the **Bouncer API Key** card. It shows a shortened preview of the key, whether it is registered, and where the file is stored.
 
@@ -408,7 +433,8 @@ Routes live under `/api/v1/admin/crowdsec/presets/` and need an admin login.
 | `.../jobs/:id` | DELETE | Cancels a running job and rolls back |
 
 - A pull returns `item_sha256`; apply accepts it back (optional) to make sure the install matches what was previewed.
-- While a job runs, other CrowdSec changes answer `409` with `crowdsec_busy`.
+- While a job runs, other CrowdSec changes answer `409` with `crowdsec_busy`. A preset apply that arrives during a hub item restore is refused the same way, right away.
+- A Start request that overlaps another Start still running also answers `409` with `crowdsec_busy`. Wait for the first start to finish.
 - Failed jobs carry an `error_code`, such as `preset_cache_stale` (pull again), `hub_unreachable`, `preset_apply_timeout` or `interrupted`.
 - Job views never include backup locations.
 

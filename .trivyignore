@@ -342,3 +342,19 @@ CVE-2026-116586
 # Review by: 2026-11-29
 # exp: 2026-11-29
 CVE-2026-116585
+
+# SQLite 3.53.4-r0 (Alpine `sqlite` CLI + `sqlite-libs`) — HIGH, no Alpine fix yet (fixed upstream in 3.54.0)
+# CVE-2026-119373: FTS5 heap buffer overflow in fts5MergeRowidLists()
+# CVE-2026-119374: FTS5 heap buffer overflow in fts5DoSecureDelete()
+# CVE-2026-119379: session-extension heap buffer overflow
+# CVE-2026-119586: sqlite3 CLI shell `.recover` command injection
+# Charon's backend uses pure-Go SQLite and never loads Alpine's libsqlite3. The Alpine packages exist
+# for the operator-run `sqlite3` CLI (scripts/db-recovery.sh, docs/database-maintenance.md), which only
+# touches the operator's own database.
+# See also: .grype.yaml for full justification
+# Review by: 2026-12-04
+# exp: 2026-12-04
+CVE-2026-119373
+CVE-2026-119374
+CVE-2026-119379
+CVE-2026-119586

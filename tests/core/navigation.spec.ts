@@ -268,7 +268,7 @@ test.describe('Navigation', () => {
           if (wasVisible) {
             await expect(sidebar).toBeVisible();
           } else {
-            await expect(sidebar).not.toBeVisible();
+            await expect(sidebar).toBeHidden();
           }
         });
       });
@@ -588,8 +588,7 @@ test.describe('Navigation', () => {
             await page.keyboard.press('Escape');
             await page.waitForTimeout(300);
 
-            const closedState = await dropdown.getAttribute('aria-expanded');
-            expect(closedState).toBe('false');
+            await expect(dropdown).toHaveAttribute('aria-expanded', 'false');
           }
         }
       });

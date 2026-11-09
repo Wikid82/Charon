@@ -21,10 +21,10 @@ import {
   type CrowdsecPresetErrorCode,
 } from '../api/presets'
 import { getMyIP } from '../api/system'
-import { CrowdSecBouncerKeyDisplay } from '../components/CrowdSecBouncerKeyDisplay'
-import { ListErrorNote } from '../components/crowdsec/ListErrorNote'
 import HubItemsRestorePanel from '../components/crowdsec/HubItemsRestorePanel'
+import { ListErrorNote } from '../components/crowdsec/ListErrorNote'
 import { PresetInstallProgress } from '../components/crowdsec/PresetInstallProgress'
+import { CrowdSecBouncerKeyDisplay } from '../components/CrowdSecBouncerKeyDisplay'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { Button } from '../components/ui/Button'
 import { Card } from '../components/ui/Card'
@@ -35,6 +35,7 @@ import { CROWDSEC_PRESETS, type CrowdsecPreset } from '../data/crowdsecPresets'
 import { useConsoleStatus, useEnrollConsole, useClearConsoleEnrollment } from '../hooks/useConsoleEnrollment'
 import { useCrowdsecApplyJob } from '../hooks/useCrowdsecApplyJob'
 import { useWhitelistEntries, useAddWhitelist, useDeleteWhitelist, isWhitelistFieldError, whitelistAddErrorMessage } from '../hooks/useCrowdSecWhitelist'
+import { useNow } from '../hooks/useNow'
 import { SECURITY_STATUS_QUERY_KEY, useSecurityStatus } from '../hooks/useSecurity'
 import { buildCrowdsecExportFilename, downloadCrowdsecExport, promptCrowdsecFilename } from '../utils/crowdsecExport'
 import { sanitizeKeptFileName } from '../utils/keptFileNames'
@@ -100,6 +101,22 @@ export default function CrowdSecConfig() {
   const [confirmUnban, setConfirmUnban] = useState<CrowdSecDecision | null>(null)
   const [whitelistForm, setWhitelistForm] = useState<{ ip_or_cidr: string; reason: string }>({ ip_or_cidr: '', reason: '' })
   const [confirmDeleteWhitelist, setConfirmDeleteWhitelist] = useState<CrowdSecWhitelistEntry | null>(null)
+  const banIpInputRef = useRef<HTMLInputElement>(null)
+  const unbanCancelButtonRef = useRef<HTMLButtonElement>(null)
+  const whitelistDeleteCancelButtonRef = useRef<HTMLButtonElement>(null)
+  const isUnbanModalOpen = confirmUnban !== null
+  const isWhitelistDeleteModalOpen = confirmDeleteWhitelist !== null
+
+  // Focus each modal's intended control on open (replaces autoFocus).
+  useEffect(() => {
+    if (showBanModal) banIpInputRef.current?.focus()
+  }, [showBanModal])
+  useEffect(() => {
+    if (isUnbanModalOpen) unbanCancelButtonRef.current?.focus()
+  }, [isUnbanModalOpen])
+  useEffect(() => {
+    if (isWhitelistDeleteModalOpen) whitelistDeleteCancelButtonRef.current?.focus()
+  }, [isWhitelistDeleteModalOpen])
   const [isApplyingPreset, setIsApplyingPreset] = useState(false)
   const [presetPreview, setPresetPreview] = useState<string>('')
   const [presetMeta, setPresetMeta] = useState<{ slug?: string; type?: string; cacheKey?: string; itemSha256?: string; etag?: string; retrievedAt?: string; source?: string } | null>(null)
@@ -123,9 +140,10 @@ export default function CrowdSecConfig() {
   // isStartingUp is true only while the mutation is genuinely running.
   // The 90-second cap guards against stale cache if Security.tsx onSuccess/onError
   // never fired (e.g., browser tab was closed mid-mutation).
+  const isStarting = crowdsecStartingCache?.isStarting === true
+  const now = useNow(1000, isStarting)
   const isStartingUp =
-    (crowdsecStartingCache?.isStarting === true) &&
-    Date.now() - (crowdsecStartingCache.startedAt ?? 0) < 90_000
+    isStarting && now - (crowdsecStartingCache.startedAt ?? 0) < 90_000
 
   const isLocalMode = !!status && status.crowdsec?.mode !== 'disabled'
   // Note: CrowdSec mode is now controlled via Security Dashboard toggle
@@ -265,8 +283,7 @@ export default function CrowdSecConfig() {
       if (sortBy === 'source') {
         const sourceA = a.source || 'z'
         const sourceB = b.source || 'z'
-        if (sourceA !== sourceB) return sourceA.localeCompare(sourceB)
-        return a.title.localeCompare(b.title)
+        return sourceA !== sourceB ? sourceA.localeCompare(sourceB) : a.title.localeCompare(b.title)
       }
       return a.title.localeCompare(b.title)
     })
@@ -276,13 +293,18 @@ export default function CrowdSecConfig() {
 
   // Keep the current selection while it is still listed and usable; otherwise select the first usable row
   // in catalog order, or nothing when no row can be used (the empty key never matches a row).
-  useEffect(() => {
-    if (!presetCatalog.length) return
-    const keepsSelection = presetCatalog.some((preset) => presetKey(preset) === selectedPresetKey && isPresetSelectable(preset))
-    if (keepsSelection) return
-    const firstSelectable = presetCatalog.find(isPresetSelectable)
-    setSelectedPresetKey(firstSelectable ? presetKey(firstSelectable) : '')
-  }, [presetCatalog, selectedPresetKey])
+  // Reconciled during render whenever the catalog changes, so no stale selection is ever committed.
+  const [reconciledCatalog, setReconciledCatalog] = useState<PresetCatalogEntry[] | null>(null)
+  if (reconciledCatalog !== presetCatalog) {
+    setReconciledCatalog(presetCatalog)
+    if (presetCatalog.length) {
+      const keepsSelection = presetCatalog.some((preset) => presetKey(preset) === selectedPresetKey && isPresetSelectable(preset))
+      if (!keepsSelection) {
+        const firstSelectable = presetCatalog.find(isPresetSelectable)
+        setSelectedPresetKey(firstSelectable ? presetKey(firstSelectable) : '')
+      }
+    }
+  }
 
   const selectPreset = (preset: PresetCatalogEntry) => {
     if (isPresetSelectable(preset)) setSelectedPresetKey(presetKey(preset))
@@ -352,20 +374,29 @@ export default function CrowdSecConfig() {
     },
   })
 
+  // Changing the selected preset clears the previous preview and messages. This is applied during render,
+  // keyed on the selected key, so the new selection never renders with the old preset's state.
+  const [presetResetKey, setPresetResetKey] = useState<string | null>(null)
+  if (presetResetKey !== selectedPresetKey) {
+    setPresetResetKey(selectedPresetKey)
+    if (selectedPreset) {
+      setValidationError(null)
+      setPresetStatusMessage(null)
+      setApplyInfo(null)
+      setAmbiguousTypes([])
+      setChosenType('')
+      setPresetMeta({
+        cacheKey: selectedPreset.cacheKey,
+        etag: selectedPreset.etag,
+        retrievedAt: selectedPreset.retrievedAt,
+        source: selectedPreset.source,
+      })
+      setPresetPreview('')
+    }
+  }
+
   useEffect(() => {
     if (!selectedPreset) return
-    setValidationError(null)
-    setPresetStatusMessage(null)
-    setApplyInfo(null)
-    setAmbiguousTypes([])
-    setChosenType('')
-    setPresetMeta({
-      cacheKey: selectedPreset.cacheKey,
-      etag: selectedPreset.etag,
-      retrievedAt: selectedPreset.retrievedAt,
-      source: selectedPreset.source,
-    })
-    setPresetPreview('')
     pullPresetMutation.mutate({ slug: selectedPreset.slug, type: selectedPreset.type })
     // eslint-disable-next-line react-hooks/exhaustive-deps -- Only re-run when slug changes, not on mutation/preset object identity changes
   }, [selectedPresetKey])
@@ -599,6 +630,12 @@ export default function CrowdSecConfig() {
         return t('crowdsecConfig.importErrorKeepCurrentFailed')
       case 'import_config_not_found':
         return t('crowdsecConfig.importErrorConfigNotFound')
+      case 'import_config_not_writable':
+        return t('crowdsecConfig.importErrorNotWritable')
+      case 'import_archive_too_large':
+        return t('crowdsecConfig.importErrorArchiveTooLarge')
+      case 'request_too_large':
+        return t('crowdsecConfig.importErrorRequestTooLarge')
       default:
         return fallback
     }
@@ -1714,10 +1751,10 @@ export default function CrowdSecConfig() {
           aria-labelledby="ban-modal-title"
         >
           {/* Layer 1: Background overlay (z-40) */}
-          <div
-            className="absolute inset-0 bg-black/60"
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/60 focus:outline-none"
             onClick={() => setShowBanModal(false)}
-            role="button"
             tabIndex={-1}
             aria-label={t('common.close')}
           />
@@ -1725,6 +1762,7 @@ export default function CrowdSecConfig() {
           {/* Layer 3: Form content (pointer-events-auto) */}
           <div
             className="relative bg-dark-card rounded-lg p-6 w-[480px] max-w-full shadow-xl"
+            role="presentation"
             onKeyDown={(e) => {
               if (e.key === 'Escape') setShowBanModal(false)
               if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) banMutation.mutate()
@@ -1747,7 +1785,7 @@ export default function CrowdSecConfig() {
                 error={banFieldErrors.ip}
                 errorTestId="ban-ip-error"
                 helperText={t('crowdsecConfig.banModal.ipHint')}
-                autoFocus
+                ref={banIpInputRef}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter') {
                     e.preventDefault()
@@ -1831,15 +1869,16 @@ export default function CrowdSecConfig() {
           aria-modal="true"
           aria-labelledby="unban-modal-title"
         >
-          <div
-            className="absolute inset-0 bg-black/60"
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/60 focus:outline-none"
             onClick={() => setConfirmUnban(null)}
-            role="button"
             tabIndex={-1}
             aria-label={t('common.close')}
           />
           <div
             className="relative bg-dark-card rounded-lg p-6 w-[400px] max-w-full shadow-xl"
+            role="presentation"
             onKeyDown={(e) => {
               if (e.key === 'Escape') setConfirmUnban(null)
               if (e.key === 'Enter') unbanMutation.mutate(confirmUnban.ip)
@@ -1851,9 +1890,9 @@ export default function CrowdSecConfig() {
             </p>
             <div className="flex gap-3 justify-end">
               <Button
+                ref={unbanCancelButtonRef}
                 variant="secondary"
                 onClick={() => setConfirmUnban(null)}
-                autoFocus
               >
                 {t('common.cancel')}
               </Button>
@@ -1885,6 +1924,7 @@ export default function CrowdSecConfig() {
           />
           <div
             className="relative z-10 bg-gray-900 rounded-lg border border-gray-700 p-6 max-w-md w-full mx-4 shadow-xl"
+            role="presentation"
             onKeyDown={(e) => {
               if (e.key === 'Escape') setConfirmDeleteWhitelist(null)
             }}
@@ -1897,9 +1937,9 @@ export default function CrowdSecConfig() {
             </p>
             <div className="flex justify-end gap-3">
               <Button
+                ref={whitelistDeleteCancelButtonRef}
                 variant="secondary"
                 onClick={() => setConfirmDeleteWhitelist(null)}
-                autoFocus
               >
                 {t('common.cancel', 'Cancel')}
               </Button>

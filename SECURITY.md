@@ -1207,10 +1207,12 @@ attackers from using the application to access internal resources or cloud metad
 ### Infrastructure Security
 
 - **Non-root by default**: Charon runs as an unprivileged user (`charon`, uid 1000) inside the
-  container. Docker socket access is granted via a minimal supplemental group matching the host
-  socket's GID — never by running as root. If the socket GID is `0` (root group), Charon requires
-  explicit opt-in before granting access. Connecting Docker through Orthrus (recommended) avoids mounting
-  the socket into Charon at all; the direct mount remains supported.
+  container. The Orthrus agent also runs unprivileged: it drops root privileges at startup and runs as
+  a low-privilege user (default uid/gid 65532, set with `PUID` and `PGID`), with its extra group
+  memberships cleared. Running it as root requires an explicit, deliberate opt-in. Docker socket access is
+  granted via a minimal supplemental group matching the host socket's GID — never by running as root. If the
+  socket GID is `0` (root group), Charon requires explicit opt-in before granting access. Connecting Docker
+  through Orthrus (recommended) avoids mounting the socket into Charon at all; the direct mount remains supported.
 - **Container isolation**: Docker-based deployment
 - **Minimal attack surface**: Alpine Linux base image
 - **Dependency scanning**: Regular Trivy and govulncheck scans
@@ -1374,7 +1376,7 @@ fails the build on any blocking finding.
 ```yaml
 services:
   charon:
-    image: ghcr.io/wikid82/charon:latest
+    image: wikid82/charon:latest
     restart: unless-stopped
     environment:
       - CHARON_ENV=production
@@ -1382,7 +1384,6 @@ services:
     volumes:
       - ./charon-data:/app/data:rw
       # Optional. Orthrus is the recommended, more secure way to connect Docker (no socket mount in Charon).
-      - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - charon-internal
     cap_drop:
@@ -1394,6 +1395,26 @@ services:
     read_only: true
     tmpfs:
       - /tmp:noexec,nosuid,nodev
+
+  orthrus:
+    image: wikid82/orthrus:latest
+    restart: always
+    container_name: orthrus
+    environment:
+      # User and group the agent runs as. PGID must match your Docker socket's group (see docs/features/orthrus.md).
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      # The websocket URL of your Charon instance, e.g. wss://charon.example.com/api/v1/ws/orthrus/connect
+      - ORTHRUS_SERVER_URL=${ORTHRUS_SERVER_URL}
+      # The agent ID shown when you registered this agent in Charon (Hecate -> Agent -> Add Agent)
+      - ORTHRUS_AGENT_ID=${ORTHRUS_AGENT_ID}
+      # The one-time auth key shown when you registered this agent
+      - ORTHRUS_AUTH_KEY=${ORTHRUS_AUTH_KEY}
+    volumes:
+      # Read-only access to the host Docker socket. The agent is read-only by default;
+      # write access is an explicit per-agent opt-in in Charon (see docs/features/orthrus.md).
+      - ${DOCKER_SOCK}:/var/run/docker.sock:ro
 ```
 
 ### Gotify Token Hygiene

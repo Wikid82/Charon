@@ -125,7 +125,7 @@ func generateForwardHostWarnings(forwardHost string) []ProxyHostWarning {
 	} else if ip := net.ParseIP(forwardHost); ip != nil && network.IsPrivateIP(ip) {
 		warnings = append(warnings, ProxyHostWarning{
 			Field:   "forward_host",
-			Message: "Using a private IP address. If this is a Docker container, the IP may change on restart. Container names are more reliable for Docker services.",
+			Message: "Using a private IP address. Make sure Charon can reach it (for example over your LAN or VPN). If this is a Docker container, its IP may change on restart; container names are more reliable.",
 		})
 	}
 

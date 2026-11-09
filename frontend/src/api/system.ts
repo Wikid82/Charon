@@ -1,9 +1,13 @@
 import client from './client';
 
-/** Update availability information. */
+/** Update availability information, mirroring the backend `UpdateInfo` JSON. */
 export interface UpdateInfo {
+  /** Running Charon version. */
+  current_version: string;
+  /** Whether `latest_version` is newer than `current_version`. */
   available: boolean;
   latest_version: string;
+  /** Validated release notes URL; empty string when none is available. */
   changelog_url: string;
 }
 
@@ -23,7 +27,7 @@ export interface Notification {
  * @throws {AxiosError} If the request fails
  */
 export const checkUpdates = async (): Promise<UpdateInfo> => {
-  const response = await client.get('/system/updates');
+  const response = await client.get<UpdateInfo>('/system/updates');
   return response.data;
 };
 

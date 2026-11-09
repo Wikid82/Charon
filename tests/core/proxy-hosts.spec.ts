@@ -217,7 +217,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
         }).toPass({ timeout: 10000 });
 
         // Ensure skeleton is gone
-        await expect(skeleton.first()).not.toBeVisible();
+        await expect(skeleton.first()).toBeHidden();
       });
     });
 
@@ -689,8 +689,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
             await expect(firstRow).toBeVisible();
 
             // Check for expected content patterns
-            const rowText = await firstRow.textContent();
-            expect(rowText).toBeTruthy();
+            await expect(firstRow).not.toBeEmpty();
           }
         }
       });
@@ -847,8 +846,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
             await forceSSLCheckbox.check();
           }
 
-          const isNowChecked = await forceSSLCheckbox.isChecked();
-          expect(isNowChecked).toBe(!wasChecked);
+          await expect(forceSSLCheckbox).toBeChecked({ checked: !wasChecked });
 
           // Cancel without saving
           await page.getByRole('button', { name: /cancel/i }).click();
@@ -878,8 +876,8 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
         await forwardPortInput.clear();
         await forwardPortInput.fill('9000');
 
-        expect(await forwardHostInput.inputValue()).toBe('192.168.1.200');
-        expect(await forwardPortInput.inputValue()).toBe('9000');
+        await expect(forwardHostInput).toHaveValue('192.168.1.200');
+        await expect(forwardPortInput).toHaveValue('9000');
 
         await page.getByRole('button', { name: /cancel/i }).click();
       });
@@ -899,8 +897,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
           await waitForLoadingComplete(page);
 
           // Verify the toggle state actually flipped after the click.
-          const isNowChecked = await firstToggle.isChecked();
-          expect(isNowChecked).toBe(!wasChecked);
+          await expect(firstToggle).toBeChecked({ checked: !wasChecked });
         }
       });
     });
@@ -978,8 +975,7 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
 
           if (await dialog.isVisible().catch(() => false)) {
             // Dialog should mention the host being deleted
-            const dialogText = await dialog.textContent();
-            expect(dialogText).toBeTruthy();
+            await expect(dialog).not.toBeEmpty();
 
             // Cancel
             await dialog.getByRole('button', { name: /cancel/i }).click();

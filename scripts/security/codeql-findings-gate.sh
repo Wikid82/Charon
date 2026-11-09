@@ -196,6 +196,14 @@ if [[ "$result_count" -eq 0 ]]; then
 fi
 
 today="$(date -u +%F)"
+
+# Emit a GitHub Actions error annotation (shown on the PR Files tab and the
+# run summary) for a blocking result. No-op outside CI so local pre-commit
+# output stays clean. Args: title, file, line, message.
+annotate_blocking() {
+    [[ "${GITHUB_ACTIONS:-}" == "true" ]] || return 0
+    echo "::error file=$2,line=$3,title=$1::$4"
+}
 blocking_count=0
 suppressed_count=0
 
@@ -225,6 +233,7 @@ while IFS= read -r result; do
 
     if [[ "$candidate_count" -eq 0 ]]; then
         echo "NEW FINDING (no exception on file): $level $rule_id $path:$line"
+        annotate_blocking "CodeQL: new finding" "$path" "$line" "$rule_id ($level) has no exception on file. Fix it or add an entry to .github/codeql/codeql-suppressions.yml."
         blocking_count=$((blocking_count + 1))
         continue
     fi
@@ -238,6 +247,7 @@ while IFS= read -r result; do
 
     if [[ -z "$match" || "$match" == "null" ]]; then
         echo "LIKELY-STALE ENTRY (line moved? check codeql-suppressions.yml): $rule_id $path:$line"
+        annotate_blocking "CodeQL: stale suppression" "$path" "$line" "$rule_id matches a suppression entry for this file but not this line; update its line/line_range in .github/codeql/codeql-suppressions.yml."
         blocking_count=$((blocking_count + 1))
         continue
     fi
@@ -247,6 +257,7 @@ while IFS= read -r result; do
 
     if [[ "$review_by" < "$today" ]]; then
         echo "EXPIRED SUPPRESSION (review_by $review_by has passed — renew or fix): $rule_id $path:$line"
+        annotate_blocking "CodeQL: suppression expired" "$path" "$line" "Suppression for $rule_id expired on $review_by. Re-review it and bump review_by in .github/codeql/codeql-suppressions.yml, or fix the finding."
         blocking_count=$((blocking_count + 1))
     else
         echo "SUPPRESSED (codeql-suppressions.yml, reason: \"$reason\", review by $review_by): $rule_id $path:$line"

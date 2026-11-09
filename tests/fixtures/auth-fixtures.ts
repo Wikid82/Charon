@@ -24,11 +24,19 @@
  */
 
 import { test as base } from './test';
-import { request as playwrightRequest } from '@playwright/test';
+import { request as playwrightRequest, expect, type Page } from '@playwright/test';
 import { existsSync, readFileSync } from 'fs';
 import { TestDataManager, type UserRole } from '../utils/TestDataManager';
 import { sendLoginHonoringThrottle } from '../utils/login-throttle';
 import { STORAGE_STATE } from '../constants';
+
+/**
+ * Waits for the app to finish booting after a reload: the "Loading application" splash is gone.
+ * Best-effort; a splash that never clears is handled by the caller's stuck-splash guard.
+ */
+async function waitForAppBootstrap(page: Page): Promise<void> {
+  await expect(page.getByText('Loading application')).toBeHidden({ timeout: 10000 }).catch(() => {});
+}
 
 /**
  * Represents a test user with authentication details
@@ -128,6 +136,7 @@ function readAuthTokenFromStorageState(storageStatePath: string): string | null 
       return cookieToken;
     }
   } catch {
+    // Unreadable cookie or storage: fall through to the next token source.
   }
 
   return null;
@@ -509,13 +518,13 @@ export async function loginUser(
 
         // Reload so the app picks up the token from localStorage
         await page.reload({ waitUntil: 'domcontentloaded' });
-        await page.waitForLoadState('networkidle').catch(() => {});
+        await waitForAppBootstrap(page);
 
         // Guard: if app is stuck at loading splash, force reload
         const loadingVisible = await page.locator('text=Loading application').isVisible().catch(() => false);
         if (loadingVisible) {
           await page.reload({ waitUntil: 'domcontentloaded' });
-          await page.waitForLoadState('networkidle').catch(() => {});
+          await waitForAppBootstrap(page);
         }
 
         // Guard: a logout-then-relogin cycle for the same user (multiple
@@ -530,7 +539,7 @@ export async function loginUser(
         // unfilled login form.
         if (page.url().includes('/login')) {
           await page.goto('/');
-          await page.waitForLoadState('networkidle').catch(() => {});
+          await waitForAppBootstrap(page);
         }
         return;
       }
@@ -558,7 +567,7 @@ export async function loginUser(
     if (apiLoginError) {
       console.warn(`Continuing with existing authenticated session after API login bootstrap failure for ${user.email}`);
     }
-    await page.waitForLoadState('networkidle').catch(() => {});
+    await waitForAppBootstrap(page);
     return;
   }
 

@@ -564,7 +564,7 @@ func (s *HubService) fetchIndexHTTP(ctx context.Context) (HubIndex, error) {
 		if walkCtx.Err() != nil {
 			break
 		}
-		if e, ok := err.(interface{ CanFallback() bool }); ok && e.CanFallback() {
+		if canFallback(err) {
 			logger.Log().WithField("hub_index", HubURLForLog(target)).WithField("attempt", attempt+1).WithError(err).Warn("hub index fetch failed, trying mirror")
 			continue
 		}
@@ -576,6 +576,13 @@ func (s *HubService) fetchIndexHTTP(ctx context.Context) (HubIndex, error) {
 		joined = errs[0]
 	}
 	return HubIndex{}, hubWalkError{err: fmt.Errorf("fetch hub index: %w", joined), transportOnly: transportOnly}
+}
+
+// canFallback reports whether a failed hub request is one another address may cure: a transport failure or a
+// status the walk classes as fall-back-able.
+func canFallback(err error) bool {
+	e, ok := err.(interface{ CanFallback() bool })
+	return ok && e.CanFallback()
 }
 
 // hubWalkError is the failure of the HTTP candidate walk. transportOnly is set when no candidate answered at all:
@@ -756,7 +763,7 @@ func (s *HubService) Pull(ctx context.Context, slug, itemType string) (PullResul
 		return PullResult{}, fmt.Errorf("hub index has no download location for this preset")
 	}
 
-	item, err := s.fetchWithLimitFromURL(pullCtx, entry.DownloadURL, maxCacheItemBytes)
+	item, err := s.fetchItemWithMirror(pullCtx, entry.DownloadURL, maxCacheItemBytes)
 	if err != nil {
 		return PullResult{}, fmt.Errorf("download preset: %w", err)
 	}
@@ -912,7 +919,7 @@ func (s *HubService) fetchWithLimitFromURL(ctx context.Context, url string, limi
 	}
 	resp, err := s.HTTPClient.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("request %s: %w", HubURLForLog(url), transportCause(err))
+		return nil, hubTransportError{url: url, inner: transportCause(err)}
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
@@ -924,12 +931,60 @@ func (s *HubService) fetchWithLimitFromURL(ctx context.Context, url string, limi
 	}
 	data, err := io.ReadAll(io.LimitReader(resp.Body, limit+1))
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", HubURLForLog(url), err)
+		// A body that breaks mid-download is a transport failure, like a reset before the status line.
+		return nil, hubTransportError{url: url, inner: transportCause(err)}
 	}
 	if int64(len(data)) > limit {
 		return nil, fmt.Errorf("payload too large from %s", HubURLForLog(url))
 	}
 	return data, nil
+}
+
+// fetchItemWithMirror downloads one hub item from its index location. When that fails in a way another address may
+// cure, it retries once at the same item path under the mirror base. The first attempt gets half of what ctx has
+// left and the retry gets the rest, so the first attempt cannot use up the time the retry needs. A cancelled caller
+// or an ended deadline is not retried, and neither is a status the walk does not fall back on.
+func (s *HubService) fetchItemWithMirror(ctx context.Context, downloadURL string, limit int64) ([]byte, error) {
+	first, cancelFirst := attemptContext(ctx, 2)
+	item, err := s.fetchWithLimitFromURL(first, downloadURL, limit)
+	cancelFirst()
+	if err == nil {
+		return item, nil
+	}
+	mirrorURL, ok := s.mirrorItemURL(downloadURL)
+	if !ok || ctx.Err() != nil || !canFallback(err) {
+		return nil, err
+	}
+	logger.Log().WithField("hub_item", HubURLForLog(downloadURL)).WithError(err).Warn("hub item download failed, trying mirror")
+
+	retry, cancelRetry := attemptContext(ctx, 1)
+	defer cancelRetry()
+	item, mirrorErr := s.fetchWithLimitFromURL(retry, mirrorURL, limit)
+	if mirrorErr != nil {
+		return nil, fmt.Errorf("%w: %w", ErrHubUnreachable, errors.Join(err, mirrorErr))
+	}
+	return item, nil
+}
+
+// mirrorItemURL maps an item download URL under one of the hub bases to the same item path under the mirror base.
+// It reports false when no hub base holds the URL, or when the mirror base is the base the URL already names.
+func (s *HubService) mirrorItemURL(downloadURL string) (string, bool) {
+	base := ""
+	for _, candidate := range s.hubBaseCandidates() {
+		prefix := strings.TrimRight(candidate, "/") + "/"
+		if strings.HasPrefix(downloadURL, prefix) && len(prefix) > len(base) {
+			base = prefix
+		}
+	}
+	mirrorBase := strings.TrimRight(s.MirrorBaseURL, "/")
+	if base == "" || mirrorBase == "" {
+		return "", false
+	}
+	mirrorURL := mirrorBase + "/" + strings.TrimPrefix(downloadURL, base)
+	if mirrorURL == downloadURL {
+		return "", false
+	}
+	return mirrorURL, true
 }
 
 // findIndexEntry returns the entry of section itemType whose name equals slug exactly. Hub item names are

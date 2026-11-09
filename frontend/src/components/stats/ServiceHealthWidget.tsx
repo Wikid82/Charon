@@ -1,7 +1,6 @@
 import { Info, Wifi, WifiOff, AlertTriangle, CheckCircle2 } from 'lucide-react'
 
-import { Card, CardContent, CardHeader, CardTitle, Skeleton, Badge } from '../ui'
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '../ui'
+import { Card, CardContent, CardHeader, CardTitle, Skeleton, Badge, Tooltip, TooltipContent, TooltipProvider, TooltipTrigger} from '../ui'
 
 import type { StatsHealth } from '../../api/stats'
 

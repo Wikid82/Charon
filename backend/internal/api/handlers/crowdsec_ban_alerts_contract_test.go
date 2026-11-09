@@ -799,8 +799,8 @@ func pr4ClearKeyEnv(t *testing.T) {
 func pr4LAPIHandler(t *testing.T, lapiURL string, ex CommandExecutor) *CrowdsecHandler {
 	t.Helper()
 	h := pr4Handler(t, ex, t.TempDir())
-	require.NoError(t, h.DB.Create(&models.SecurityConfig{UUID: "default", Name: "default", CrowdSecAPIURL: lapiURL}).Error)
-	h.validateLAPIURL = url.Parse
+	require.NoError(t, h.DB.Create(&models.SecurityConfig{UUID: "default", Name: "default"}).Error)
+	h.validateLAPIURL = redirectLocalLAPI(lapiURL)
 	return h
 }
 
@@ -944,10 +944,10 @@ func TestOversizedCscliOutput_SameSoftError(t *testing.T) {
 		assert.Equal(t, "cscli not available or failed", body["error"])
 	})
 
-	t.Run("bouncer check: oversized output is not a registered bouncer", func(t *testing.T) {
+	t.Run("bouncer check: oversized output is unknown, not not-registered", func(t *testing.T) {
 		t.Parallel()
 		h := pr4Handler(t, &pr4Exec{respond: func(context.Context, []string) ([]byte, error) { return over, nil }}, t.TempDir())
-		assert.False(t, h.validateBouncerKey(t.Context()))
+		assert.Equal(t, registrationUnknown, h.bouncerRegistration(t.Context()), "an unreadable answer is unknown, not not-registered")
 	})
 }
 

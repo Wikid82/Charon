@@ -68,7 +68,7 @@ func TestGenerateConfig_EmergencyRoutesBypassSecurity(t *testing.T) {
 	}
 
 	rulesets := []models.SecurityRuleSet{
-		{Name: "owasp-crs", Content: "SecRuleEngine On"},
+		{Name: "owasp-crs", Content: testRuleSetContent},
 	}
 	rulesetPaths := map[string]string{"owasp-crs": "/tmp/owasp-crs.conf"}
 

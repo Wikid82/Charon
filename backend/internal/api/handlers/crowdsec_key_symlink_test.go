@@ -36,7 +36,8 @@ func TestEnsureBouncerRegistrationReplacesSymlinkedKeyWithRegularFile(t *testing
 
 	db := setupCrowdDB(t)
 	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", tmpDir)
-	cfg := models.SecurityConfig{UUID: uuid.New().String(), Name: "default", CrowdSecAPIURL: server.URL}
+	redirectLocalKeyChecks(handler, server.URL)
+	cfg := models.SecurityConfig{UUID: uuid.New().String(), Name: "default"}
 	require.NoError(t, db.Create(&cfg).Error)
 
 	mockCmdExec := new(MockCommandExecutor)

@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, useRef, type ReactNode, type FC } from 'react';
 import { toast } from 'react-hot-toast';
 
-import { AuthContext, type User } from './AuthContextValue';
 import client, { setAuthToken, setAuthErrorHandler } from '../api/client';
+import { AuthContext, type User } from './AuthContextValue';
 
 export const AuthProvider: FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);

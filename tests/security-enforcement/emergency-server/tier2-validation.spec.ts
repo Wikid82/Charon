@@ -58,7 +58,7 @@ test.describe('Break Glass - Tier 2 (Emergency Server)', () => {
   const BASIC_AUTH = 'Basic ' + Buffer.from(`${EMERGENCY_SERVER.username}:${EMERGENCY_SERVER.password}`).toString('base64');
 
   // Skip individual tests if emergency server is not healthy
-  test.beforeEach(async ({}, testInfo) => {
+  test.beforeEach(async () => {
     const isHealthy = await ensureHealthChecked();
     if (!isHealthy) {
       console.log('⚠️ Emergency server not accessible from test environment - continuing test anyway');
@@ -200,7 +200,7 @@ test.describe('Break Glass - Tier 2 (Emergency Server)', () => {
 
   test('should provide independent access even when main app is blocking', async ({ request }) => {
     // Scenario: Main app (:8080) might be blocked by ACL/WAF
-    // Emergency server (:2019) should still work
+    // Emergency server (:2020) should still work
 
     // Test emergency server is accessible
     const emergencyHealth = await request.get(`${EMERGENCY_BASE_URL}/health`, {

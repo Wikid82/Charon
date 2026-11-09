@@ -60,10 +60,10 @@
  * (see `changelog_handler.go`'s planned `Status` handler), so it doesn't
  * matter whether more fixture entries exist beyond it.
  *
- * Bonus wrinkle worth knowing: the E2E Docker image is always built with
- * `VERSION=dev` (the `Dockerfile`'s `ARG VERSION=dev` default —
- * `.github/skills/docker-rebuild-e2e-scripts/run.sh` never passes
- * `--build-arg VERSION=...`). Per the design doc's new-user-seeding rule
+ * Bonus wrinkle worth knowing: the E2E Docker image is built with
+ * `VERSION=dev` (passed explicitly by `.github/skills/docker-rebuild-e2e-scripts/run.sh`
+ * and `e2e-tests-split.yml`). The `beforeAll` guard below skips this file on
+ * versioned registry images. Per the design doc's new-user-seeding rule
  * ("skip seeding if `version.Version == 'dev'`"), every user created via
  * `TestDataManager.createUser()` during E2E naturally gets
  * `LastSeenVersion == ""` for free — no extra per-test seeding step is
@@ -83,6 +83,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 
 import { test, expect, loginUser, logoutUser } from '../fixtures/auth-fixtures';
+import { request as playwrightRequest } from '@playwright/test';
 import { waitForLoadingComplete, waitForModal } from '../utils/wait-helpers';
 
 const __filename = fileURLToPath(import.meta.url);
@@ -107,6 +108,28 @@ const changelogFixture: ChangelogFixtureEntry[] = JSON.parse(readFileSync(FIXTUR
 const FIXTURE_CURRENT_VERSION = changelogFixture[changelogFixture.length - 1].version;
 
 test.describe('What\'s New Changelog', () => {
+  // The fixture only exists in the unversioned VERSION=dev build. Registry
+  // image_ref runs (e2e-tests-split.yml) use versioned images, so skip there
+  // instead of failing on missing fixture data.
+  test.beforeAll(async ({ baseURL }) => {
+    const ctx = await playwrightRequest.newContext({ baseURL });
+    try {
+      const response = await ctx.get('/api/v1/health');
+      if (!response.ok()) {
+        throw new Error(`Health check failed with HTTP ${response.status()} for ${baseURL}`);
+      }
+      const { version } = (await response.json()) as { version?: string };
+      // eslint-disable-next-line playwright/no-skipped-test -- conditional skip by image variant, not a permanent skip
+      test.skip(
+        version !== 'dev',
+        `What's New E2E needs an unversioned VERSION=dev image; this run reports version "${version}". ` +
+          'Registry image_ref runs (e2e-tests-split.yml) are versioned and lack the fixture.'
+      );
+    } finally {
+      await ctx.dispose();
+    }
+  });
+
   test(
     'shows the modal on login when the user is behind the current version',
     async ({ page, regularUser }) => {
@@ -145,7 +168,7 @@ test.describe('What\'s New Changelog', () => {
         await loginUser(page, regularUser);
         const modal = await waitForModal(page, "What's New");
         await modal.getByRole('button', { name: 'Remind Me Next Time' }).click();
-        await expect(modal).not.toBeVisible();
+        await expect(modal).toBeHidden();
       });
 
       await test.step('Log out and back in — modal reappears', async () => {
@@ -163,14 +186,14 @@ test.describe('What\'s New Changelog', () => {
         await loginUser(page, regularUser);
         const modal = await waitForModal(page, "What's New");
         await modal.getByRole('button', { name: 'Got It, Thanks' }).click();
-        await expect(modal).not.toBeVisible();
+        await expect(modal).toBeHidden();
       });
 
       await test.step('Log out and back in — modal does not reappear', async () => {
         await logoutUser(page);
         await loginUser(page, regularUser);
         await waitForLoadingComplete(page);
-        await expect(page.getByRole('dialog', { name: "What's New" })).not.toBeVisible();
+        await expect(page.getByRole('dialog', { name: "What's New" })).toBeHidden();
       });
     }
   );
@@ -182,7 +205,7 @@ test.describe('What\'s New Changelog', () => {
         await loginUser(page, regularUser);
         const modal = await waitForModal(page, "What's New");
         await modal.getByRole('button', { name: /close/i }).click();
-        await expect(modal).not.toBeVisible();
+        await expect(modal).toBeHidden();
       });
 
       await test.step('Log out and back in — modal reappears (snoozed, not dismissed)', async () => {
@@ -200,7 +223,7 @@ test.describe('What\'s New Changelog', () => {
         await expect(modal).toBeVisible();
         // Click outside the dialog panel to trigger the backdrop dismiss.
         await page.mouse.click(4, 4);
-        await expect(modal).not.toBeVisible();
+        await expect(modal).toBeHidden();
 
         await logoutUser(page);
         await loginUser(page, regularUser);
@@ -217,7 +240,7 @@ test.describe('What\'s New Changelog', () => {
         const modal = await waitForModal(page, "What's New");
         await modal.getByRole('checkbox', { name: /don't show me update notifications/i }).check();
         await modal.getByRole('button', { name: 'Remind Me Next Time' }).click();
-        await expect(modal).not.toBeVisible();
+        await expect(modal).toBeHidden();
       });
 
       await test.step('Modal stays suppressed on subsequent logins, including after a further version bump', async () => {
@@ -230,7 +253,7 @@ test.describe('What\'s New Changelog', () => {
         await logoutUser(page);
         await loginUser(page, regularUser);
         await waitForLoadingComplete(page);
-        await expect(page.getByRole('dialog', { name: "What's New" })).not.toBeVisible();
+        await expect(page.getByRole('dialog', { name: "What's New" })).toBeHidden();
       });
     }
   );
@@ -289,7 +312,7 @@ test.describe('What\'s New Changelog', () => {
         await loginUser(page, regularUser);
         const modal = await waitForModal(page, "What's New");
         await modal.getByRole('button', { name: 'Got It, Thanks' }).click();
-        await expect(modal).not.toBeVisible();
+        await expect(modal).toBeHidden();
       });
 
       await test.step('Open the revisit link from Appearance Settings', async () => {
@@ -317,7 +340,7 @@ test.describe('What\'s New Changelog', () => {
         // "Close" (aria-label, vs. this footer button's visible text) — the
         // footer button renders first in DOM order (see WhatsNewModal.tsx).
         await modal.getByRole('button', { name: 'Close' }).first().click();
-        await expect(modal).not.toBeVisible();
+        await expect(modal).toBeHidden();
         expect(await ackRequestPromise).toBeNull();
       });
 
@@ -325,7 +348,7 @@ test.describe('What\'s New Changelog', () => {
         await logoutUser(page);
         await loginUser(page, regularUser);
         await waitForLoadingComplete(page);
-        await expect(page.getByRole('dialog', { name: "What's New" })).not.toBeVisible();
+        await expect(page.getByRole('dialog', { name: "What's New" })).toBeHidden();
       });
     }
   );

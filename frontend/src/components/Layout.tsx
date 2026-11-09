@@ -4,18 +4,18 @@ import { type ReactNode, useState, useEffect, Suspense } from 'react'
 import { useTranslation } from 'react-i18next'
 import { Link, useLocation } from 'react-router'
 
+import { getFeatureFlags } from '../api/featureFlags'
+import { checkHealth } from '../api/health'
+import { getSettings } from '../api/settings'
+import { useAuth } from '../hooks/useAuth'
 import { useMediaQuery } from '../hooks/useMediaQuery'
+import { toast } from '../utils/toast'
 import WhatsNewModal from './dialogs/WhatsNewModal'
 import FeedbackWidget from './FeedbackWidget'
 import NotificationCenter from './NotificationCenter'
 import SystemStatus from './SystemStatus'
 import { ThemeToggle } from './ThemeToggle'
 import { Button } from './ui/Button'
-import { getFeatureFlags } from '../api/featureFlags'
-import { checkHealth } from '../api/health'
-import { getSettings } from '../api/settings'
-import { useAuth } from '../hooks/useAuth'
-import { toast } from '../utils/toast'
 
 
 interface LayoutProps {
@@ -100,6 +100,7 @@ export default function Layout({ children }: LayoutProps) {
     queryFn: checkHealth,
     staleTime: 1000 * 60 * 60, // 1 hour
   })
+  const shortCommit = health?.git_commit?.substring(0, 7)
 
   const { data: featureFlags } = useQuery({
     queryKey: ['feature-flags'],
@@ -155,6 +156,7 @@ export default function Layout({ children }: LayoutProps) {
         { name: t('navigation.system'), path: '/settings/system', icon: '⚙️' },
         { name: t('navigation.notifications'), path: '/settings/notifications', icon: '🔔' },
         { name: t('navigation.email'), path: '/settings/smtp', icon: '📧' },
+        { name: t('settings.appearance'), path: '/settings/appearance', icon: '🎨' },
         ...(user?.role === 'admin' ? [{ name: t('navigation.users'), path: '/settings/users', icon: '👥' }] : []),
       ]
     },
@@ -409,9 +411,9 @@ export default function Layout({ children }: LayoutProps) {
             </div>
             <div className="text-xs text-content-muted text-center mt-2 mb-2 flex flex-col gap-0.5">
               <span>Version {health?.version || 'dev'}</span>
-              {health?.git_commit && health.git_commit !== 'unknown' && (
+              {shortCommit && shortCommit !== 'unknown' && !health?.version?.includes(shortCommit) && (
                 <span className="text-[10px] opacity-75 font-mono">
-                  ({health.git_commit.substring(0, 7)})
+                  ({shortCommit})
                 </span>
               )}
             </div>

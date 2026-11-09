@@ -95,9 +95,7 @@ export const calculateCIDRSize = (cidr: string): number => {
   if (parts.length !== 2) return 1;
 
   const bits = parseInt(parts[1], 10);
-  if (isNaN(bits) || bits < 0 || bits > 32) return 1;
-
-  return Math.pow(2, 32 - bits);
+  return isNaN(bits) || bits < 0 || bits > 32 ? 1 : Math.pow(2, 32 - bits);
 };
 
 /**

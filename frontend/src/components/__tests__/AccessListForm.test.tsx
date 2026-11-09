@@ -305,6 +305,7 @@ describe('AccessListForm', () => {
 
     // Try to submit - should not submit with invalid IP
     // Note: The component may or may not validate here depending on implementation
+    expect(mockSubmit).not.toHaveBeenCalled();
   });
 
   it('edit mode shows update button instead of create', () => {

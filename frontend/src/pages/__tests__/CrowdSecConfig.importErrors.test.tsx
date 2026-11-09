@@ -63,6 +63,9 @@ describe('CrowdSecConfig import refusals', () => {
     [422, 'import_kept_profile_duplicate', 'The archive has no profiles.yaml, so the current one was kept, but a notification file it needs defines a name the archive already defines.'],
     [500, 'import_keep_current_failed', 'The current CrowdSec files could not be kept, so the import was stopped. See the server logs for details.'],
     [422, 'import_config_not_found', 'config.yaml was not found at the top level or in the config/ folder of the archive.'],
+    [500, 'import_config_not_writable', 'Charon cannot change the CrowdSec configuration folder. Check that the Charon user owns it and can write to it, and that it is not mounted read-only.'],
+    [422, 'import_archive_too_large', 'The archive is larger than the import limit. Nothing was changed.'],
+    [413, 'request_too_large', 'The file is too large to import.'],
   ])('translates %i %s', async (status, code, text) => {
     expect(await importFailing(refusal(status, { error: 'english server text', error_code: code }))).toBe(text)
   })
@@ -86,6 +89,12 @@ describe('CrowdSecConfig import refusals', () => {
       refusal(422, { error: 'server text', error_code: 'import_profile_names_undefined', names: ['slack', 'http'] }),
     )
     expect(message).toBe("The archive's profiles.yaml names notifications that no file in the archive defines: slack, http")
+  })
+
+  it('keeps the server text when a profiles.yaml refusal carries no names', async () => {
+    expect(
+      await importFailing(refusal(422, { error: 'server text', error_code: 'import_profile_names_undefined' })),
+    ).toBe('server text')
   })
 
   it('lists the undefined names of a kept profile', async () => {

@@ -202,16 +202,36 @@ func (s *BackupService) ValidateBackup(filename, passphrase string) (*BackupVali
 		result.CreatedAt = validated.manifest.CreatedAt
 		result.EncryptionKeyRequired = validated.manifest.EncryptionKeyRequired
 
-		if validated.manifest.AppVersion != "" && validated.manifest.AppVersion != version.Version {
-			result.Warnings = append(result.Warnings, fmt.Sprintf(
-				"archive app_version (%s) differs from the running version (%s)",
-				validated.manifest.AppVersion, version.Version))
+		if msg := appVersionWarning(validated.manifest.AppVersion, version.Version); msg != "" {
+			result.Warnings = append(result.Warnings, msg)
 		}
 	} else {
 		result.FormatVersion = 1
 	}
 
 	return result, nil
+}
+
+// appVersionWarning returns the non-fatal warning for an archive whose
+// app_version differs from the running build, or "" when no warning applies.
+// Versions are compared by SemVer precedence with build metadata ignored, so
+// "0.46.5+dev" and "0.46.5" are the same release. When either side is
+// unversioned (for example "dev"), it falls back to an exact string match.
+// The result is advisory only and never blocks a restore.
+func appVersionWarning(archive, running string) string {
+	if archive == "" || archive == running {
+		return ""
+	}
+	cmp, ok := version.Compare(archive, running)
+	if !ok || cmp < 0 {
+		return fmt.Sprintf("archive app_version (%s) differs from the running version (%s)", archive, running)
+	}
+	if cmp > 0 {
+		return fmt.Sprintf(
+			"archive was created by a newer Charon version (%s) than the running version (%s); restoring it may fail or lose data",
+			archive, running)
+	}
+	return ""
 }
 
 // RestoreBackupSafe implements the full V->S->A->R->F pipeline (spec §3.5).

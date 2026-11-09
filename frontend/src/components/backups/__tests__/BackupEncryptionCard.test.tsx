@@ -3,6 +3,7 @@ import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi } from 'vitest'
 
 import { BackupEncryptionCard } from '../BackupEncryptionCard'
+
 import type { UseBackupSettingsFormResult } from '../../../hooks/useBackups'
 
 vi.mock('../../../utils/toast', () => ({

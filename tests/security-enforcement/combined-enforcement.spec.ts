@@ -24,7 +24,7 @@ import {
   setSecurityModuleEnabled,
   captureSecurityState,
   restoreSecurityState,
-  CapturedSecurityState,
+  SecurityStateSnapshot,
 } from '../utils/security-helpers';
 
 /**
@@ -55,7 +55,7 @@ async function configureAdminWhitelist(requestContext: APIRequestContext) {
 
 test.describe('Combined Security Enforcement', () => {
   let requestContext: APIRequestContext;
-  let originalState: CapturedSecurityState;
+  let originalState: SecurityStateSnapshot;
 
   test.beforeAll(async () => {
     requestContext = await request.newContext({
@@ -101,7 +101,7 @@ test.describe('Combined Security Enforcement', () => {
     await requestContext.dispose();
   });
 
-  test('should enable all security modules simultaneously', async ({}, testInfo) => {
+  test('should enable all security modules simultaneously', async () => {
     // SKIP: Security module enforcement verified via Cerberus middleware (port 80).
     // See: backend/integration/cerberus_integration_test.go
   });

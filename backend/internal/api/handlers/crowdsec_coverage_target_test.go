@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -13,6 +12,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 )
 
 // ==========================================================
@@ -45,47 +46,6 @@ func TestUpdateAcquisitionConfigSuccess(t *testing.T) {
 
 	// Expect error since /etc/crowdsec/acquis.yaml doesn't exist in test env
 	require.True(t, w.Code == http.StatusInternalServerError || w.Code == http.StatusOK)
-}
-
-// TestRegisterBouncerScriptPathError tests script not found
-func TestRegisterBouncerScriptPathError(t *testing.T) {
-	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
-	r := gin.New()
-	g := r.Group("/api/v1")
-	h.RegisterRoutes(g)
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/bouncer/register", http.NoBody)
-	r.ServeHTTP(w, req)
-
-	// Script won't exist in test environment
-	require.Equal(t, http.StatusNotFound, w.Code)
-	require.Contains(t, w.Body.String(), "bouncer registration script not found")
-}
-
-// fakeExecWithOutput allows custom output for testing
-type fakeExecWithOutput struct {
-	output []byte
-	err    error
-}
-
-func (f *fakeExecWithOutput) Execute(ctx context.Context, cmd string, args ...string) ([]byte, error) {
-	return f.output, f.err
-}
-
-func (f *fakeExecWithOutput) Start(ctx context.Context, binPath, configDir string) (int, error) {
-	if f.err != nil {
-		return 0, f.err
-	}
-	return 1234, nil
-}
-
-func (f *fakeExecWithOutput) Stop(ctx context.Context, configDir string) error {
-	return f.err
-}
-
-func (f *fakeExecWithOutput) Status(ctx context.Context, configDir string) (running bool, pid int, err error) {
-	return false, 0, f.err
 }
 
 // TestGetLAPIDecisionsRequestError tests request creation error
@@ -189,58 +149,26 @@ func TestStatusRequest(t *testing.T) {
 	require.True(t, w.Code == http.StatusOK || w.Code == http.StatusInternalServerError)
 }
 
-// TestRegisterBouncerExecutionSuccess tests successful registration
+// TestRegisterBouncerFlow registers through the endpoint: a rejected saved key is replaced by the key cscli prints.
 func TestRegisterBouncerFlow(t *testing.T) {
-	tmpDir := t.TempDir()
+	ex := registerCSCLI("abc123xyz", nil, `[{"name":"caddy-bouncer"}]`, nil)
+	h := newRegisterFixture(t, ex, map[string]bouncerkey.Verdict{regSavedKey: bouncerkey.VerdictRejected})
+	writeSavedKey(t, h.bouncerKeyPath(), regSavedKey)
 
-	// Create fake script
-	scriptPath := filepath.Join(tmpDir, "register_bouncer.sh")
-	_ = os.WriteFile(scriptPath, []byte("#!/bin/bash\necho abc123xyz"), 0o750) // #nosec G306 -- test fixture for executable script
+	w := pr4Serve(pr4Router(h), http.MethodPost, registerBouncerURL, "")
 
-	// Use custom exec that returns API key
-	exec := &fakeExecWithOutput{
-		output: []byte("abc123xyz\n"),
-		err:    nil,
-	}
-
-	h := newTestCrowdsecHandler(t, OpenTestDB(t), exec, "/bin/false", tmpDir)
-	r := gin.New()
-	g := r.Group("/api/v1")
-	h.RegisterRoutes(g)
-
-	// Won't work because hardcoded path, but tests the logic
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/bouncer", http.NoBody)
-	r.ServeHTTP(w, req)
-
-	// Expect 404 since script is not at hardcoded location
-	require.Equal(t, http.StatusNotFound, w.Code)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, "abc123xyz", bodyText(t, h.bouncerKeyPath()))
 }
 
-// TestRegisterBouncerWithError tests execution error
+// TestRegisterBouncerExecutionFailure answers 500 when cscli cannot add the bouncer.
 func TestRegisterBouncerExecutionFailure(t *testing.T) {
-	tmpDir := t.TempDir()
+	ex := registerCSCLI("error occurred", errors.New("execution failed"), "", nil)
+	h := newRegisterFixture(t, ex, nil)
 
-	// Create fake script
-	scriptPath := filepath.Join(tmpDir, "register_bouncer.sh")
-	_ = os.WriteFile(scriptPath, []byte("#!/bin/bash\nexit 1"), 0o750) // #nosec G306 -- test fixture for executable script
+	w := pr4Serve(pr4Router(h), http.MethodPost, registerBouncerURL, "")
 
-	exec := &fakeExecWithOutput{
-		output: []byte("error occurred"),
-		err:    errors.New("execution failed"),
-	}
-
-	h := newTestCrowdsecHandler(t, OpenTestDB(t), exec, "/bin/false", tmpDir)
-	r := gin.New()
-	g := r.Group("/api/v1")
-	h.RegisterRoutes(g)
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/bouncer", http.NoBody)
-	r.ServeHTTP(w, req)
-
-	// Expect 404 since script doesn't exist at hardcoded path
-	require.Equal(t, http.StatusNotFound, w.Code)
+	require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
 }
 
 // TestGetAcquisitionConfigFileError tests file read error

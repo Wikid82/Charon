@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor, act } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { type OrthrusAgent } from '../../../api/orthrus';
@@ -6,7 +6,7 @@ import { AgentExternalProxyDialog } from '../AgentExternalProxyDialog';
 
 const mockPatch = vi.fn();
 const mockRefetchStatus = vi.fn();
-let mockProxyStatus: Record<string, unknown> | undefined = undefined;
+let mockProxyStatus: Record<string, unknown> | undefined;
 
 vi.mock('../../../hooks/useOrthrus', () => ({
   usePatchAgent: () => ({ mutate: mockPatch, isPending: false }),
@@ -233,9 +233,7 @@ describe('AgentExternalProxyDialog', () => {
       const copyButton = screen.getByRole('button', {
         name: 'hecate.externalProxy.copyConnectionString',
       });
-      await act(async () => {
-        fireEvent.click(copyButton);
-      });
+      fireEvent.click(copyButton);
 
       await waitFor(() =>
         expect(writeText).toHaveBeenCalledWith('tcp://charon:2375'),
@@ -250,5 +248,37 @@ describe('AgentExternalProxyDialog', () => {
       fireEvent.click(screen.getByText('common.cancel'));
       expect(onClose).toHaveBeenCalled();
     });
+  });
+});
+
+describe('AgentExternalProxyDialog re-seeding', () => {
+  const dialog = (agent: OrthrusAgent, open: boolean) => (
+    <AgentExternalProxyDialog agent={agent} open={open} onClose={vi.fn()} />
+  );
+
+  it('resets an edited port and clears the error when reopened', () => {
+    const { rerender } = render(dialog(baseAgent, true));
+    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '80' } });
+    expect(screen.getByRole('alert')).toBeInTheDocument();
+
+    rerender(dialog(baseAgent, false));
+    rerender(dialog(baseAgent, true));
+    expect(screen.getByRole('spinbutton')).toHaveValue(2375);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('re-seeds the port when the agent external_proxy_port changes while open', () => {
+    const { rerender } = render(dialog(baseAgent, true));
+    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '80' } });
+    rerender(dialog({ ...baseAgent, external_proxy_port: 3000 }, true));
+    expect(screen.getByRole('spinbutton')).toHaveValue(3000);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('does not re-seed while closed', () => {
+    const { rerender } = render(dialog(baseAgent, false));
+    rerender(dialog({ ...baseAgent, external_proxy_port: 3000 }, false));
+    rerender(dialog({ ...baseAgent, external_proxy_port: 4000 }, true));
+    expect(screen.getByRole('spinbutton')).toHaveValue(4000);
   });
 });

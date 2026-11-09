@@ -2,6 +2,7 @@ import { test, expect } from '../fixtures/a11y';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
 import { expectNoA11yViolations } from '../utils/a11y-helpers';
 import { getBaselinedRuleIds } from './a11y-baseline';
+import type { Page } from '@playwright/test';
 
 const securityRoutes = [
   { route: '/security', name: 'security dashboard' },
@@ -18,7 +19,7 @@ const securityRoutes = [
  * Wait for route-specific content to be visible before axe analysis
  * Ensures all key page elements have been rendered
  */
-async function waitForRouteReady(page: any, route: string): Promise<void> {
+async function waitForRouteReady(page: Page, route: string): Promise<void> {
   // Wait for main content area if it exists (most pages have one)
   const main = page.locator('main');
   try {
@@ -66,7 +67,7 @@ test.describe('Accessibility: Security', () => {
       await test.step('Run axe accessibility scan', async () => {
         const results = await makeAxeBuilder().analyze();
 
-        test.info().attach('a11y-results', {
+        await test.info().attach('a11y-results', {
           body: JSON.stringify(results.violations, null, 2),
           contentType: 'application/json',
         });

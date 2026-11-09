@@ -684,13 +684,23 @@ environment:
 
 ---
 
+## Proxy Admin Interface
+
+Charon bundles its own Caddy (the engine that sends traffic to your sites) inside the same container. Caddy has an admin interface on port 2019 that Charon uses to update the proxy's settings.
+
+The proxy admin interface listens on the loopback address only and is reached from inside the container.
+
+You do not need to set anything up. Charon handles this for you.
+
+---
+
 ## Emergency Server Security
 
 ### Why Port 2020 Should NEVER Be Publicly Exposed
 
 The emergency server is designed as a **failsafe access mechanism** with minimal security controls. Exposing it to the public internet creates a high-risk attack surface.
 
-**Note:** Port 2020 is used for the emergency server to avoid conflict with Caddy's admin API on port 2019.
+**Note:** The emergency server uses port 2020. The proxy admin interface on port 2019 is separate and listens on the loopback address only (see [Proxy Admin Interface](#proxy-admin-interface)).
 
 **Risks of public exposure:**
 
@@ -1364,12 +1374,11 @@ services:
       - CHARON_HTTP_PORT=8080
       - CHARON_DB_PATH=/app/data/charon.db
       - CHARON_FRONTEND_DIR=/app/frontend/dist
-      - CHARON_CADDY_ADMIN_API=http://localhost:2019
       - CHARON_CADDY_CONFIG_DIR=/app/data/caddy
       - CHARON_CADDY_BINARY=caddy
       - CHARON_IMPORT_CADDYFILE=/import/Caddyfile
       - CHARON_IMPORT_DIR=/app/data/imports
-      - CHARON_CROWDSEC_CONFIG_DIR=/app/data/crowdsec
+      - CHARON_CROWDSEC_CONFIG_DIR=/app/data/crowdsec  # Where CrowdSec keeps its data and the bouncer key. CHARON_CROWDSEC_DATA is an older name for the same setting; if both are set to different folders, Charon logs a warning and uses CHARON_CROWDSEC_CONFIG_DIR.
 
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -1468,6 +1477,7 @@ volumes:
 
 - Mounting the raw Docker socket grants broad system access regardless of the `:ro` flag
 - The recommended, more secure option is [Orthrus](features/orthrus.md): a small helper holds the socket so Charon never does. Mounting the socket directly remains supported
+- The Orthrus agent also runs as a low-privilege user, not as root. Its user and group are set with `PUID` and `PGID` (see [Orthrus permissions](features/orthrus.md#set-the-permissions-puid-pgid-and-tz))
 - If you keep the direct mount, replace it with a socket proxy scoped to container listing only
 - See [Docker Auto-Discovery](features/docker-integration.md#limiting-socket-access-with-a-proxy) for the recommended setup
 
@@ -1617,7 +1627,7 @@ See [SECURITY.md](https://github.com/Wikid82/Charon/blob/main/SECURITY.md) for f
 
 ### How It Works
 
-The WAF (Coraza) uses the OWASP Core Rule Set to detect attack patterns. Even if the exploit is brand new, the pattern is usually recognizable.
+The WAF (Coraza) checks requests against the rule sets you add, such as the OWASP Core Rule Set (CRS). Rule sets describe known attack patterns. Even if the exploit is brand new, it may still match a pattern the rules already recognize.
 
 **Example:** A zero-day SQLi exploit discovered today:
 

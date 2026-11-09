@@ -1,8 +1,9 @@
 import { AxiosError, type AxiosResponse } from 'axios'
-import type { TFunction } from 'i18next'
 import { describe, it, expect } from 'vitest'
 
 import { crowdsecBusyMessage, crowdsecErrorMessage, getApiErrorCode, getCrowdsecBusyJobId, isCrowdsecBusyError } from '../errorBody'
+
+import type { TFunction } from 'i18next'
 
 const BUSY_TEXT = 'CrowdSec is busy installing a preset.'
 const BUSY_OTHER_TEXT = 'CrowdSec is finishing another change.'

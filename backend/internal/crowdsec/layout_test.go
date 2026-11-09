@@ -3,7 +3,6 @@ package crowdsec
 import (
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -102,7 +101,7 @@ func TestCheckImportLayout(t *testing.T) {
 
 func TestInspectArchiveLayoutFlags(t *testing.T) {
 	t.Parallel()
-	huge := strings.Repeat("#", int(maxInspectEntryBytes)+1)
+	huge := incompressible(t, int(maxInspectEntryBytes)+1)
 	for _, tc := range []struct {
 		name   string
 		files  map[string]string

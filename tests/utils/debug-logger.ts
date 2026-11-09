@@ -127,7 +127,7 @@ export class DebugLogger {
   /**
    * Log page state information
    */
-  pageState(label: string, state: Record<string, any>): void {
+  pageState(label: string, state: Record<string, unknown>): void {
     const sanitized = this.sanitizeObject(state);
     const message = `   📄 Page State: ${label}`;
     this.logMessage(message, 'page-state');
@@ -165,7 +165,7 @@ export class DebugLogger {
   /**
    * Log assertion result
    */
-  assertion(condition: string, passed: boolean, actual?: any, expected?: any): void {
+  assertion(condition: string, passed: boolean, actual?: unknown, expected?: unknown): void {
     const icon = passed ? '✓' : '✗';
     const baseMessage = `   ${icon} Assert: ${condition}`;
 
@@ -215,7 +215,7 @@ export class DebugLogger {
   /**
    * Get all log entries as structured JSON
    */
-  getStructuredLogs(): any {
+  getStructuredLogs(): Record<string, unknown> {
     return {
       test: {
         name: this.testName,
@@ -374,7 +374,7 @@ ${COLORS.dim}${'─'.repeat(60)}${COLORS.reset}`;
     return sanitized;
   }
 
-  private sanitizeObject(obj: any): any {
+  private sanitizeObject(obj: unknown): unknown {
     if (typeof obj !== 'object' || obj === null) {
       return obj;
     }
@@ -383,7 +383,7 @@ ${COLORS.dim}${'─'.repeat(60)}${COLORS.reset}`;
       return obj.map(item => this.sanitizeObject(item));
     }
 
-    const sanitized: any = {};
+    const sanitized: Record<string, unknown> = {};
     const sensitiveKeys = ['password', 'token', 'secret', 'key', 'auth'];
 
     for (const [key, value] of Object.entries(obj)) {
@@ -406,7 +406,7 @@ ${COLORS.dim}${'─'.repeat(60)}${COLORS.reset}`;
     return url;
   }
 
-  private formatValue(value: any): string {
+  private formatValue(value: unknown): string {
     if (typeof value === 'string') {
       return `"${value}"`;
     }

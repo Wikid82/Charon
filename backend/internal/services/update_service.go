@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	neturl "net/url"
+	"strings"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -23,9 +24,10 @@ type UpdateService struct {
 }
 
 type UpdateInfo struct {
-	Available     bool   `json:"available"`
-	LatestVersion string `json:"latest_version"`
-	ChangelogURL  string `json:"changelog_url"`
+	Available      bool   `json:"available"`
+	CurrentVersion string `json:"current_version"`
+	LatestVersion  string `json:"latest_version"`
+	ChangelogURL   string `json:"changelog_url"`
 }
 
 type githubRelease struct {
@@ -133,7 +135,7 @@ func (s *UpdateService) CheckForUpdates() (*UpdateInfo, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		// If rate limited or not found, just return no update available
-		return &UpdateInfo{Available: false}, nil
+		return &UpdateInfo{Available: false, CurrentVersion: s.currentVersion}, nil
 	}
 
 	var release githubRelease
@@ -141,24 +143,41 @@ func (s *UpdateService) CheckForUpdates() (*UpdateInfo, error) {
 		return nil, err
 	}
 
-	// Simple string comparison for now.
-	// In production, use a semver library.
-	// Assuming tags are "v0.1.0" and version is "0.1.0"
-	latest := release.TagName
-	if latest != "" && latest[0] == 'v' {
-		latest = latest[1:]
-	}
-
 	info := &UpdateInfo{
-		Available:     latest != s.currentVersion && latest != "",
-		LatestVersion: release.TagName,
-		ChangelogURL:  release.HTMLURL,
+		Available:      updateAvailable(s.currentVersion, release.TagName),
+		CurrentVersion: s.currentVersion,
+		LatestVersion:  release.TagName,
+		ChangelogURL:   releaseURL(release.HTMLURL),
 	}
 
 	s.cachedResult = info
 	s.lastCheck = time.Now()
 
 	return info, nil
+}
+
+// updateAvailable reports whether tag names a release strictly newer than
+// running. Unversioned running builds ("dev") never report an
+// update, and neither do non-SemVer or empty tags. A leading "v" on the tag is
+// accepted; build metadata on either side is ignored.
+func updateAvailable(running, tag string) bool {
+	latest := strings.TrimPrefix(tag, "v")
+	cmp, ok := version.Compare(running, latest)
+	return ok && cmp < 0
+}
+
+// releaseURL returns raw only when it is an https link whose hostname is exactly
+// github.com and which carries no userinfo. Anything else, including empty or
+// unparseable input, yields "" so the UI never renders an unvetted link.
+func releaseURL(raw string) string {
+	parsed, err := neturl.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	if parsed.Scheme != "https" || parsed.Hostname() != "github.com" || parsed.User != nil {
+		return ""
+	}
+	return raw
 }
 
 // SetHTTPClient overrides the outbound client. Intended for tests that need

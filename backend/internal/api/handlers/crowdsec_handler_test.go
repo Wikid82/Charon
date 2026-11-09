@@ -959,84 +959,6 @@ func (m *mockCmdExecutor) Execute(ctx context.Context, name string, args ...stri
 	return m.output, m.err
 }
 
-func TestRegisterBouncerScriptNotFound(t *testing.T) {
-	t.Parallel()
-	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
-	r := gin.New()
-	g := r.Group("/api/v1")
-	h.RegisterRoutes(g)
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/bouncer/register", http.NoBody)
-	r.ServeHTTP(w, req)
-
-	// Script doesn't exist, should return 404
-	require.Equal(t, http.StatusNotFound, w.Code)
-	require.Contains(t, w.Body.String(), "script not found")
-}
-
-func TestRegisterBouncerSuccess(t *testing.T) {
-	t.Parallel()
-
-	// Create a temp script that mimics successful bouncer registration
-	tmpDir := t.TempDir()
-
-	// Skip if we can't create the script in the expected location
-	if _, err := os.Stat("/usr/local/bin"); os.IsNotExist(err) {
-		t.Skip("Skipping test: /usr/local/bin does not exist")
-	}
-
-	// Create a mock command executor that simulates successful registration
-	mockExec := &mockCmdExecutor{
-		output: []byte("Bouncer registered successfully\nAPI Key: abc123456789abcdef0123456789abcdef\n"),
-		err:    nil,
-	}
-
-	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", tmpDir)
-	h.CmdExec = mockExec
-
-	// We need the script to exist for the test to work
-	// Create a dummy script in tmpDir and modify the handler to check there
-	// For this test, we'll just verify the mock executor is called correctly
-
-	r := gin.New()
-	g := r.Group("/api/v1")
-	h.RegisterRoutes(g)
-
-	// This will fail because script doesn't exist at /usr/local/bin/register_bouncer.sh
-	// The test verifies the handler's script-not-found behavior
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/bouncer/register", http.NoBody)
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusNotFound, w.Code)
-}
-
-func TestRegisterBouncerExecutionError(t *testing.T) {
-	t.Parallel()
-
-	// Create a mock command executor that simulates execution error
-	mockExec := &mockCmdExecutor{
-		output: []byte("Error: failed to execute cscli"),
-		err:    errors.New("exit status 1"),
-	}
-
-	tmpDir := t.TempDir()
-	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", tmpDir)
-	h.CmdExec = mockExec
-
-	r := gin.New()
-	g := r.Group("/api/v1")
-	h.RegisterRoutes(g)
-
-	// Script doesn't exist, so it will return 404 first
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/bouncer/register", http.NoBody)
-	r.ServeHTTP(w, req)
-
-	require.Equal(t, http.StatusNotFound, w.Code)
-}
-
 // ============================================
 // Acquisition Config Tests
 // ============================================
@@ -1778,10 +1700,10 @@ func TestCrowdsecHandler_CheckLAPIHealth_InvalidURL(t *testing.T) {
 
 	db := setupCrowdDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
-	// Create config with invalid URL
+	// The stored address is ignored; the local engine address is used.
 	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName,
 		UUID:           "default",
-		CrowdSecAPIURL: "http://evil.external.com:8080", // Should be blocked by SSRF policy
+		CrowdSecAPIURL: "http://evil.external.com:8080", // Ignored: the local engine address is used
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
@@ -1819,10 +1741,10 @@ func TestCrowdsecHandler_GetLAPIDecisions_Fallback(t *testing.T) {
 
 	db := setupCrowdDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
-	// Create config with invalid URL to trigger fallback
+	// The stored address is ignored; the local engine address is used.
 	cfg := models.SecurityConfig{Name: models.DefaultSecurityConfigName,
 		UUID:           "default",
-		CrowdSecAPIURL: "http://external.evil.com:8080",
+		CrowdSecAPIURL: "http://external.evil.com:8080", // Ignored: the local engine address is used
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
@@ -2657,65 +2579,6 @@ func TestCrowdsecHandler_GetCachedPreset_CacheMiss(t *testing.T) {
 // ============================================
 // PHASE 2: Targeted Coverage Tests (14 functions, ~85% target)
 // ============================================
-
-// RegisterBouncer Tests (Target: 20.0% → 75%)
-
-func TestCrowdsecHandler_RegisterBouncer_InvalidAPIKey(t *testing.T) {
-	t.Parallel()
-
-	// Create mock executor that returns invalid API key format
-	mockExec := &mockCmdExecutor{
-		output: []byte("Error: Invalid API key format\n"),
-		err:    errors.New("exit status 1"),
-	}
-
-	// Create temporary script to test with
-	tmpDir := t.TempDir()
-	scriptPath := filepath.Join(tmpDir, "register_bouncer.sh")
-	scriptContent := `#!/bin/bash
-echo "Error: Invalid API key format"
-exit 1
-`
-	require.NoError(t, os.WriteFile(scriptPath, []byte(scriptContent), 0o755)) // #nosec G306 -- test fixture
-
-	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", tmpDir)
-	h.CmdExec = mockExec
-
-	r := gin.New()
-	g := r.Group("/api/v1")
-	h.RegisterRoutes(g)
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/bouncer/register", http.NoBody)
-	r.ServeHTTP(w, req)
-
-	// Script doesn't exist at hardcoded path, should return 404
-	require.Equal(t, http.StatusNotFound, w.Code)
-	require.Contains(t, w.Body.String(), "script not found")
-}
-
-func TestCrowdsecHandler_RegisterBouncer_LAPIConnectionError(t *testing.T) {
-	t.Parallel()
-
-	mockExec := &mockCmdExecutor{
-		output: []byte("Error: Cannot connect to LAPI\ncscli lapi status: connection refused\n"),
-		err:    errors.New("lapi connection failed"),
-	}
-
-	h := newTestCrowdsecHandler(t, OpenTestDB(t), &fakeExec{}, "/bin/false", t.TempDir())
-	h.CmdExec = mockExec
-
-	r := gin.New()
-	g := r.Group("/api/v1")
-	h.RegisterRoutes(g)
-
-	w := httptest.NewRecorder()
-	req := httptest.NewRequest(http.MethodPost, "/api/v1/admin/crowdsec/bouncer/register", http.NoBody)
-	r.ServeHTTP(w, req)
-
-	// Script doesn't exist at hardcoded path, should return 404
-	require.Equal(t, http.StatusNotFound, w.Code)
-}
 
 // GetAcquisitionConfig Tests (Target: 40.0% → 75%)
 
@@ -3849,7 +3712,7 @@ func TestLogBouncerKeyBanner_NoSecretExposure(t *testing.T) {
 	require.Contains(t, maskedKey, "...wxyz")
 
 	// Call the banner function (it will log, but we've verified masking works)
-	h.logBouncerKeyBanner(testAPIKey, nil)
+	h.logBouncerKeyBanner(nil)
 
 	// If we reach here without panic, the function executed successfully
 	// The actual log output would need to be captured in integration tests
@@ -3873,18 +3736,18 @@ func TestTestKeyAgainstLAPI_ValidKey(t *testing.T) {
 	db := setupCrowdDB(t)
 	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 
+	redirectLocalKeyChecks(handler, server.URL)
 	// Create security config with test server URL
 	cfg := models.SecurityConfig{
-		UUID:           uuid.New().String(),
-		Name:           "default",
-		CrowdSecAPIURL: server.URL,
+		UUID: uuid.New().String(),
+		Name: "default",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
 	ctx := context.Background()
 	result := handler.testKeyAgainstLAPI(ctx, "valid-key-123")
 
-	require.True(t, result, "Valid key should return true")
+	require.Equal(t, bouncerkey.VerdictAccepted, result, "Valid key should be accepted")
 }
 
 // TestTestKeyAgainstLAPI_InvalidKey verifies that invalid API keys are rejected by LAPI.
@@ -3905,18 +3768,18 @@ func TestTestKeyAgainstLAPI_InvalidKey(t *testing.T) {
 	db := setupCrowdDB(t)
 	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 
+	redirectLocalKeyChecks(handler, server.URL)
 	// Create security config with test server URL
 	cfg := models.SecurityConfig{
-		UUID:           uuid.New().String(),
-		Name:           "default",
-		CrowdSecAPIURL: server.URL,
+		UUID: uuid.New().String(),
+		Name: "default",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
 	ctx := context.Background()
 	result := handler.testKeyAgainstLAPI(ctx, "invalid-key-456")
 
-	require.False(t, result, "Invalid key should return false immediately (no retries)")
+	require.Equal(t, bouncerkey.VerdictRejected, result, "Invalid key should be rejected immediately (no retries)")
 }
 
 // TestTestKeyAgainstLAPI_EmptyKey verifies that empty keys are rejected without making requests.
@@ -3929,7 +3792,7 @@ func TestTestKeyAgainstLAPI_EmptyKey(t *testing.T) {
 	ctx := context.Background()
 	result := handler.testKeyAgainstLAPI(ctx, "")
 
-	require.False(t, result, "Empty key should return false without making request")
+	require.Equal(t, bouncerkey.VerdictRejected, result, "Empty key should be rejected without making request")
 }
 
 // TestTestKeyAgainstLAPI_Timeout verifies that LAPI requests timeout appropriately.
@@ -3945,19 +3808,20 @@ func TestTestKeyAgainstLAPI_Timeout(t *testing.T) {
 
 	db := setupCrowdDB(t)
 	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+	handler.keyCheckWait = 300 * time.Millisecond
 
+	redirectLocalKeyChecks(handler, server.URL)
 	// Create security config with test server URL
 	cfg := models.SecurityConfig{
-		UUID:           uuid.New().String(),
-		Name:           "default",
-		CrowdSecAPIURL: server.URL,
+		UUID: uuid.New().String(),
+		Name: "default",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
 	ctx := context.Background()
 	result := handler.testKeyAgainstLAPI(ctx, "test-key")
 
-	require.False(t, result, "Should return false after timeout")
+	require.Equal(t, bouncerkey.VerdictUnknown, result, "a timed-out check gives no verdict, so it is never a rejection")
 }
 
 // TestTestKeyAgainstLAPI_NonOKStatus verifies that non-200/403 status codes are handled.
@@ -3975,31 +3839,32 @@ func TestTestKeyAgainstLAPI_NonOKStatus(t *testing.T) {
 
 	db := setupCrowdDB(t)
 	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+	handler.keyCheckWait = 300 * time.Millisecond
 
+	redirectLocalKeyChecks(handler, server.URL)
 	// Create security config with test server URL
 	cfg := models.SecurityConfig{
-		UUID:           uuid.New().String(),
-		Name:           "default",
-		CrowdSecAPIURL: server.URL,
+		UUID: uuid.New().String(),
+		Name: "default",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
 	ctx := context.Background()
 	result := handler.testKeyAgainstLAPI(ctx, "test-key")
 
-	require.False(t, result, "Should return false for non-OK status")
+	require.Equal(t, bouncerkey.VerdictUnknown, result, "a 500 is not a rejection")
 }
 
 // TestEnsureBouncerRegistration_ValidEnvKey verifies that valid environment keys are used.
 func TestEnsureBouncerRegistration_ValidEnvKey(t *testing.T) {
-	// Note: Not parallel - tests share bouncerKeyFile constant
+	// Note: Not parallel - tests share the default bouncer key file
 
 	// Clean up bouncer key file to ensure test isolation
-	if err := os.Remove(bouncerKeyFile); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(bouncerkey.DefaultFile); err != nil && !os.IsNotExist(err) {
 		t.Logf("Warning: failed to remove bouncer key file: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := os.Remove(bouncerKeyFile); err != nil && !os.IsNotExist(err) {
+		if err := os.Remove(bouncerkey.DefaultFile); err != nil && !os.IsNotExist(err) {
 			t.Logf("Warning: failed to remove bouncer key file: %v", err)
 		}
 	})
@@ -4029,12 +3894,12 @@ func TestEnsureBouncerRegistration_ValidEnvKey(t *testing.T) {
 
 	db := setupCrowdDB(t)
 	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
+	redirectLocalKeyChecks(handler, server.URL)
 
 	// Create security config with test server URL
 	cfg := models.SecurityConfig{
-		UUID:           uuid.New().String(),
-		Name:           "default",
-		CrowdSecAPIURL: server.URL,
+		UUID: uuid.New().String(),
+		Name: "default",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
@@ -4050,14 +3915,14 @@ func TestEnsureBouncerRegistration_ValidEnvKey(t *testing.T) {
 
 // TestEnsureBouncerRegistration_InvalidEnvKeyFallback verifies fallback when env key is invalid.
 func TestEnsureBouncerRegistration_InvalidEnvKeyFallback(t *testing.T) {
-	// Note: Not parallel - tests share bouncerKeyFile constant
+	// Note: Not parallel - tests share the default bouncer key file
 
 	// Clean up bouncer key file to ensure test isolation
-	if err := os.Remove(bouncerKeyFile); err != nil && !os.IsNotExist(err) {
+	if err := os.Remove(bouncerkey.DefaultFile); err != nil && !os.IsNotExist(err) {
 		t.Logf("Warning: failed to remove bouncer key file: %v", err)
 	}
 	t.Cleanup(func() {
-		if err := os.Remove(bouncerKeyFile); err != nil && !os.IsNotExist(err) {
+		if err := os.Remove(bouncerkey.DefaultFile); err != nil && !os.IsNotExist(err) {
 			t.Logf("Warning: failed to remove bouncer key file: %v", err)
 		}
 	})
@@ -4090,12 +3955,12 @@ func TestEnsureBouncerRegistration_InvalidEnvKeyFallback(t *testing.T) {
 	db := setupCrowdDB(t)
 	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	handler.CmdExec = mockCmdExec
+	redirectLocalKeyChecks(handler, server.URL)
 
 	// Create security config with test server URL
 	cfg := models.SecurityConfig{
-		UUID:           uuid.New().String(),
-		Name:           "default",
-		CrowdSecAPIURL: server.URL,
+		UUID: uuid.New().String(),
+		Name: "default",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
 
@@ -4112,10 +3977,10 @@ func TestEnsureBouncerRegistration_InvalidEnvKeyFallback(t *testing.T) {
 // TestEnsureBouncerRegistration_ConcurrentCalls verifies that concurrent registration
 // attempts are protected by mutex and only ONE bouncer registration occurs.
 func TestEnsureBouncerRegistration_ConcurrentCalls(t *testing.T) {
-	// Note: Not parallel - tests share bouncerKeyFile constant
+	// Note: Not parallel - tests share the default bouncer key file
 
 	// Clean up bouncer key file before and after test to ensure isolation
-	testKeyFile := bouncerKeyFile
+	testKeyFile := bouncerkey.DefaultFile
 	if err := os.Remove(testKeyFile); err != nil && !os.IsNotExist(err) {
 		t.Logf("Warning: failed to remove test key file: %v", err)
 	}
@@ -4215,22 +4080,15 @@ func TestEnsureBouncerRegistration_ConcurrentCalls(t *testing.T) {
 	db := setupCrowdDB(t)
 	handler := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 	handler.CmdExec = mockCmdExec
+	// Key checks always address the local engine; send them to the mock LAPI so they answer at once
+	// instead of retrying a dead address for the full wait while the calls queue behind decisionMu.
+	redirectLocalKeyChecks(handler, lapiServer.URL)
 
-	// Create security config with mock LAPI URL
 	cfg := models.SecurityConfig{
-		UUID:           "test-uuid",
-		Name:           "default",
-		CrowdSecAPIURL: lapiServer.URL,
+		UUID: "test-uuid",
+		Name: "default",
 	}
 	require.NoError(t, db.Create(&cfg).Error)
-
-	// Override bouncerKeyFile for this test (normally a const)
-	// We'll verify by reading from the temp file after registration
-	originalBouncerKeyFile := bouncerKeyFile
-	t.Cleanup(func() {
-		// Restore original (though it's a const, this is to satisfy linters)
-		_ = originalBouncerKeyFile
-	})
 
 	// Execute: Launch 10 concurrent ensureBouncerRegistration() calls
 	const concurrency = 10
@@ -4287,7 +4145,7 @@ func TestEnsureBouncerRegistration_ConcurrentCalls(t *testing.T) {
 	mockCmdExec.AssertExpectations(t)
 }
 
-func TestValidateBouncerKey_BouncerExists(t *testing.T) {
+func TestBouncerRegistration_BouncerExists(t *testing.T) {
 	t.Parallel()
 
 	mockExec := &mockCmdExecutor{
@@ -4300,14 +4158,14 @@ func TestValidateBouncerKey_BouncerExists(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := h.validateBouncerKey(ctx)
+	result := h.bouncerRegistration(ctx)
+	assert.Equal(t, registrationRegistered, result)
 
-	assert.True(t, result)
 	require.Len(t, mockExec.calls, 1)
 	assert.Equal(t, "cscli", mockExec.calls[0].name)
 }
 
-func TestValidateBouncerKey_BouncerNotFound(t *testing.T) {
+func TestBouncerRegistration_BouncerNotFound(t *testing.T) {
 	t.Parallel()
 
 	mockExec := &mockCmdExecutor{
@@ -4320,12 +4178,12 @@ func TestValidateBouncerKey_BouncerNotFound(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := h.validateBouncerKey(ctx)
+	result := h.bouncerRegistration(ctx)
 
-	assert.False(t, result)
+	assert.Equal(t, registrationNotRegistered, result)
 }
 
-func TestValidateBouncerKey_EmptyOutput(t *testing.T) {
+func TestBouncerRegistration_EmptyOutput(t *testing.T) {
 	t.Parallel()
 
 	mockExec := &mockCmdExecutor{
@@ -4338,12 +4196,12 @@ func TestValidateBouncerKey_EmptyOutput(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := h.validateBouncerKey(ctx)
+	result := h.bouncerRegistration(ctx)
 
-	assert.False(t, result)
+	assert.Equal(t, registrationNotRegistered, result)
 }
 
-func TestValidateBouncerKey_NullOutput(t *testing.T) {
+func TestBouncerRegistration_NullOutput(t *testing.T) {
 	t.Parallel()
 
 	mockExec := &mockCmdExecutor{
@@ -4356,12 +4214,12 @@ func TestValidateBouncerKey_NullOutput(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := h.validateBouncerKey(ctx)
+	result := h.bouncerRegistration(ctx)
 
-	assert.False(t, result)
+	assert.Equal(t, registrationNotRegistered, result)
 }
 
-func TestValidateBouncerKey_CmdError(t *testing.T) {
+func TestBouncerRegistration_CmdError(t *testing.T) {
 	t.Parallel()
 
 	mockExec := &mockCmdExecutor{
@@ -4374,12 +4232,12 @@ func TestValidateBouncerKey_CmdError(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := h.validateBouncerKey(ctx)
+	result := h.bouncerRegistration(ctx)
 
-	assert.False(t, result)
+	assert.Equal(t, registrationUnknown, result)
 }
 
-func TestValidateBouncerKey_InvalidJSON(t *testing.T) {
+func TestBouncerRegistration_InvalidJSON(t *testing.T) {
 	t.Parallel()
 
 	mockExec := &mockCmdExecutor{
@@ -4392,9 +4250,9 @@ func TestValidateBouncerKey_InvalidJSON(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	result := h.validateBouncerKey(ctx)
+	result := h.bouncerRegistration(ctx)
 
-	assert.False(t, result)
+	assert.Equal(t, registrationUnknown, result)
 }
 
 func TestGetBouncerInfo_FromEnvVar(t *testing.T) {

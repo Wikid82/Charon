@@ -4,11 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -18,6 +16,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/Wikid82/charon/backend/internal/util"
 	"gorm.io/gorm"
 )
@@ -98,8 +97,8 @@ type CrowdsecProcessManager interface {
 // 4. HTTP server starts
 // 5. Routes registered
 //
-// Auto-start condition: the CrowdSec decision of models.CrowdSecEnabled is on. The enabled setting wins, then the
-// deprecated mode setting, then SecurityConfig.crowdsec_mode == "local".
+// Auto-start condition: the CrowdSec decision of models.CrowdSecEnabled is on. The enabled setting wins, then
+// SecurityConfig.crowdsec_mode == "local".
 //
 // cmdExec is optional; if nil, a real command executor will be used for bouncer registration.
 // Tests should pass a mock to avoid executing real cscli commands.
@@ -119,6 +118,7 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 		"bin_path": binPath,
 		"data_dir": dataDir,
 	}).Info("CrowdSec reconciliation: starting startup check")
+	warnIgnoredLAPIURLEnv()
 
 	if db == nil || executor == nil {
 		logger.Log().Debug("CrowdSec reconciliation skipped: nil db or executor")
@@ -129,19 +129,30 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 	// anything (including the engine) reads the configuration. This runs whatever the CrowdSec mode is.
 	recoverInterruptedInstalls(db, dataDir)
 
-	// Check if SecurityConfig table exists and has a record with CrowdSecMode = "local"
+	// main runs routes.MigrateSchema before this function, so a missing table means the migration did not complete
+	// or the file is not a Charon database. The guard stays so that a broken schema is reported, not panicked on.
 	if !db.Migrator().HasTable(&models.SecurityConfig{}) {
-		logger.Log().Warn("CrowdSec reconciliation skipped: SecurityConfig table not found - run 'charon migrate' to fix")
+		logger.Log().Warn("CrowdSec reconciliation skipped: the SecurityConfig table is missing; the schema migration did not complete or this is not a Charon database")
 		return
 	}
 
 	// Repair legacy-named rows before reading the default row, so the check below never acts on a stale copy.
-	// Routes migration and seeding run after this function, so this call is needed on the first boot after upgrade.
+	// RegisterWithDeps seeds the default row only after this function runs, so this repair is what keeps the
+	// legacy row readable here on the first boot after an upgrade.
 	if repairErr := models.RepairDefaultSecurityConfigName(db); repairErr != nil {
 		logger.Log().WithError(repairErr).Warn("CrowdSec reconciliation: failed to repair default SecurityConfig name, continuing")
 	}
 
+	// Keep the default row in step with the enabled setting before the decision reads it. A failed sync is only logged:
+	// models.CrowdSecEnabled prefers the setting, so the decision does not depend on the row write.
 	cfg, findErr := models.FindDefaultSecurityConfig(db)
+	if findErr == nil {
+		synced, syncErr := models.SyncCrowdSecRowToSetting(db, cfg)
+		if syncErr != nil {
+			logger.Log().WithError(syncErr).Warn("CrowdSec reconciliation: failed to sync default SecurityConfig to the CrowdSec setting, continuing")
+		}
+		cfg = synced
+	}
 	if findErr != nil {
 		if !errors.Is(findErr, gorm.ErrRecordNotFound) {
 			logger.Log().WithError(findErr).Warn("CrowdSec reconciliation: failed to read SecurityConfig")
@@ -154,22 +165,12 @@ func ReconcileCrowdSecOnStartup(db *gorm.DB, executor CrowdsecProcessManager, bi
 			logger.Log().WithError(seedErr).Error("CrowdSec reconciliation: failed to create default SecurityConfig")
 			return
 		}
-		cfg = *seeded
-
-		var settingOverride struct{ Value string }
-		if rawErr := db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", "security.crowdsec.enabled").Scan(&settingOverride).Error; rawErr == nil && settingOverride.Value != "" {
-			logger.Log().WithFields(map[string]any{
-				"setting_value": settingOverride.Value,
-				"enabled":       strings.EqualFold(settingOverride.Value, "true"),
-			}).Info("CrowdSec reconciliation: found existing Settings table preference")
-			if strings.EqualFold(settingOverride.Value, "true") && cfg.CrowdSecMode != "local" {
-				if updErr := db.Model(&cfg).Update("crowd_sec_mode", "local").Error; updErr != nil {
-					logger.Log().WithError(updErr).Error("CrowdSec reconciliation: failed to set crowd_sec_mode from Settings preference")
-					return
-				}
-				cfg.CrowdSecMode = "local"
-			}
+		// The same sync as above, so the seeded row follows the setting. It is a no-op when the setting is absent.
+		synced, syncErr := models.SyncCrowdSecRowToSetting(db, *seeded)
+		if syncErr != nil {
+			logger.Log().WithError(syncErr).Warn("CrowdSec reconciliation: failed to sync seeded SecurityConfig to the CrowdSec setting, continuing")
 		}
+		cfg = synced
 
 		logger.Log().WithFields(map[string]any{
 			"crowdsec_mode": cfg.CrowdSecMode,
@@ -286,7 +287,35 @@ type CommandExecutor interface {
 	Execute(ctx context.Context, name string, args ...string) ([]byte, error)
 }
 
-const defaultBouncerKeyFile = bouncerkey.DefaultFile
+// startupKeyCheckTiming is the retry policy of the boot key check: one window of 10 s, shared with the handler rule.
+// Only Wait, PerAttempt and the backoffs are read; the URL is always the local engine (startupKeyCheckOptions).
+var startupKeyCheckTiming = bouncerkey.CheckOptions{
+	Wait:         10 * time.Second,
+	PerAttempt:   5 * time.Second,
+	FirstBackoff: 500 * time.Millisecond,
+	MaxBackoff:   5 * time.Second,
+}
+
+// startupKeyCheckOptions returns the options of the boot key check: startupKeyCheckTiming against the local engine
+// only. Tests replace it to answer from a stub server.
+var startupKeyCheckOptions = func() bouncerkey.CheckOptions {
+	opts := startupKeyCheckTiming
+	opts.BaseURL = crowdsec.LocalLAPIURL
+	return opts
+}
+
+// lapiURLEnvVar is the variable that once set the LAPI address. The key checks no longer read it.
+const lapiURLEnvVar = "CHARON_SECURITY_CROWDSEC_API_URL"
+
+// warnIgnoredLAPIURLEnv logs once that lapiURLEnvVar is set to an address other than the local engine. The address
+// itself is not logged.
+func warnIgnoredLAPIURLEnv() {
+	raw := os.Getenv(lapiURLEnvVar)
+	if raw == "" || crowdsec.IsLocalLAPIURL(raw) {
+		return
+	}
+	logger.Log().Warn("CHARON_SECURITY_CROWDSEC_API_URL is ignored for key checks; remove it from docker-compose.yml")
+}
 
 // startupBouncerName is the bouncer registered with LAPI at startup.
 const startupBouncerName = "caddy-bouncer"
@@ -294,8 +323,9 @@ const startupBouncerName = "caddy-bouncer"
 // ensureBouncerRegistrationOnStartup registers the caddy-bouncer with LAPI during container startup.
 // This is called after CrowdSec LAPI is confirmed running to ensure bouncer key is properly registered.
 // Priority: a valid saved key wins, then a valid env key is saved, then a new key is registered.
+// The key file is bouncerkey.PathFor(dataDir), the file the handlers and the proxy read.
 func ensureBouncerRegistrationOnStartup(dataDir string, cmdExec CommandExecutor) error {
-	return ensureBouncerRegistration(dataDir, defaultBouncerKeyFile, cmdExec)
+	return ensureBouncerRegistration(dataDir, bouncerkey.PathFor(dataDir), cmdExec)
 }
 
 // ensureBouncerRegistration implements ensureBouncerRegistrationOnStartup with an explicit key-file path.
@@ -334,25 +364,16 @@ func ensureBouncerRegistration(dataDir, bouncerKeyFile string, cmdExec CommandEx
 
 	// The shared decision: a valid saved key wins, then a valid env key is saved, then a new bouncer is registered.
 	// Startup runs before Caddy is created, so no Caddy re-apply is needed for any outcome.
+	run := func(ctx context.Context, timeout time.Duration, args ...string) ([]byte, error) {
+		stepCtx, cancel := context.WithTimeout(ctx, timeout)
+		defer cancel()
+		return crowdsec.RunCSCLI(stepCtx, cmdExec, configPath, args...)
+	}
 	register := func(ctx context.Context) (string, error) {
-		// Delete existing bouncer if present (stale registration)
-		delCtx, delCancel := context.WithTimeout(ctx, 5*time.Second)
-		_, _ = crowdsec.RunCSCLI(delCtx, cmdExec, configPath, "bouncers", "delete", startupBouncerName)
-		delCancel()
-
-		regCtx, regCancel := context.WithTimeout(ctx, 10*time.Second)
-		defer regCancel()
-
-		output, err := crowdsec.RunCSCLI(regCtx, cmdExec, configPath, "bouncers", "add", startupBouncerName, "-o", "raw")
+		newKey, err := crowdsec.ReplaceBouncer(ctx, run, startupBouncerName)
 		if err != nil {
-			logger.Log().WithError(err).WithField("output", util.DescribeCommandOutput(output)).Error("bouncer registration failed")
-			return "", fmt.Errorf("bouncer registration failed: %w", err)
-		}
-
-		newKey := strings.TrimSpace(string(output))
-		if newKey == "" {
-			logger.Log().Error("bouncer registration returned empty key")
-			return "", fmt.Errorf("bouncer registration returned empty key")
+			logger.Log().WithError(err).Error("bouncer registration failed")
+			return "", err
 		}
 		return newKey, nil
 	}
@@ -362,9 +383,13 @@ func ensureBouncerRegistration(dataDir, bouncerKeyFile string, cmdExec CommandEx
 	return err
 }
 
-// startupKeyValid tests a key against LAPI for the shared decision.
-func startupKeyValid(_ context.Context, key string) bool {
-	return testKeyAgainstLAPIStartup(key)
+// startupKeyValid returns the LAPI verdict for a key for the shared boot decision. It uses the same
+// three-valued check as the handler: only 403 is a rejection, and an unreachable or erroring LAPI is Unknown.
+// The address is always the local engine (startupKeyCheckOptions).
+func startupKeyValid(ctx context.Context, key string) bouncerkey.Verdict {
+	opts := startupKeyCheckOptions()
+	client := network.NewInternalServiceHTTPClient(opts.PerAttempt)
+	return bouncerkey.Check(ctx, client, key, opts)
 }
 
 // rejectedEnvKeyLogMessage is the Warn text for a rejected key variable whose replacement was
@@ -394,9 +419,8 @@ func logStartupKeyDecision(res bouncerkey.EnsureResult, keyFile string, regErr e
 	}
 	if res.EnvKeyRejected {
 		fields := map[string]any{
-			"bouncer":    startupBouncerName,
-			"key_file":   keyFile,
-			"masked_key": util.MaskAPIKey(res.EnvKey),
+			"bouncer":  startupBouncerName,
+			"key_file": keyFile,
 		}
 		if regErr != nil {
 			logger.Log().WithFields(fields).Warn(rejectedEnvRegisterFailedLogMessage(keyFile))
@@ -417,56 +441,22 @@ func logStartupKeyDecision(res bouncerkey.EnsureResult, keyFile string, regErr e
 	case bouncerkey.OutcomeEnvKeySaved:
 		if res.SaveErr == nil {
 			logger.Log().WithFields(map[string]any{
-				"source":     "environment_variable",
-				"key_file":   keyFile,
-				"masked_key": util.MaskAPIKey(res.Key),
+				"source":   "environment_variable",
+				"key_file": keyFile,
 			}).Info("CrowdSec bouncer: env var key validated and saved to key file")
 		}
 	case bouncerkey.OutcomeRegistered:
 		if res.SaveErr == nil {
 			logger.Log().WithFields(map[string]any{
-				"bouncer":    startupBouncerName,
-				"key_file":   keyFile,
-				"masked_key": util.MaskAPIKey(res.Key),
+				"bouncer":  startupBouncerName,
+				"key_file": keyFile,
 			}).Info("CrowdSec bouncer: successfully registered and saved key")
 		}
+	case bouncerkey.OutcomeUnverified:
+		logger.Log().WithField("key_file", keyFile).Warn(bouncerkey.UnverifiedMessage)
+	case bouncerkey.OutcomeHeldKeyValid:
+		logger.Log().WithField("key_file", keyFile).Info(bouncerkey.HeldKeyInUseMessage(res.HeldSaveErr == nil))
 	}
-}
-
-// Helper functions for startup bouncer registration (minimal dependencies)
-
-func testKeyAgainstLAPIStartup(apiKey string) bool {
-	if apiKey == "" {
-		return false
-	}
-
-	lapiURL := os.Getenv("CHARON_SECURITY_CROWDSEC_API_URL")
-	if lapiURL == "" {
-		lapiURL = "http://127.0.0.1:8085"
-	}
-	endpoint := strings.TrimRight(lapiURL, "/") + "/v1/decisions/stream"
-
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, http.NoBody) //nolint:gosec // G704: endpoint from env config, not user input
-	if err != nil {
-		return false
-	}
-	req.Header.Set("X-Api-Key", apiKey)
-
-	client := &http.Client{Timeout: 5 * time.Second}
-	resp, err := client.Do(req) //nolint:gosec // G704: request built from trusted config endpoint
-	if err != nil {
-		return false
-	}
-	defer func() {
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			logger.Log().WithError(closeErr).Debug("Failed to close HTTP response body")
-		}
-	}()
-
-	return resp.StatusCode == 200
 }
 
 // simpleCommandExecutor provides minimal command execution for startup registration

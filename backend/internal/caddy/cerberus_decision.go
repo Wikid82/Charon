@@ -1,8 +1,6 @@
 package caddy
 
 import (
-	"strings"
-
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/config"
@@ -25,12 +23,14 @@ func CerberusEnabledForProxy(db *gorm.DB, static config.SecurityConfig, row *mod
 		return cerbEnabled
 	}
 
-	var s models.Setting
-	if err := db.Where("key = ?", "feature.cerberus.enabled").First(&s).Error; err == nil {
-		return strings.EqualFold(s.Value, "true")
-	}
-	if err := db.Where("key = ?", "security.cerberus.enabled").First(&s).Error; err == nil {
-		return strings.EqualFold(s.Value, "true")
+	// A stored feature key decides even when its value is blank or garbage (both Off). Only an absent key falls
+	// through to the legacy key, unlike the status endpoint, which skips blank values.
+	for _, key := range []string{models.CerberusFeatureSettingKey, models.CerberusLegacySettingKey} {
+		var s models.Setting
+		err := db.Where("key = ?", key).First(&s).Error
+		if sw := models.CerberusSwitchFromSetting(s.Value, err == nil); sw != models.CerberusSwitchAbsent {
+			return sw == models.CerberusSwitchOn
+		}
 	}
 	return cerbEnabled
 }

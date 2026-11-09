@@ -1,6 +1,6 @@
 import { format } from 'date-fns'
 import { Download, Filter, X } from 'lucide-react'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 import { useSearchParams } from 'react-router'
 
 import { exportAuditLogsCSV } from '../api/auditLogs'
@@ -61,49 +61,49 @@ function AuditLogDetailModal({
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-sm font-medium text-content-secondary">UUID</label>
+              <span className="text-sm font-medium text-content-secondary">UUID</span>
               <p className="text-sm text-content-primary font-mono">{log.uuid}</p>
             </div>
             <div>
-              <label className="text-sm font-medium text-content-secondary">Timestamp</label>
+              <span className="text-sm font-medium text-content-secondary">Timestamp</span>
               <p className="text-sm text-content-primary">
                 {format(new Date(log.created_at), 'PPpp')}
               </p>
             </div>
             <div>
-              <label className="text-sm font-medium text-content-secondary">Actor</label>
+              <span className="text-sm font-medium text-content-secondary">Actor</span>
               <p className="text-sm text-content-primary">{log.actor}</p>
             </div>
             <div>
-              <label className="text-sm font-medium text-content-secondary">Action</label>
+              <span className="text-sm font-medium text-content-secondary">Action</span>
               <Badge variant="outline">{log.action}</Badge>
             </div>
             <div>
-              <label className="text-sm font-medium text-content-secondary">Category</label>
+              <span className="text-sm font-medium text-content-secondary">Category</span>
               <Badge variant="primary">{log.event_category}</Badge>
             </div>
             {log.resource_uuid && (
               <div>
-                <label className="text-sm font-medium text-content-secondary">Resource UUID</label>
+                <span className="text-sm font-medium text-content-secondary">Resource UUID</span>
                 <p className="text-sm text-content-primary font-mono">{log.resource_uuid}</p>
               </div>
             )}
             {log.ip_address && (
               <div>
-                <label className="text-sm font-medium text-content-secondary">IP Address</label>
+                <span className="text-sm font-medium text-content-secondary">IP Address</span>
                 <p className="text-sm text-content-primary">{log.ip_address}</p>
               </div>
             )}
             {log.user_agent && (
               <div className="col-span-2">
-                <label className="text-sm font-medium text-content-secondary">User Agent</label>
+                <span className="text-sm font-medium text-content-secondary">User Agent</span>
                 <p className="text-sm text-content-primary break-all">{log.user_agent}</p>
               </div>
             )}
           </div>
 
           <div>
-            <label className="text-sm font-medium text-content-secondary">Details</label>
+            <span className="text-sm font-medium text-content-secondary">Details</span>
             <pre className="mt-2 p-3 bg-surface-subtle rounded-lg text-xs overflow-auto max-h-96">
               {JSON.stringify(parsedDetails, null, 2)}
             </pre>
@@ -152,6 +152,8 @@ export default function AuditLogs() {
   const [showFilters, setShowFilters] = useState(() => Object.keys(filtersFromSearchParams(searchParams)).length > 0)
   const [selectedLog, setSelectedLog] = useState<AuditLog | null>(null)
   const [isExporting, setIsExporting] = useState(false)
+  const filterIdPrefix = useId()
+  const filterId = (name: string) => `${filterIdPrefix}-${name}`
 
   const { data, isLoading } = useAuditLogs(filters, page, limit)
 
@@ -291,12 +293,12 @@ export default function AuditLogs() {
           <CardContent>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               <div>
-                <label className="block text-sm font-medium mb-2">Category</label>
+                <label htmlFor={filterId('category')} className="block text-sm font-medium mb-2">Category</label>
                 <Select
                   value={filters.event_category || 'all'}
                   onValueChange={(value) => handleFilterChange('event_category', value === 'all' ? '' : value)}
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id={filterId('category')}>
                     <SelectValue placeholder="All categories" />
                   </SelectTrigger>
                   <SelectContent>
@@ -311,8 +313,9 @@ export default function AuditLogs() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">Actor</label>
+                <label htmlFor={filterId('actor')} className="block text-sm font-medium mb-2">Actor</label>
                 <Input
+                  id={filterId('actor')}
                   type="text"
                   placeholder="Filter by actor..."
                   value={filters.actor || ''}
@@ -321,8 +324,9 @@ export default function AuditLogs() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">Action</label>
+                <label htmlFor={filterId('action')} className="block text-sm font-medium mb-2">Action</label>
                 <Input
+                  id={filterId('action')}
                   type="text"
                   placeholder="Filter by action..."
                   value={filters.action || ''}
@@ -331,8 +335,9 @@ export default function AuditLogs() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">Start Date</label>
+                <label htmlFor={filterId('start-date')} className="block text-sm font-medium mb-2">Start Date</label>
                 <Input
+                  id={filterId('start-date')}
                   type="datetime-local"
                   value={filters.start_date || ''}
                   onChange={(e) => handleFilterChange('start_date', e.target.value)}
@@ -340,8 +345,9 @@ export default function AuditLogs() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">End Date</label>
+                <label htmlFor={filterId('end-date')} className="block text-sm font-medium mb-2">End Date</label>
                 <Input
+                  id={filterId('end-date')}
                   type="datetime-local"
                   value={filters.end_date || ''}
                   onChange={(e) => handleFilterChange('end_date', e.target.value)}
@@ -349,8 +355,9 @@ export default function AuditLogs() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2">Resource UUID</label>
+                <label htmlFor={filterId('resource-uuid')} className="block text-sm font-medium mb-2">Resource UUID</label>
                 <Input
+                  id={filterId('resource-uuid')}
                   type="text"
                   placeholder="Filter by resource..."
                   value={filters.resource_uuid || ''}

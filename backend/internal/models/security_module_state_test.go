@@ -278,6 +278,7 @@ func TestCaptureAndRestoreModuleState_RoundTrip(t *testing.T) {
 	require.NoError(t, db.Model(&models.SecurityConfig{}).Where("name = ?", models.DefaultSecurityConfigName).
 		Updates(map[string]any{"waf_mode": "disabled", "admin_whitelist": "", "rate_limit_requests": 0, "enabled": false}).Error)
 	setModuleSetting(t, db, "security.extra.key", "x")
+	require.NoError(t, snap.Seal(db))
 
 	require.NoError(t, snap.RestoreSettings(db))
 	require.NoError(t, snap.RestoreRow(db))
@@ -299,6 +300,7 @@ func TestCaptureModuleState_AbsentRowRestoresByDeleting(t *testing.T) {
 	require.NoError(t, err)
 
 	require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName}).Error)
+	require.NoError(t, snap.Seal(db))
 	require.NoError(t, snap.RestoreRow(db))
 
 	_, err = models.FindDefaultSecurityConfig(db)
@@ -314,9 +316,10 @@ func TestCaptureModuleState_ErrorsWhenSettingsReadFails(t *testing.T) {
 
 func TestModuleStateRestore_ErrorsWhenWritesFail(t *testing.T) {
 	db := newModuleTestDB(t)
-	setModuleSetting(t, db, models.SecurityWAFEnabledSettingKey, "true")
 	snap, err := models.CaptureModuleState(db, models.DefaultSecurityConfigName, nil)
 	require.NoError(t, err)
+	require.NoError(t, models.SetModuleState(db, models.SecurityWAFEnabledSettingKey, true, "test"))
+	require.NoError(t, snap.Seal(db))
 	require.NoError(t, db.Migrator().DropTable(&models.Setting{}))
 	assert.Error(t, snap.RestoreSettings(db))
 
@@ -325,6 +328,8 @@ func TestModuleStateRestore_ErrorsWhenWritesFail(t *testing.T) {
 	row := readDefaultRow(t, db2)
 	snapRow, err := models.CaptureModuleState(db2, models.DefaultSecurityConfigName, &row)
 	require.NoError(t, err)
+	require.NoError(t, db2.Model(&models.SecurityConfig{}).Where("name = ?", models.DefaultSecurityConfigName).Update("waf_mode", "block").Error)
+	require.NoError(t, snapRow.Seal(db2))
 	require.NoError(t, db2.Migrator().DropTable(&models.SecurityConfig{}))
 	assert.Error(t, snapRow.RestoreRow(db2))
 }
@@ -414,6 +419,7 @@ func TestCaptureModuleState_ExtraKeyThatIsAlreadyCapturedIsCountedOnce(t *testin
 	require.NoError(t, err)
 
 	require.NoError(t, models.ClearModuleKey(db, models.SecurityWAFEnabledSettingKey, "test"))
+	require.NoError(t, snap.Seal(db))
 	require.NoError(t, snap.RestoreSettings(db))
 	value, found := readSettingValue(t, db, models.SecurityWAFEnabledSettingKey)
 	assert.True(t, found)
@@ -425,6 +431,8 @@ func TestModuleStateRestore_DeleteFailuresAreReturned(t *testing.T) {
 		db := newModuleTestDB(t)
 		snap, err := models.CaptureModuleState(db, models.DefaultSecurityConfigName, nil)
 		require.NoError(t, err)
+		require.NoError(t, models.SetModuleState(db, models.SecurityWAFEnabledSettingKey, true, "test"))
+		require.NoError(t, snap.Seal(db))
 		require.NoError(t, db.Migrator().DropTable(&models.Setting{}))
 		assert.Error(t, snap.RestoreSettings(db))
 	})
@@ -432,6 +440,8 @@ func TestModuleStateRestore_DeleteFailuresAreReturned(t *testing.T) {
 		db := newModuleTestDB(t)
 		snap, err := models.CaptureModuleState(db, models.DefaultSecurityConfigName, nil)
 		require.NoError(t, err)
+		require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName}).Error)
+		require.NoError(t, snap.Seal(db))
 		require.NoError(t, db.Migrator().DropTable(&models.SecurityConfig{}))
 		assert.Error(t, snap.RestoreRow(db))
 	})

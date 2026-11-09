@@ -84,7 +84,7 @@ Open **Hosts → Add Host → Select from Docker** in Charon. If containers show
 
 ## Remote Podman Hosts
 
-The socket-mount approach above is for a Podman engine on the same host as Charon. To manage containers on a *separate* Podman machine, use [the Orthrus agent (Hecate → Agent)](remote-docker-setup.md) instead — the Orthrus agent runs on the remote box and talks to whatever local engine is there (Docker or Podman), so the same socket-path considerations from this guide apply when installing the agent itself.
+The socket-mount approach above is for a Podman engine on the same host as Charon. To manage containers on a *separate* Podman machine, use [the Orthrus agent (Hecate → Agent)](remote-docker-setup.md) instead — the Orthrus agent runs on the remote box and talks to whatever local engine is there (Docker or Podman), so the same socket-path considerations from this guide apply when installing the agent itself. On that Podman machine, set `DOCKER_SOCK` to the socket path (rootless: `/run/user/<uid>/podman/podman.sock`; rootful: `/run/podman/podman.sock`) and set `PGID` to the group that owns that socket, found with `stat -c '%g' <socket path>`. See [Orthrus permissions](../features/orthrus.md#set-the-permissions-puid-pgid-and-tz).
 
 ## A Note on Third-Party Install Scripts
 

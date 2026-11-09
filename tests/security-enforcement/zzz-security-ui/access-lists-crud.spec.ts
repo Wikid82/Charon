@@ -264,8 +264,7 @@ test.describe('Access Lists - CRUD Operations', () => {
         await expect(typeSelect).toBeVisible();
 
         // Default should be whitelist
-        const selectedType = await typeSelect.inputValue();
-        expect(selectedType).toBe('whitelist');
+        await expect(typeSelect).toHaveValue('whitelist');
       });
 
       await test.step('Submit form', async () => {
@@ -302,7 +301,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
       await test.step('Ensure not local network only mode', async () => {
         // Wait for IP rules section to be visible (indicates form is ready)
-        await page.waitForSelector('text=IP Addresses / CIDR Ranges', { timeout: 5000 });
+        await expect(page.getByText('IP Addresses / CIDR Ranges')).toBeVisible({ timeout: 5000 });
       });
 
       await test.step('Add IP address', async () => {
@@ -337,7 +336,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
       await test.step('Ensure not local network only mode', async () => {
         // Wait for IP rules section to be visible (indicates form is ready)
-        await page.waitForSelector('text=IP Addresses / CIDR Ranges', { timeout: 5000 });
+        await expect(page.getByText('IP Addresses / CIDR Ranges')).toBeVisible({ timeout: 5000 });
       });
 
       await test.step('Add CIDR range', async () => {
@@ -369,8 +368,7 @@ test.describe('Access Lists - CRUD Operations', () => {
         await typeSelect.selectOption('blacklist');
 
         // Verify selection
-        const selectedType = await typeSelect.inputValue();
-        expect(selectedType).toBe('blacklist');
+        await expect(typeSelect).toHaveValue('blacklist');
       });
 
       await test.step('Verify recommended badge appears', async () => {
@@ -430,8 +428,7 @@ test.describe('Access Lists - CRUD Operations', () => {
         if (await enabledSwitch.isVisible().catch(() => false)) {
           const wasChecked = await enabledSwitch.isChecked();
           await clickSwitch(enabledSwitch);
-          const isNowChecked = await enabledSwitch.isChecked();
-          expect(isNowChecked).toBe(!wasChecked);
+          await expect(enabledSwitch).toBeChecked({ checked: !wasChecked });
         }
       });
 
@@ -528,7 +525,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
       await test.step('Ensure IP rules section is visible', async () => {
         // Wait for IP rules section to be visible (indicates form is ready)
-        await page.waitForSelector('text=IP Addresses / CIDR Ranges', { timeout: 5000 });
+        await expect(page.getByText('IP Addresses / CIDR Ranges')).toBeVisible({ timeout: 5000 });
       });
 
       await test.step('Verify Get My IP button exists', async () => {
@@ -736,8 +733,7 @@ test.describe('Access Lists - CRUD Operations', () => {
             await expect(dialog).not.toBeVisible({ timeout: 3000 });
 
             // Rows should remain unchanged
-            const rowsAfter = await page.locator('tbody tr').count();
-            expect(rowsAfter).toBe(rowsBefore);
+            await expect(page.locator('tbody tr')).toHaveCount(rowsBefore);
           }
         }
       });
@@ -754,8 +750,7 @@ test.describe('Access Lists - CRUD Operations', () => {
 
           const dialog = page.getByRole('dialog');
           if (await dialog.isVisible().catch(() => false)) {
-            const dialogText = await dialog.textContent();
-            expect(dialogText).toBeTruthy();
+            await expect(dialog).not.toBeEmpty();
 
             // Cancel
             await dialog.getByRole('button', { name: /cancel/i }).click();
@@ -989,7 +984,7 @@ test.describe('Access Lists - CRUD Operations', () => {
         await page.locator('#name').fill(`CIDR Validation Test ${generateUniqueId()}`);
 
         // Wait for IP rules section to be visible
-        await page.waitForSelector('text=IP Addresses / CIDR Ranges', { timeout: 5000 });
+        await expect(page.getByText('IP Addresses / CIDR Ranges')).toBeVisible({ timeout: 5000 });
 
         // Try adding invalid CIDR
         const ipInput = page.locator('input[placeholder="192.168.1.0/24 or 10.0.0.1"]');
@@ -1120,8 +1115,7 @@ test.describe('Access Lists - CRUD Operations', () => {
         if (await localNetworkSwitch.isVisible().catch(() => false)) {
           const wasChecked = await localNetworkSwitch.isChecked();
           await clickSwitch(localNetworkSwitch);
-          const isNowChecked = await localNetworkSwitch.isChecked();
-          expect(isNowChecked).toBe(!wasChecked);
+          await expect(localNetworkSwitch).toBeChecked({ checked: !wasChecked });
         }
 
         await getCancelButton(page).click();
@@ -1148,7 +1142,7 @@ test.describe('Access Lists - CRUD Operations', () => {
         // (AccessListForm.tsx only renders the IP rules block when
         // `!formData.local_network_only`).
         const ipInput = page.locator('input[placeholder*="192.168"], input[placeholder*="CIDR"]').first();
-        await expect(ipInput).not.toBeVisible();
+        await expect(ipInput).toBeHidden();
 
         await getCancelButton(page).click();
       });

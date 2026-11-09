@@ -3,7 +3,6 @@ package handlers
 import (
 	"archive/tar"
 	"bytes"
-	"compress/gzip"
 	"context"
 	"encoding/json"
 	"errors"
@@ -98,12 +97,6 @@ type CrowdsecHandler struct {
 	reloaderOnce  sync.Once
 	reloaderState *crowdsecReloader
 
-	// registerScriptPath overrides the bouncer registration script location; overridable in tests.
-	registerScriptPath string
-
-	// registerScriptTimeout bounds the bouncer registration script; 0 means registerScriptTimeoutDefault. Overridable in tests.
-	registerScriptTimeout time.Duration
-
 	// mergeNotifications, mergeConfig and scanPlaceholders are the import's steps for blanked values; overridable in tests.
 	mergeNotifications func(snapshotDir, dataDir string) error
 	mergeConfig        func(snapshotDir, dataDir string) error
@@ -160,8 +153,26 @@ type CrowdsecHandler struct {
 	applyJobsCfgMu sync.Mutex
 	applyJobsHub   *crowdsec.HubService
 
-	// registrationMutex protects concurrent bouncer registration attempts
+	// decisionMu serializes the bouncer key decision (Ensure, including its LAPI check and any register), so two
+	// decisions never both register. GetKeyStatus never takes it.
+	decisionMu sync.Mutex
+
+	// registrationMutex guards the rejection flags below. It is held only for short reads and writes, never across
+	// a network call, so GetKeyStatus can snapshot the flags while a decision is waiting on LAPI.
 	registrationMutex sync.Mutex
+
+	// registrationGate guards registrationsClosed and orders its change against registrations.Add, so the drain
+	// at shutdown (WaitRegistrations) never races a registration that is starting. See crowdsec_registrations.go.
+	registrationGate    sync.Mutex
+	registrationsClosed bool
+	registrations       sync.WaitGroup
+
+	// keyCheckWait bounds the LAPI key check retries; 0 means defaultLAPIKeyCheckWait. Tests shorten it.
+	keyCheckWait time.Duration
+	// keyCheck is the LAPI check of the key decision; nil means bouncerkey.Check. Tests set it to answer from a stub.
+	keyCheck func(context.Context, bouncerkey.Doer, string, bouncerkey.CheckOptions) bouncerkey.Verdict
+	// replaceTimings are the bouncer swap budgets; a zero value means the defaults. Tests shorten them.
+	replaceTimings crowdsec.ReplaceTimings
 
 	// envKeyRejected tracks whether the env var key was rejected by LAPI
 	// This is set during ensureBouncerRegistration() and used by GetKeyStatus()
@@ -180,11 +191,7 @@ type CrowdsecHandler struct {
 }
 
 // Bouncer auto-registration constants.
-const (
-	bouncerKeyFile               = bouncerkey.DefaultFile
-	bouncerName                  = "caddy-bouncer"
-	defaultRegisterBouncerScript = "/usr/local/bin/register_bouncer.sh"
-)
+const bouncerName = "caddy-bouncer"
 
 // resolveLAPIURLValidator returns the handler's validator or the default.
 func (h *CrowdsecHandler) resolveLAPIURLValidator(raw string) (*url.URL, error) {
@@ -194,14 +201,13 @@ func (h *CrowdsecHandler) resolveLAPIURLValidator(raw string) (*url.URL, error) 
 	return validateCrowdsecLAPIBaseURLDefault(raw)
 }
 
+// bouncerKeyPath is the key file the handlers read and write: bouncerkey.PathFor over the data directory.
 func (h *CrowdsecHandler) bouncerKeyPath() string {
-	if h != nil && strings.TrimSpace(h.DataDir) != "" {
-		return filepath.Join(h.DataDir, "bouncer_key")
+	dataDir := ""
+	if h != nil {
+		dataDir = h.DataDir
 	}
-	if path := strings.TrimSpace(os.Getenv("CHARON_CROWDSEC_BOUNCER_KEY_PATH")); path != "" {
-		return path
-	}
-	return bouncerKeyFile
+	return bouncerkey.PathFor(dataDir)
 }
 
 // lapiKey returns the key for direct local API calls: the saved bouncer key file first,
@@ -291,20 +297,22 @@ func (v *ConfigArchiveValidator) Validate(path string) error {
 		return formatErr
 	}
 
-	// Calculate uncompressed size and check for zip bombs
+	// Sum the declared content sizes. Reading the archive also stops it early if the stream grows past the
+	// limits, so an oversized upload is not read to its end.
 	uncompressedSize, err := calculateUncompressedSize(path)
 	if err != nil {
 		return err
 	}
 
 	if uncompressedSize > v.MaxUncompressed {
-		return fmt.Errorf("uncompressed size exceeds maximum: %d > %d", uncompressedSize, v.MaxUncompressed)
+		return fmt.Errorf("%w: uncompressed size %d > %d", crowdsec.ErrArchiveTooLarge, uncompressedSize, v.MaxUncompressed)
 	}
 
-	// Check compression ratio (zip bomb protection)
+	// The compression ratio rule applies to the declared content against the archive size. The stream limit
+	// is a separate, looser stop that only catches a stream growing past its allowance while it is read.
 	compressionRatio := float64(uncompressedSize) / float64(info.Size())
 	if compressionRatio > v.MaxCompressionRatio {
-		return fmt.Errorf("suspicious compression ratio: %.1fx (potential zip bomb)", compressionRatio)
+		return fmt.Errorf("%w: compression ratio %.1fx", crowdsec.ErrArchiveTooLarge, compressionRatio)
 	}
 
 	// List contents and verify required files
@@ -357,24 +365,15 @@ func requireTarGz(path string) error {
 
 // calculateUncompressedSize calculates the total uncompressed size of the tar.gz archive.
 func calculateUncompressedSize(path string) (int64, error) {
-	// #nosec G304 -- path is validated upstream
-	f, err := os.Open(path)
+	ar, err := crowdsec.OpenImportArchive(path)
 	if err != nil {
-		return 0, fmt.Errorf("failed to open archive: %w", err)
+		return 0, err
 	}
-	defer func() { _ = f.Close() }()
+	defer func() { _ = ar.Close() }()
 
-	gr, err := gzip.NewReader(f)
-	if err != nil {
-		return 0, fmt.Errorf("failed to create gzip reader: %w", err)
-	}
-	defer func() { _ = gr.Close() }()
-
-	tr := tar.NewReader(gr)
 	var total int64
-
 	for {
-		header, err := tr.Next()
+		header, err := ar.Next()
 		if err == io.EOF {
 			break
 		}
@@ -393,24 +392,15 @@ func calculateUncompressedSize(path string) (int64, error) {
 
 // listArchiveContents lists all regular files in the tar.gz archive.
 func listArchiveContents(path string) ([]string, error) {
-	// #nosec G304 -- path is validated upstream
-	f, err := os.Open(path)
+	ar, err := crowdsec.OpenImportArchive(path)
 	if err != nil {
-		return nil, fmt.Errorf("failed to open archive: %w", err)
+		return nil, err
 	}
-	defer func() { _ = f.Close() }()
+	defer func() { _ = ar.Close() }()
 
-	gr, err := gzip.NewReader(f)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create gzip reader: %w", err)
-	}
-	defer func() { _ = gr.Close() }()
-
-	tr := tar.NewReader(gr)
 	var files []string
-
 	for {
-		header, err := tr.Next()
+		header, err := ar.Next()
 		if err == io.EOF {
 			break
 		}
@@ -440,6 +430,24 @@ const msgImportFlatArchive = "the archive keeps its configuration at the top lev
 // msgKeepCurrentFiles is the fixed message for an import that could not keep the current files.
 const msgKeepCurrentFiles = "failed to keep the current CrowdSec files"
 
+// msgImportArchiveTooLarge is the fixed message for an archive over the content, ratio or entry limit. It
+// does not name the limit, so the answer does not reveal how the reader is tuned.
+const msgImportArchiveTooLarge = "the archive is larger than the import limit"
+
+// codeImportArchiveTooLarge is the error_code of msgImportArchiveTooLarge.
+const codeImportArchiveTooLarge = "import_archive_too_large"
+
+const (
+	// importUploadBodyLimit caps a whole import request: the archive limit plus room for the multipart framing.
+	importUploadBodyLimit = crowdsec.MaxImportCompressedBytes + crowdsec.MaxImportOverheadBase
+	// importFormMemoryBytes is how much of an upload the multipart parser keeps in memory before it spools.
+	importFormMemoryBytes = 8 << 20
+)
+
+// msgImportConfigNotWritable is the fixed message for an import that could not change the configuration folder
+// because of a permission or read-only failure. It names the folder, which is what the operator fixes.
+const msgImportConfigNotWritable = "Charon cannot change the CrowdSec configuration folder. Check that the Charon user owns it and can write to it, and that it is not mounted read-only."
+
 // Stable error_code values of the import refusals, next to the English error text. The UI translates
 // them; the codes are part of the API and must not be renamed.
 const (
@@ -459,6 +467,9 @@ const (
 	codeImportConfigNotFound = "import_config_not_found"
 	// codeImportConfigInvalid: the engine itself refused the imported configuration (msgImportConfigInvalid).
 	codeImportConfigInvalid = "import_config_invalid"
+	// codeImportConfigNotWritable: a permission or read-only failure stopped the import from changing the
+	// configuration folder (msgImportConfigNotWritable).
+	codeImportConfigNotWritable = "import_config_not_writable"
 )
 
 // msgImportConfigInvalid is the fixed message for an import the engine refused. The engine's output is logged
@@ -491,7 +502,7 @@ const (
 // Acquisition error messages. The generic write message is shared with the failure paths that carry no code.
 const (
 	msgAcquisitionUnreadable  = "Charon cannot read the acquisition file. Check that the Charon user can read it (owner and mode)."
-	msgAcquisitionNotWritable = "Charon cannot write the acquisition file or its backup. Check the owner and mode of the file and its folder."
+	msgAcquisitionNotWritable = "Charon cannot save the acquisition file. Most often the folder that holds it is the cause: check that the Charon user can write to that folder, and that it is not mounted read-only. A read-only file alone does not block a save."
 	msgAcquisitionWriteFailed = "failed to write acquisition config"
 )
 
@@ -656,6 +667,8 @@ func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir
 }
 
 // isCerberusEnabled returns true when Cerberus is enabled via DB or env flag.
+// This presets gate is deliberately not the shared reader: it accepts "1" and "yes" and trims spaces, and it does
+// not fall through to the legacy key. The reading every other reader uses is models.CerberusSwitchFromSetting.
 func (h *CrowdsecHandler) isCerberusEnabled() bool {
 	if h.DB != nil && h.DB.Migrator().HasTable(&models.Setting{}) {
 		var s models.Setting
@@ -802,7 +815,6 @@ type crowdsecStartSnapshot struct {
 // crowdsecStartSettingKeys lists every setting that Start may write.
 var crowdsecStartSettingKeys = []string{
 	models.CrowdSecEnabledSettingKey,
-	models.CrowdSecDeprecatedModeSettingKey,
 	"feature.cerberus.enabled",
 	"security.cerberus.enabled",
 }
@@ -823,16 +835,13 @@ func (h *CrowdsecHandler) snapshotCrowdsecStart() (crowdsecStartSnapshot, error)
 
 // persistCrowdsecStart records the intent of a Start. The global switch and Cerberus go on through
 // the shared helper, which the sibling security modules also use. Then CrowdSec is set to local: the
-// row, the deprecated mode setting and the enabled setting, so every reader of the decision agrees.
+// row and the enabled setting, which are the only stored decision.
 func (h *CrowdsecHandler) persistCrowdsecStart() error {
 	if err := models.EnableSecurityFramework(h.DB); err != nil {
 		return fmt.Errorf("enable security framework: %w", err)
 	}
 	if _, err := setDefaultSecurityConfigState(h.DB, map[string]any{"crowd_sec_mode": "local"}); err != nil {
 		return fmt.Errorf("set crowd_sec_mode: %w", err)
-	}
-	if err := upsertSetting(h.DB, models.Setting{Key: models.CrowdSecDeprecatedModeSettingKey, Value: "local", Category: "security", Type: "string"}); err != nil {
-		return fmt.Errorf("set crowdsec mode setting: %w", err)
 	}
 
 	return upsertSetting(h.DB, models.Setting{Key: models.CrowdSecEnabledSettingKey, Value: "true", Category: "security", Type: "bool"})
@@ -881,6 +890,42 @@ func (h *CrowdsecHandler) Status(c *gin.Context) {
 	})
 }
 
+// importStage names a write step of ImportConfig. The name goes into the log line; the text is the English error
+// answered for a failure that is not a permission problem. configFolder marks the steps that write into the
+// configuration folder (or the snapshot beside it): only their permission failures get the coded answer.
+type importStage struct {
+	name         string
+	text         string
+	configFolder bool
+}
+
+var (
+	importStageTempDir = importStage{name: "temp dir", text: "failed to create temp dir"}
+	importStageUpload  = importStage{name: "upload", text: "failed to save upload"}
+	importStageBackup  = importStage{name: "backup", text: "failed to create backup", configFolder: true}
+	importStageClear   = importStage{name: "clear", text: "failed to clear the CrowdSec configuration", configFolder: true}
+	importStageExtract = importStage{name: "extract", text: "extraction failed", configFolder: true}
+)
+
+// clearConfigKeeping empties the configuration folder except the kept entries. It is a seam so tests can force
+// the clear step to fail without a real permission problem.
+var clearConfigKeeping = crowdsec.ClearConfigKeeping
+
+// saveUploadedFile writes the uploaded archive to dst. It is a seam so tests can force the upload write to fail.
+var saveUploadedFile = (*gin.Context).SaveUploadedFile
+
+// respondImportWriteFailure logs the cause of a failed import write (with its stage) and answers it. A permission
+// or read-only failure in the configuration folder is answered with import_config_not_writable; any other cause
+// keeps the stage text, so the response never claims a permission problem it cannot see.
+func respondImportWriteFailure(c *gin.Context, stage importStage, err error) {
+	logger.Log().WithField("stage", stage.name).WithField("error", sanitizeForLog(err.Error())).Warn("crowdsec import: write failed")
+	if stage.configFolder && isAccessError(err) {
+		respondCoded(c, http.StatusInternalServerError, codeImportConfigNotWritable, msgImportConfigNotWritable, nil)
+		return
+	}
+	c.JSON(http.StatusInternalServerError, gin.H{"error": stage.text})
+}
+
 // ImportConfig accepts a tar.gz upload and replaces the CrowdSec configuration in DataDir. The previous
 // configuration is snapshotted first and restored on failure; server-local state (live db, data/,
 // hub_cache/, installed hub items) is never replaced and DataDir itself is never renamed.
@@ -888,6 +933,21 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	if h.refuseIfBusy(c) {
 		return
 	}
+	// The request is capped before any part is read: the archive limit plus room for the multipart framing.
+	// The parser keeps importFormMemoryBytes in memory and spools the rest, which the cleanup below removes.
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, importUploadBodyLimit)
+	if err := c.Request.ParseMultipartForm(importFormMemoryBytes); err != nil {
+		if respondIfBodyTooLarge(c, err) {
+			return
+		}
+		c.JSON(http.StatusBadRequest, gin.H{"error": "file required"})
+		return
+	}
+	defer func() {
+		if c.Request.MultipartForm != nil {
+			_ = c.Request.MultipartForm.RemoveAll()
+		}
+	}()
 	file, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "file required"})
@@ -898,14 +958,14 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	tmpDir := os.TempDir()
 	tmpPath := filepath.Join(tmpDir, fmt.Sprintf("crowdsec-import-%d", time.Now().UnixNano()))
 	if err = os.MkdirAll(tmpPath, 0o750); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create temp dir"})
+		respondImportWriteFailure(c, importStageTempDir, err)
 		return
 	}
 	defer func() { _ = os.RemoveAll(tmpPath) }()
 
 	dst := filepath.Join(tmpPath, file.Filename)
-	if err = c.SaveUploadedFile(file, dst); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save upload"})
+	if err = saveUploadedFile(c, file, dst); err != nil {
+		respondImportWriteFailure(c, importStageUpload, err)
 		return
 	}
 
@@ -918,6 +978,10 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 	}
 
 	if err = validator.Validate(dst); err != nil {
+		if errors.Is(err, crowdsec.ErrArchiveTooLarge) || errors.Is(err, crowdsec.ErrArchiveTooManyEntries) {
+			respondCoded(c, http.StatusUnprocessableEntity, codeImportArchiveTooLarge, msgImportArchiveTooLarge, nil)
+			return
+		}
 		c.JSON(http.StatusUnprocessableEntity, gin.H{"error": fmt.Sprintf("validation failed: %v", crowdsec.RedactPaths(err.Error()))})
 		return
 	}
@@ -957,7 +1021,7 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 
 	backupDir, err := crowdsec.Snapshot(h.DataDir)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create backup"})
+		respondImportWriteFailure(c, importStageBackup, err)
 		return
 	}
 	defer h.pruneSnapshots()
@@ -974,18 +1038,17 @@ func (h *CrowdsecHandler) ImportConfig(c *gin.Context) {
 
 	// Replace the configuration but keep server-local state: engine-owned data, stored account details,
 	// the installed hub tree and every symlink in the live tree (installed hub items).
-	if err := crowdsec.ClearConfigKeeping(h.DataDir, keep); err != nil {
+	if err := clearConfigKeeping(h.DataDir, keep); err != nil {
 		rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create config dir"})
+		respondImportWriteFailure(c, importStageClear, err)
 		return
 	}
 
 	// Extract archive
 	extractErr := h.extractArchive(dst, h.DataDir, keep)
 	if extractErr != nil {
-		logger.Log().WithField("error", sanitizeForLog(extractErr.Error())).Warn("crowdsec import extraction failed")
 		rollback()
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "extraction failed"})
+		respondImportWriteFailure(c, importStageExtract, extractErr)
 		return
 	}
 
@@ -1121,20 +1184,11 @@ func (h *CrowdsecHandler) pruneSnapshots() {
 
 // extractArchive extracts a tar.gz archive to the destination directory.
 func (h *CrowdsecHandler) extractArchive(archivePath, destDir string, keep func(rel string) bool) error {
-	// #nosec G304 -- archivePath is validated upstream
-	f, err := os.Open(archivePath)
+	ar, err := crowdsec.OpenImportArchive(archivePath)
 	if err != nil {
-		return fmt.Errorf("failed to open archive: %w", err)
+		return err
 	}
-	defer func() { _ = f.Close() }()
-
-	gr, err := gzip.NewReader(f)
-	if err != nil {
-		return fmt.Errorf("failed to create gzip reader: %w", err)
-	}
-	defer func() { _ = gr.Close() }()
-
-	tr := tar.NewReader(gr)
+	defer func() { _ = ar.Close() }()
 
 	liveDirs, err := liveDirSet(destDir)
 	if err != nil {
@@ -1142,7 +1196,7 @@ func (h *CrowdsecHandler) extractArchive(archivePath, destDir string, keep func(
 	}
 
 	for {
-		header, err := tr.Next()
+		header, err := ar.Next()
 		if err == io.EOF {
 			break
 		}
@@ -1180,8 +1234,9 @@ func (h *CrowdsecHandler) extractArchive(archivePath, destDir string, keep func(
 				return fmt.Errorf("failed to create file: %w", err)
 			}
 
-			// #nosec G110 -- We control the tar archive source (uploaded by admin)
-			if _, err := io.Copy(outFile, tr); err != nil {
+			// #nosec G110 -- copy is bounded by the archive reader's limits. CopyN to the declared size is a second,
+			// per-file line: the reader already stops at the content and entry ceilings.
+			if _, err := io.CopyN(outFile, ar, header.Size); err != nil {
 				if closeErr := outFile.Close(); closeErr != nil {
 					return fmt.Errorf("failed to write file: %w (close error: %v)", err, closeErr)
 				}
@@ -1514,15 +1569,8 @@ func validateCrowdsecLAPIBaseURLDefault(raw string) (*url.URL, error) {
 //   - scope: filter by scope (e.g., "ip", "range")
 //   - type: filter by decision type (e.g., "ban", "captcha")
 func (h *CrowdsecHandler) GetLAPIDecisions(c *gin.Context) {
-	// Get LAPI URL from security config or use default
-	// Default port is 8085 to avoid conflict with Charon management API on port 8080
-	lapiURL := "http://127.0.0.1:8085"
-	if h.Security != nil {
-		cfg, err := h.Security.Get()
-		if err == nil && cfg != nil && cfg.CrowdSecAPIURL != "" {
-			lapiURL = cfg.CrowdSecAPIURL
-		}
-	}
+	// The engine address is the local one (crowdsec.LocalLAPIURL); the stored settings value is not read.
+	lapiURL := crowdsec.LocalLAPIURL
 
 	baseURL, err := h.resolveLAPIURLValidator(lapiURL)
 	if err != nil {
@@ -1653,16 +1701,18 @@ func (h *CrowdsecHandler) GetLAPIDecisions(c *gin.Context) {
 type BouncerInfo struct {
 	Name       string `json:"name"`
 	KeyPreview string `json:"key_preview"` // First 4 + last 3 chars
-	KeySource  string `json:"key_source"`  // "env_var" | "file" | "none"
+	KeySource  string `json:"key_source"`  // "env_var" | "file" | "memory" | "none"
 	FilePath   string `json:"file_path"`
 	Registered bool   `json:"registered"`
+	// Registration is "registered", "not_registered" or "unknown"; Registered is true only for "registered".
+	Registration registrationState `json:"registration"`
 }
 
 // KeyStatusResponse represents the API response for the key-status endpoint.
 // This endpoint provides UX feedback when env var keys are rejected by LAPI.
 type KeyStatusResponse struct {
 	// KeySource indicates where the current key came from
-	// Values: "env" (from environment variable), "file" (from bouncer_key file), "auto-generated" (newly generated)
+	// Values: "env" (from environment variable), "file" (from bouncer_key file), "memory" (held in memory after a failed save), "auto-generated" (newly generated)
 	KeySource string `json:"key_source"`
 
 	// EnvKeyRejected is true if an environment variable key was set but rejected by LAPI
@@ -1681,6 +1731,10 @@ type KeyStatusResponse struct {
 	// Message provides user-friendly guidance
 	Message string `json:"message,omitempty"`
 
+	// KeyCheck is the LAPI check of the current key: "accepted", "rejected" (403 only), "unknown" (LAPI could not
+	// answer) or "none" (no key). Valid is true only for "accepted".
+	KeyCheck string `json:"key_check"`
+
 	// Valid indicates whether the current key is valid (authenticated successfully with LAPI)
 	Valid bool `json:"valid"`
 
@@ -1691,134 +1745,77 @@ type KeyStatusResponse struct {
 	KeyFilePath string `json:"key_file_path"`
 }
 
-// testKeyAgainstLAPI validates an API key by making an authenticated request to LAPI.
-// Uses /v1/decisions/stream endpoint which requires authentication.
-// Returns true if the key is accepted (200 OK), false otherwise.
-// Implements retry logic with exponential backoff for LAPI startup (connection refused).
-// Fails fast on 403 Forbidden (invalid key - no retries).
-func (h *CrowdsecHandler) testKeyAgainstLAPI(ctx context.Context, apiKey string) bool {
-	if apiKey == "" {
-		return false
+// defaultLAPIKeyCheckWait is the retry window for one LAPI key check, the same window Start always used.
+const defaultLAPIKeyCheckWait = 30 * time.Second
+
+// lapiKeyCheckOptions returns the retry policy for a handler key check against baseURL. The wait is defaultWait
+// unless a test has set keyCheckWait.
+func (h *CrowdsecHandler) lapiKeyCheckOptions(baseURL string, defaultWait time.Duration) bouncerkey.CheckOptions {
+	wait := h.keyCheckWait
+	if wait == 0 {
+		wait = defaultWait
 	}
-
-	// Get LAPI URL from security config or use default
-	lapiURL := "http://127.0.0.1:8085"
-	if h.Security != nil {
-		cfg, err := h.Security.Get()
-		if err == nil && cfg != nil && cfg.CrowdSecAPIURL != "" {
-			lapiURL = cfg.CrowdSecAPIURL
-		}
+	return bouncerkey.CheckOptions{
+		BaseURL:      strings.TrimRight(baseURL, "/"),
+		Wait:         wait,
+		PerAttempt:   5 * time.Second,
+		FirstBackoff: 500 * time.Millisecond,
+		MaxBackoff:   5 * time.Second,
 	}
+}
 
-	// Use /v1/decisions/stream endpoint (guaranteed to require authentication)
-	endpoint := fmt.Sprintf("%s/v1/decisions/stream", strings.TrimRight(lapiURL, "/"))
+// testKeyAgainstLAPI reports the three-valued LAPI verdict for an API key, against the local engine only (the stored
+// LAPI URL is not read here, so a leftover external address cannot change the verdict). Only 403 is a rejection;
+// an unreachable, slow or erroring LAPI is Unknown.
+func (h *CrowdsecHandler) testKeyAgainstLAPI(ctx context.Context, apiKey string) bouncerkey.Verdict {
+	return h.checkKeyAgainstLAPI(ctx, apiKey, defaultLAPIKeyCheckWait)
+}
 
-	// Retry logic for LAPI startup (30s max with exponential backoff)
-	const maxStartupWait = 30 * time.Second
-	const initialBackoff = 500 * time.Millisecond
-	const maxBackoff = 5 * time.Second
+// checkKeyAgainstLAPI is testKeyAgainstLAPI with the caller's key-check wait (see lapiKeyCheckOptions).
+func (h *CrowdsecHandler) checkKeyAgainstLAPI(ctx context.Context, apiKey string, keyWait time.Duration) bouncerkey.Verdict {
+	client := network.NewInternalServiceHTTPClient(5 * time.Second)
+	check := h.keyCheck
+	if check == nil {
+		check = bouncerkey.Check
+	}
+	verdict := check(ctx, client, apiKey, h.lapiKeyCheckOptions(crowdsec.LocalLAPIURL, keyWait))
+	logger.Log().WithField("verdict", keyCheckName(verdict)).Debug("CrowdSec bouncer key checked against LAPI")
+	return verdict
+}
 
-	backoff := initialBackoff
-	startTime := time.Now()
-	attempt := 0
-
-	for {
-		attempt++
-
-		// Check for context cancellation before each attempt
-		select {
-		case <-ctx.Done():
-			logger.Log().WithField("attempts", attempt).Debug("Context cancelled during LAPI key validation")
-			return false
-		default:
-			// Continue
-		}
-
-		// Create request with 5s timeout per attempt
-		testCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		req, err := http.NewRequestWithContext(testCtx, http.MethodGet, endpoint, http.NoBody)
-		if err != nil {
-			cancel()
-			logger.Log().WithError(err).Debug("Failed to create LAPI test request")
-			return false
-		}
-
-		// Set API key header
-		req.Header.Set("X-Api-Key", apiKey)
-
-		// Execute request
-		client := network.NewInternalServiceHTTPClient(5 * time.Second)
-		resp, err := client.Do(req)
-		cancel()
-
-		if err != nil {
-			// Check if connection refused (LAPI not ready yet)
-			if strings.Contains(err.Error(), "connection refused") || strings.Contains(err.Error(), "connect: connection refused") {
-				// LAPI not ready - retry with backoff if within time limit
-				if time.Since(startTime) < maxStartupWait {
-					logger.Log().WithField("attempt", attempt).WithField("backoff", backoff).WithField("elapsed", time.Since(startTime)).Debug("LAPI not ready, retrying with backoff")
-
-					// Check for context cancellation before sleeping
-					select {
-					case <-ctx.Done():
-						logger.Log().WithField("attempts", attempt).Debug("Context cancelled during LAPI retry")
-						return false
-					case <-time.After(backoff):
-						// Continue with retry
-					}
-
-					// Exponential backoff: 500ms → 750ms → 1125ms → ... (capped at 5s)
-					backoff = time.Duration(float64(backoff) * 1.5)
-					if backoff > maxBackoff {
-						backoff = maxBackoff
-					}
-					continue
-				}
-
-				logger.Log().WithField("attempts", attempt).WithField("elapsed", time.Since(startTime)).WithField("max_wait", maxStartupWait).Warn("LAPI failed to start within timeout")
-				return false
-			}
-
-			// Other errors (not connection refused)
-			logger.Log().WithError(err).Debug("Failed to connect to LAPI for key validation")
-			return false
-		}
-		// Only the status is needed; close the body now so it is released per attempt.
-		statusCode := resp.StatusCode
-		if closeErr := resp.Body.Close(); closeErr != nil {
-			logger.Log().WithError(closeErr).Debug("Failed to close HTTP response body")
-		}
-
-		// Check response status
-		if statusCode == http.StatusOK {
-			logger.Log().WithField("attempts", attempt).WithField("elapsed", time.Since(startTime)).WithField("masked_key", util.MaskAPIKey(apiKey)).Debug("API key validated successfully against LAPI")
-			return true
-		}
-
-		// 403 Forbidden = bad key, fail fast (no retries)
-		if statusCode == http.StatusForbidden {
-			logger.Log().WithField("status", statusCode).WithField("masked_key", util.MaskAPIKey(apiKey)).Debug("API key rejected by LAPI (403 Forbidden)")
-			return false
-		}
-
-		// Other non-OK status codes
-		logger.Log().WithField("status", statusCode).WithField("masked_key", util.MaskAPIKey(apiKey)).Debug("API key validation returned unexpected status")
-		return false
+// keyCheckName is the key_check value of the status response for a verdict.
+func keyCheckName(v bouncerkey.Verdict) string {
+	switch v {
+	case bouncerkey.VerdictAccepted:
+		return "accepted"
+	case bouncerkey.VerdictRejected:
+		return "rejected"
+	default:
+		return "unknown"
 	}
 }
 
 // GetKeyStatus returns the current CrowdSec bouncer key status and any rejection information.
 // This endpoint provides UX feedback when env var keys are rejected by LAPI.
 // @Summary Get CrowdSec API key status
-// @Description Returns current key source, validity, and rejection status if env key was invalid
+// @Description Returns current key source, validity, the LAPI key check and rejection status if env key was invalid
 // @Tags crowdsec
 // @Produce json
 // @Success 200 {object} KeyStatusResponse
 // @Router /admin/crowdsec/key-status [get]
 func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
-	h.registrationMutex.Lock()
-	defer h.registrationMutex.Unlock()
 	keyPath := h.bouncerKeyPath()
+
+	// Snapshot the rejection state under the lock, then release it before any file read or LAPI check. A Start
+	// that is waiting on LAPI must not hold a status request, and every flag below comes from this one snapshot.
+	h.registrationMutex.Lock()
+	rej := rejectionSnapshot{
+		envKeyRejected: h.envKeyRejected,
+		rejectedKey:    h.rejectedEnvKey,
+		saveFailed:     h.rejectedEnvSaveFailed,
+		registerFailed: h.rejectedEnvRegisterFailed,
+	}
+	h.registrationMutex.Unlock()
 
 	response := KeyStatusResponse{
 		BouncerName: bouncerName,
@@ -1826,38 +1823,53 @@ func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
 	}
 
 	// A rejected env key is reported whatever branch below applies.
-	if h.envKeyRejected && h.rejectedEnvKey != "" {
+	if rej.envKeyRejected && rej.rejectedKey != "" {
 		response.EnvKeyRejected = true
-		response.RejectedKeyPreview = util.MaskAPIKey(h.rejectedEnvKey)
-		response.Message = rejectedEnvKeyMessage(keyPath, h.rejectedEnvSaveFailed, h.rejectedEnvRegisterFailed)
+		response.RejectedKeyPreview = util.MaskAPIKey(rej.rejectedKey)
+		response.Message = rejectedEnvKeyMessage(keyPath, rej.saveFailed, rej.registerFailed)
 	}
 
 	envKey, _ := bouncerkey.FromEnv()
 	fileKey := bouncerkey.ReadFile(keyPath)
 
+	// The key check can run while a Start is rotating the key (after its delete, before its save). This status
+	// can then show the old key as rejected for one response. Nothing destructive reads this response, so that
+	// brief display glitch is accepted rather than locking the file and the LAPI check together.
+	// A key held in memory is the key in use while the file holds a different one (mirrors bouncerkey.Resolve).
+	// It is reported with a preview only, never in full. The status and the check come from the one held value.
+	heldKey := bouncerkey.Held(keyPath)
+
 	switch {
-	case h.envKeyRejected && fileKey != "" && !h.rejectedEnvSaveFailed && !h.rejectedEnvRegisterFailed:
+	case heldKey != "" && heldKey != fileKey:
+		response.KeySource = "memory"
+		response.CurrentKeyPreview = util.MaskAPIKey(heldKey)
+		applyKeyCheck(&response, h.keyStillValid(c, heldKey))
+		if response.Message == "" {
+			response.Message = bouncerkey.SaveFailedNotice(keyPath)
+		}
+	case rej.envKeyRejected && fileKey != "" && !rej.saveFailed && !rej.registerFailed:
 		// Charon saved a replacement key, so the file holds it; give the full key so the user can fix docker-compose.yml.
 		// After a failed save or registration the file still holds the rejected key, so it is reported as a file key below.
 		// Security: the caller is an authenticated admin who needs this to correct their config.
 		response.KeySource = "auto-generated"
 		response.FullKey = fileKey
 		response.CurrentKeyPreview = util.MaskAPIKey(fileKey)
-		response.Valid = h.keyStillValid(c, fileKey)
+		applyKeyCheck(&response, h.keyStillValid(c, fileKey))
 	case fileKey != "":
 		response.KeySource = "file"
 		response.CurrentKeyPreview = util.MaskAPIKey(fileKey)
-		if envKey != "" && envKey != fileKey && !h.envKeyRejected {
+		if envKey != "" && envKey != fileKey && !rej.envKeyRejected {
 			response.Message = ignoredEnvKeyMessage(keyPath)
 		}
-		response.Valid = h.keyStillValid(c, fileKey)
+		applyKeyCheck(&response, h.keyStillValid(c, fileKey))
 	case envKey != "":
 		// No saved file yet (for example a failed save): the env value is what the proxy reads.
 		response.KeySource = "env"
 		response.CurrentKeyPreview = util.MaskAPIKey(envKey)
-		response.Valid = h.keyStillValid(c, envKey)
+		applyKeyCheck(&response, h.keyStillValid(c, envKey))
 	default:
 		response.KeySource = "none"
+		response.KeyCheck = "none"
 		response.Valid = false
 		if response.Message == "" {
 			response.Message = "No CrowdSec API key configured. Start CrowdSec to auto-generate one."
@@ -1865,6 +1877,28 @@ func (h *CrowdsecHandler) GetKeyStatus(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, response)
+}
+
+// rejectionSnapshot is the rejection state GetKeyStatus reads under registrationMutex.
+type rejectionSnapshot struct {
+	envKeyRejected bool
+	rejectedKey    string
+	saveFailed     bool
+	registerFailed bool
+}
+
+// applyKeyCheck records a LAPI verdict on the status response. valid stays true only for an accepted key.
+func applyKeyCheck(response *KeyStatusResponse, verdict bouncerkey.Verdict) {
+	response.KeyCheck = keyCheckName(verdict)
+	response.Valid = verdict == bouncerkey.VerdictAccepted
+}
+
+// unverifiedKeyWarning is the Start warning when the saved key could not be checked, and empty otherwise.
+func unverifiedKeyWarning(res bouncerkey.EnsureResult) string {
+	if res.Outcome == bouncerkey.OutcomeUnverified {
+		return bouncerkey.UnverifiedMessage
+	}
+	return ""
 }
 
 // rejectedEnvKeyMessage explains that an env key was rejected and what Charon did about it. The key file
@@ -1888,21 +1922,32 @@ func ignoredEnvKeyMessage(keyPath string) string {
 		"; remove the variable to silence this note."
 }
 
-// keyStillValid tests key against LAPI with a 5 second budget for status checks.
-func (h *CrowdsecHandler) keyStillValid(c *gin.Context, key string) bool {
+// keyStillValid returns the LAPI verdict for key with a 5 second budget for status checks.
+func (h *CrowdsecHandler) keyStillValid(c *gin.Context, key string) bouncerkey.Verdict {
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
 	defer cancel()
 	return h.testKeyAgainstLAPI(ctx, key)
 }
 
 // ensureBouncerRegistration decides which bouncer key to use and makes the key file match it.
-// The decision and the rejection state are updated under registrationMutex, which GetKeyStatus also takes.
+// decisionMu makes the decision (LAPI check and any register) one at a time; registrationMutex is taken only
+// to write the rejection flags, so GetKeyStatus can answer while a Start waits on LAPI.
 func (h *CrowdsecHandler) ensureBouncerRegistration(ctx context.Context) (bouncerkey.EnsureResult, error) {
+	return h.ensureBouncerRegistrationWait(ctx, defaultLAPIKeyCheckWait)
+}
+
+// ensureBouncerRegistrationWait is ensureBouncerRegistration with the LAPI key-check wait of the caller.
+func (h *CrowdsecHandler) ensureBouncerRegistrationWait(ctx context.Context, keyWait time.Duration) (bouncerkey.EnsureResult, error) {
+	h.decisionMu.Lock()
+	defer h.decisionMu.Unlock()
+
+	validate := func(ctx context.Context, key string) bouncerkey.Verdict {
+		return h.checkKeyAgainstLAPI(ctx, key, keyWait)
+	}
+	res, err := bouncerkey.Ensure(ctx, h.bouncerKeyPath(), validate, h.registerBouncer, crowdsec.SaveBouncerKey)
+
 	h.registrationMutex.Lock()
 	defer h.registrationMutex.Unlock()
-
-	res, err := bouncerkey.Ensure(ctx, h.bouncerKeyPath(), h.testKeyAgainstLAPI, h.registerBouncer, crowdsec.SaveBouncerKey)
-
 	if res.EnvKeyRejected {
 		h.envKeyRejected = true
 		h.rejectedEnvKey = res.EnvKey
@@ -1926,14 +1971,14 @@ func (h *CrowdsecHandler) handleBouncerRegistration(res bouncerkey.EnsureResult,
 	// The rejection is logged only with the outcome it led to: a failed registration keeps no new key.
 	if regErr != nil {
 		if res.EnvKeyRejected {
-			logger.Log().WithField("masked_key", util.MaskAPIKey(res.EnvKey)).Warn(rejectedEnvRegisterFailedLogMessage(keyPath))
+			logger.Log().Warn(rejectedEnvRegisterFailedLogMessage(keyPath))
 		}
 		logger.Log().WithError(regErr).Warn("Failed to register bouncer, CrowdSec may not enforce decisions")
 		return
 	}
 
 	if res.EnvKeyRejected {
-		logger.Log().WithField("masked_key", util.MaskAPIKey(res.EnvKey)).Warn(rejectedEnvLogMessage(keyPath, res.SaveErr))
+		logger.Log().Warn(rejectedEnvLogMessage(keyPath, res.SaveErr))
 	}
 
 	if res.SaveErr != nil {
@@ -1942,7 +1987,7 @@ func (h *CrowdsecHandler) handleBouncerRegistration(res bouncerkey.EnsureResult,
 
 	switch res.Outcome {
 	case bouncerkey.OutcomeRegistered:
-		h.logBouncerKeyBanner(res.Key, res.SaveErr)
+		h.logBouncerKeyBanner(res.SaveErr)
 	case bouncerkey.OutcomeEnvKeySaved:
 		if res.SaveErr == nil {
 			logger.Log().WithField("file", keyPath).Info("CrowdSec bouncer: env var key validated and saved to key file")
@@ -1951,6 +1996,10 @@ func (h *CrowdsecHandler) handleBouncerRegistration(res bouncerkey.EnsureResult,
 		if res.EnvKeyIgnored {
 			logger.Log().WithField("file", keyPath).Info("CrowdSec bouncer: saved key is in use; the key variable is ignored")
 		}
+	case bouncerkey.OutcomeUnverified:
+		logger.Log().WithField("file", keyPath).Warn(bouncerkey.UnverifiedMessage)
+	case bouncerkey.OutcomeHeldKeyValid:
+		logger.Log().WithField("file", keyPath).Info(bouncerkey.HeldKeyInUseMessage(res.HeldSaveErr == nil))
 	}
 }
 
@@ -1991,17 +2040,31 @@ func (h *CrowdsecHandler) reapplyCaddyConfig(ctx context.Context) error {
 	return applyProxyConfigDetached(ctx, h.caddyManager, proxyApplyTimeout)
 }
 
-// validateBouncerKey checks if 'caddy-bouncer' is registered with CrowdSec.
-func (h *CrowdsecHandler) validateBouncerKey(ctx context.Context) bool {
+// registrationState is what the bouncer list says about caddy-bouncer. The values are the JSON
+// `registration` field of GET /admin/crowdsec/bouncer.
+type registrationState string
+
+const (
+	// registrationRegistered: the list names caddy-bouncer.
+	registrationRegistered registrationState = "registered"
+	// registrationNotRegistered: the list was read and does not name caddy-bouncer (empty or null included).
+	registrationNotRegistered registrationState = "not_registered"
+	// registrationUnknown: the list could not be read (command failed or timed out, or output did not parse).
+	registrationUnknown registrationState = "unknown"
+)
+
+// bouncerRegistration asks `cscli bouncers list` whether caddy-bouncer is registered. Only a readable
+// answer that omits the bouncer is not registered; a failed or unreadable answer is unknown.
+func (h *CrowdsecHandler) bouncerRegistration(ctx context.Context) registrationState {
 	output, err := h.runCSCLI(ctx, bouncerCheckTimeout, "bouncers", "list", "-o", "json")
 	if err != nil {
 		logger.Log().WithError(err).Debug("Failed to list bouncers")
-		return false
+		return registrationUnknown
 	}
 
-	// Handle empty or null output
+	// cscli prints nothing or null when no bouncers exist.
 	if len(output) == 0 || string(output) == "null" || string(output) == "null\n" {
-		return false
+		return registrationNotRegistered
 	}
 
 	var bouncers []struct {
@@ -2009,35 +2072,27 @@ func (h *CrowdsecHandler) validateBouncerKey(ctx context.Context) bool {
 	}
 	if err := crowdsec.UnmarshalCSCLIOutput(output, &bouncers); err != nil {
 		logger.Log().WithError(err).Debug("Failed to parse bouncers list")
-		return false
+		return registrationUnknown
 	}
 
 	for _, b := range bouncers {
 		if b.Name == bouncerName {
-			return true
+			return registrationRegistered
 		}
 	}
-	return false
+	return registrationNotRegistered
 }
 
-// registerBouncer replaces any stale caddy-bouncer registration and returns the new key.
-// It does not save the key; ensureBouncerRegistration saves whatever Ensure chooses.
+// registerBouncer replaces the caddy-bouncer registration and returns the new key. It does not save the key;
+// ensureBouncerRegistration saves whatever Ensure chooses. Only the swap is counted in the registration drain, so
+// shutdown waits for the swap (see WaitRegistrations). Saving the returned key runs in ensureBouncerRegistration
+// after this returns, outside the drain.
 func (h *CrowdsecHandler) registerBouncer(ctx context.Context) (string, error) {
-	// Delete existing bouncer if present (stale registration)
-	_, _ = h.runCSCLI(ctx, bouncerCheckTimeout, "bouncers", "delete", bouncerName)
-
-	// Register new bouncer
-	output, err := h.runCSCLI(ctx, bouncerRegisterTimeout, "bouncers", "add", bouncerName, "-o", "raw")
-	if err != nil {
-		return "", fmt.Errorf("bouncer registration failed: %w (%s)", err, util.DescribeCommandOutput(output))
+	if !h.beginRegistration() {
+		return "", errRegistrationRefused
 	}
-
-	apiKey := strings.TrimSpace(string(output))
-	if apiKey == "" {
-		return "", fmt.Errorf("bouncer registration returned empty API key")
-	}
-
-	return apiKey, nil
+	defer h.endRegistration()
+	return crowdsec.ReplaceBouncerWith(ctx, h.runCSCLI, bouncerName, h.replaceTimings)
 }
 
 // validateAPIKeyFormat validates the API key format for security.
@@ -2058,10 +2113,10 @@ func validateAPIKeyFormat(key string) bool {
 	return true
 }
 
-// logBouncerKeyBanner logs the bouncer key with a formatted banner. When saveErr is set the key
-// was not written to the key file, so the banner says CrowdSec blocking depends on the file becoming writable.
-// Security: API key is masked to prevent exposure in logs (CWE-312).
-func (h *CrowdsecHandler) logBouncerKeyBanner(apiKey string, saveErr error) {
+// logBouncerKeyBanner logs the registration banner. It takes no key: the key is never logged.
+// When saveErr is set the key was not written to the key file, so the banner says CrowdSec
+// blocking depends on the file becoming writable.
+func (h *CrowdsecHandler) logBouncerKeyBanner(saveErr error) {
 	keyPath := h.bouncerKeyPath()
 
 	storageLine := "Saved To:     " + keyPath
@@ -2080,16 +2135,13 @@ func (h *CrowdsecHandler) logBouncerKeyBanner(apiKey string, saveErr error) {
 🔐 CrowdSec Bouncer Registered Successfully
 ────────────────────────────────────────────────────────────────────
 Bouncer Name: %s
-API Key:      %s
 %s
 ────────────────────────────────────────────────────────────────────
 %s
 %s
 🔄 ROTATE: Change API keys regularly and never commit to version control
 ════════════════════════════════════════════════════════════════════`
-	// Security: Mask API key to prevent cleartext exposure in logs
-	maskedKey := util.MaskAPIKey(apiKey)
-	logger.Log().Infof(banner, bouncerName, maskedKey, storageLine, securityLine, tipLine)
+	logger.Log().Infof(banner, bouncerName, storageLine, securityLine, tipLine)
 }
 
 // GetBouncerInfo returns information about the current bouncer key.
@@ -2110,6 +2162,8 @@ func (h *CrowdsecHandler) GetBouncerInfo(c *gin.Context) {
 		info.KeySource = "env_var"
 	case bouncerkey.SourceFile:
 		info.KeySource = "file"
+	case bouncerkey.SourceMemory:
+		info.KeySource = "memory"
 	default:
 		info.KeySource = "none"
 	}
@@ -2121,8 +2175,9 @@ func (h *CrowdsecHandler) GetBouncerInfo(c *gin.Context) {
 		info.KeyPreview = "***"
 	}
 
-	// Check if bouncer is registered
-	info.Registered = h.validateBouncerKey(ctx)
+	// Registered is true only for a confirmed registration; an unreadable list reports unknown.
+	info.Registration = h.bouncerRegistration(ctx)
+	info.Registered = info.Registration == registrationRegistered
 
 	c.JSON(http.StatusOK, info)
 }
@@ -2136,6 +2191,8 @@ func (h *CrowdsecHandler) GetBouncerKey(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"key": key, "source": "env_var"})
 	case bouncerkey.SourceFile:
 		c.JSON(http.StatusOK, gin.H{"key": key, "source": "file"})
+	case bouncerkey.SourceMemory:
+		c.JSON(http.StatusOK, gin.H{"key": key, "source": "memory"})
 	default:
 		c.JSON(http.StatusNotFound, gin.H{"error": "No bouncer key configured"})
 	}
@@ -2143,15 +2200,8 @@ func (h *CrowdsecHandler) GetBouncerKey(c *gin.Context) {
 
 // CheckLAPIHealth verifies that CrowdSec LAPI is responding.
 func (h *CrowdsecHandler) CheckLAPIHealth(c *gin.Context) {
-	// Get LAPI URL from security config or use default
-	// Default port is 8085 to avoid conflict with Charon management API on port 8080
-	lapiURL := "http://127.0.0.1:8085"
-	if h.Security != nil {
-		cfg, err := h.Security.Get()
-		if err == nil && cfg != nil && cfg.CrowdSecAPIURL != "" {
-			lapiURL = cfg.CrowdSecAPIURL
-		}
-	}
+	// The engine address is the local one (crowdsec.LocalLAPIURL); the stored settings value is not read.
+	lapiURL := crowdsec.LocalLAPIURL
 
 	// Create health check request
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
@@ -2363,68 +2413,76 @@ func (h *CrowdsecHandler) UnbanIP(c *gin.Context) {
 	h.dashCache.Invalidate("dashboard")
 }
 
-// RegisterBouncer registers a new bouncer or returns existing bouncer status.
+// registerKeyCheckWait is the LAPI key-check wait of the registration endpoint: the boot window, so a request answers
+// in bounded time while LAPI is down. The worst case is the check (10 s), the replace (25 s) and the list (5 s).
+const registerKeyCheckWait = 10 * time.Second
+
+// RegisterBouncer checks the saved bouncer key against the local engine and registers a new bouncer only when
+// CrowdSec definitively rejects that key, so a working key is never replaced. It uses the key decision Start uses
+// (ensureBouncerRegistrationWait), so the key file, the proxy and the response agree with the engine.
+//
+// Answers: 200 "registered" when a key is in use; 200 "unverified" when no key could be checked (LAPI down), which
+// changes nothing; 500 when the registration failed; 504 when it ran out of time. A running Start or Stop or an
+// install job answers 409 crowdsec_busy, and a request after shutdown began answers 503 shutting_down. The proxy
+// configuration is applied after every decision. The work runs on the operation context, so a client that
+// leaves does not cut it in half.
 // POST /api/v1/admin/crowdsec/bouncer/register
 func (h *CrowdsecHandler) RegisterBouncer(c *gin.Context) {
-	ctx := c.Request.Context()
-
-	// Check if register_bouncer.sh script exists
-	scriptPath := h.registerScriptPath
-	if scriptPath == "" {
-		scriptPath = defaultRegisterBouncerScript
-	}
-	if _, err := os.Stat(scriptPath); os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "bouncer registration script not found"})
+	ctx, releaseOp := h.operationContext(c.Request.Context())
+	defer releaseOp()
+	if !h.lifecycleMu.TryLock() {
+		respondBusy(c, "")
 		return
 	}
-
-	// Run the registration script under its own deadline
-	scriptTimeout := h.registerScriptTimeout
-	if scriptTimeout <= 0 {
-		scriptTimeout = registerScriptTimeoutDefault
+	defer h.lifecycleMu.Unlock()
+	release, jobID, ok := h.ApplyJobs().Hold()
+	if !ok {
+		respondBusy(c, jobID)
+		return
 	}
-	scriptCtx, cancelScript := context.WithTimeout(ctx, scriptTimeout)
-	output, err := h.CmdExec.Execute(scriptCtx, "bash", scriptPath)
-	timedOut := isCSCLITimeout(scriptCtx, err)
-	cancelScript()
-	if err != nil {
-		if timedOut {
-			logger.Log().WithError(err).Warn("Bouncer registration script timed out")
+	defer release()
+	if !h.beginRegistration() {
+		respondShuttingDown(c)
+		return
+	}
+	defer h.endRegistration()
+
+	res, regErr := h.ensureBouncerRegistrationWait(ctx, registerKeyCheckWait)
+	if errors.Is(regErr, errRegistrationRefused) {
+		respondShuttingDown(c)
+		return
+	}
+	h.handleBouncerRegistration(res, regErr)
+	// applyProxyConfig logs its own failure; a failed apply never changes the answer below.
+	_ = h.applyProxyConfig(ctx)
+
+	if regErr != nil {
+		if isCSCLITimeout(ctx, regErr) {
 			respondCSCLITimeout(c)
 			return
 		}
-		logger.Log().WithError(err).WithField("output", util.DescribeCommandOutput(output)).Warn("Failed to register bouncer")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to register bouncer", "details": "see server logs"})
 		return
 	}
 
-	// Parse output for API key (last line typically contains the key)
-	lines := strings.Split(strings.TrimSpace(string(output)), "\n")
-	var apiKeyPreview string
-	for _, line := range lines {
-		// Look for lines that appear to be an API key (long alphanumeric string)
-		line = strings.TrimSpace(line)
-		if len(line) >= 32 && !strings.Contains(line, " ") && !strings.Contains(line, ":") {
-			apiKeyPreview = util.MaskAPIKey(line)
-			break
-		}
+	status := "registered"
+	if res.Outcome == bouncerkey.OutcomeUnverified {
+		status = "unverified"
 	}
-
-	// Check if bouncer is actually registered by querying cscli
-	checkOutput, checkErr := h.runCSCLI(ctx, cscliListTimeout, "bouncers", "list", "-o", "json")
-	registered := false
-	if checkErr == nil && len(checkOutput) > 0 && string(checkOutput) != "null" {
-		if strings.Contains(string(checkOutput), "caddy-bouncer") {
-			registered = true
-		}
-	}
-
 	c.JSON(http.StatusOK, gin.H{
-		"status":          "registered",
-		"bouncer_name":    "caddy-bouncer",
-		"api_key_preview": apiKeyPreview,
-		"registered":      registered,
+		"status":          status,
+		"bouncer_name":    bouncerName,
+		"api_key_preview": registrationPreview(res.Key),
+		"registered":      h.bouncerRegistration(ctx) == registrationRegistered,
 	})
+}
+
+// registrationPreview is the masked key the registration response reports; empty when there is no key.
+func registrationPreview(key string) string {
+	if key == "" {
+		return ""
+	}
+	return util.MaskAPIKey(key)
 }
 
 // GetAcquisitionConfig returns the current CrowdSec acquisition configuration.
@@ -2444,7 +2502,7 @@ func (h *CrowdsecHandler) GetAcquisitionConfig(c *gin.Context) {
 			return
 		}
 		logger.Log().WithError(err).WithField("path", acquisPath).Warn("Failed to read acquisition config")
-		if acquisitionAccessError(err) {
+		if isAccessError(err) {
 			respondCoded(c, http.StatusInternalServerError, codeAcquisitionUnreadable, msgAcquisitionUnreadable, nil)
 			return
 		}

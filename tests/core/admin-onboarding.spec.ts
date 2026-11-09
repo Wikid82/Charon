@@ -89,7 +89,7 @@ test.describe('Admin Onboarding & Setup', () => {
     await loginUser(page, adminUser);
     await waitForLoadingComplete(page);
     // Ensure page is fully stabilized
-    await page.waitForLoadState('networkidle', { timeout: 10000 }).catch(() => {});
+    await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 }).catch(() => {});
   });
 
   // Admin logs in with valid credentials
@@ -112,8 +112,8 @@ test.describe('Admin Onboarding & Setup', () => {
       const emailInput = page.locator('input[type="email"], input[name="email"], input[autocomplete="email"], input[placeholder*="@"]');
       const passwordInput = page.locator('input[type="password"], input[name="password"], input[autocomplete="current-password"]');
 
-      expect(emailInput).toBeDefined();
-      expect(passwordInput).toBeDefined();
+      await expect(emailInput.first()).toBeVisible();
+      await expect(passwordInput.first()).toBeVisible();
 
       await emailInput.first().fill(adminUser.email);
       await passwordInput.first().fill(TEST_PASSWORD);

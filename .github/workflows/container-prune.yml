@@ -43,11 +43,11 @@ jobs:
       BUILD_KEEP_DAYS: ${{ github.event.inputs.build_keep_days || '7' }}
       KEEP_LAST_N: ${{ github.event.inputs.keep_last_n || '30' }}
       DRY_RUN: ${{ github.event_name == 'pull_request' && 'true' || github.event.inputs.dry_run || 'false' }}
-      PROTECTED_REGEX: '["^v?[0-9]+\\.[0-9]+\\.[0-9]+$","^latest$","^main$","^develop$"]'
+      PROTECTED_REGEX: '["^v?[0-9]+\\.[0-9]+\\.[0-9]+$","^[0-9]+\\.[0-9]+$","^latest$","^main$","^develop$"]'
       PRUNE_UNTAGGED: 'true'
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -121,10 +121,10 @@ jobs:
       BUILD_KEEP_DAYS: ${{ github.event.inputs.build_keep_days || '7' }}
       KEEP_LAST_N: ${{ github.event.inputs.keep_last_n || '30' }}
       DRY_RUN: ${{ github.event_name == 'pull_request' && 'true' || github.event.inputs.dry_run || 'false' }}
-      PROTECTED_REGEX: '["^v?[0-9]+\\.[0-9]+\\.[0-9]+$","^latest$","^main$","^develop$"]'
+      PROTECTED_REGEX: '["^v?[0-9]+\\.[0-9]+\\.[0-9]+$","^[0-9]+\\.[0-9]+$","^latest$","^main$","^develop$"]'
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -208,7 +208,7 @@ jobs:
     if: always() && (github.event_name != 'workflow_dispatch' || github.ref == format('refs/heads/{0}', github.event.repository.default_branch))
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 

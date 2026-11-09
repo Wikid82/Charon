@@ -12,10 +12,15 @@ if [ -r "$CSCLI_HUB_MIRROR_HELPER" ]; then
     # shellcheck source=/dev/null
     . "$CSCLI_HUB_MIRROR_HELPER"
 else
+    # Same two entry points as the helper: every call names the live config file (cscli's default when the
+    # entrypoint has not set CHARON_CSCLI_CONFIG, e.g. when this script is run by hand in the image).
+    cscli_cfg() {
+        cscli -c "${CHARON_CSCLI_CONFIG:-/etc/crowdsec/config.yaml}" "$@"
+    }
     cscli_hub() {
         _budget=$1
         shift
-        timeout "$_budget" cscli "$@"
+        timeout "$_budget" cscli -c "${CHARON_CSCLI_CONFIG:-/etc/crowdsec/config.yaml}" "$@"
     }
 fi
 
@@ -30,7 +35,7 @@ echo "Installing CrowdSec hub items for Charon..."
 # whose data files are missing, so the exit code is not a usable signal. Decide on the
 # JSON "installed" flag instead (jq is not available in the image).
 is_installed() {
-    cscli "$1" inspect "$2" -o json 2>/dev/null | grep -q '"installed": *true'
+    cscli_cfg "$1" inspect "$2" -o json 2>/dev/null | grep -q '"installed": *true'
 }
 
 # Helper: only install if not already present (avoids 5-10s per cscli call on rebuilds)
@@ -48,7 +53,7 @@ install_if_missing() {
 
 # Install Caddy log parser (if available)
 # Note: crowdsecurity/caddy-logs may not exist yet - check hub
-if cscli parsers inspect crowdsecurity/caddy-logs >/dev/null 2>&1; then
+if cscli_cfg parsers inspect crowdsecurity/caddy-logs >/dev/null 2>&1; then
     echo "Installing Caddy log parser..."
     install_if_missing parsers crowdsecurity/caddy-logs "Caddy log parser"
 else
@@ -88,15 +93,15 @@ install_if_missing collections crowdsecurity/caddy "caddy collection"
 echo ""
 echo "=== Installed Components ==="
 echo "Parsers:"
-cscli parsers list 2>/dev/null | head -15 || echo "  (unable to list)"
+cscli_cfg parsers list 2>/dev/null | head -15 || echo "  (unable to list)"
 
 echo ""
 echo "Scenarios:"
-cscli scenarios list 2>/dev/null | head -15 || echo "  (unable to list)"
+cscli_cfg scenarios list 2>/dev/null | head -15 || echo "  (unable to list)"
 
 echo ""
 echo "Collections:"
-cscli collections list 2>/dev/null | head -10 || echo "  (unable to list)"
+cscli_cfg collections list 2>/dev/null | head -10 || echo "  (unable to list)"
 
 echo ""
 echo "Hub installation complete!"

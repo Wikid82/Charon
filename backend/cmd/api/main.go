@@ -137,44 +137,7 @@ func main() {
 			}
 
 			logger.Log().Info("Running database migrations for all models...")
-			if err := db.AutoMigrate(
-				// Core models
-				&models.ProxyGroup{},
-				&models.ProxyHost{},
-				&models.Location{},
-				&models.CaddyConfig{},
-				&models.RemoteServer{},
-				&models.SSLCertificate{},
-				&models.AccessList{},
-				&models.SecurityHeaderProfile{},
-				&models.User{},
-				&models.Setting{},
-				&models.ImportSession{},
-				&models.Notification{},
-				&models.NotificationProvider{},
-				&models.NotificationTemplate{},
-				&models.NotificationConfig{},
-				&models.UptimeMonitor{},
-				&models.UptimeHeartbeat{},
-				&models.UptimeHost{},
-				&models.UptimeNotificationEvent{},
-				&models.Domain{},
-				&models.UserPermittedHost{},
-				// Security models
-				&models.SecurityConfig{},
-				&models.SecurityDecision{},
-				&models.SecurityAudit{},
-				&models.SecurityRuleSet{},
-				&models.CrowdsecPresetEvent{},
-				&models.CrowdsecConsoleEnrollment{},
-				&models.CrowdsecApplyJob{},
-				&models.EmergencyToken{}, // Phase 2: Database-backed emergency tokens
-				// DNS Provider models (Issue #21)
-				&models.DNSProvider{},
-				&models.DNSProviderCredential{},
-				// Plugin model (Phase 5)
-				&models.Plugin{},
-			); err != nil {
+			if err := routes.MigrateSchema(db); err != nil {
 				log.Fatalf("migration failed: %v", err)
 			}
 
@@ -260,23 +223,29 @@ func main() {
 		log.Fatalf("connect database: %v", err)
 	}
 
-	// Note: All database migrations are centralized in routes.Register()
-	// This ensures migrations run exactly once and in the correct order.
-	// DO NOT add AutoMigrate calls here - they cause "duplicate column" errors.
+	// Create or update the schema before the CrowdSec startup check reads it. RegisterWithDeps runs the same
+	// migration again later (a no-op on an up-to-date schema) before it seeds defaults and registers routes.
+	// The model list lives in routes.MigrateSchema only, so this call and the migrate command cannot drift.
+	if err = routes.MigrateSchema(db); err != nil {
+		log.Fatalf("migration failed: %v", err)
+	}
 
-	// Reconcile CrowdSec state after migrations, before HTTP server starts
-	// This ensures CrowdSec is running if user preference was to have it enabled
+	// Carry the retired CrowdSec mode setting over to the enabled setting before the reconciliation reads either.
+	// Runs on every start, so a mode row written by an older build is cleaned again.
+	if _, err = models.RetireCrowdSecModeSetting(db); err != nil {
+		log.Fatalf("retire CrowdSec mode setting: %v", err)
+	}
+
+	// Reconcile CrowdSec state after the schema exists and before the HTTP server starts, so CrowdSec is running
+	// if the user preference was to have it enabled. This must stay before RegisterWithDeps, which starts the
+	// first Caddy apply.
 	crowdsecBinPath := os.Getenv("CHARON_CROWDSEC_BIN")
 	if crowdsecBinPath == "" {
 		crowdsecBinPath = "/usr/local/bin/crowdsec"
 	}
-	crowdsecDataDir := os.Getenv("CHARON_CROWDSEC_DATA")
-	if crowdsecDataDir == "" {
-		crowdsecDataDir = "/app/data/crowdsec"
-	}
-
+	// The same data directory the handlers and the proxy use (see config.loadCrowdSecConfigDir).
 	crowdsecExec := handlers.NewDefaultCrowdsecExecutor()
-	services.ReconcileCrowdSecOnStartup(db, crowdsecExec, crowdsecBinPath, crowdsecDataDir, nil,
+	services.ReconcileCrowdSecOnStartup(db, crowdsecExec, crowdsecBinPath, cfg.Security.CrowdSecConfigDir, nil,
 		services.WithCerberusCheck(services.ProxyCerberusCheck(db, cfg.Security)))
 
 	// Initialize plugin loader and load external DNS provider plugins (Phase 5)
@@ -385,16 +354,15 @@ func main() {
 	// dispatch ctx are born already-done and unwind immediately. The only real
 	// bound left is the HTTP client's own 20s timeout on a socket already
 	// reading a slow body, which fits inside 25s.
-	shutdownDrain(gate, dbmaint.ShutdownRunnerWait, func() {
-		if uptimeShutdown == nil {
-			return
-		}
-		drainCtx, drainCancel := context.WithTimeout(context.Background(), 25*time.Second)
-		defer drainCancel()
-		if drainErr := uptimeShutdown(drainCtx); drainErr != nil {
-			logger.Log().WithError(drainErr).Warn("uptime pipeline did not drain within grace period")
-		}
-	})
+	// The bouncer registrations in flight drain at the same time, so the wait is the longer of the two, not their sum.
+	runConcurrently(
+		func() {
+			shutdownDrain(gate, dbmaint.ShutdownRunnerWait, func() {
+				drainUptime(uptimeShutdown, uptimeDrainTimeout)
+			})
+		},
+		func() { drainRegistrations(registered.CrowdSec) },
+	)
 
 	// Graceful shutdown with timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)

@@ -96,7 +96,7 @@ func (a *ArchiveHubItems) Report(installed []HubItem) HubItemsReport {
 // writeHubManifest appends the manifest entry for the items installed below dataDir and returns the
 // bytes it added. Nothing is written when no item is installed, so exports of such hosts are unchanged.
 // A failed scan is logged and the manifest is omitted: it only helps a later import.
-func writeHubManifest(tw *tar.Writer, dataDir string, total, maxBytes int64) (int64, error) {
+func writeHubManifest(tw *exportTar, dataDir string, total, maxBytes int64) (int64, error) {
 	items, err := InstalledHubItems(dataDir)
 	if err != nil {
 		logger.Log().WithError(err).Warn("hub item list omitted from the export")

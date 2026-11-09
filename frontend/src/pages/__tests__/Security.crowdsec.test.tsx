@@ -13,6 +13,7 @@ import { toast } from '../../utils/toast'
 import Security from '../Security'
 
 import type { SecurityStatus } from '../../api/security'
+import type * as useSecurityModule from '../../hooks/useSecurity'
 import type * as ReactRouterDom from 'react-router'
 
 const BUSY_TEXT = 'CrowdSec is busy installing a preset. Try again when it finishes.'
@@ -81,7 +82,7 @@ vi.mock('../../hooks/useNotifications', () => ({
   }),
 }))
 vi.mock('../../hooks/useSecurity', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../hooks/useSecurity')>()
+  const actual = await importOriginal<typeof useSecurityModule>()
   return {
     ...actual,
     useSecurityConfig: vi.fn(() => ({ data: { config: { admin_whitelist: '' } } })),
@@ -135,6 +136,7 @@ describe('Security CrowdSec mutation UX', () => {
     vi.mocked(crowdsecApi.getCrowdsecKeyStatus).mockResolvedValue({
       env_key_rejected: false,
       key_source: 'auto-generated',
+      key_check: 'accepted',
       current_key_preview: '...',
       message: 'OK',
     })
@@ -176,6 +178,7 @@ describe('Security CrowdSec mutation UX', () => {
     vi.mocked(crowdsecApi.getCrowdsecKeyStatus).mockResolvedValue({
       env_key_rejected: true,
       key_source: 'env',
+      key_check: 'accepted',
       full_key: 'abc123',
       current_key_preview: 'abc...',
       rejected_key_preview: 'def...',

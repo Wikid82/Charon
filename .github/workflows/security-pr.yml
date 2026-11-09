@@ -49,7 +49,7 @@ jobs:
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -321,7 +321,7 @@ jobs:
           format: 'sarif'
           output: 'trivy-binary-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
-          version: 'v0.76.1'
+          version: 'v0.76.2'
           trivyignores: '.trivyignore'
           trivy-config: 'trivy.yaml'
         continue-on-error: true
@@ -339,8 +339,7 @@ jobs:
 
       - name: Upload Trivy SARIF to GitHub Security
         if: always() && steps.trivy-sarif-check.outputs.exists == 'true'
-        # github/codeql-action v4.36.2
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: 'trivy-binary-results.sarif'
           category: ${{ steps.pr-info.outputs.is_push == 'true' && format('security-scan-{0}', env.CONTEXT_BRANCH) || format('security-scan-pr-{0}', steps.pr-info.outputs.pr_number) }}
@@ -356,7 +355,7 @@ jobs:
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
-          version: 'v0.76.1'
+          version: 'v0.76.2'
           trivyignores: '.trivyignore'
           trivy-config: 'trivy.yaml'
 

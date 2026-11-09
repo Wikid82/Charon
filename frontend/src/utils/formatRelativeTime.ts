@@ -19,9 +19,7 @@ export function formatRelativeTime(dateStr: string): string {
   if (minutes < 60) return `${minutes}m ago`
 
   const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-
-  return `${Math.floor(hours / 24)}d ago`
+  return hours < 24 ? `${hours}h ago` : `${Math.floor(hours / 24)}d ago`
 }
 
 /** Localized absolute time for tooltips; undefined when the value is empty or unparseable. */

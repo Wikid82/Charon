@@ -22,7 +22,6 @@ const Setup: FC = () => {
     password: '',
   });
   const [error, setError] = useState<string | null>(null);
-  const [emailValid, setEmailValid] = useState<boolean | null>(null);
 
   const { data: status, isLoading: statusLoading } = useQuery({
     queryKey: ['setupStatus'],
@@ -30,13 +29,7 @@ const Setup: FC = () => {
     retry: false,
   });
 
-  useEffect(() => {
-    if (formData.email) {
-      setEmailValid(isValidEmail(formData.email));
-    } else {
-      setEmailValid(null);
-    }
-  }, [formData.email]);
+  const emailValid: boolean | null = formData.email ? isValidEmail(formData.email) : null;
 
   useEffect(() => {
     // Wait for setup status to load
@@ -48,11 +41,7 @@ const Setup: FC = () => {
     }
 
     // If setup is NOT required, redirect based on auth
-    if (isAuthenticated) {
-      navigate('/');
-    } else {
-      navigate('/login');
-    }
+    navigate(isAuthenticated ? '/' : '/login');
   }, [status, statusLoading, isAuthenticated, navigate]);
 
   const mutation = useMutation({

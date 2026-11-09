@@ -57,7 +57,7 @@ permissions:
   contents: read
 
 env:
-  SYFT_VERSION: 'v1.55.0'
+  SYFT_VERSION: 'v1.57.0'
   GHCR_REGISTRY: ghcr.io
   DOCKERHUB_REGISTRY: docker.io
   IMAGE_NAME: wikid82/charon
@@ -68,7 +68,6 @@ env:
   TRIGGER_REF: ${{ github.event_name == 'workflow_run' && format('refs/heads/{0}', github.event.workflow_run.head_branch) || github.ref }}
   TRIGGER_HEAD_REF: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.head_branch || github.head_ref }}
   TRIGGER_PR_NUMBER: ${{ github.event_name == 'pull_request' && format('{0}', github.event.pull_request.number) || '' }}
-  TRIGGER_ACTOR: ${{ github.event_name == 'workflow_run' && github.event.workflow_run.actor.login || github.actor }}
   TRIGGER_BASE_REF: ${{ github.event_name == 'workflow_run' && '' || github.base_ref }}
 
 jobs:
@@ -108,10 +107,14 @@ jobs:
       labels: ${{ steps.meta.outputs.labels }}
       # Build-time VERSION baked into the binary (see "Resolve build version" step).
       version: ${{ steps.build_version.outputs.version }}
+      # Release commit detection (see "Detect release commit" step). Build jobs use
+      # these to pick the strict data guard (--expect-newest) on release commits.
+      is_release: ${{ steps.release.outputs.is_release }}
+      release_version: ${{ steps.release.outputs.version }}
       created: ${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -128,7 +131,6 @@ jobs:
       - name: Determine skip condition
         id: skip
         env:
-          ACTOR: ${{ env.TRIGGER_ACTOR }}
           EVENT: ${{ env.TRIGGER_EVENT }}
           REF: ${{ env.TRIGGER_REF }}
           HEAD_REF: ${{ env.TRIGGER_HEAD_REF }}
@@ -137,16 +139,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           should_skip=false
-          pr_title=""
           force_refresh=false
           changed_files=""
-          head_msg=$(git log -1 --pretty=%s)
           if [ "$EVENT" = "pull_request" ] && [ -n "$PR_NUMBER" ]; then
-            pr_title=$(curl -sS \
-              -H "Authorization: Bearer ${GH_TOKEN}" \
-              -H "Accept: application/vnd.github+json" \
-              "https://api.github.com/repos/${REPO}/pulls/${PR_NUMBER}" | jq -r '.title // empty')
-
             files_url="https://api.github.com/repos/${REPO}/pulls/${PR_NUMBER}/files?per_page=100&page=1"
             while [ -n "$files_url" ]; do
               response_file=$(mktemp)
@@ -184,15 +179,14 @@ jobs:
             force_refresh=true
           fi
 
-          if [ "$ACTOR" = "renovate[bot]" ]; then should_skip=true; fi
-          if echo "$head_msg" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
-          if echo "$head_msg" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
-          if echo "$pr_title" | grep -Ei '^chore\(deps' >/dev/null 2>&1; then should_skip=true; fi
-          if echo "$pr_title" | grep -Ei '^chore:' >/dev/null 2>&1; then should_skip=true; fi
-
           if [[ "$force_refresh" == "true" ]]; then
             should_skip=false
             echo "Force refresh enabled due to Docker/security workflow changes"
+          fi
+          # A manual dispatch is an explicit request to build.
+          if [[ "$EVENT" == "workflow_dispatch" ]]; then
+            should_skip=false
+            echo "Manual dispatch: building regardless of head commit message"
           fi
           # Always build on feature branches to ensure artifacts for testing
           # For PRs: use HEAD_REF (actual source branch)
@@ -212,6 +206,74 @@ jobs:
             echo "is_feature_push=$is_feature_push"
             echo "force_refresh=$force_refresh"
           } >> "$GITHUB_OUTPUT"
+
+      # Changelog data is generated once here and shared with the build jobs as an
+      # artifact, so every image (release, development, nightly-style and PR) embeds the
+      # same validated What's New data. Every step below is skipped with the build.
+      - name: Detect release commit
+        id: release
+        if: steps.skip.outputs.skip_build != 'true'
+        env:
+          EVENT: ${{ env.TRIGGER_EVENT }}
+          REF: ${{ env.TRIGGER_REF }}
+        run: |
+          bash scripts/ci/detect-release-commit.sh --event "$EVENT" --ref "$REF" >> "$GITHUB_OUTPUT"
+
+      - name: Validate release version
+        id: release_version
+        if: steps.skip.outputs.skip_build != 'true'
+        env:
+          IS_RELEASE: ${{ steps.release.outputs.is_release }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          # Version tags are only published for release commits. The value is checked
+          # again here before it is used in an image tag, and a release commit with a
+          # malformed version fails the build rather than publishing untagged images.
+          if [[ "$IS_RELEASE" != "true" ]]; then
+            echo "Not a release commit; version tags will not be published."
+            exit 0
+          fi
+          if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Release version '${RELEASE_VERSION}' is not X.Y.Z"
+            exit 1
+          fi
+          # Floating minor tag (X.Y). No "v" prefix, and no major-only tag while on v0.
+          IFS=. read -r release_major release_minor _release_patch <<<"$RELEASE_VERSION"
+          {
+            echo "version=${RELEASE_VERSION}"
+            echo "minor_version=${release_major}.${release_minor}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Generate and check changelog data
+        if: steps.skip.outputs.skip_build != 'true'
+        env:
+          IS_RELEASE: ${{ steps.release.outputs.is_release }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
+        run: |
+          set -euo pipefail
+          # The release version is synthesized here because the release tag does not
+          # exist yet when the image build starts (--current-version, see
+          # scripts/generate-changelog.sh). Only release commits pass it.
+          GENERATE_ARGS=(--require-entries)
+          GUARD_ARGS=()
+          if [[ "$IS_RELEASE" == "true" ]]; then
+            GENERATE_ARGS+=(--current-version "$RELEASE_VERSION")
+            GUARD_ARGS+=(--expect-newest "$RELEASE_VERSION")
+          fi
+          bash scripts/generate-changelog.sh "${GENERATE_ARGS[@]}"
+          bash scripts/ci/check-changelog-data.sh backend/internal/changelog/data/changelog.json "${GUARD_ARGS[@]}"
+
+      - name: Upload changelog data
+        if: steps.skip.outputs.skip_build != 'true'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: changelog-data-${{ github.run_id }}
+          path: backend/internal/changelog/data/changelog.json
+          if-no-files-found: error
+          retention-days: 1
+          # A re-run of the same run must not fail with "artifact already exists".
+          overwrite: true
 
       - name: Resolve Alpine base image digest
         if: steps.skip.outputs.skip_build != 'true'
@@ -355,9 +417,8 @@ jobs:
             ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
             ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=raw,value=${{ steps.release_version.outputs.version }},enable=${{ steps.release.outputs.is_release == 'true' }}
+            type=raw,value=${{ steps.release_version.outputs.minor_version }},enable=${{ steps.release.outputs.is_release == 'true' }}
             type=raw,value=latest,enable=${{ env.TRIGGER_REF == 'refs/heads/main' }}
             type=raw,value=dev,enable=${{ env.TRIGGER_REF == 'refs/heads/development' }}
             type=raw,value=nightly,enable=${{ env.TRIGGER_REF == 'refs/heads/nightly' }}
@@ -374,20 +435,70 @@ jobs:
             io.charon.build.timestamp=${{ github.event.repository.updated_at }}
             io.charon.feature.branch=${{ steps.branch-tags.outputs.feature_branch_tag }}
 
+      # The build-arg VERSION is the version the binary reports (/api/v1/health), so
+      # every channel is decided by scripts/ci/resolve-build-version.sh (§4.10). The
+      # channel is chosen only from the normalized TRIGGER_* values and the release
+      # decision from "Detect release commit" (§4.5). Metadata-action output is not used.
       - name: Resolve build version
         id: build_version
         env:
-          META_VERSION: ${{ steps.meta.outputs.version }}
+          TRIGGER_REF: ${{ env.TRIGGER_REF }}
+          TRIGGER_EVENT: ${{ env.TRIGGER_EVENT }}
+          TRIGGER_PR_NUMBER: ${{ env.TRIGGER_PR_NUMBER }}
+          TRIGGER_HEAD_SHA: ${{ env.TRIGGER_HEAD_SHA }}
+          IS_RELEASE: ${{ steps.release.outputs.is_release }}
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
         run: |
-          # On main the metadata-action primary tag is "latest", which is not a
-          # version. Use the release-please manifest version instead. Every other
-          # ref keeps the metadata-action value (dev, semver from tags, PR/branch tags).
-          VERSION="${META_VERSION}"
-          if [[ "${TRIGGER_REF}" == "refs/heads/main" ]]; then
-            VERSION=$(jq -er '.["."]' .release-please-manifest.json)
+          set -euo pipefail
+
+          # The release channel needs every condition at once: a push to main that
+          # is not a pull request, and a release commit. Anything else is not a release.
+          if [[ "${TRIGGER_REF}" == "refs/heads/main" && "${TRIGGER_EVENT}" != "pull_request" && "${IS_RELEASE}" == "true" ]]; then
+            CHANNEL="release"
+          elif [[ "${TRIGGER_EVENT}" == "pull_request" ]]; then
+            if [[ -n "${TRIGGER_PR_NUMBER}" ]]; then
+              CHANNEL="pr"
+            else
+              CHANNEL="branch"
+            fi
+          elif [[ "${TRIGGER_REF}" == "refs/heads/main" ]]; then
+            CHANNEL="main"
+          elif [[ "${TRIGGER_REF}" == "refs/heads/development" ]]; then
+            CHANNEL="dev"
+          else
+            CHANNEL="branch"
           fi
+
+          RESOLVER_ARGS=(--channel "${CHANNEL}")
+          case "${CHANNEL}" in
+            pr) RESOLVER_ARGS+=(--pr "${TRIGGER_PR_NUMBER}") ;;
+            dev|branch) RESOLVER_ARGS+=(--sha "${TRIGGER_HEAD_SHA}") ;;
+          esac
+          VERSION="$(bash scripts/ci/resolve-build-version.sh "${RESOLVER_ARGS[@]}")"
+
+          # A detected release must resolve to the release channel and to the same
+          # version the release step validated. A PR can never resolve to release.
+          if [[ "${IS_RELEASE}" == "true" && "${CHANNEL}" != "release" ]]; then
+            echo "::error::is_release is true but the channel is ${CHANNEL} (ref=${TRIGGER_REF}, event=${TRIGGER_EVENT})"
+            exit 1
+          fi
+          if [[ "${CHANNEL}" == "release" ]]; then
+            if [[ "${TRIGGER_REF}" != "refs/heads/main" || "${TRIGGER_EVENT}" == "pull_request" || "${IS_RELEASE}" != "true" ]]; then
+              echo "::error::The release channel was selected outside a release push to main"
+              exit 1
+            fi
+            if [[ "${VERSION}" != "${RELEASE_VERSION}" || "${VERSION}" == *+* ]]; then
+              echo "::error::Resolved release version '${VERSION}' does not match the detected release '${RELEASE_VERSION}'"
+              exit 1
+            fi
+          fi
+          if [[ "${TRIGGER_EVENT}" == "pull_request" && "${CHANNEL}" == "release" ]]; then
+            echo "::error::A pull request must never resolve to the release channel"
+            exit 1
+          fi
+
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
-          echo "Resolved build VERSION: ${VERSION}"
+          echo "Resolved build VERSION: ${VERSION} (channel: ${CHANNEL})"
 
       - name: Assert PR output contract
         if: steps.skip.outputs.skip_build != 'true' && env.TRIGGER_EVENT == 'pull_request'
@@ -441,7 +552,7 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -465,6 +576,24 @@ jobs:
         run: |
           IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
           echo "IMAGE_NAME=${IMAGE_NAME}" >> "$GITHUB_ENV"
+
+      - name: Download changelog data
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: changelog-data-${{ github.run_id }}
+          path: backend/internal/changelog/data
+
+      - name: Check changelog data before build
+        env:
+          IS_RELEASE: ${{ needs.setup.outputs.is_release }}
+          RELEASE_VERSION: ${{ needs.setup.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          GUARD_ARGS=()
+          if [[ "$IS_RELEASE" == "true" ]]; then
+            GUARD_ARGS+=(--expect-newest "$RELEASE_VERSION")
+          fi
+          bash scripts/ci/check-changelog-data.sh backend/internal/changelog/data/changelog.json "${GUARD_ARGS[@]}"
 
       - name: Set up Docker Buildx
         uses: step-security/setup-buildx-action@e50058a0fcd8d1a7d626c905502d010a468bf238 # v4.4.1
@@ -544,7 +673,7 @@ jobs:
       digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -557,6 +686,24 @@ jobs:
         run: |
           IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
           echo "IMAGE_NAME=${IMAGE_NAME}" >> "$GITHUB_ENV"
+
+      - name: Download changelog data
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: changelog-data-${{ github.run_id }}
+          path: backend/internal/changelog/data
+
+      - name: Check changelog data before build
+        env:
+          IS_RELEASE: ${{ needs.setup.outputs.is_release }}
+          RELEASE_VERSION: ${{ needs.setup.outputs.release_version }}
+        run: |
+          set -euo pipefail
+          GUARD_ARGS=()
+          if [[ "$IS_RELEASE" == "true" ]]; then
+            GUARD_ARGS+=(--expect-newest "$RELEASE_VERSION")
+          fi
+          bash scripts/ci/check-changelog-data.sh backend/internal/changelog/data/changelog.json "${GUARD_ARGS[@]}"
 
       - name: Set up QEMU
         uses: step-security/setup-qemu-action@d21542abd2ae44772cf2276e75ee4ec531d598b6 # v4.4.0
@@ -622,6 +769,85 @@ jobs:
             echo "digest=${DIGEST}" >> "$GITHUB_OUTPUT"
             echo "✅ arm64 build complete. Digest: ${DIGEST}"
 
+  # Smoke-tests the amd64 image that build-amd64 already pushed, pinned by digest, BEFORE
+  # merge-and-publish moves any user-facing tag (docs/plans/current_spec.md §4.7). A failed
+  # check blocks the publish, so a broken What's New changelog cannot reach users.
+  # ACCEPTED RISK: arm64 is not smoke-tested. It is built from the same source and embeds
+  # the same changelog data, and a QEMU start would add several minutes per run.
+  smoke-whats-new:
+    needs: [setup, build-amd64]
+    # An explicit job-level `if:` REPLACES the implicit "all needs succeeded" check, so
+    # the setup/build results and skip_build are spelled out here. Fork PRs are skipped:
+    # their token cannot push or pull the same-repo build (the head repo differs).
+    if: needs.setup.result == 'success' && needs.build-amd64.result == 'success' && needs.setup.outputs.skip_build != 'true' && !(github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          ref: ${{ env.TRIGGER_HEAD_SHA }}
+
+      - name: Log in to GitHub Container Registry
+        uses: step-security/docker-login-action@8c7b695d8738c5699a679ff5254baf0f19f20a94 # v4.6.0
+        with:
+          registry: ${{ env.GHCR_REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Smoke test What's New on the built amd64 image
+        env:
+          IMAGE_DIGEST: ${{ needs.build-amd64.outputs.digest }}
+          IS_RELEASE: ${{ needs.setup.outputs.is_release }}
+          RELEASE_VERSION: ${{ needs.setup.outputs.release_version }}
+          # The VERSION build-arg build-amd64 received. The image carries exactly this string.
+          BUILD_VERSION: ${{ needs.setup.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          if [[ ! "${IMAGE_DIGEST}" =~ ^sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::build-amd64 digest is missing or malformed: '${IMAGE_DIGEST}'"
+            exit 1
+          fi
+
+          # Every published image is versioned (§4.10). The release commit must report its
+          # released X.Y.Z. Every other build must report exactly the resolver output: plain
+          # X.Y.Z on main, or X.Y.Z+dev.<sha7>, X.Y.Z+pr.<N> or X.Y.Z+branch.<sha7>. A
+          # degraded "dev" or any other shape fails here, before anything is published.
+          readonly VERSION_RE='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)(\+(dev\.[0-9a-f]{7}|branch\.[0-9a-f]{7}|pr\.[1-9][0-9]*))?$'
+
+          if [[ "${IS_RELEASE}" == "true" ]]; then
+            EXPECT_VERSION="${RELEASE_VERSION}"
+            SMOKE_ARGS=(--expect-newest "${RELEASE_VERSION}")
+          else
+            EXPECT_VERSION="${BUILD_VERSION}"
+            SMOKE_ARGS=()
+          fi
+
+          if [[ ! "${EXPECT_VERSION}" =~ ${VERSION_RE} ]]; then
+            echo "::error::Build version '${EXPECT_VERSION}' is not an expected versioned form"
+            exit 1
+          fi
+
+          # Versioned builds are strict SemVer, so the What's New modal shows for an
+          # unseeded user.
+          SMOKE_ARGS+=(--expect-min-entries 100 --expect-status-for-unseeded shown)
+
+          echo "Smoke expectations: version=${EXPECT_VERSION} args=${SMOKE_ARGS[*]}"
+          bash scripts/ci/smoke-whats-new.sh \
+            --image "${GHCR_REGISTRY}/${IMAGE_NAME}@${IMAGE_DIGEST}" \
+            --expect-version-exact "${EXPECT_VERSION}" \
+            "${SMOKE_ARGS[@]}"
+
   # Composes the two independently-built per-platform digests into one multi-platform
   # manifest list (twice — once per registry, since `imagetools create` requires source
   # and target to live in the same registry), then performs everything the old combined
@@ -629,11 +855,13 @@ jobs:
   # Trivy scan, SBOM generation+attestation, Cosign signing (of the merged digest), and
   # the step summary.
   merge-and-publish:
-    needs: [setup, build-amd64, build-arm64]
+    needs: [setup, build-amd64, build-arm64, smoke-whats-new]
     # Requires BOTH platform builds to have succeeded — otherwise a failed arm64 build
     # (for example) would not prevent this job from attempting to merge a nonexistent
     # arm64 digest into the manifest list.
-    if: needs.setup.result == 'success' && needs.build-amd64.result == 'success' && needs.build-arm64.result == 'success' && needs.setup.outputs.skip_build != 'true'
+    # Requires the What's New smoke test to pass before any user-facing tag is published.
+    # `skipped` is accepted only for fork PRs, where smoke-whats-new is deliberately skipped.
+    if: needs.setup.result == 'success' && needs.build-amd64.result == 'success' && needs.build-arm64.result == 'success' && (needs.smoke-whats-new.result == 'success' || (needs.smoke-whats-new.result == 'skipped' && github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository)) && needs.setup.outputs.skip_build != 'true'
     env:
       HAS_DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN != '' }}
     runs-on: ubuntu-latest
@@ -652,7 +880,7 @@ jobs:
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -1014,7 +1242,7 @@ jobs:
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
-          version: 'v0.76.1'
+          version: 'v0.76.2'
           trivyignores: '.trivyignore'
         continue-on-error: true
 
@@ -1027,7 +1255,7 @@ jobs:
           format: 'sarif'
           output: 'trivy-results.sarif'
           severity: 'CRITICAL,HIGH'
-          version: 'v0.76.1'
+          version: 'v0.76.2'
           trivyignores: '.trivyignore'
         continue-on-error: true
 
@@ -1043,7 +1271,7 @@ jobs:
 
       - name: Upload Trivy results
         if: env.TRIGGER_EVENT != 'pull_request' && steps.trivy-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: 'trivy-results.sarif'
           category: ${{ env.TRIVY_SARIF_CATEGORY }}
@@ -1104,8 +1332,8 @@ jobs:
           TARBALL="syft_${SYFT_VERSION#v}_${OS}_${ARCH}.tar.gz"
           BASE_URL="https://github.com/anchore/syft/releases/download/${SYFT_VERSION}"
 
-          curl -fsSLo "$TARBALL" "${BASE_URL}/${TARBALL}"
-          curl -fsSLo checksums.txt "${BASE_URL}/syft_${SYFT_VERSION#v}_checksums.txt"
+          curl --retry 5 --retry-delay 5 --retry-all-errors -fsSLo "$TARBALL" "${BASE_URL}/${TARBALL}"
+          curl --retry 5 --retry-delay 5 --retry-all-errors -fsSLo checksums.txt "${BASE_URL}/syft_${SYFT_VERSION#v}_checksums.txt"
 
           grep "  ${TARBALL}$" checksums.txt > checksum_line.txt
           sha256sum -c checksum_line.txt
@@ -1222,7 +1450,7 @@ jobs:
       security-events: write
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -1306,7 +1534,7 @@ jobs:
           trivyignores: '.trivyignore'
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
-          version: 'v0.76.1'
+          version: 'v0.76.2'
 
       - name: Run Trivy scan on PR image (SARIF - blocking)
         id: trivy-scan
@@ -1321,7 +1549,7 @@ jobs:
           # Keep scanning strict for CRITICAL/HIGH; fail is enforced explicitly
           # at the end so SARIF upload and summaries still run.
           exit-code: '1'
-          version: 'v0.76.1'
+          version: 'v0.76.2'
         continue-on-error: true
 
       - name: Check Trivy PR SARIF exists
@@ -1336,7 +1564,7 @@ jobs:
 
       - name: Upload Trivy scan results
         if: always() && steps.trivy-pr-check.outputs.exists == 'true'
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: 'trivy-pr-results.sarif'
           category: ${{ env.TRIVY_SARIF_CATEGORY }}

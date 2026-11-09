@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -109,39 +109,42 @@ export function RemoteTargetFormDialog({ open, target, onClose }: RemoteTargetFo
   const [gdriveFolderPath, setGdriveFolderPath] = useState(target?.config.google_drive?.folder_path ?? '')
   const [gdriveClientSecret, setGdriveClientSecret] = useState('')
 
-  useEffect(() => {
-    if (!open) return
-    setType(target?.type ?? 's3')
-    setName(target?.name ?? '')
-    setEndpoint(target?.config.endpoint ?? '')
-    setRegion(target?.config.region ?? '')
-    setBucket(target?.config.bucket ?? '')
-    setPathPrefix(target?.config.path_prefix ?? '')
-    setUseSSL(target?.config.use_ssl ?? true)
-    setForcePathStyle(target?.config.force_path_style ?? false)
-    setAccessKeyId('')
-    setSecretAccessKey('')
-    setHost(target?.config.host ?? '')
-    setPort(String(target?.config.port ?? 22))
-    setPath(target?.config.path ?? '')
-    setUsername(target?.config.username ?? '')
-    setPassword('')
-    setHostKeyFingerprint(target?.config.host_key_fingerprint ?? '')
-    setDiscoveredFingerprint(null)
-    setWebdavUrl(target?.config.webdav?.url ?? '')
-    setWebdavUsername(target?.config.webdav?.username ?? '')
-    setWebdavBasePath(target?.config.webdav?.base_path ?? '')
-    setWebdavInsecureSkipVerify(target?.config.webdav?.insecure_skip_verify ?? false)
-    setWebdavPassword('')
-    setDropboxAppKey(target?.config.dropbox?.app_key ?? '')
-    setDropboxFolderPath(target?.config.dropbox?.folder_path ?? '')
-    setDropboxAppSecret('')
-    setGdriveClientId(target?.config.google_drive?.client_id ?? '')
-    setGdriveFolderPath(target?.config.google_drive?.folder_path ?? '')
-    setGdriveClientSecret('')
-    // Only re-seed when the dialog (re)opens or targets a different record.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, target?.uuid])
+  // Re-seed the form when the dialog opens or targets a different record.
+  // Adjusting state during render replaces the former effect.
+  const [seededFor, setSeededFor] = useState({ open, uuid: target?.uuid })
+  if (seededFor.open !== open || seededFor.uuid !== target?.uuid) {
+    setSeededFor({ open, uuid: target?.uuid })
+    if (open) {
+      setType(target?.type ?? 's3')
+      setName(target?.name ?? '')
+      setEndpoint(target?.config.endpoint ?? '')
+      setRegion(target?.config.region ?? '')
+      setBucket(target?.config.bucket ?? '')
+      setPathPrefix(target?.config.path_prefix ?? '')
+      setUseSSL(target?.config.use_ssl ?? true)
+      setForcePathStyle(target?.config.force_path_style ?? false)
+      setAccessKeyId('')
+      setSecretAccessKey('')
+      setHost(target?.config.host ?? '')
+      setPort(String(target?.config.port ?? 22))
+      setPath(target?.config.path ?? '')
+      setUsername(target?.config.username ?? '')
+      setPassword('')
+      setHostKeyFingerprint(target?.config.host_key_fingerprint ?? '')
+      setDiscoveredFingerprint(null)
+      setWebdavUrl(target?.config.webdav?.url ?? '')
+      setWebdavUsername(target?.config.webdav?.username ?? '')
+      setWebdavBasePath(target?.config.webdav?.base_path ?? '')
+      setWebdavInsecureSkipVerify(target?.config.webdav?.insecure_skip_verify ?? false)
+      setWebdavPassword('')
+      setDropboxAppKey(target?.config.dropbox?.app_key ?? '')
+      setDropboxFolderPath(target?.config.dropbox?.folder_path ?? '')
+      setDropboxAppSecret('')
+      setGdriveClientId(target?.config.google_drive?.client_id ?? '')
+      setGdriveFolderPath(target?.config.google_drive?.folder_path ?? '')
+      setGdriveClientSecret('')
+    }
+  }
 
   const buildConfig = (): RemoteTargetConfig => {
     switch (type) {

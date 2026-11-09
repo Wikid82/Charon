@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -227,6 +228,22 @@ func TestRestoreRecreatesMissingDataDir(t *testing.T) {
 	entries, err := os.ReadDir(dir)
 	require.NoError(t, err)
 	require.Empty(t, entries)
+}
+
+func TestRestoreRecreatesSymlinkUnderRemovedDirectory(t *testing.T) {
+	t.Parallel()
+	dir := seedPersistentTree(t)
+	svc := NewHubService(nil, nil, dir)
+	path, err := svc.snapshot()
+	require.NoError(t, err)
+
+	require.NoError(t, os.RemoveAll(filepath.Join(dir, "config")))
+
+	require.NoError(t, svc.restore(path))
+	target, err := os.Readlink(filepath.Join(dir, "config", "link.yaml"))
+	require.NoError(t, err)
+	require.Equal(t, "../hub/x.yaml", target)
+	require.Equal(t, "original: true\n", readFile(t, filepath.Join(dir, "config", "config.yaml")))
 }
 
 func TestRestoreErrors(t *testing.T) {
@@ -545,6 +562,13 @@ func skipIfRoot(t *testing.T) {
 	}
 }
 
+func readLink(t *testing.T, path string) string {
+	t.Helper()
+	target, err := os.Readlink(path)
+	require.NoError(t, err)
+	return target
+}
+
 func TestSnapshotStatErrorRemovesPartialSnapshot(t *testing.T) {
 	t.Parallel()
 	parent := t.TempDir()
@@ -581,6 +605,192 @@ func TestEmptyDirExceptPropagatesNestedErrors(t *testing.T) {
 
 	require.Error(t, emptyDirExcept(dir, func(string) bool { return false }))
 	require.FileExists(t, filepath.Join(inner, "f.yaml"))
+}
+
+func TestEmptyDirExceptContinuesPastLockedEntry(t *testing.T) {
+	skipIfRoot(t)
+	t.Parallel()
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a-locked", "f.yaml"), "x")
+	lockDir(t, filepath.Join(dir, "a-locked"), 0o500)
+	writeFile(t, filepath.Join(dir, "b.yaml"), "b")
+	writeFile(t, filepath.Join(dir, "c.yaml"), "c")
+
+	err := emptyDirExcept(dir, func(string) bool { return false })
+	require.ErrorIs(t, err, fs.ErrPermission)
+	require.NoFileExists(t, filepath.Join(dir, "b.yaml"), "entries after a failed one are still removed")
+	require.NoFileExists(t, filepath.Join(dir, "c.yaml"))
+	require.FileExists(t, filepath.Join(dir, "a-locked", "f.yaml"))
+}
+
+func TestRestoreRestoresTheTreeAfterALockedEntry(t *testing.T) {
+	skipIfRoot(t)
+	t.Parallel()
+	entryPoints := map[string]func(snap, dir string) error{
+		"Restore": Restore,
+		"RestoreKeeping": func(snap, dir string) error {
+			return RestoreKeeping(snap, dir, IsEngineOwnedPath)
+		},
+	}
+	for name, restore := range entryPoints {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			snap := t.TempDir()
+			writeFile(t, filepath.Join(snap, "config.yaml"), "snapshot")
+			writeFile(t, filepath.Join(snap, "acquis.yaml"), "filenames: [x]")
+			dir := t.TempDir()
+			writeFile(t, filepath.Join(dir, "a-locked", "f.yaml"), "live")
+			lockDir(t, filepath.Join(dir, "a-locked"), 0o500)
+			writeFile(t, filepath.Join(dir, "config.yaml"), "changed")
+			writeFile(t, filepath.Join(dir, "stale.yaml"), "stale")
+
+			err := restore(snap, dir)
+			require.ErrorIs(t, err, fs.ErrPermission)
+			require.Equal(t, "snapshot", readFile(t, filepath.Join(dir, "config.yaml")), "the snapshot is copied back despite the failed clear")
+			require.Equal(t, "filenames: [x]", readFile(t, filepath.Join(dir, "acquis.yaml")))
+			require.NoFileExists(t, filepath.Join(dir, "stale.yaml"))
+		})
+	}
+}
+
+func TestCopyTreeContinuesPastFailedEntries(t *testing.T) {
+	t.Parallel()
+	src, dst := t.TempDir(), t.TempDir()
+	writeFile(t, filepath.Join(src, "a", "x.yaml"), "a")
+	writeFile(t, filepath.Join(src, "b.yaml"), "b")
+	writeFile(t, filepath.Join(src, "c", "y.yaml"), "c")
+	// A file where a directory must go fails the first and third entries.
+	writeFile(t, filepath.Join(dst, "a"), "blocker")
+	writeFile(t, filepath.Join(dst, "c"), "blocker")
+
+	err := copyTree(src, dst, nil)
+	require.ErrorContains(t, err, filepath.Join(dst, "a"))
+	require.ErrorContains(t, err, filepath.Join(dst, "c"))
+	require.Equal(t, "b", readFile(t, filepath.Join(dst, "b.yaml")), "entries after a failed one are still copied")
+}
+
+func TestCopyTreeKeepsSymlinkWithTheSameTarget(t *testing.T) {
+	t.Parallel()
+	src, dst := t.TempDir(), t.TempDir()
+	require.NoError(t, os.Symlink("../hub/x.yaml", filepath.Join(src, "link.yaml")))
+	require.NoError(t, os.Symlink("../hub/x.yaml", filepath.Join(dst, "link.yaml")))
+
+	require.NoError(t, copyTree(src, dst, nil))
+	require.Equal(t, "../hub/x.yaml", readLink(t, filepath.Join(dst, "link.yaml")))
+}
+
+func TestCopyTreeReplacesSymlinkWithAnotherTarget(t *testing.T) {
+	t.Parallel()
+	src, dst := t.TempDir(), t.TempDir()
+	require.NoError(t, os.Symlink("../hub/x.yaml", filepath.Join(src, "link.yaml")))
+	require.NoError(t, os.Symlink("/elsewhere", filepath.Join(dst, "link.yaml")))
+
+	require.NoError(t, copyTree(src, dst, nil))
+	require.Equal(t, "../hub/x.yaml", readLink(t, filepath.Join(dst, "link.yaml")))
+}
+
+func TestCopyTreeNeverWritesThroughALinkDestination(t *testing.T) {
+	t.Parallel()
+	src, dst, outside := t.TempDir(), t.TempDir(), t.TempDir()
+	writeFile(t, filepath.Join(src, "config.yaml"), "snapshot")
+	writeFile(t, filepath.Join(outside, "target.yaml"), "outside")
+	require.NoError(t, os.Symlink(filepath.Join(outside, "target.yaml"), filepath.Join(dst, "config.yaml")))
+
+	require.NoError(t, copyTree(src, dst, nil))
+	require.Equal(t, "outside", readFile(t, filepath.Join(outside, "target.yaml")), "the former target is untouched")
+	info, err := os.Lstat(filepath.Join(dst, "config.yaml"))
+	require.NoError(t, err)
+	require.Zero(t, info.Mode()&os.ModeSymlink, "the destination is a regular file again")
+	require.Equal(t, "snapshot", readFile(t, filepath.Join(dst, "config.yaml")))
+}
+
+func TestCopyTreeDirectoryLinkDestinationIsNotFollowed(t *testing.T) {
+	t.Parallel()
+	src, dst, outside := t.TempDir(), t.TempDir(), t.TempDir()
+	writeFile(t, filepath.Join(src, "sub", "a.yaml"), "a")
+	require.NoError(t, os.Symlink(outside, filepath.Join(dst, "sub")))
+
+	require.NoError(t, copyTree(src, dst, nil))
+	require.NoFileExists(t, filepath.Join(outside, "a.yaml"), "nothing is written into the linked directory")
+	require.Equal(t, "a", readFile(t, filepath.Join(dst, "sub", "a.yaml")))
+}
+
+// refuseRemovalUnder makes every removal below dir fail with a permission error, as a locked directory would,
+// without depending on the file modes the test runs with. The real remover is restored when the test ends. A
+// test that calls it must not run in parallel, because removeEntry is shared.
+func refuseRemovalUnder(t *testing.T, dir string) {
+	t.Helper()
+	orig := removeEntry
+	removeEntry = func(path string) error {
+		if strings.HasPrefix(path, dir+string(filepath.Separator)) {
+			return &fs.PathError{Op: "remove", Path: path, Err: fs.ErrPermission}
+		}
+		return orig(path)
+	}
+	t.Cleanup(func() { removeEntry = orig })
+}
+
+func TestEmptyDirExceptContinuesPastRefusedRemoval(t *testing.T) {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "a-locked", "f.yaml"), "x")
+	refuseRemovalUnder(t, filepath.Join(dir, "a-locked"))
+	writeFile(t, filepath.Join(dir, "b.yaml"), "b")
+	writeFile(t, filepath.Join(dir, "c.yaml"), "c")
+
+	err := emptyDirExcept(dir, func(string) bool { return false })
+	require.ErrorIs(t, err, fs.ErrPermission)
+	require.NoFileExists(t, filepath.Join(dir, "b.yaml"))
+	require.NoFileExists(t, filepath.Join(dir, "c.yaml"))
+	require.FileExists(t, filepath.Join(dir, "a-locked", "f.yaml"))
+}
+
+func TestRestoreRestoresTheTreeAfterARefusedRemoval(t *testing.T) {
+	entryPoints := map[string]func(snap, dir string) error{
+		"Restore":        Restore,
+		"RestoreKeeping": func(snap, dir string) error { return RestoreKeeping(snap, dir, IsEngineOwnedPath) },
+	}
+	for name, restore := range entryPoints {
+		t.Run(name, func(t *testing.T) {
+			snap := t.TempDir()
+			writeFile(t, filepath.Join(snap, "config.yaml"), "snapshot")
+			writeFile(t, filepath.Join(snap, "acquis.yaml"), "filenames: [x]")
+			dir := t.TempDir()
+			writeFile(t, filepath.Join(dir, "a-locked", "f.yaml"), "live")
+			refuseRemovalUnder(t, filepath.Join(dir, "a-locked"))
+			writeFile(t, filepath.Join(dir, "config.yaml"), "changed")
+			writeFile(t, filepath.Join(dir, "stale.yaml"), "stale")
+
+			err := restore(snap, dir)
+			require.ErrorIs(t, err, fs.ErrPermission)
+			require.Equal(t, "snapshot", readFile(t, filepath.Join(dir, "config.yaml")))
+			require.Equal(t, "filenames: [x]", readFile(t, filepath.Join(dir, "acquis.yaml")))
+			require.NoFileExists(t, filepath.Join(dir, "stale.yaml"))
+		})
+	}
+}
+
+func TestCopyTreeRefusesMismatchedDestinationKinds(t *testing.T) {
+	t.Parallel()
+	t.Run("directory where a file must go", func(t *testing.T) {
+		t.Parallel()
+		src, dst := t.TempDir(), t.TempDir()
+		writeFile(t, filepath.Join(src, "a.yaml"), "a")
+		writeFile(t, filepath.Join(src, "z.yaml"), "z")
+		require.NoError(t, os.MkdirAll(filepath.Join(dst, "a.yaml", "inner"), 0o700))
+
+		require.ErrorContains(t, copyTree(src, dst, nil), "create dst")
+		require.Equal(t, "z", readFile(t, filepath.Join(dst, "z.yaml")), "entries after a failed one are still copied")
+	})
+	t.Run("file where a directory must go", func(t *testing.T) {
+		t.Parallel()
+		src, dst := t.TempDir(), t.TempDir()
+		writeFile(t, filepath.Join(src, "a", "x.yaml"), "x")
+		writeFile(t, filepath.Join(src, "z.yaml"), "z")
+		writeFile(t, filepath.Join(dst, "a"), "blocker")
+
+		require.ErrorContains(t, copyTree(src, dst, nil), "mkdir")
+		require.Equal(t, "z", readFile(t, filepath.Join(dst, "z.yaml")), "entries after a failed one are still copied")
+	})
 }
 
 func TestCopyTreeFailurePaths(t *testing.T) {

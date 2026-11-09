@@ -101,8 +101,8 @@ test.describe('Account Settings', () => {
       const dialog = page.getByRole('dialog');
 
       await test.step('Password fields are hidden before toggling', async () => {
-        await expect(dialog.locator('#current-password')).not.toBeVisible();
-        await expect(dialog.locator('#new-password')).not.toBeVisible();
+        await expect(dialog.locator('#current-password')).toBeHidden();
+        await expect(dialog.locator('#new-password')).toBeHidden();
       });
 
       await test.step('Click Change Password to expand the section', async () => {

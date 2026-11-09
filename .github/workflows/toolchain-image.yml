@@ -41,16 +41,19 @@ on:
       - 'scripts/toolchain-key.sh'
       - 'scripts/verify-toolchain-pin.sh'
       - 'scripts/lib/dockerfile-stage.sh'
+      # .trivyignore is NOT a toolchain-key input (scan-time filter; the key
+      # never hashes it). It stays in these path filters only so that editing
+      # it re-runs the Trivy gate in trivy-scan against the same image digest.
       - '.trivyignore'
   # Direct pushes to development, main, or nightly (manual dep bumps outside a
   # Renovate PR, cherry-picks onto main, etc.) never go through sync-pin-on-pr,
   # which only fires on pull_request. Without this, a push that moves a
-  # toolchain-key input (Dockerfile ARG, toolchain-key.sh, .trivyignore, ...)
-  # leaves that branch's pin stale until the next 06:00 UTC schedule (which
+  # toolchain-key input (Dockerfile ARG, toolchain-key.sh, ...) leaves that
+  # branch's pin stale until the next 06:00 UTC schedule (which
   # only ever targets development) — exactly the gap that broke the N5
-  # freshness check after the bare gRPC-version push on 2026-09-17, and again
-  # after a same-day OTel .trivyignore fix was cherry-picked onto main without
-  # a corresponding pin rebuild. build-toolchain's checkout and open-bump-pr's
+  # freshness check after the bare gRPC-version push on 2026-09-17. (.trivyignore
+  # is not a key input; see the note on the pull_request paths below.)
+  # build-toolchain's checkout and open-bump-pr's
   # base/branch all key off github.ref_name, so each branch gets its own
   # correctly-computed key and its own bump PR — see those jobs' comments.
   push:
@@ -64,6 +67,8 @@ on:
       - 'scripts/toolchain-key.sh'
       - 'scripts/verify-toolchain-pin.sh'
       - 'scripts/lib/dockerfile-stage.sh'
+      # Kept for the Trivy gate re-run only; see the note on the pull_request
+      # paths. Editing .trivyignore does not change the toolchain key.
       - '.trivyignore'
   workflow_call:
     inputs:
@@ -109,7 +114,7 @@ jobs:
       same_repo: ${{ steps.trust.outputs.same_repo }}
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -315,7 +320,7 @@ jobs:
       security-events: write
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -353,7 +358,7 @@ jobs:
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
           trivyignores: '.trivyignore'
-          version: 'v0.76.1'
+          version: 'v0.76.2'
         # Report-only on PRs (the app-image Trivy gates still run downstream);
         # blocking on schedule / workflow_dispatch / workflow_call (spec §3.4.3).
         continue-on-error: ${{ github.event_name == 'pull_request' }}
@@ -367,11 +372,11 @@ jobs:
           output: 'trivy-toolchain.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
           trivyignores: '.trivyignore'
-          version: 'v0.76.1'
+          version: 'v0.76.2'
 
       - name: Upload Trivy SARIF
         if: steps.ref.outputs.scan == 'true'
-        uses: github/codeql-action/upload-sarif@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
         with:
           sarif_file: 'trivy-toolchain.sarif'
           category: '.github/workflows/toolchain-image.yml:trivy-toolchain'
@@ -422,7 +427,7 @@ jobs:
       contents: write   # GITHUB_TOKEN fallback push only; the PAT carries its own scopes
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -448,10 +453,22 @@ jobs:
           KEY: ${{ needs.build-toolchain.outputs.key }}
           DIGEST: ${{ needs.build-toolchain.outputs.digest }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          BUILT_SHA: ${{ github.event.pull_request.head.sha }}
           PUSH_TOKEN: ${{ secrets.TOOLCHAIN_BOT_TOKEN || secrets.GITHUB_TOKEN }}
           HAVE_BOT_TOKEN: ${{ secrets.TOOLCHAIN_BOT_TOKEN != '' }}
         run: |
           set -euo pipefail
+          # Stale-run guard: KEY/DIGEST were computed for BUILT_SHA, but the
+          # checkout above resolves the branch *tip*. If a newer commit landed
+          # while this run was building, the pin belongs to the old content and
+          # writing it onto the new tip would leave a stale pin that the loop
+          # guard below then refuses to repair. The newer push has its own run
+          # that will sync (or confirm) the pin, so this one stands down.
+          tip_sha="$(git rev-parse HEAD)"
+          if [[ "$tip_sha" != "$BUILT_SHA" ]]; then
+            echo "::notice::Branch tip ${tip_sha} moved past the commit this run built (${BUILT_SHA}); skipping pin sync — the run for the newer head owns it."
+            exit 0
+          fi
           cur_tag="$(grep -E '^ARG CHARON_TOOLCHAIN_TAG=' Dockerfile | cut -d= -f2)"
           cur_digest="$(grep -E '^ARG CHARON_TOOLCHAIN_DIGEST=' Dockerfile | cut -d= -f2)"
           if [[ "$cur_tag" == "$KEY" && "$cur_digest" == "$DIGEST" ]]; then
@@ -505,7 +522,7 @@ jobs:
       issues: write
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 

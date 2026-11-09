@@ -143,7 +143,7 @@ test.describe('Backups Page - Restore', () => {
       await cancelButton.click();
 
       // Dialog should close
-      await expect(dialog).not.toBeVisible();
+      await expect(dialog).toBeHidden();
 
       // Restore API should not have been called
       expect(restoreRequested).toBe(false);

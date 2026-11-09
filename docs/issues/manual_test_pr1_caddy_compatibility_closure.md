@@ -8,8 +8,8 @@
 
 1. Compatibility matrix execution and pass/fail outcomes
 2. Release guard behavior (promotion gate)
-3. Candidate build path behavior (`CADDY_USE_CANDIDATE=1`)
-4. Non-drift defaults (`CADDY_USE_CANDIDATE=0` remains default)
+3. Candidate build path behavior (`CADDY_VERSION` override)
+4. Non-drift defaults (the default `CADDY_VERSION` is unchanged)
 
 ## Out of Scope
 

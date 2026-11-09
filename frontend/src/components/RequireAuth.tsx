@@ -1,8 +1,8 @@
 import React from 'react';
 import { Navigate, useLocation } from 'react-router';
 
-import { LoadingOverlay } from './LoadingStates';
 import { useAuth } from '../hooks/useAuth';
+import { LoadingOverlay } from './LoadingStates';
 
 const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { isAuthenticated, isLoading, user } = useAuth();
@@ -17,11 +17,9 @@ const RequireAuth: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const hasToken = localStorage.getItem('charon_auth_token');
   const hasUser = user !== null;
 
-  if (!isAuthenticated || !hasToken || !hasUser) {
-    return <Navigate to="/login" state={{ from: location }} replace />;
-  }
-
-  return children;
+  return !isAuthenticated || !hasToken || !hasUser
+    ? <Navigate to="/login" state={{ from: location }} replace />
+    : children;
 };
 
 export default RequireAuth;

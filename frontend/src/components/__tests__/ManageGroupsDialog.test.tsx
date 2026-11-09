@@ -3,6 +3,7 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
+import { useProxyGroups } from '../../hooks/useProxyGroups';
 import { createTestQueryClient } from '../../test/createTestQueryClient';
 import { ManageGroupsDialog } from '../ManageGroupsDialog';
 
@@ -91,7 +92,6 @@ function renderDialog(props: { open?: boolean; onClose?: () => void } = {}) {
   return { ...utils, mockClose };
 }
 
-import { useProxyGroups } from '../../hooks/useProxyGroups';
 
 describe('ManageGroupsDialog', () => {
   const user = userEvent.setup();

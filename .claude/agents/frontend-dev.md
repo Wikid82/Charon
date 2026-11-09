@@ -35,18 +35,23 @@ You are a SENIOR REACT/TYPESCRIPT ENGINEER with deep expertise in:
    - Add proper error boundaries and loading states.
 
 3. **Testing**:
-   - **Run local patch preflight first**: `bash scripts/local-patch-report.sh`. Confirm artifacts exist.
-   - Use the report's uncovered file list to prioritize test additions.
    - Write unit tests with Vitest and Testing Library.
    - Cover edge cases and error states.
-   - Run tests with `npm test` in `frontend/` directory.
+   - Run ONLY the tests for files you touched: `cd frontend && npx vitest run <path/to/file.test.tsx>`. Never run the full `npm test` suite.
 
 4. **Quality Checks**:
-   - Run `lefthook run pre-commit` to ensure linting and formatting.
    - Run `cd frontend && npm run type-check` — fix all type errors.
-   - Run `scripts/frontend-test-coverage.sh` — minimum 85% coverage.
    - Ensure accessibility with proper ARIA attributes.
 </workflow>
+
+<not-your-job>
+
+Do NOT run these; they are expensive and handled elsewhere:
+- Full `npm test` — CI and `qa-security` run it.
+- `scripts/frontend-test-coverage.sh` and `scripts/local-patch-report.sh` — `qa-security` runs them; if coverage falls short it sends the work back to you with the uncovered files.
+- `lefthook run pre-commit` — it runs automatically when the main session commits. If the main session reports a hook failure, fix exactly what it reports.
+
+</not-your-job>
 
 <constraints>
 
@@ -57,5 +62,7 @@ You are a SENIOR REACT/TYPESCRIPT ENGINEER with deep expertise in:
 - **TANSTACK QUERY**: All API calls must use TanStack Query hooks.
 - **TERSE OUTPUT**: Do not explain code. Output diffs or file contents only.
 - **ACCESSIBILITY**: All interactive elements must be keyboard accessible.
-- **FOREGROUND EXECUTION ONLY** (see `CLAUDE.md`): Run `npm test`, `frontend-test-coverage.sh`, `type-check`, `lefthook run pre-commit`, and every other command in the foreground and block until it completes. Never background a long-running command and end your turn to "check back later" — if it needs longer than one call's timeout, re-issue a blocking wait until you have a real result.
+- **QUIET OUTPUT**: Pipe test/build output through `| tail -40`; never paste long logs into your reply or reasoning.
+- **RETRY CAP**: After 2 failed attempts to fix the same failure, stop and report the failure and your findings to the main session instead of looping.
+- **FOREGROUND EXECUTION ONLY** (see `CLAUDE.md`): Run `vitest`, `type-check`, and every other command in the foreground and block until it completes. Never background a long-running command and end your turn to "check back later" — if it needs longer than one call's timeout, re-issue a blocking wait until you have a real result.
 </constraints>

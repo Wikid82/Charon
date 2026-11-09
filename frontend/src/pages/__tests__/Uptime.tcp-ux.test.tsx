@@ -200,6 +200,19 @@ describe('CreateMonitorModal — TCP UX', () => {
     })
   })
 
+  it('shows the TCP format error when switching to TCP with a scheme already in the URL', async () => {
+    const user = await openCreateModal()
+
+    await user.type(screen.getByLabelText(/Monitor URL/), 'https://example.com')
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+
+    await user.selectOptions(screen.getByLabelText(/Monitor Type/), 'tcp')
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('host:port format')
+    })
+  })
+
   it('handleSubmit blocked when tcp:// in URL while type is TCP', async () => {
     const { createMonitor } = await import('../../api/uptime')
     const user = await openCreateModal()

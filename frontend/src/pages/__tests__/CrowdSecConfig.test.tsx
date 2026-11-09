@@ -150,7 +150,7 @@ describe('CrowdSecConfig', () => {
     const user = userEvent.setup()
     renderComponent()
 
-    await waitFor(() => screen.getByTestId('crowdsec-file-select'))
+    await screen.findByTestId('crowdsec-file-select')
 
     // Select file
     const select = screen.getByTestId('crowdsec-file-select')
@@ -190,7 +190,7 @@ describe('CrowdSecConfig', () => {
     const user = userEvent.setup()
     renderComponent()
 
-    await waitFor(() => screen.getByText('Ban IP'))
+    await screen.findByText('Ban IP')
 
     // Click Ban IP trigger (using ID we added)
     await user.click(screen.getByTestId('ban-ip-trigger'))
@@ -215,7 +215,7 @@ describe('CrowdSecConfig', () => {
     const user = userEvent.setup()
     renderComponent()
 
-    await waitFor(() => screen.getByText('1.2.3.4'))
+    await screen.findByText('1.2.3.4')
 
     const unbanBtns = screen.getAllByRole('button', { name: 'Unban' })
     expect(unbanBtns.length).toBeGreaterThan(0)
@@ -224,7 +224,7 @@ describe('CrowdSecConfig', () => {
     await user.click(unbanBtns[0])
 
     // Confirm modal
-    await waitFor(() => screen.getByText('Confirm Unban'))
+    await screen.findByText('Confirm Unban')
 
     // Click confirm in modal. Use getAllByRole to get the modal one (last one)
     const modalButtons = screen.getAllByRole('button', { name: 'Unban' })
@@ -242,7 +242,7 @@ describe('CrowdSecConfig', () => {
     // const user = userEvent.setup()
     renderComponent()
 
-    await waitFor(() => screen.getByText('Console Enrollment'))
+    await screen.findByText('Console Enrollment')
 
     // Check inputs exist
     expect(screen.getByTestId('console-enrollment-token')).toBeInTheDocument()

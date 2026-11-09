@@ -8,7 +8,8 @@
 #   * changes when the digest-pinned golang base moves
 #   * changes when the tonistiigi/xx pin moves
 #   * changes when the ALPINE_IMAGE pin moves
-#   * changes when .trivyignore changes
+#   * does NOT change when .trivyignore changes (scan-time filter, not an input)
+#   * works when no .trivyignore file exists (it is not a required input)
 #   * fails loudly if stage extraction breaks
 
 load helpers/toolchain_fixture
@@ -98,11 +99,33 @@ key_of() { bash "$TF_ROOT/scripts/toolchain-key.sh" "$TF_DF"; }
   [ "$before" = "$after" ]
 }
 
-@test "changes when .trivyignore changes" {
+@test "does NOT change when a .trivyignore entry is added" {
   before="$(key_of)"
   printf 'another-cve\n' >> "$TF_ROOT/.trivyignore"
   after="$(key_of)"
-  [ "$before" != "$after" ]
+  [ "$before" = "$after" ]
+}
+
+@test "does NOT change when a .trivyignore comment is edited" {
+  printf '# exp: 2026-01-01 original note\nsome-cve-id\n' > "$TF_ROOT/.trivyignore"
+  before="$(key_of)"
+  printf '# exp: 2027-06-01 re-verified, extended review date\nsome-cve-id\n' > "$TF_ROOT/.trivyignore"
+  after="$(key_of)"
+  [ "$before" = "$after" ]
+}
+
+@test "works when no .trivyignore file exists (not a required input)" {
+  rm -f "$TF_ROOT/.trivyignore"
+  run key_of
+  [ "$status" -eq 0 ]
+  [[ "$output" =~ ^caddy-crowdsec-[0-9a-f]{16}$ ]]
+}
+
+@test "key with and without .trivyignore is identical" {
+  with="$(key_of)"
+  rm -f "$TF_ROOT/.trivyignore"
+  without="$(key_of)"
+  [ "$with" = "$without" ]
 }
 
 @test "fails loudly when a required inline stage is missing" {

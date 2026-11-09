@@ -198,7 +198,9 @@ revert_changelog_fixture() {
 build_image() {
     log_step "BUILD" "Building Docker image: ${IMAGE_NAME}"
 
-    local build_args=("-t" "${IMAGE_NAME}" ".")
+    # VERSION=dev keeps the E2E image unversioned: the What's New E2E spec
+    # depends on the unversioned build and skips itself on versioned images.
+    local build_args=("--build-arg" "VERSION=dev" "-t" "${IMAGE_NAME}" ".")
 
     if [[ "${NO_CACHE}" == "true" ]] || [[ "${DOCKER_NO_CACHE:-false}" == "true" ]]; then
         log_info "Building with --no-cache"

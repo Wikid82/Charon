@@ -61,7 +61,7 @@ describe('useDatabaseMaintenance hooks', () => {
     const spy = vi.spyOn(queryClient, 'invalidateQueries')
     const { result } = renderHook(() => useRequestOptimize(), { wrapper })
     await act(async () => {
-      await result.current.mutateAsync().catch(() => undefined)
+      await result.current.mutateAsync().catch(() => {})
     })
     expect(spy).toHaveBeenCalledWith({ queryKey: DATABASE_STATUS_QUERY_KEY })
   })
@@ -81,11 +81,11 @@ describe('useDatabaseMaintenance hooks', () => {
   it('useMaintenanceStatus only runs when enabled', async () => {
     vi.mocked(api.getMaintenanceStatus).mockResolvedValue({ active: true, phase: 'converting', elapsed_seconds: 1 })
     const { wrapper } = setup()
-    const off = renderHook(() => useMaintenanceStatus(false), { wrapper })
-    expect(off.result.current.fetchStatus).toBe('idle')
+    const { result: off } = renderHook(() => useMaintenanceStatus(false), { wrapper })
+    expect(off.current.fetchStatus).toBe('idle')
     expect(api.getMaintenanceStatus).not.toHaveBeenCalled()
 
-    const on = renderHook(() => useMaintenanceStatus(true), { wrapper })
-    await waitFor(() => expect(on.result.current.data?.active).toBe(true))
+    const { result: on } = renderHook(() => useMaintenanceStatus(true), { wrapper })
+    await waitFor(() => expect(on.current.data?.active).toBe(true))
   })
 })

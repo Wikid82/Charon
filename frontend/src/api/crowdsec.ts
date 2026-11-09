@@ -65,6 +65,42 @@ export async function statusCrowdsec(): Promise<CrowdSecStatus> {
   return resp.data
 }
 
+/**
+ * Result of checking the bouncer registration against CrowdSec.
+ * `unknown` means the check could not get an answer, not that the bouncer is missing.
+ */
+export type BouncerRegistration = 'registered' | 'not_registered' | 'unknown'
+
+/** Bouncer key details returned by `GET /admin/crowdsec/bouncer`. */
+export interface BouncerInfo {
+  name: string
+  key_preview: string
+  key_source: 'env_var' | 'file' | 'memory' | 'none'
+  file_path: string
+  /** True only when `registration` is `registered`. */
+  registered: boolean
+  /** Absent on servers that predate the three-state check; use `registered` then. */
+  registration?: BouncerRegistration
+}
+
+/**
+ * Reads the bouncer key details and registration state.
+ * @throws {AxiosError} If the request fails
+ */
+export async function getBouncerInfo(): Promise<BouncerInfo> {
+  const resp = await client.get<BouncerInfo>('/admin/crowdsec/bouncer')
+  return resp.data
+}
+
+/**
+ * Reads the full bouncer key for copying.
+ * @throws {AxiosError} If the request fails
+ */
+export async function getBouncerKey(): Promise<string> {
+  const resp = await client.get<{ key: string; source: string }>('/admin/crowdsec/bouncer/key')
+  return resp.data.key
+}
+
 /** A CrowdSec hub item identified by its type and name. */
 export interface HubItem {
   type: string
@@ -109,6 +145,9 @@ export const IMPORT_ERROR_CODES = [
   'import_kept_profile_duplicate',
   'import_keep_current_failed',
   'import_config_not_found',
+  'import_config_not_writable',
+  'import_archive_too_large',
+  'request_too_large',
 ] as const
 
 export type CrowdsecImportErrorCode = (typeof IMPORT_ERROR_CODES)[number]
@@ -214,8 +253,7 @@ function parseOmittedHeader(raw: unknown): Pick<ExportCrowdsecResult, 'omitted' 
   if (!Array.isArray(parsed)) return { omitted: [], omittedMore: 0 }
   const entries = parsed.filter((e): e is string => typeof e === 'string')
   const more = entries.length > 0 ? OMITTED_MORE_PATTERN.exec(entries[entries.length - 1]) : null
-  if (more) return { omitted: entries.slice(0, -1), omittedMore: Number(more[1]) }
-  return { omitted: entries, omittedMore: 0 }
+  return more ? { omitted: entries.slice(0, -1), omittedMore: Number(more[1]) } : { omitted: entries, omittedMore: 0 };
 }
 
 /**
@@ -344,9 +382,15 @@ export async function unbanIP(ip: string): Promise<void> {
   await client.delete(`/admin/crowdsec/ban/${ip.split('/').map(encodeURIComponent).join('/')}`)
 }
 
-/** CrowdSec API key status information for key rejection notifications. */
+export type CrowdSecKeyCheck = 'accepted' | 'rejected' | 'unknown' | 'none'
+
+/**
+ * CrowdSec API key status information for key rejection notifications.
+ * `key_check` is the LAPI check of the current key: `none` when there is no key to check.
+ */
 export interface CrowdSecKeyStatus {
-  key_source: 'env' | 'file' | 'auto-generated' | 'none'
+  key_source: 'env' | 'file' | 'auto-generated' | 'memory' | 'none'
+  key_check: CrowdSecKeyCheck
   env_key_rejected: boolean
   full_key?: string  // Only present when env_key_rejected is true
   current_key_preview: string

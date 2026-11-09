@@ -95,7 +95,7 @@ describe('<Login />', () => {
     vi.spyOn(setupApi, 'getSetupStatus').mockResolvedValue({ setupRequired: false })
     renderWithProviders(<Login />)
 
-    await waitFor(() => screen.getByPlaceholderText(/admin@example.com/i))
+    await screen.findByPlaceholderText(/admin@example.com/i)
 
     const emailInput = screen.getByPlaceholderText(/admin@example.com/i)
     const passwordInput = screen.getByPlaceholderText(/••••••••/i)
@@ -122,7 +122,7 @@ describe('<Login />', () => {
       const postSpy = vi.spyOn(client, 'post').mockRejectedValueOnce(throttledError('42'))
       const toastSpy = vi.spyOn(toast, 'error')
       renderWithProviders(<Login />)
-      await waitFor(() => screen.getByPlaceholderText(/admin@example.com/i))
+      await screen.findByPlaceholderText(/admin@example.com/i)
 
       await submit(postSpy)
 
@@ -144,7 +144,7 @@ describe('<Login />', () => {
         .mockRejectedValueOnce(throttledError('5'))
         .mockRejectedValueOnce({ response: { data: { error: 'Bad creds' } } })
       renderWithProviders(<Login />)
-      await waitFor(() => screen.getByPlaceholderText(/admin@example.com/i))
+      await screen.findByPlaceholderText(/admin@example.com/i)
 
       await submit(postSpy)
       await screen.findByTestId('login-rate-limit-notice')
@@ -160,7 +160,7 @@ describe('<Login />', () => {
         .mockRejectedValueOnce({ response: { status: 401, data: { error: 'Bad creds' } } })
       const toastSpy = vi.spyOn(toast, 'error')
       renderWithProviders(<Login />)
-      await waitFor(() => screen.getByPlaceholderText(/admin@example.com/i))
+      await screen.findByPlaceholderText(/admin@example.com/i)
 
       await submit(postSpy)
 

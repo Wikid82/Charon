@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"testing"
 
+	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -93,7 +94,7 @@ func TestBuildCrowdSecHandler_WithHost(t *testing.T) {
 }
 
 func TestGenerateConfig_WithCrowdSec(t *testing.T) {
-	withTestBouncerKey(t)
+	keyPath := withTestBouncerKey(t)
 	// Test that CrowdSec is configured at app-level when enabled
 	hosts := []models.ProxyHost{
 		{
@@ -111,13 +112,13 @@ func TestGenerateConfig_WithCrowdSec(t *testing.T) {
 	}
 
 	// crowdsecEnabled=true should configure app-level CrowdSec
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, true, false, false, false, "", nil, nil, nil, secCfg, nil)
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, true, false, false, false, "", nil, nil, nil, secCfg, nil, WithBouncerKeyPath(keyPath))
 	require.NoError(t, err)
 	require.NotNil(t, config.Apps.HTTP)
 
 	// Check app-level CrowdSec configuration
 	require.NotNil(t, config.Apps.CrowdSec, "CrowdSec app config should be present")
-	assert.Equal(t, "http://localhost:8085", config.Apps.CrowdSec.APIUrl)
+	assert.Equal(t, crowdsec.LocalLAPIURL, config.Apps.CrowdSec.APIUrl)
 	assert.Equal(t, "60s", config.Apps.CrowdSec.TickerInterval)
 	assert.NotNil(t, config.Apps.CrowdSec.EnableStreaming)
 	assert.True(t, *config.Apps.CrowdSec.EnableStreaming)
@@ -184,4 +185,16 @@ func TestGenerateConfig_CrowdSecDisabled(t *testing.T) {
 	for _, h := range route.Handle {
 		assert.NotEqual(t, "crowdsec", h["handler"], "crowdsec handler should not be present when disabled")
 	}
+}
+
+// The proxy app always targets the local engine address, even when the stored settings row carries another one.
+func TestGenerateConfig_CrowdSecAppUsesLocalEngineAddress(t *testing.T) {
+	keyPath := withTestBouncerKey(t)
+	hosts := []models.ProxyHost{{UUID: "test-uuid", DomainNames: "example.com", ForwardHost: "app", ForwardPort: 8080, Enabled: true}}
+	secCfg := &models.SecurityConfig{CrowdSecMode: "local", CrowdSecAPIURL: "http://cs.local:9999"}
+
+	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, true, false, false, false, "", nil, nil, nil, secCfg, nil, WithBouncerKeyPath(keyPath))
+	require.NoError(t, err)
+	require.NotNil(t, config.Apps.CrowdSec)
+	assert.Equal(t, crowdsec.LocalLAPIURL, config.Apps.CrowdSec.APIUrl)
 }

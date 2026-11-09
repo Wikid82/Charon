@@ -357,9 +357,9 @@ func newLAPIHandler(t *testing.T, lapiURL string) *CrowdsecHandler {
 	t.Helper()
 	db := OpenTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.SecurityDecision{}, &models.SecurityConfig{}, &models.Setting{}))
-	require.NoError(t, db.Create(&models.SecurityConfig{UUID: "default", Name: "default", CrowdSecAPIURL: lapiURL}).Error)
+	require.NoError(t, db.Create(&models.SecurityConfig{UUID: "default", Name: "default"}).Error)
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
-	h.validateLAPIURL = url.Parse
+	h.validateLAPIURL = redirectLocalLAPI(lapiURL)
 	return h
 }
 
@@ -612,12 +612,12 @@ func TestCSCLIContract_BouncerCommands(t *testing.T) {
 
 	t.Run("registered bouncer is found in the recorded list", func(t *testing.T) {
 		t.Parallel()
-		assert.True(t, h(t, newFixtureCmdExec(t, map[string]string{list: "bouncers_list_json"})).validateBouncerKey(t.Context()))
+		assert.Equal(t, registrationRegistered, h(t, newFixtureCmdExec(t, map[string]string{list: "bouncers_list_json"})).bouncerRegistration(t.Context()))
 	})
 	t.Run("empty lists are not registered", func(t *testing.T) {
 		t.Parallel()
 		for _, name := range []string{"bouncers_list_empty_json", "bouncers_list_afterdelete_json"} {
-			assert.False(t, h(t, newFixtureCmdExec(t, map[string]string{list: name})).validateBouncerKey(t.Context()), name)
+			assert.Equal(t, registrationNotRegistered, h(t, newFixtureCmdExec(t, map[string]string{list: name})).bouncerRegistration(t.Context()), name)
 		}
 	})
 	t.Run("add prints only the key and delete output is ignored", func(t *testing.T) {
@@ -735,7 +735,7 @@ func largeOutputScript(stream string) string {
 	if stream == "stderr" {
 		redirect = " >&2"
 	}
-	return "head -c 40000000 /dev/zero" + redirect + "; fx sleep 5"
+	return "head -c 40000000 /dev/zero" + redirect + "; exec sleep 60"
 }
 
 func TestRealCommandExecutor_Execute_CombinesStreams(t *testing.T) {
@@ -766,12 +766,15 @@ func TestRealCommandExecutor_Execute_OutputLimit(t *testing.T) {
 			t.Parallel()
 			ctx, cancel := context.WithTimeout(t.Context(), 30*time.Second)
 			defer cancel()
-			start := time.Now()
 			out, err := (&RealCommandExecutor{}).Execute(ctx, "sh", "-c", largeOutputScript(stream))
 			require.Error(t, err)
 			assert.Contains(t, strings.ToLower(err.Error()), "output")
 			assert.Contains(t, strings.ToLower(err.Error()), "limit")
-			assert.Less(t, time.Since(start), 4*time.Second, "the command is killed, not waited for")
+			// ctx.Err() is the assertion that matters: CombinedOutputLimited returns ErrOutputLimit whenever the
+			// buffer overflowed, even if the context also expired (see crowdsec/cscli_exec.go:87-102). So if the
+			// executor did not kill the command, the sleeper outlives the 30s context and ctx.Err() is
+			// DeadlineExceeded, failing the test without a wall-clock bound.
+			require.NoError(t, ctx.Err(), "the command must be killed by the output limit, not by the context deadline")
 			assert.Less(t, len(out), 40_000_000, "the output kept is bounded")
 		})
 	}
@@ -834,9 +837,9 @@ func TestCSCLIContract_ListingsTolerateProgressLines(t *testing.T) {
 	t.Run("bouncers list", func(t *testing.T) {
 		t.Parallel()
 		out := append([]byte(progress), cscliFixture(t, "bouncers_list_json")...)
-		assert.True(t, h(t, out).validateBouncerKey(t.Context()))
+		assert.Equal(t, registrationRegistered, h(t, out).bouncerRegistration(t.Context()))
 		empty := append([]byte(progress), cscliFixture(t, "bouncers_list_empty_json")...)
-		assert.False(t, h(t, empty).validateBouncerKey(t.Context()))
+		assert.Equal(t, registrationNotRegistered, h(t, empty).bouncerRegistration(t.Context()))
 	})
 	t.Run("alerts list", func(t *testing.T) {
 		t.Parallel()

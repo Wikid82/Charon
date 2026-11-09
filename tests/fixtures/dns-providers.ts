@@ -220,7 +220,7 @@ export function generateDnsProvider(
   const providerType = overrides.provider_type || 'manual';
 
   // Generate type-specific credentials
-  let credentials: Record<string, string> = {};
+  let credentials: Record<string, string>;
   switch (providerType) {
     case 'cloudflare':
       credentials = { api_token: `test-token-${uniqueId}` };

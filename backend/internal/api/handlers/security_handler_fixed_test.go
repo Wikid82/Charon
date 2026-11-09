@@ -10,6 +10,7 @@ import (
 	"github.com/stretchr/testify/assert"
 
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/crowdsec"
 )
 
 func TestSecurityHandler_GetStatus_Fixed(t *testing.T) {
@@ -33,7 +34,7 @@ func TestSecurityHandler_GetStatus_Fixed(t *testing.T) {
 				"cerberus": map[string]any{"enabled": false},
 				"crowdsec": map[string]any{
 					"mode":    "disabled",
-					"api_url": "",
+					"api_url": crowdsec.LocalLAPIURL,
 					"enabled": false,
 				},
 				"waf": map[string]any{
@@ -68,7 +69,7 @@ func TestSecurityHandler_GetStatus_Fixed(t *testing.T) {
 				"cerberus": map[string]any{"enabled": true},
 				"crowdsec": map[string]any{
 					"mode":    "local",
-					"api_url": "",
+					"api_url": crowdsec.LocalLAPIURL,
 					"enabled": true,
 				},
 				"waf": map[string]any{

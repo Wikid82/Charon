@@ -25,7 +25,6 @@ import {
 /**
  * DNS Provider types supported by the system
  */
-type DNSProviderType = 'manual' | 'cloudflare' | 'route53' | 'webhook' | 'rfc2136';
 
 async function getAuthToken(page: import('@playwright/test').Page): Promise<string> {
   const storageState = await page.request.storageState();
@@ -44,6 +43,7 @@ async function getAuthToken(page: import('@playwright/test').Page): Promise<stri
           return parsed.token;
         }
       } catch {
+        // Malformed auth storage: fall through to the next token source.
       }
     }
 

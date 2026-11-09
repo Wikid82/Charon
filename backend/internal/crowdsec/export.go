@@ -22,6 +22,12 @@ const (
 	MaxImportCompressedBytes   int64   = 50 << 20
 	MaxImportUncompressedBytes int64   = 500 << 20
 	MaxImportCompressionRatio  float64 = 100
+	// MaxImportEntries bounds the tar entries of an archive, directories and links included.
+	MaxImportEntries = 20000
+	// MaxImportEntryOverhead and MaxImportOverheadBase allow for tar headers and padding on top of the
+	// content limits: each entry may add MaxImportEntryOverhead bytes and the archive MaxImportOverheadBase.
+	MaxImportEntryOverhead int64 = 1 << 10
+	MaxImportOverheadBase  int64 = 1 << 20
 )
 
 var (
@@ -42,6 +48,7 @@ var (
 type exportHooks struct {
 	beforeOpen    func(path string)
 	maxCompressed int64 // zero means MaxImportCompressedBytes
+	maxEntries    int   // zero means MaxImportEntries
 }
 
 // limitWriter forwards to w and fails with ErrExportTooLarge once more than limit bytes have been
@@ -59,6 +66,23 @@ func (l *limitWriter) Write(p []byte) (int, error) {
 	n, err := l.w.Write(p)
 	l.written += int64(n)
 	return n, err
+}
+
+// exportTar writes the entries of an export and counts them against the import entry limit, so an export the
+// import would refuse is refused while it is written. Every tar header goes through WriteHeader.
+type exportTar struct {
+	*tar.Writer
+	entries    int
+	maxEntries int
+}
+
+// WriteHeader counts the entry before it is written; the entry that would pass the limit is refused.
+func (t *exportTar) WriteHeader(hdr *tar.Header) error {
+	if t.entries >= t.maxEntries {
+		return ErrExportTooLarge
+	}
+	t.entries++
+	return t.Writer.WriteHeader(hdr)
 }
 
 // CheckExportImportable verifies that an archive of the given compressed and uncompressed size passes
@@ -99,14 +123,20 @@ func writeExportArchive(ctx context.Context, dataDir string, w io.Writer, maxByt
 	if maxCompressed <= 0 {
 		maxCompressed = MaxImportCompressedBytes
 	}
+	maxEntries := hooks.maxEntries
+	if maxEntries <= 0 {
+		maxEntries = MaxImportEntries
+	}
 	gw := gzip.NewWriter(&limitWriter{w: w, limit: maxCompressed})
-	tw := tar.NewWriter(gw)
+	tw := &exportTar{Writer: tar.NewWriter(gw), maxEntries: maxEntries}
 	dirs := treeNotificationDirs(dataDir)
 	keyTargets, err := keyPathTargets(ctx, dataDir, dataDir, dirs)
 	if err != nil {
 		return 0, nil, err
 	}
 
+	// Non-regular entries are counted and summarised once after the walk, not warned about one by one.
+	skippedNonRegular := 0
 	walkErr := filepath.WalkDir(dataDir, func(path string, d fs.DirEntry, err error) error {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return ctxErr
@@ -133,7 +163,8 @@ func writeExportArchive(ctx context.Context, dataDir string, w io.Writer, maxByt
 			return nil
 		}
 		if !d.Type().IsRegular() {
-			logger.Log().Warnf("skipping non-regular entry %s during export", util.SanitizeForLog(rel))
+			skippedNonRegular++
+			logger.Log().Debugf("skipping non-regular entry %s during export", util.SanitizeForLog(rel))
 			return nil
 		}
 		slash := filepath.ToSlash(rel)
@@ -151,6 +182,9 @@ func writeExportArchive(ctx context.Context, dataDir string, w io.Writer, maxByt
 	})
 	if walkErr != nil {
 		return total, nil, fmt.Errorf("export walk: %w", walkErr)
+	}
+	if skippedNonRegular > 0 {
+		logger.Log().Infof("skipped %d non-regular export entries (symlinks, pipes, sockets, devices)", skippedNonRegular)
 	}
 	n, manifestErr := writeHubManifest(tw, dataDir, total, maxBytes)
 	total += n
@@ -186,7 +220,7 @@ func handleExportWalkError(path string, d fs.DirEntry, err error) error {
 
 // addExportFile copies one regular file into tw and returns the bytes it contributed. Files that are
 // notification settings (IsNotificationFile) are rewritten by addRedactedExportFile, or left out.
-func addExportFile(tw *tar.Writer, dataDir, rel string, total, maxBytes int64, dirs []string, hooks exportHooks) (int64, error) {
+func addExportFile(tw *exportTar, dataDir, rel string, total, maxBytes int64, dirs []string, hooks exportHooks) (int64, error) {
 	slash := filepath.ToSlash(rel)
 	kind := IsNotificationFile(slash, nil, dirs)
 	if kind == InDirOther {
@@ -282,7 +316,7 @@ func openExportFile(dataDir, rel string, hooks exportHooks) (*os.File, os.FileIn
 }
 
 // copyExportFile streams the opened file into tw byte for byte.
-func copyExportFile(tw *tar.Writer, f *os.File, info os.FileInfo, rel string) (int64, error) {
+func copyExportFile(tw *exportTar, f *os.File, info os.FileInfo, rel string) (int64, error) {
 	if err := tw.WriteHeader(exportHeader(rel, info, info.Size())); err != nil {
 		return 0, fmt.Errorf("write tar header: %w", err)
 	}
@@ -320,7 +354,7 @@ func exportHeader(rel string, info os.FileInfo, size int64) *tar.Header {
 }
 
 // writeExportEntry writes data as the content of one archive entry and returns its length.
-func writeExportEntry(tw *tar.Writer, rel string, info os.FileInfo, data []byte) (int64, error) {
+func writeExportEntry(tw *exportTar, rel string, info os.FileInfo, data []byte) (int64, error) {
 	if err := tw.WriteHeader(exportHeader(rel, info, int64(len(data)))); err != nil {
 		return 0, fmt.Errorf("write tar header: %w", err)
 	}
@@ -334,7 +368,7 @@ func writeExportEntry(tw *tar.Writer, rel string, info os.FileInfo, data []byte)
 // cannot be rewritten safely (too large, unparsable, anything RedactNotificationFile refuses) is
 // exported as an empty stub instead; the original bytes never reach the archive. The entry size and the
 // running total use the length of what is written.
-func addRedactedExportFile(tw *tar.Writer, f *os.File, info os.FileInfo, rel string, kind NotificationFileKind, dirs []string, total, maxBytes int64) (int64, error) {
+func addRedactedExportFile(tw *exportTar, f *os.File, info os.FileInfo, rel string, kind NotificationFileKind, dirs []string, total, maxBytes int64) (int64, error) {
 	var out []byte
 	if info.Size() > maxInspectEntryBytes {
 		out = []byte(RedactStubContent)
@@ -379,7 +413,7 @@ func readStableExportFile(f *os.File, info os.FileInfo, rel string) ([]byte, err
 // file without credentials is written as it is. A file that cannot be redacted safely is never exported as
 // written and is not left out either, since an archive without it could not be imported: the export fails
 // with ErrExportConfigUnsafe.
-func addConfigExportFile(tw *tar.Writer, f *os.File, info os.FileInfo, rel string, total, maxBytes int64) (int64, error) {
+func addConfigExportFile(tw *exportTar, f *os.File, info os.FileInfo, rel string, total, maxBytes int64) (int64, error) {
 	if info.Size() > maxInspectEntryBytes {
 		return 0, unsafeConfig(rel)
 	}

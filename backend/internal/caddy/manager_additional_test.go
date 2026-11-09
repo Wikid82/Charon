@@ -613,7 +613,7 @@ func TestManager_ApplyConfig_PassesRuleSetsToGenerateConfig(t *testing.T) {
 	db.Create(&h)
 
 	// Insert ruleset
-	rs := models.SecurityRuleSet{Name: "owasp-crs", Content: "rules"}
+	rs := models.SecurityRuleSet{Name: "owasp-crs", Content: testRuleSetContent}
 	assert.NoError(t, db.Create(&rs).Error)
 
 	// Insert SecurityConfig with WAF enabled and rulesource set
@@ -664,7 +664,7 @@ func TestManager_ApplyConfig_IncludesWAFHandlerWithRuleset(t *testing.T) {
 	db.Create(&h)
 
 	// Insert ruleset
-	rs := models.SecurityRuleSet{Name: "owasp-crs", Content: "test-rule-content"}
+	rs := models.SecurityRuleSet{Name: "owasp-crs", Content: "SecRule ARGS \"test-rule-content\" \"id:1,phase:1,deny\""}
 	assert.NoError(t, db.Create(&rs).Error)
 
 	// Insert SecurityConfig with WAF enabled and rulesource set
@@ -765,7 +765,7 @@ func TestManager_ApplyConfig_RulesetWriteFileFailure(t *testing.T) {
 	// Create host and ruleset
 	h := models.ProxyHost{DomainNames: "rulesetw.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
 	db.Create(&h)
-	rs := models.SecurityRuleSet{Name: "owasp-crs", Content: "test-rule-content"}
+	rs := models.SecurityRuleSet{Name: "owasp-crs", Content: "SecRule ARGS \"test-rule-content\" \"id:1,phase:1,deny\""}
 	assert.NoError(t, db.Create(&rs).Error)
 	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "owasp-crs"}
 	assert.NoError(t, db.Create(&sec).Error)
@@ -825,7 +825,7 @@ func TestManager_ApplyConfig_RulesetDirMkdirFailure(t *testing.T) {
 	// Create host and ruleset
 	h := models.ProxyHost{DomainNames: "rulesetm.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}
 	db.Create(&h)
-	rs := models.SecurityRuleSet{Name: "owasp-crs", Content: "test-rule-content"}
+	rs := models.SecurityRuleSet{Name: "owasp-crs", Content: "SecRule ARGS \"test-rule-content\" \"id:1,phase:1,deny\""}
 	assert.NoError(t, db.Create(&rs).Error)
 	sec := models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "10.0.0.1/32", WAFMode: "block", WAFRulesSource: "owasp-crs"}
 	assert.NoError(t, db.Create(&sec).Error)
@@ -978,8 +978,8 @@ func TestManager_ApplyConfig_ReappliesOnFlagChange(t *testing.T) {
 	}
 	assert.True(t, found, "ACL handler must be present when ACL enabled via DB")
 
-	// Enable CrowdSec via DB runtime setting (switch from disabled to local)
-	assert.NoError(t, db.Create(&models.Setting{Key: "security.crowdsec.mode", Value: "local"}).Error)
+	// Enable CrowdSec via the DB enabled setting (switch from disabled to on)
+	assert.NoError(t, db.Create(&models.Setting{Key: models.CrowdSecEnabledSettingKey, Value: "true"}).Error)
 	// Next ApplyConfig - CrowdSec enabled
 	assert.NoError(t, manager.ApplyConfig(context.Background()))
 	var body3 []byte

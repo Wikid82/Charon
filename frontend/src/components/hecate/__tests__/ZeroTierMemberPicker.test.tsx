@@ -1,8 +1,9 @@
-import { render, screen, waitFor } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+import { listZeroTierNetworks, listZeroTierMembers } from '../../../api/hecate'
 import { ZeroTierMemberPicker } from '../ZeroTierMemberPicker'
 
 vi.mock('../../../api/hecate', () => ({
@@ -10,7 +11,6 @@ vi.mock('../../../api/hecate', () => ({
   listZeroTierMembers: vi.fn(),
 }))
 
-import { listZeroTierNetworks, listZeroTierMembers } from '../../../api/hecate'
 
 const mockNetworks = [
   { id: 'net-1', name: 'Home Network', description: '', private: true, total_member_count: 3 },

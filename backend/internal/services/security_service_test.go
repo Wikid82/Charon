@@ -113,14 +113,14 @@ func TestSecurityService_UpsertRuleSet(t *testing.T) {
 	svc := newTestSecurityService(t, db)
 
 	// Test creating new ruleset
-	rs := &models.SecurityRuleSet{Name: "owasp-crs", SourceURL: "https://example.com/owasp.rules", Mode: "owasp", Content: "rule: 1"}
+	rs := &models.SecurityRuleSet{Name: "owasp-crs", SourceURL: "https://example.com/owasp.rules", Mode: "owasp", Content: testRuleSetContent}
 	err := svc.UpsertRuleSet(rs)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, rs.UUID)
 	assert.False(t, rs.LastUpdated.IsZero())
 
 	// Test updating existing ruleset
-	rs.Content = "rule: 2"
+	rs.Content = "SecRule ARGS \"@contains test\" \"id:2,phase:1,deny\""
 	rs.Mode = "updated"
 	err = svc.UpsertRuleSet(rs)
 	assert.NoError(t, err)
@@ -129,7 +129,7 @@ func TestSecurityService_UpsertRuleSet(t *testing.T) {
 	assert.NoError(t, err)
 	assert.GreaterOrEqual(t, len(list), 1)
 	assert.Equal(t, "owasp-crs", list[0].Name)
-	assert.Equal(t, "rule: 2", list[0].Content)
+	assert.Equal(t, rs.Content, list[0].Content)
 	assert.Equal(t, "updated", list[0].Mode)
 
 	// Test nil ruleset
@@ -137,7 +137,7 @@ func TestSecurityService_UpsertRuleSet(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Test ruleset without name
-	invalidRuleset := &models.SecurityRuleSet{Content: "test"}
+	invalidRuleset := &models.SecurityRuleSet{Content: testRuleSetContent}
 	err = svc.UpsertRuleSet(invalidRuleset)
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "name required")
@@ -148,7 +148,7 @@ func TestSecurityService_UpsertRuleSet_ContentTooLarge(t *testing.T) {
 	svc := newTestSecurityService(t, db)
 
 	// Create a string slightly larger than 2MB
-	large := strings.Repeat("x", 2*1024*1024+1)
+	large := "SecRule ARGS x id:1,deny\n" + strings.Repeat("x", 2*1024*1024+1)
 	rs := &models.SecurityRuleSet{Name: "big-crs", Content: large}
 	err := svc.UpsertRuleSet(rs)
 	assert.Error(t, err)
@@ -158,7 +158,7 @@ func TestSecurityService_DeleteRuleSet(t *testing.T) {
 	db := setupSecurityTestDB(t)
 	svc := newTestSecurityService(t, db)
 
-	rs := &models.SecurityRuleSet{Name: "owasp-crs", Content: "rule: 1"}
+	rs := &models.SecurityRuleSet{Name: "owasp-crs", Content: testRuleSetContent}
 	err := svc.UpsertRuleSet(rs)
 	assert.NoError(t, err)
 
@@ -1029,7 +1029,7 @@ func TestSecurityService_ListRuleSets_EdgeCases(t *testing.T) {
 		for i := 0; i < 5; i++ {
 			rs := &models.SecurityRuleSet{
 				Name:    fmt.Sprintf("ruleset-%d", i),
-				Content: "rule",
+				Content: testRuleSetContent,
 			}
 			assert.NoError(t, svc.UpsertRuleSet(rs))
 		}

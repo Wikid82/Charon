@@ -105,6 +105,11 @@
   "proxyHosts": {
     "title": "Proxy-Hosts",
     "description": "Verwalten Sie Ihre Reverse-Proxy-Konfigurationen",
+    "source": {
+      "local": "Lokal (Docker-Socket)",
+      "localUnavailable": "nicht verfügbar",
+      "localUnavailableHint": "Der lokale Docker-Socket ist für Charon nicht verfügbar. Verwenden Sie stattdessen einen Orthrus-Agenten (siehe Hecate → Agent)."
+    },
     "addHost": "Proxy-Host hinzufügen",
     "editHost": "Proxy-Host bearbeiten",
     "deleteHost": "Proxy-Host löschen",
@@ -421,8 +426,10 @@
       "noKeyConfigured": "Kein Bouncer-Schlüssel konfiguriert. Aktivieren Sie CrowdSec für die automatische Registrierung.",
       "registered": "Registriert",
       "notRegistered": "Nicht registriert",
+      "registrationUnknown": "Status unknown",
       "sourceEnvVar": "Aus Umgebungsvariable",
       "sourceFile": "Aus Datei",
+      "keyHeldInMemory": "Im Speicher gehalten, bis die Schlüsseldatei geschrieben werden kann",
       "keyStoredAt": "Schlüssel gespeichert unter",
       "keyWarning": {
         "title": "CrowdSec API-Schlüssel aktualisiert",
@@ -594,7 +601,8 @@
       "waf": {
         "no_ruleset": "Die WAF ist aktiv, aber es ist keine Regelsammlung verfügbar, um Anfragen zu prüfen. Lege auf der WAF-Seite eine Regelsammlung an.",
         "ruleset_not_selected": "Die WAF ist aktiv, aber es gibt mehrere Regelsammlungen und keine ist ausgewählt. Wähle die Regelsammlung auf der WAF-Seite aus.",
-        "ruleset_unavailable": "Die WAF ist aktiv, aber die ausgewählte Regelsammlung konnte nicht geladen werden. Prüfe sie auf der WAF-Seite."
+        "ruleset_unavailable": "Die WAF ist aktiv, aber die ausgewählte Regelsammlung konnte nicht geladen werden. Prüfe sie auf der WAF-Seite.",
+        "ruleset_empty": "Die ausgewählte Regelsammlung enthält keine Regeln und schützt daher noch nichts. Füge ihr Regeln hinzu oder wähle eine andere."
       },
       "rate_limit": {
         "thresholds_unset": "Die Ratenbegrenzung ist aktiv, aber es sind noch keine Grenzwerte festgelegt. Lege Anfragen und Zeitfenster auf der Seite Ratenbegrenzung fest."
@@ -680,7 +688,7 @@
     "blockingDescription": "Bösartige Anfragen werden mit HTTP 403 blockiert",
     "detectionDescription": "Bösartige Anfragen werden protokolliert, aber nicht blockiert",
     "sourceUrl": "Quell-URL (optional)",
-    "sourceUrlHelper": "URL zum Abrufen von Regeln. Leer lassen, um Inline-Inhalte zu verwenden.",
+    "sourceUrlHelper": "Optional. Die Adresse wird nur zur Information gespeichert und nicht heruntergeladen.",
     "ruleContent": "Regelinhalt",
     "ruleContentHelper": "ModSecurity/Coraza-Regelsyntax. Jede SecRule sollte in einer eigenen Zeile stehen.",
     "source": "Quelle",
@@ -712,7 +720,8 @@
     "errors": {
       "waf_rules_source_unknown": "Diese Regelsammlung existiert nicht. Wähle eine aus der Liste.",
       "waf_ruleset_in_use": "Diese Regelsammlung wird von der WAF verwendet. Wähle zuerst eine andere Regelsammlung.",
-      "invalid_waf_mode": "Der WAF-Modus ist ungültig. Lade die Seite neu und versuche es erneut."
+      "invalid_waf_mode": "Der WAF-Modus ist ungültig. Lade die Seite neu und versuche es erneut.",
+      "ruleset_empty": "Eine Regelsammlung braucht mindestens eine Regel. Füge eine SecRule-Zeile hinzu."
     },
     "detectionMode": "Regelsätze ohne eigenen Modus protokollieren passende Anfragen nur, solange der gespeicherte WAF-Modus Erkennung ist. Ein Regelsatz mit Modus Blockieren blockiert passende Anfragen."
   },
@@ -1357,8 +1366,6 @@
     "general": {
       "title": "Allgemeine Konfiguration",
       "description": "Konfigurieren Sie Caddy und UI-Einstellungen.",
-      "caddyAdminApi": "Caddy Admin API Endpunkt",
-      "caddyAdminApiHelper": "URL zur Caddy Admin API (normalerweise auf Port 2019)",
       "sslProvider": "SSL-Anbieter",
       "selectSslProvider": "SSL-Anbieter auswählen",
       "sslAuto": "Auto (Empfohlen)",
@@ -1558,6 +1565,9 @@
     "importErrorKeptProfileDuplicate": "Das Archiv enthält keine profiles.yaml, daher wurde die aktuelle beibehalten, aber eine dafür benötigte Benachrichtigungsdatei definiert einen Namen, den das Archiv bereits definiert.",
     "importErrorKeepCurrentFailed": "Die aktuellen CrowdSec-Dateien konnten nicht beibehalten werden, daher wurde der Import abgebrochen. Details finden Sie in den Server-Logs.",
     "importErrorConfigNotFound": "config.yaml wurde weder auf oberster Ebene noch im Ordner config/ des Archivs gefunden.",
+    "importErrorNotWritable": "Charon kann den Ordner der CrowdSec-Konfiguration nicht ändern. Prüfe, ob der Charon-Benutzer ihn besitzt und darin schreiben darf, und ob er nicht schreibgeschützt eingebunden ist.",
+    "importErrorArchiveTooLarge": "Das Archiv ist größer als das Importlimit. Es wurde nichts geändert.",
+    "importErrorRequestTooLarge": "Die Datei ist zu groß für den Import.",
     "exportPrompt": "Name für das CrowdSec-Exportarchiv",
     "title": "CrowdSec-Konfiguration",
     "checkNow": "Jetzt prüfen",
@@ -2312,6 +2322,15 @@
         "tarball": "Tarball",
         "kubernetes": "Kubernetes",
         "homebrew": "Homebrew"
+      },
+      "dockerGid": {
+        "title": "Replace <DOCKER_GID> with your Docker group ID",
+        "instructions": "Run this command on your server. It prints a number, which replaces <DOCKER_GID> in the commands below.",
+        "copyCommand": "Copy command",
+        "macHint": "On macOS, use this command instead: stat -f %g /var/run/docker.sock",
+        "noteComposeSystemd": "Set PGID to that number. The agent will refuse to start if <DOCKER_GID> is left in place.",
+        "noteTarballHomebrew": "Replace <DOCKER_GID> with that number and keep sudo in front of the command. Without sudo, PUID and PGID are ignored, so your user must be in the docker group instead.",
+        "noteKubernetes": "Replace <DOCKER_GID> in supplementalGroups with that number. Kubernetes does not use PUID or PGID."
       }
     },
     "tailscale": {
@@ -2476,9 +2495,9 @@
   },
   "whatsNew": {
     "title": "Neuigkeiten",
-    "newFeatures": "✨ Neue Funktionen",
-    "fixes": "🐛 Fehlerbehebungen",
-    "security": "🔒 Sicherheit",
+    "newFeatures": "Neue Funktionen",
+    "fixes": "Fehlerbehebungen",
+    "security": "Sicherheit",
     "viewCommit": "Commit ansehen",
     "showMaintenanceDetails": "Wartungsdetails anzeigen",
     "remindLater": "Später erinnern",

@@ -105,6 +105,36 @@ describe('ImportSuccessModal', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it('exposes the summary as a modal dialog named by its heading', () => {
+    render(<ImportSuccessModal {...defaultProps} />)
+
+    expect(screen.getByRole('dialog', { name: 'Import Completed' })).toHaveAttribute('aria-modal', 'true')
+  })
+
+  it('moves focus into the dialog on open', () => {
+    render(<ImportSuccessModal {...defaultProps} />)
+
+    expect(screen.getByRole('dialog', { name: 'Import Completed' })).toHaveFocus()
+  })
+
+  it('calls onClose when Escape is pressed inside the dialog', () => {
+    const onClose = vi.fn()
+    render(<ImportSuccessModal {...defaultProps} onClose={onClose} />)
+
+    fireEvent.keyDown(screen.getByRole('dialog', { name: 'Import Completed' }), { key: 'Escape' })
+
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
+  it('ignores non-Escape keys', () => {
+    const onClose = vi.fn()
+    render(<ImportSuccessModal {...defaultProps} onClose={onClose} />)
+
+    fireEvent.keyDown(screen.getByRole('dialog', { name: 'Import Completed' }), { key: 'Enter' })
+
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
   it('does not render when visible is false', () => {
     render(<ImportSuccessModal {...defaultProps} visible={false} />)
 

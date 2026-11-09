@@ -197,7 +197,7 @@ async function restoreAuthFromStorageState(page: Page): Promise<boolean> {
         localStorage.setItem('charon_auth_token', authToken);
       }, token);
       await page.reload({ waitUntil: 'domcontentloaded' });
-      await page.waitForLoadState('networkidle').catch(() => {});
+      await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 }).catch(() => {});
     }
 
     return true;
@@ -399,7 +399,7 @@ export async function ensureAuthenticatedImportFormReady(page: Page, adminUser?:
               localStorage.setItem('charon_auth_token', token);
             }, adminUser.token);
             await page.reload({ waitUntil: 'domcontentloaded' });
-            await page.waitForLoadState('networkidle').catch(() => {});
+            await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 }).catch(() => {});
             await page.goto(IMPORT_PAGE_PATH, { waitUntil: 'domcontentloaded' });
           });
         }
@@ -424,7 +424,7 @@ export async function ensureAuthenticatedImportFormReady(page: Page, adminUser?:
         return true;
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
-        throw new Error(`Import auth recovery failed after one re-auth attempt: ${message}`);
+        throw new Error(`Import auth recovery failed after one re-auth attempt: ${message}`, { cause: error });
       }
     });
   };

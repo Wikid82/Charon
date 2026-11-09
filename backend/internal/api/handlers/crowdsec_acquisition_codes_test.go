@@ -161,11 +161,11 @@ func TestAcquisitionWriteFailureClassification(t *testing.T) {
 	}
 }
 
-// TestAcquisitionAccessErrorIsPermissionOnly pins that only permission and read-only errors are coded; a wrapped
+// TestIsAccessErrorIsPermissionOnly pins that only permission and read-only errors are coded; a wrapped
 // sentinel alone is not a permission problem.
-func TestAcquisitionAccessErrorIsPermissionOnly(t *testing.T) {
-	require.True(t, acquisitionAccessError(fmt.Errorf("x: %w", fs.ErrPermission)))
-	require.True(t, acquisitionAccessError(fmt.Errorf("x: %w", syscall.EROFS)))
-	require.False(t, acquisitionAccessError(fmt.Errorf("x: %w", errAcquisitionRead)))
-	require.False(t, acquisitionAccessError(fmt.Errorf("x: %w", syscall.EIO)))
+func TestIsAccessErrorIsPermissionOnly(t *testing.T) {
+	require.True(t, isAccessError(fmt.Errorf("x: %w", fs.ErrPermission)))
+	require.True(t, isAccessError(fmt.Errorf("x: %w", syscall.EROFS)))
+	require.False(t, isAccessError(fmt.Errorf("x: %w", errAcquisitionRead)))
+	require.False(t, isAccessError(fmt.Errorf("x: %w", syscall.EIO)))
 }

@@ -1,5 +1,5 @@
 import { Shield, Plus, Pencil, Trash2, ExternalLink, FileCode2, Sparkles } from 'lucide-react'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { ConfigReloadOverlay } from '../components/LoadingStates'
@@ -23,14 +23,7 @@ import type { SecurityRuleSet, UpsertRuleSetPayload } from '../api/security'
  */
 const WAF_PRESETS = [
   {
-    name: 'OWASP Core Rule Set',
-    url: 'https://github.com/coreruleset/coreruleset/archive/refs/tags/v3.3.5.tar.gz',
-    content: '',
-    description: 'Industry standard protection against OWASP Top 10 vulnerabilities.',
-  },
-  {
     name: 'Basic SQL Injection Protection',
-    url: '',
     content: `SecRule ARGS "@detectSQLi" "id:1001,phase:1,deny,status:403,msg:'SQLi Detected'"
 SecRule REQUEST_BODY "@detectSQLi" "id:1002,phase:2,deny,status:403,msg:'SQLi in Body'"
 SecRule REQUEST_COOKIES "@detectSQLi" "id:1003,phase:1,deny,status:403,msg:'SQLi in Cookies'"`,
@@ -38,14 +31,12 @@ SecRule REQUEST_COOKIES "@detectSQLi" "id:1003,phase:1,deny,status:403,msg:'SQLi
   },
   {
     name: 'Basic XSS Protection',
-    url: '',
     content: `SecRule ARGS "@detectXSS" "id:2001,phase:1,deny,status:403,msg:'XSS Detected'"
 SecRule REQUEST_BODY "@detectXSS" "id:2002,phase:2,deny,status:403,msg:'XSS in Body'"`,
     description: 'Rules to block common Cross-Site Scripting (XSS) attacks.',
   },
   {
     name: 'Common Bad Bots',
-    url: '',
     content: `SecRule REQUEST_HEADERS:User-Agent "@rx (?i)(curl|curl|python|scrapy|httpclient|libwww|nikto|sqlmap)" "id:3001,phase:1,deny,status:403,msg:'Bad Bot Detected'"
 SecRule REQUEST_HEADERS:User-Agent "@streq -" "id:3002,phase:1,deny,status:403,msg:'Empty User-Agent'"`,
     description: 'Block known malicious bots and scanners.',
@@ -76,22 +67,38 @@ function ConfirmDialog({
   isLoading?: boolean
   deletingLabel: string
 }) {
+  const cancelButtonRef = useRef<HTMLButtonElement>(null)
+
+  // Focus the safe default (Cancel) on open so Escape and Enter work immediately.
+  useEffect(() => {
+    if (isOpen) cancelButtonRef.current?.focus()
+  }, [isOpen])
+
   if (!isOpen) return null
 
   return (
     <div
       className="fixed inset-0 bg-black/50 flex items-center justify-center z-50"
-      onClick={onCancel}
+      role="presentation"
+      onClick={(e) => {
+        // Only clicks on the backdrop itself close the dialog.
+        if (e.target === e.currentTarget) onCancel()
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Escape') onCancel()
+      }}
       data-testid="confirm-dialog-backdrop"
     >
       <div
         className="bg-dark-card border border-gray-800 rounded-lg p-6 max-w-md w-full mx-4"
-        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="waf-confirm-dialog-title"
       >
-        <h2 className="text-xl font-bold text-white mb-2">{title}</h2>
+        <h2 id="waf-confirm-dialog-title" className="text-xl font-bold text-white mb-2">{title}</h2>
         <p className="text-gray-400 mb-6">{message}</p>
         <div className="flex justify-end gap-2">
-          <Button variant="secondary" onClick={onCancel} disabled={isLoading}>
+          <Button ref={cancelButtonRef} variant="secondary" onClick={onCancel} disabled={isLoading}>
             {cancelLabel}
           </Button>
           <Button
@@ -139,7 +146,6 @@ function RuleSetForm({
     const preset = WAF_PRESETS.find((p) => p.name === presetName)
     if (preset) {
       setName(preset.name)
-      setSourceUrl(preset.url)
       setContent(preset.content)
     }
   }
@@ -154,7 +160,8 @@ function RuleSetForm({
     })
   }
 
-  const isValid = name.trim().length > 0 && (content.trim().length > 0 || sourceUrl.trim().length > 0)
+  // A rule set without rule content protects nothing, so a URL alone is not enough to save.
+  const isValid = name.trim().length > 0 && content.trim().length > 0
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
@@ -241,7 +248,7 @@ function RuleSetForm({
 
       <div>
         <label className="block text-sm font-medium text-gray-300 mb-1.5">
-          {t('wafConfig.ruleContent')} {!sourceUrl && <span className="text-red-400">*</span>}
+          {t('wafConfig.ruleContent')} <span className="text-red-400">*</span>
         </label>
         <textarea
           value={content}

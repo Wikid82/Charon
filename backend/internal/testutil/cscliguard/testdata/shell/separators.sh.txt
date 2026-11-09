@@ -1,0 +1,10 @@
+#!/bin/sh
+true|cscli machines list
+true&cscli machines list
+true&&cscli machines list
+false||cscli machines list
+true;cscli machines list
+(cscli machines list)
+{ cscli machines list; }
+! cscli machines list
+x=`cscli machines list`

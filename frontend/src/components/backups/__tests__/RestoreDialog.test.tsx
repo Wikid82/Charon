@@ -3,6 +3,8 @@ import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import { RestoreDialog } from '../RestoreDialog'
+
+import type * as useBackupsModule from '../../../hooks/useBackups'
 import type { BackupFile } from '../../../hooks/useBackups'
 
 const mockValidateMutate = vi.fn()
@@ -15,7 +17,7 @@ let restorePending = false
 let restoreJob: { stage?: string } | undefined
 
 vi.mock('../../../hooks/useBackups', async () => {
-  const actual = await vi.importActual<typeof import('../../../hooks/useBackups')>('../../../hooks/useBackups')
+  const actual = await vi.importActual<typeof useBackupsModule>('../../../hooks/useBackups')
   return {
     ...actual,
     useValidateBackup: () => ({
@@ -221,5 +223,25 @@ describe('RestoreDialog', () => {
     render(<RestoreDialog backup={plainBackup} onClose={vi.fn()} />)
 
     expect(screen.queryByTestId('backup-restore-stage')).not.toBeInTheDocument()
+  })
+})
+
+describe('RestoreDialog target changes', () => {
+  it('clears the typed passphrase when a different backup is targeted', async () => {
+    const user = userEvent.setup()
+    const { rerender } = render(<RestoreDialog backup={encryptedBackup} onClose={vi.fn()} />)
+    await user.type(screen.getByTestId('backup-restore-passphrase-input'), 'typed-secret')
+
+    rerender(<RestoreDialog backup={{ ...encryptedBackup, filename: 'other.zip.age' }} onClose={vi.fn()} />)
+    expect(screen.getByTestId('backup-restore-passphrase-input')).toHaveValue('')
+  })
+
+  it('keeps the passphrase when the same backup re-renders', async () => {
+    const user = userEvent.setup()
+    const { rerender } = render(<RestoreDialog backup={encryptedBackup} onClose={vi.fn()} />)
+    await user.type(screen.getByTestId('backup-restore-passphrase-input'), 'typed-secret')
+
+    rerender(<RestoreDialog backup={{ ...encryptedBackup }} onClose={vi.fn()} />)
+    expect(screen.getByTestId('backup-restore-passphrase-input')).toHaveValue('typed-secret')
   })
 })

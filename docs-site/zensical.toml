@@ -34,6 +34,7 @@ nav = [
     "guides/dns-providers.md",
     { "DNS provider setup" = ["guides/dns-providers/cloudflare.md", "guides/dns-providers/route53.md", "guides/dns-providers/digitalocean.md", "guides/dns-providers/azure-dns.md", "guides/dns-providers/google-cloud-dns.md"] },
     "guides/manual-dns-provider.md",
+    "guides/s3-object-storage.md",
     "guides/local-key-management.md",
     "guides/supply-chain-security-user-guide.md",
     "guides/supply-chain-security-developer-guide.md",
@@ -52,6 +53,7 @@ nav = [
     "troubleshooting/e2e-tests.md",
     "troubleshooting/go-gopls.md",
     "troubleshooting/release-please-skips.md",
+    "troubleshooting/proxy-admin-address.md",
   ] },
   { "Reference" = [
     "api.md",

@@ -1,7 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import * as api from '../../api/databaseMaintenance'
@@ -12,6 +11,8 @@ import {
   LastOptimization,
   ReclaimControl,
 } from '../DatabaseMaintenance'
+
+import type { ReactNode } from 'react'
 
 vi.mock('../../api/databaseMaintenance')
 vi.mock('../../utils/toast', () => ({ toast: { success: vi.fn(), error: vi.fn() } }))

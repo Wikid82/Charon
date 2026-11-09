@@ -82,15 +82,16 @@ func clearKeyEnv(t *testing.T, env string) {
 	}
 }
 
-// newPrecedenceHandler builds a handler whose LAPI URL is lapiURL and whose
+// newPrecedenceHandler builds a handler whose key checks answer from lapiURL and whose
 // key directory is dataDir. The cscli executor is the given mock.
 func newPrecedenceHandler(t *testing.T, lapiURL, dataDir string, cmd CommandExecutor) *CrowdsecHandler {
 	t.Helper()
 	db := setupCrowdDB(t)
-	cfg := models.SecurityConfig{UUID: uuid.New().String(), Name: "default", CrowdSecAPIURL: lapiURL}
+	cfg := models.SecurityConfig{UUID: uuid.New().String(), Name: "default"}
 	require.NoError(t, db.Create(&cfg).Error)
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", dataDir)
 	h.CmdExec = cmd
+	redirectLocalKeyChecks(h, lapiURL)
 	return h
 }
 

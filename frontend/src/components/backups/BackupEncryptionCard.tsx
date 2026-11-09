@@ -1,9 +1,10 @@
 import { ShieldAlert } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import type { UseBackupSettingsFormResult } from '../../hooks/useBackups'
-import { Alert, Button, Card, CardHeader, CardTitle, CardContent, Input, Label, Switch } from '../ui'
 import { toast } from '../../utils/toast'
+import { Alert, Button, Card, CardHeader, CardTitle, CardContent, Input, Label, Switch } from '../ui'
+
+import type { UseBackupSettingsFormResult } from '../../hooks/useBackups'
 
 export interface BackupEncryptionCardProps {
   form: UseBackupSettingsFormResult

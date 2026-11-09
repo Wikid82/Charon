@@ -105,6 +105,11 @@
   "proxyHosts": {
     "title": "代理主机",
     "description": "管理您的反向代理配置",
+    "source": {
+      "local": "本地（Docker 套接字）",
+      "localUnavailable": "不可用",
+      "localUnavailableHint": "Charon 无法访问本地 Docker 套接字。请改用 Orthrus 代理（参见 Hecate → Agent）。"
+    },
     "addHost": "添加代理主机",
     "editHost": "编辑代理主机",
     "deleteHost": "删除代理主机",
@@ -421,8 +426,10 @@
       "noKeyConfigured": "未配置 Bouncer 密钥。启用 CrowdSec 以自动注册。",
       "registered": "已注册",
       "notRegistered": "未注册",
+      "registrationUnknown": "Status unknown",
       "sourceEnvVar": "来自环境变量",
       "sourceFile": "来自文件",
+      "keyHeldInMemory": "在内存中保留，直到可以写入密钥文件",
       "keyStoredAt": "密钥存储位置",
       "keyWarning": {
         "title": "CrowdSec API密钥已更新",
@@ -594,7 +601,8 @@
       "waf": {
         "no_ruleset": "WAF 已开启，但没有可用于检查请求的规则集。请在 WAF 页面添加规则集。",
         "ruleset_not_selected": "WAF 已开启，但存在多个规则集且未选择任何规则集。请在 WAF 页面选择规则集。",
-        "ruleset_unavailable": "WAF 已开启，但无法加载所选规则集。请在 WAF 页面检查。"
+        "ruleset_unavailable": "WAF 已开启，但无法加载所选规则集。请在 WAF 页面检查。",
+        "ruleset_empty": "所选规则集没有任何规则，因此尚未提供保护。请为其添加规则，或选择其他规则集。"
       },
       "rate_limit": {
         "thresholds_unset": "速率限制已开启，但尚未设置限制。请在速率限制页面设置请求数和时间窗口。"
@@ -680,7 +688,7 @@
     "blockingDescription": "恶意请求将被HTTP 403阻止",
     "detectionDescription": "恶意请求将被记录但不会被阻止",
     "sourceUrl": "源URL（可选）",
-    "sourceUrlHelper": "获取规则的URL。留空以使用内联内容。",
+    "sourceUrlHelper": "可选。该地址仅作参考保存，不会被下载。",
     "ruleContent": "规则内容",
     "ruleContentHelper": "ModSecurity/Coraza规则语法。每个SecRule应在单独的行上。",
     "source": "源",
@@ -712,7 +720,8 @@
     "errors": {
       "waf_rules_source_unknown": "该规则集不存在。请从列表中选择。",
       "waf_ruleset_in_use": "这是 WAF 正在使用的规则集。请先选择其他规则集。",
-      "invalid_waf_mode": "WAF 模式无效。请重新加载页面后重试。"
+      "invalid_waf_mode": "WAF 模式无效。请重新加载页面后重试。",
+      "ruleset_empty": "规则集至少需要一条规则。请添加一行 SecRule。"
     },
     "detectionMode": "没有自身模式的规则集只会在已保存的 WAF 模式为检测时记录匹配的请求。模式设为阻止的规则集会阻止匹配的请求。"
   },
@@ -1357,8 +1366,6 @@
     "general": {
       "title": "常规配置",
       "description": "配置 Caddy 和 UI 偏好设置。",
-      "caddyAdminApi": "Caddy Admin API 端点",
-      "caddyAdminApiHelper": "Caddy 管理 API 的 URL（通常在端口 2019）",
       "sslProvider": "SSL 提供商",
       "selectSslProvider": "选择 SSL 提供商",
       "sslAuto": "自动（推荐）",
@@ -1558,6 +1565,9 @@
     "importErrorKeptProfileDuplicate": "归档中没有 profiles.yaml，因此保留了当前的文件，但其所需的某个通知文件定义了归档中已定义的名称。",
     "importErrorKeepCurrentFailed": "无法保留当前的 CrowdSec 文件，因此已中止导入。详情请查看服务器日志。",
     "importErrorConfigNotFound": "在归档的顶层或 config/ 文件夹中未找到 config.yaml。",
+    "importErrorNotWritable": "Charon 无法修改 CrowdSec 配置文件夹。请检查 Charon 用户是否拥有该文件夹并可以写入，以及该文件夹是否以只读方式挂载。",
+    "importErrorArchiveTooLarge": "归档文件超过了导入上限，未做任何更改。",
+    "importErrorRequestTooLarge": "文件过大，无法导入。",
     "exportPrompt": "为 CrowdSec 导出文件命名",
     "title": "CrowdSec 配置",
     "checkNow": "立即检查",
@@ -2312,6 +2322,15 @@
         "tarball": "Tarball",
         "kubernetes": "Kubernetes",
         "homebrew": "Homebrew"
+      },
+      "dockerGid": {
+        "title": "Replace <DOCKER_GID> with your Docker group ID",
+        "instructions": "Run this command on your server. It prints a number, which replaces <DOCKER_GID> in the commands below.",
+        "copyCommand": "Copy command",
+        "macHint": "On macOS, use this command instead: stat -f %g /var/run/docker.sock",
+        "noteComposeSystemd": "Set PGID to that number. The agent will refuse to start if <DOCKER_GID> is left in place.",
+        "noteTarballHomebrew": "Replace <DOCKER_GID> with that number and keep sudo in front of the command. Without sudo, PUID and PGID are ignored, so your user must be in the docker group instead.",
+        "noteKubernetes": "Replace <DOCKER_GID> in supplementalGroups with that number. Kubernetes does not use PUID or PGID."
       }
     },
     "tailscale": {
@@ -2476,9 +2495,9 @@
   },
   "whatsNew": {
     "title": "新版本说明",
-    "newFeatures": "✨ 新功能",
-    "fixes": "🐛 修复",
-    "security": "🔒 安全",
+    "newFeatures": "新功能",
+    "fixes": "修复",
+    "security": "安全",
     "viewCommit": "查看提交",
     "showMaintenanceDetails": "显示维护详情",
     "remindLater": "下次提醒我",

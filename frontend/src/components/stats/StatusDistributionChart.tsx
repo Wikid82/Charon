@@ -1,13 +1,11 @@
 import { Info } from 'lucide-react'
 import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer, type TooltipContentProps } from 'recharts'
 
-import { Card, CardContent, CardHeader, CardTitle, Skeleton } from '../ui'
-import {
+import { Card, CardContent, CardHeader, CardTitle, Skeleton,
   Tooltip as UITooltip,
   TooltipContent,
   TooltipProvider,
-  TooltipTrigger,
-} from '../ui'
+  TooltipTrigger } from '../ui'
 
 import type { StatusStat } from '../../api/stats'
 import type { ValueType, NameType } from 'recharts/types/component/DefaultTooltipContent'

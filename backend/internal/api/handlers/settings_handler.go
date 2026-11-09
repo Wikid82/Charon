@@ -202,12 +202,8 @@ func (h *SettingsHandler) reconcileAbsentCrowdsecSetting(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read CrowdSec setting"})
 		return
 	}
-	want, err := models.CrowdSecDecisionWithoutEnabledKey(h.DB, row)
-	if err != nil {
-		logger.Log().WithError(err).Error("Failed to resolve the CrowdSec mode setting")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to read CrowdSec setting"})
-		return
-	}
+	// With the enabled setting absent, the default row alone decides.
+	want := models.CrowdSecRowEnabled(row)
 	have, err := models.CrowdSecEnabled(h.DB, row)
 	if err != nil {
 		logger.Log().WithError(err).Error("Failed to resolve the CrowdSec setting")
@@ -294,7 +290,7 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 	// The CrowdSec switch settings are owned by the CrowdSec lifecycle: the lifecycle writes them, so this
 	// request is answered by it and nothing is upserted here.
 	switch req.Key {
-	case models.CrowdSecDeprecatedModeSettingKey:
+	case models.CrowdSecRetiredModeSettingKey:
 		respondCoded(c, http.StatusBadRequest, codeCrowdsecSettingUseSwitch, msgCrowdsecSettingUseSwitch, nil)
 		return
 	case models.CrowdSecEnabledSettingKey:
@@ -427,7 +423,10 @@ func (h *SettingsHandler) writeModuleSwitchSetting(c *gin.Context, key, value st
 		if snapshot, err = models.CaptureModuleState(tx, models.DefaultSecurityConfigName, row, key); err != nil {
 			return err
 		}
-		return models.SetModuleState(tx, key, on, actor)
+		if err := models.SetModuleState(tx, key, on, actor); err != nil {
+			return err
+		}
+		return snapshot.Seal(tx)
 	})
 	if err != nil {
 		if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
@@ -494,7 +493,7 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 	}
 
 	// The CrowdSec switch settings are refused here too, after flattening so the nested spelling is caught.
-	for _, key := range []string{models.CrowdSecEnabledSettingKey, models.CrowdSecDeprecatedModeSettingKey} {
+	for _, key := range []string{models.CrowdSecEnabledSettingKey, models.CrowdSecRetiredModeSettingKey} {
 		if _, found := updates[key]; found {
 			respondCoded(c, http.StatusBadRequest, codeCrowdsecSettingUseSwitch, msgCrowdsecBulkUseSwitch, nil)
 			return
@@ -576,7 +575,7 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 			}
 		}
 
-		return nil
+		return snapshot.Seal(tx)
 	}); err != nil {
 		if errors.Is(err, services.ErrInvalidAdminCIDR) || strings.Contains(err.Error(), "invalid admin_whitelist") {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid admin_whitelist"})

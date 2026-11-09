@@ -176,7 +176,7 @@ test.describe('ACL & WAF Layering', () => {
     });
 
     await test.step('Admin creates proxy with WAF enabled', async () => {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
+      await page.goto('/proxy-hosts');
 
       const addButton = page.getByRole('button', { name: /add|create/i }).first();
       await addButton.click();
@@ -213,7 +213,7 @@ test.describe('ACL & WAF Layering', () => {
       const submitButton = page.getByRole('button', { name: 'Save', exact: true }).first();
       await dismissNewDomainPromptIfPresent(page);
       await submitButton.click();
-      await page.waitForLoadState('networkidle');
+      await expect(page.getByRole('dialog')).toBeHidden({ timeout: 15000 });
     });
 
     await test.step('User logs in', async () => {
@@ -241,7 +241,7 @@ test.describe('ACL & WAF Layering', () => {
   // WAF enforces regardless of user role
   test('WAF blocks malicious requests from all user roles', async ({ page }) => {
     await test.step('Create proxy with WAF', async () => {
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
+      await page.goto('/proxy-hosts');
 
       const addButton = page.getByRole('button', { name: /add|create/i }).first();
       await addButton.click();
@@ -278,7 +278,7 @@ test.describe('ACL & WAF Layering', () => {
       const submitButton = page.getByRole('button', { name: 'Save', exact: true }).first();
       await dismissNewDomainPromptIfPresent(page);
       await submitButton.click();
-      await page.waitForLoadState('networkidle');
+      await expect(page.getByRole('dialog')).toBeHidden({ timeout: 15000 });
     });
 
     // Both WAF-check requests below are wrapped in `retryAction` - CI
@@ -339,7 +339,7 @@ test.describe('ACL & WAF Layering', () => {
       createdUserId = String(created.id);
 
       // Create proxy with WAF
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
+      await page.goto('/proxy-hosts');
 
       const createButton = page.getByRole('button', { name: /add|create/i }).first();
       await createButton.click();
@@ -376,7 +376,7 @@ test.describe('ACL & WAF Layering', () => {
       const proxySubmit = page.getByRole('button', { name: 'Save', exact: true }).first();
       await dismissNewDomainPromptIfPresent(page);
       await proxySubmit.click();
-      await page.waitForLoadState('networkidle');
+      await expect(page.getByRole('dialog')).toBeHidden({ timeout: 15000 });
     });
 
     // Both WAF-check requests below are wrapped in `retryAction` (2s/4s/8s
@@ -456,7 +456,7 @@ test.describe('ACL & WAF Layering', () => {
       });
       expect(accessListResponse.ok()).toBe(true);
 
-      await page.goto('/proxy-hosts', { waitUntil: 'networkidle' });
+      await page.goto('/proxy-hosts');
 
       const addButton = page.getByRole('button', { name: /add|create/i }).first();
       await addButton.click();
@@ -522,7 +522,7 @@ test.describe('ACL & WAF Layering', () => {
       const submitButton = page.getByRole('button', { name: 'Save', exact: true }).first();
       await dismissNewDomainPromptIfPresent(page);
       await submitButton.click();
-      await page.waitForLoadState('networkidle');
+      await expect(page.getByRole('dialog')).toBeHidden({ timeout: 15000 });
     });
 
     await test.step('User with ACL restriction gets blocked', async () => {

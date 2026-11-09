@@ -1,8 +1,9 @@
 import { Check } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
-import type { ThemeId } from '../../context/ThemeContextValue'
 import { cn } from '../../utils/cn'
+
+import type { ThemeId } from '../../context/ThemeContextValue'
 
 // Mini swatch colors per theme: [bg, brand, text]
 const THEME_SWATCHES: Record<ThemeId, [string, string, string]> = {

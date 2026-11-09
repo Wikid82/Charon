@@ -69,3 +69,26 @@ describe('parseCronPreset', () => {
     expect(parseCronPreset('*/5 * * * *')).toEqual({ frequency: 'custom', time: '03:00', dayOfWeek: '0' })
   })
 })
+
+describe('isValidCronExpression adversarial input', () => {
+  const LONG_INPUT_LENGTH = 100_000
+  // Generous ceiling: the pattern is linear, so a 100k-char near-miss runs in ~1 ms.
+  // A super-linear regression would blow far past this bound.
+  const MAX_RUNTIME_MS = 200
+
+  it.each([
+    ['long digit run with trailing invalid char', `${'1'.repeat(LONG_INPUT_LENGTH)}x`],
+    ['long step with trailing invalid char', `*/${'1'.repeat(LONG_INPUT_LENGTH)}x`],
+    ['long range with trailing invalid char', `1-${'1'.repeat(LONG_INPUT_LENGTH)}x`],
+    ['many dangling range separators', `${'1-'.repeat(LONG_INPUT_LENGTH / 2)}x`],
+    ['long list of near-miss parts', `${'1,'.repeat(LONG_INPUT_LENGTH / 2)}x`],
+  ])('rejects a %s in bounded time', (_label, field) => {
+    const expression = `${field} * * * *`
+    const start = performance.now()
+    const result = isValidCronExpression(expression)
+    const elapsed = performance.now() - start
+
+    expect(result).toBe(false)
+    expect(elapsed).toBeLessThan(MAX_RUNTIME_MS)
+  })
+})

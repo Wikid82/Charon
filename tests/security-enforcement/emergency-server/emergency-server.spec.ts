@@ -61,7 +61,7 @@ test.describe('Emergency Server (Tier 2 Break Glass)', () => {
   test.describe.configure({ mode: 'serial' });
 
   // Skip individual tests if emergency server is not healthy
-  test.beforeEach(async ({}, testInfo) => {
+  test.beforeEach(async () => {
     const isHealthy = await ensureHealthChecked();
     if (!isHealthy) {
       console.log('⚠️ Emergency server not accessible from test environment - continuing test anyway');
@@ -70,7 +70,7 @@ test.describe('Emergency Server (Tier 2 Break Glass)', () => {
     }
   });
 
-  test('Test 1: Emergency server health endpoint', async () => {
+  test('Emergency server health endpoint', async () => {
     console.log('🧪 Testing emergency server health endpoint...');
 
     // Create a new request context for emergency server
@@ -103,7 +103,7 @@ test.describe('Emergency Server (Tier 2 Break Glass)', () => {
     }
   });
 
-  test('Test 2: Emergency server requires Basic Auth', async () => {
+  test('Emergency server requires Basic Auth', async () => {
     console.log('🧪 Testing emergency server Basic Auth requirement...');
 
     const emergencyRequest = await playwrightRequest.newContext({
@@ -157,7 +157,7 @@ test.describe('Emergency Server (Tier 2 Break Glass)', () => {
   // E2E tests hit port 8080 directly, bypassing Caddy security middleware.
   // This test requires full Caddy+Security integration environment.
   // See: docs/plans/e2e_failure_investigation.md
-  test('Test 3: Emergency server bypasses main app security', async ({ request }) => {
+  test('Emergency server bypasses main app security', async ({ request }) => {
     console.log('🧪 Testing emergency server security bypass...');
 
     const testData = new TestDataManager(request, 'emergency-server-bypass');
@@ -188,7 +188,7 @@ test.describe('Emergency Server (Tier 2 Break Glass)', () => {
       expect(mainAppResponse.status()).toBe(403);
       console.log('  ✓ Main app (port 8080) blocking requests with ACL');
 
-      // Step 3: Use emergency server (port 2019) to reset security
+      // Step 3: Use emergency server (port 2020) to reset security
       const emergencyRequest = await playwrightRequest.newContext({
         baseURL: EMERGENCY_SERVER.baseURL,
       });
@@ -210,7 +210,7 @@ test.describe('Emergency Server (Tier 2 Break Glass)', () => {
 
       expect(emergencyResponse.ok()).toBeTruthy();
       expect(emergencyResponse.status()).toBe(200);
-      console.log('  ✓ Emergency server (port 2019) succeeded despite ACL');
+      console.log('  ✓ Emergency server (port 2020) succeeded despite ACL');
 
       // Wait for settings to propagate
       await new Promise(resolve => setTimeout(resolve, BASE_PROPAGATION_WAIT * CI_TIMEOUT_MULTIPLIER));
@@ -226,14 +226,14 @@ test.describe('Emergency Server (Tier 2 Break Glass)', () => {
     }
   });
 
-  test('Test 4: Emergency server security reset works', async ({ request }) => {
+  test('Emergency server security reset works', async () => {
     // SKIP: Security module activation requires Caddy middleware integration.
     // E2E tests hit the Go backend directly (port 8080), bypassing Caddy.
     // The security modules appear enabled in settings but don't actually activate
     // because enforcement happens at the proxy layer, not the backend.
   });
 
-  test('Test 5: Emergency server minimal middleware (validation)', async () => {
+  test('Emergency server minimal middleware (validation)', async () => {
     console.log('🧪 Testing emergency server minimal middleware...');
 
     const emergencyRequest = await playwrightRequest.newContext({

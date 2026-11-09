@@ -4,7 +4,7 @@
  * Tests the System Settings page functionality including:
  * - Navigation and page load
  * - Feature toggles (Cerberus, CrowdSec, Uptime)
- * - General configuration (Caddy API, SSL, Domain Link Behavior, Language)
+ * - General configuration (SSL, Domain Link Behavior, Language)
  * - Application URL validation and testing
  * - System status and health display
  * - Accessibility compliance
@@ -29,11 +29,9 @@
  * │ should retry on 500 Internal Server Error                      │ Yes          │ No                │ ✅ Has propagation check        │
  * │ should fail gracefully after max retries exceeded              │ Yes          │ No                │ Uses route interception         │
  * │ should verify initial feature flag state before tests          │ No           │ No                │ ✅ Has propagation check        │
- * │ should update Caddy Admin API URL                              │ No           │ No                │ No action needed                │
  * │ should change SSL provider                                     │ No           │ No                │ No action needed                │
  * │ should update domain link behavior                             │ No           │ No                │ No action needed                │
  * │ should change language setting                                 │ No           │ No                │ No action needed                │
- * │ should validate invalid Caddy API URL                          │ No           │ No                │ No action needed                │
  * │ should save general settings successfully                      │ No           │ No                │ Skipped (flaky toast)           │
  * │ should validate public URL format                              │ No           │ No                │ No action needed                │
  * │ should test public URL reachability                            │ No           │ No                │ No action needed                │
@@ -175,31 +173,6 @@ test.describe('System Settings', () => {
 
   test.describe('General Configuration', () => {
     /**
-     * Test: Update Caddy Admin API URL
-     * Priority: P0
-     */
-    test('should update Caddy Admin API URL', async ({ page }) => {
-      const caddyInput = page.locator('#caddy-api');
-
-      await test.step('Verify Caddy API input exists', async () => {
-        await expect(caddyInput).toBeVisible();
-      });
-
-      await test.step('Update Caddy API URL', async () => {
-        const originalValue = await caddyInput.inputValue();
-        await caddyInput.clear();
-        await caddyInput.fill('http://caddy:2019');
-
-        // Verify the value changed
-        await expect(caddyInput).toHaveValue('http://caddy:2019');
-
-        // Restore original value
-        await caddyInput.clear();
-        await caddyInput.fill(originalValue || 'http://localhost:2019');
-      });
-    });
-
-    /**
      * Test: Change SSL provider
      * Priority: P0
      */
@@ -264,37 +237,6 @@ test.describe('System Settings', () => {
         // Language selector uses data-testid for reliable selection
         const languageSelector = page.getByTestId('language-selector');
         await expect(languageSelector).toBeVisible();
-      });
-    });
-
-    /**
-     * Test: Validate invalid Caddy API URL
-     * Priority: P1
-     */
-    test('should validate invalid Caddy API URL', async ({ page }) => {
-      const caddyInput = page.locator('#caddy-api');
-
-      await test.step('Enter invalid URL', async () => {
-        const originalValue = await caddyInput.inputValue();
-        await caddyInput.clear();
-        await caddyInput.fill('not-a-valid-url');
-
-        // Look for validation error
-        const errorMessage = page.getByText(/invalid|url.*format|valid.*url/i);
-        const inputHasError = await caddyInput.evaluate((el) =>
-          el.classList.contains('border-red-500') || el.getAttribute('aria-invalid') === 'true'
-        ).catch(() => false);
-
-        // Either show error message or have error styling
-        const hasValidation = await errorMessage.isVisible().catch(() => false) || inputHasError;
-
-        // Restore original value before deciding whether to skip, so a
-        // skipped assertion never leaves the field holding an invalid,
-        // unsaved value for subsequent tests.
-        await caddyInput.clear();
-        await caddyInput.fill(originalValue || 'http://localhost:2019');
-
-        test.skip(!hasValidation, 'This build does not surface inline validation for the Caddy API URL field');
       });
     });
 
@@ -641,7 +583,7 @@ test.describe('System Settings', () => {
         await page.keyboard.press('Tab');
 
         let focusedElements = 0;
-        let maxTabs = 30;
+        const maxTabs = 30;
 
         for (let i = 0; i < maxTabs; i++) {
           // Use activeElement check which is more reliable
@@ -703,14 +645,14 @@ test.describe('System Settings', () => {
      */
     test('should have proper ARIA labels', async ({ page }) => {
       await test.step('Verify form inputs have labels', async () => {
-        const caddyInput = page.locator('#caddy-api');
-        const hasLabel = await caddyInput.evaluate((el) => {
+        const sslProviderTrigger = page.locator('#ssl-provider');
+        const hasLabel = await sslProviderTrigger.evaluate((el) => {
           const id = el.id;
           return !!document.querySelector(`label[for="${id}"]`);
         }).catch(() => false);
 
-        const hasAriaLabel = await caddyInput.getAttribute('aria-label');
-        const hasAriaLabelledBy = await caddyInput.getAttribute('aria-labelledby');
+        const hasAriaLabel = await sslProviderTrigger.getAttribute('aria-label');
+        const hasAriaLabelledBy = await sslProviderTrigger.getAttribute('aria-labelledby');
 
         expect(hasLabel || hasAriaLabel || hasAriaLabelledBy).toBeTruthy();
       });

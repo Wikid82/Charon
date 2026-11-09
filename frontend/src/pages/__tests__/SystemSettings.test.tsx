@@ -65,7 +65,6 @@ describe('SystemSettings', () => {
 
     // Default mock responses
     vi.mocked(settingsApi.getSettings).mockResolvedValue({
-      'caddy.admin_api': 'http://localhost:2019',
       'caddy.ssl_provider': 'auto',
       'caddy.keepalive_idle': '',
       'caddy.keepalive_count': '',
@@ -160,22 +159,8 @@ describe('SystemSettings', () => {
       })
     })
 
-    it('loads and displays Caddy Admin API setting', async () => {
-      vi.mocked(settingsApi.getSettings).mockResolvedValue({
-        'caddy.admin_api': 'http://custom:2019',
-      })
-
-      renderWithProviders(<SystemSettings />)
-
-      await waitFor(() => {
-        const input = screen.getByPlaceholderText('http://localhost:2019') as HTMLInputElement
-        expect(input.value).toBe('http://custom:2019')
-      })
-    })
-
     it('loads keepalive settings when present', async () => {
       vi.mocked(settingsApi.getSettings).mockResolvedValue({
-        'caddy.admin_api': 'http://localhost:2019',
         'caddy.ssl_provider': 'auto',
         'caddy.keepalive_idle': '2m',
         'caddy.keepalive_count': '5',
@@ -215,7 +200,7 @@ describe('SystemSettings', () => {
       await user.click(saveButtons[0])
 
       await waitFor(() => {
-        expect(settingsApi.updateSetting).toHaveBeenCalledTimes(6)
+        expect(settingsApi.updateSetting).toHaveBeenCalledTimes(5)
       })
       expect(settingsApi.updateSetting).toHaveBeenCalledWith(
           'ui.domain_link_behavior',
@@ -237,12 +222,6 @@ describe('SystemSettings', () => {
         )
       expect(settingsApi.updateSetting).toHaveBeenCalledWith(
           'caddy.ssl_provider',
-          expect.any(String),
-          'caddy',
-          'string'
-        )
-      expect(settingsApi.updateSetting).toHaveBeenCalledWith(
-          'caddy.admin_api',
           expect.any(String),
           'caddy',
           'string'
@@ -493,7 +472,6 @@ describe('SystemSettings', () => {
     it('shows loading skeleton when feature flags are not loaded', async () => {
       // Set settings to resolve but feature flags to never resolve (pending state)
       vi.mocked(settingsApi.getSettings).mockResolvedValue({
-        'caddy.admin_api': 'http://localhost:2019',
         'caddy.ssl_provider': 'auto',
         'ui.domain_link_behavior': 'new_tab',
       })
@@ -752,7 +730,6 @@ describe('SystemSettings', () => {
   describe('Uptime Monitoring Engine card', () => {
     const seedUptime = (overrides: Record<string, string> = {}) => {
       vi.mocked(settingsApi.getSettings).mockResolvedValue({
-        'caddy.admin_api': 'http://localhost:2019',
         'caddy.ssl_provider': 'auto',
         'caddy.keepalive_idle': '',
         'caddy.keepalive_count': '',
@@ -949,6 +926,99 @@ describe('SystemSettings', () => {
       await screen.findByLabelText('Heartbeat retention (days)')
       expect(screen.getByText(/Charon returns it to your disk automatically/)).toBeInTheDocument()
       expect(screen.queryByText(/until the database is compacted/i)).toBeNull()
+    })
+  })
+
+  describe('Software Updates card', () => {
+    const mockUpdatesResponse = (updates: {
+      current_version: string
+      latest_version: string
+      available: boolean
+      changelog_url: string
+    }) => {
+      vi.mocked(client.get).mockImplementation(async (url: string) => {
+        if (url === '/system/updates') {
+          return { data: updates }
+        }
+        return {
+          data: { status: 'healthy', service: 'charon', version: '0.1.0', git_commit: 'abc123', build_time: '' },
+        }
+      })
+    }
+
+    it('does not check for updates on mount (manual trigger only)', async () => {
+      mockUpdatesResponse({
+        current_version: '0.46.5',
+        latest_version: '0.46.6',
+        available: true,
+        changelog_url: 'https://github.com/Wikid82/Charon/releases/tag/v0.46.6',
+      })
+
+      renderWithProviders(<SystemSettings />)
+
+      await screen.findByText('Software Updates')
+      expect(vi.mocked(client.get).mock.calls.some(([url]) => url === '/system/updates')).toBe(false)
+      expect(screen.queryByText('Current Version')).toBeNull()
+    })
+
+    it('shows the running version, latest version and an update link after a manual check', async () => {
+      mockUpdatesResponse({
+        current_version: '0.46.5',
+        latest_version: '0.46.6',
+        available: true,
+        changelog_url: 'https://github.com/Wikid82/Charon/releases/tag/v0.46.6',
+      })
+      const user = userEvent.setup()
+      renderWithProviders(<SystemSettings />)
+
+      await user.click(await screen.findByRole('button', { name: /check for updates/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText('0.46.5')).toBeInTheDocument()
+        expect(screen.getByText('0.46.6')).toBeInTheDocument()
+      })
+      expect(screen.getByText('Update Available')).toBeInTheDocument()
+      const link = screen.getByRole('link', { name: /view release notes/i })
+      expect(link).toHaveAttribute('href', 'https://github.com/Wikid82/Charon/releases/tag/v0.46.6')
+      expect(link).toHaveAttribute('target', '_blank')
+      expect(link).toHaveAttribute('rel', 'noopener noreferrer')
+    })
+
+    it('hides the release notes link when changelog_url is empty', async () => {
+      mockUpdatesResponse({
+        current_version: '0.46.5',
+        latest_version: '0.46.6',
+        available: true,
+        changelog_url: '',
+      })
+      const user = userEvent.setup()
+      renderWithProviders(<SystemSettings />)
+
+      await user.click(await screen.findByRole('button', { name: /check for updates/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText('Update Available')).toBeInTheDocument()
+      })
+      expect(screen.queryByRole('link', { name: /view release notes/i })).toBeNull()
+    })
+
+    it('shows the up-to-date state when no update is available', async () => {
+      mockUpdatesResponse({
+        current_version: '0.46.6',
+        latest_version: '0.46.6',
+        available: false,
+        changelog_url: '',
+      })
+      const user = userEvent.setup()
+      renderWithProviders(<SystemSettings />)
+
+      await user.click(await screen.findByRole('button', { name: /check for updates/i }))
+
+      await waitFor(() => {
+        expect(screen.getByText('Up to Date')).toBeInTheDocument()
+      })
+      expect(screen.queryByText('Update Available')).toBeNull()
+      expect(screen.queryByRole('link', { name: /view release notes/i })).toBeNull()
     })
   })
 })

@@ -1,6 +1,7 @@
 import { AlertTriangle, Save, X } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useId } from 'react';
 
+import { useCalculateSecurityScore } from '../hooks/useSecurityHeaders';
 import { CSPBuilder } from './CSPBuilder';
 import { PermissionsPolicyBuilder } from './PermissionsPolicyBuilder';
 import { SecurityScoreDisplay } from './SecurityScoreDisplay';
@@ -11,7 +12,6 @@ import { Input } from './ui/Input';
 import { NativeSelect } from './ui/NativeSelect';
 import { Switch } from './ui/Switch';
 import { Textarea } from './ui/Textarea';
-import { useCalculateSecurityScore } from '../hooks/useSecurityHeaders';
 
 import type { SecurityHeaderProfile, CreateProfileRequest } from '../api/securityHeaders';
 
@@ -57,6 +57,9 @@ export function SecurityHeaderProfileForm({
   const [cspValid, setCspValid] = useState(true);
   const [, setCspErrors] = useState<string[]>([]);
 
+  const idPrefix = useId();
+  const fieldId = (name: string) => `${idPrefix}-${name}`;
+
   const calculateScoreMutation = useCalculateSecurityScore();
   const { mutate: calculateScore } = calculateScoreMutation;
 
@@ -95,10 +98,10 @@ export function SecurityHeaderProfileForm({
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Profile Information</h3>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          <label htmlFor={fieldId('name')} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Profile Name *
           </label>
-          <Input
+          <Input id={fieldId('name')}
             type="text"
             value={formData.name}
             onChange={(e) => updateField('name', e.target.value)}
@@ -109,10 +112,10 @@ export function SecurityHeaderProfileForm({
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          <label htmlFor={fieldId('description')} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Description
           </label>
-          <Textarea
+          <Textarea id={fieldId('description')}
             value={formData.description || ''}
             onChange={(e) => updateField('description', e.target.value)}
             placeholder="Optional description of this security profile..."
@@ -156,10 +159,10 @@ export function SecurityHeaderProfileForm({
         {formData.hsts_enabled && (
           <>
             <div>
-              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              <label htmlFor={fieldId('hsts-max-age')} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 Max Age (seconds)
               </label>
-              <Input
+              <Input id={fieldId('hsts-max-age')}
                 type="number"
                 value={formData.hsts_max_age}
                 onChange={(e) => updateField('hsts_max_age', parseInt(e.target.value) || 0)}
@@ -173,14 +176,14 @@ export function SecurityHeaderProfileForm({
 
             <div className="flex items-center justify-between">
               <div>
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                <label htmlFor={fieldId('hsts-include-subdomains')} className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Include Subdomains
                 </label>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   Apply HSTS to all subdomains
                 </p>
               </div>
-              <Switch
+              <Switch id={fieldId('hsts-include-subdomains')}
                 checked={formData.hsts_include_subdomains}
                 onCheckedChange={(checked) => updateField('hsts_include_subdomains', checked)}
                 disabled={isPreset}
@@ -189,14 +192,14 @@ export function SecurityHeaderProfileForm({
 
             <div className="flex items-center justify-between">
               <div>
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                <label htmlFor={fieldId('hsts-preload')} className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Preload
                 </label>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   Submit to browser preload lists
                 </p>
               </div>
-              <Switch
+              <Switch id={fieldId('hsts-preload')}
                 checked={formData.hsts_preload}
                 onCheckedChange={(checked) => updateField('hsts_preload', checked)}
                 disabled={isPreset}
@@ -245,14 +248,14 @@ export function SecurityHeaderProfileForm({
 
             <div className="flex items-center justify-between">
               <div>
-                <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+                <label htmlFor={fieldId('csp-report-only')} className="text-sm font-medium text-gray-700 dark:text-gray-300">
                   Report-Only Mode
                 </label>
                 <p className="text-xs text-gray-500 dark:text-gray-400">
                   Test CSP without blocking content
                 </p>
               </div>
-              <Switch
+              <Switch id={fieldId('csp-report-only')}
                 checked={formData.csp_report_only}
                 onCheckedChange={(checked) => updateField('csp_report_only', checked)}
                 disabled={isPreset}
@@ -261,10 +264,10 @@ export function SecurityHeaderProfileForm({
 
             {formData.csp_report_only && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+                <label htmlFor={fieldId('csp-report-uri')} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                   Report URI (optional)
                 </label>
-                <Input
+                <Input id={fieldId('csp-report-uri')}
                   type="url"
                   value={formData.csp_report_uri || ''}
                   onChange={(e) => updateField('csp_report_uri', e.target.value)}
@@ -282,10 +285,10 @@ export function SecurityHeaderProfileForm({
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Clickjacking Protection</h3>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          <label htmlFor={fieldId('x-frame-options')} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             X-Frame-Options
           </label>
-          <NativeSelect
+          <NativeSelect id={fieldId('x-frame-options')}
             value={formData.x_frame_options}
             onChange={(e) => updateField('x_frame_options', e.target.value)}
             disabled={isPreset}
@@ -298,14 +301,14 @@ export function SecurityHeaderProfileForm({
 
         <div className="flex items-center justify-between">
           <div>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label htmlFor={fieldId('x-content-type-options')} className="text-sm font-medium text-gray-700 dark:text-gray-300">
               X-Content-Type-Options: nosniff
             </label>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               Prevent MIME type sniffing attacks
             </p>
           </div>
-          <Switch
+          <Switch id={fieldId('x-content-type-options')}
             checked={formData.x_content_type_options}
             onCheckedChange={(checked) => updateField('x_content_type_options', checked)}
             disabled={isPreset}
@@ -318,10 +321,10 @@ export function SecurityHeaderProfileForm({
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Privacy Controls</h3>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          <label htmlFor={fieldId('referrer-policy')} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Referrer-Policy
           </label>
-          <NativeSelect
+          <NativeSelect id={fieldId('referrer-policy')}
             value={formData.referrer_policy}
             onChange={(e) => updateField('referrer_policy', e.target.value)}
             disabled={isPreset}
@@ -349,10 +352,10 @@ export function SecurityHeaderProfileForm({
         <h3 className="text-lg font-semibold text-gray-900 dark:text-white">Cross-Origin Isolation</h3>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          <label htmlFor={fieldId('cross-origin-opener-policy')} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Cross-Origin-Opener-Policy
           </label>
-          <NativeSelect
+          <NativeSelect id={fieldId('cross-origin-opener-policy')}
             value={formData.cross_origin_opener_policy}
             onChange={(e) => updateField('cross_origin_opener_policy', e.target.value)}
             disabled={isPreset}
@@ -365,10 +368,10 @@ export function SecurityHeaderProfileForm({
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          <label htmlFor={fieldId('cross-origin-resource-policy')} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Cross-Origin-Resource-Policy
           </label>
-          <NativeSelect
+          <NativeSelect id={fieldId('cross-origin-resource-policy')}
             value={formData.cross_origin_resource_policy}
             onChange={(e) => updateField('cross_origin_resource_policy', e.target.value)}
             disabled={isPreset}
@@ -381,10 +384,10 @@ export function SecurityHeaderProfileForm({
         </div>
 
         <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+          <label htmlFor={fieldId('cross-origin-embedder-policy')} className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
             Cross-Origin-Embedder-Policy
           </label>
-          <NativeSelect
+          <NativeSelect id={fieldId('cross-origin-embedder-policy')}
             value={formData.cross_origin_embedder_policy}
             onChange={(e) => updateField('cross_origin_embedder_policy', e.target.value)}
             disabled={isPreset}
@@ -404,14 +407,14 @@ export function SecurityHeaderProfileForm({
 
         <div className="flex items-center justify-between">
           <div>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label htmlFor={fieldId('xss-protection')} className="text-sm font-medium text-gray-700 dark:text-gray-300">
               X-XSS-Protection
             </label>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               Legacy XSS protection header
             </p>
           </div>
-          <Switch
+          <Switch id={fieldId('xss-protection')}
             checked={formData.xss_protection}
             onCheckedChange={(checked) => updateField('xss_protection', checked)}
             disabled={isPreset}
@@ -420,14 +423,14 @@ export function SecurityHeaderProfileForm({
 
         <div className="flex items-center justify-between">
           <div>
-            <label className="text-sm font-medium text-gray-700 dark:text-gray-300">
+            <label htmlFor={fieldId('cache-control-no-store')} className="text-sm font-medium text-gray-700 dark:text-gray-300">
               Cache-Control: no-store
             </label>
             <p className="text-xs text-gray-500 dark:text-gray-400">
               Prevent caching of sensitive content
             </p>
           </div>
-          <Switch
+          <Switch id={fieldId('cache-control-no-store')}
             checked={formData.cache_control_no_store}
             onCheckedChange={(checked) => updateField('cache_control_no_store', checked)}
             disabled={isPreset}

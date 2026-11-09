@@ -2,6 +2,7 @@ import { test, expect, loginUser, logoutUser, TEST_PASSWORD } from '../fixtures/
 import type { UserRole } from '../utils/TestDataManager';
 import { waitForLoadingComplete, gotoTolerant, reloadTolerant } from '../utils/wait-helpers';
 import { suppressChangelogModal } from '../utils/api-helpers';
+import type { AuditLogRecord } from '../utils/api-records';
 
 async function resetSecurityState(page: import('@playwright/test').Page): Promise<void> {
   const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN;
@@ -49,6 +50,7 @@ async function getAuthToken(page: import('@playwright/test').Page): Promise<stri
           return parsed.token;
         }
       } catch {
+        // Malformed auth storage: fall through to the next token source.
       }
     }
 
@@ -97,12 +99,12 @@ async function getAuditLogEntries(
     limit?: number;
     maxPages?: number;
   } = {}
-): Promise<any[]> {
+): Promise<AuditLogRecord[]> {
   const limit = options.limit ?? 100;
   const maxPages = options.maxPages ?? 5;
   const action = options.action;
   const eventCategory = options.eventCategory;
-  const allEntries: any[] = [];
+  const allEntries: AuditLogRecord[] = [];
 
   for (let currentPage = 1; currentPage <= maxPages; currentPage += 1) {
     const params = new URLSearchParams({
@@ -140,11 +142,11 @@ async function getAuditLogEntries(
 }
 
 function findLifecycleEntry(
-  auditEntries: any[],
+  auditEntries: AuditLogRecord[],
   email: string,
   action: 'user_create' | 'user_update' | 'user_delete' | 'user_invite' | 'user_invite_accept'
-): any | undefined {
-  return auditEntries.find((entry: any) => {
+): AuditLogRecord | undefined {
+  return auditEntries.find((entry: AuditLogRecord) => {
     if (entry?.event_category !== 'user' || entry?.action !== action) {
       return false;
     }
@@ -340,7 +342,7 @@ test.describe('Admin-User E2E Workflow', () => {
   test('Complete user lifecycle: creation to resource access', async ({ page }) => {
     let createdUserId: string | number;
 
-    await test.step('STEP 1: Admin creates new user', async () => {
+    await test.step('Admin creates new user', async () => {
       const start = Date.now();
 
       const createdUser = await createUserViaApi(page, { ...testUser, role: 'user' });
@@ -355,7 +357,7 @@ test.describe('Admin-User E2E Workflow', () => {
       expect(duration).toBeLessThan(5000);
     });
 
-    await test.step('STEP 2: Update user record (triggers user_update audit event)', async () => {
+    await test.step('Update user record (triggers user_update audit event)', async () => {
       // Sending { role: 'user' } would be a no-op (user was already created with role:'user')
       // and the backend only writes the audit log when at least one field actually changes.
       // Update the name instead to guarantee a real write and a user_update audit entry.
@@ -372,7 +374,7 @@ test.describe('Admin-User E2E Workflow', () => {
       }));
     });
 
-    await test.step('STEP 3: Admin logs out', async () => {
+    await test.step('Admin logs out', async () => {
       const profileMenu = page.locator('[data-testid="user-menu"], [class*="profile"]').first();
       if (await profileMenu.isVisible()) {
         await profileMenu.click();
@@ -388,7 +390,7 @@ test.describe('Admin-User E2E Workflow', () => {
       await page.waitForURL(/login/, { timeout: 15000 });
     });
 
-    await test.step('STEP 4: New user logs in', async () => {
+    await test.step('New user logs in', async () => {
       const start = Date.now();
 
       await loginWithCredentials(page, testUser.email, testUser.password);
@@ -398,7 +400,7 @@ test.describe('Admin-User E2E Workflow', () => {
       expect(duration).toBeLessThan(15000);
     });
 
-    await test.step('STEP 5: User sees restricted dashboard', async () => {
+    await test.step('User sees restricted dashboard', async () => {
       const dashboard = page.getByRole('main').first();
       await expect(dashboard).toBeVisible({ timeout: 15000 });
 
@@ -413,7 +415,7 @@ test.describe('Admin-User E2E Workflow', () => {
       }
     });
 
-    await test.step('STEP 6: User cannot access user management', async () => {
+    await test.step('User cannot access user management', async () => {
       await page.goto('/users', { waitUntil: 'commit', timeout: 15000 }).catch((error: unknown) => {
         if (!(error instanceof Error)) {
           throw error;
@@ -450,7 +452,7 @@ test.describe('Admin-User E2E Workflow', () => {
       }).toBe(true);
     });
 
-    await test.step('STEP 7: Audit trail records all actions', async () => {
+    await test.step('Audit trail records all actions', async () => {
       // Logout user
       const logoutButton = page.getByRole('button', { name: /logout/i }).first();
       if (await logoutButton.isVisible()) {
@@ -892,7 +894,7 @@ test.describe('PR-3: Regular User Has No Admin Navigation Items (F9)', () => {
 
     await test.step('Verify "Users" nav item is NOT visible for regular user', async () => {
       const nav = page.getByRole('navigation').first();
-      await expect(nav.getByRole('link', { name: 'Users' })).not.toBeVisible();
+      await expect(nav.getByRole('link', { name: 'Users' })).toBeHidden();
     });
 
     await test.step('Verify other nav items ARE visible (navigation renders for regular users)', async () => {

@@ -92,14 +92,19 @@ describe('FileDropZone', () => {
   it('activates via keyboard Enter', async () => {
     render(<FileDropZone {...defaultProps} />)
     const dropZone = screen.getByRole('button')
+    const clickSpy = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {})
     fireEvent.keyDown(dropZone, { key: 'Enter' })
-    // Should not throw; input ref click would be called
+    expect(clickSpy).toHaveBeenCalled()
+    clickSpy.mockRestore()
   })
 
   it('activates via keyboard Space', async () => {
     render(<FileDropZone {...defaultProps} />)
     const dropZone = screen.getByRole('button')
+    const clickSpy = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {})
     fireEvent.keyDown(dropZone, { key: ' ' })
+    expect(clickSpy).toHaveBeenCalled()
+    clickSpy.mockRestore()
   })
 
   it('does not activate via keyboard when disabled', () => {
@@ -139,8 +144,9 @@ describe('FileDropZone', () => {
     render(<FileDropZone {...defaultProps} />)
     const dropZone = screen.getByRole('button')
     fireEvent.dragOver(dropZone, { dataTransfer: { files: [] } })
+    expect(dropZone).toHaveClass('border-brand-500')
     fireEvent.dragLeave(dropZone)
-    // No crash; drag state should reset
+    expect(dropZone).not.toHaveClass('border-brand-500')
   })
 
   it('sets accept attribute on input', () => {

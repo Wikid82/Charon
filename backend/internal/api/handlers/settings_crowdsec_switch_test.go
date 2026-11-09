@@ -32,13 +32,14 @@ func (f *settingsCrowdsecLifecycle) ResetCrowdSecState(write func() error) error
 
 func (f *settingsCrowdsecLifecycle) StopAfterReset(error) {}
 
+func (*settingsCrowdsecLifecycle) WaitRegistrations(context.Context) error { return nil }
+
 func (f *settingsCrowdsecLifecycle) StartCrowdSec(_ context.Context) (CrowdsecStartResult, error) {
 	f.startCalls++
 	if f.startErr != nil {
 		return CrowdsecStartResult{}, f.startErr
 	}
 	mustWriteCrowdsecSetting(f.db, models.CrowdSecEnabledSettingKey, "true")
-	mustWriteCrowdsecSetting(f.db, models.CrowdSecDeprecatedModeSettingKey, "local")
 	return CrowdsecStartResult{Status: "started", LAPIReady: true, ProxyApplied: true}, nil
 }
 
@@ -48,7 +49,6 @@ func (f *settingsCrowdsecLifecycle) StopCrowdSec(_ context.Context) (CrowdsecSto
 		return CrowdsecStopResult{}, f.stopErr
 	}
 	mustWriteCrowdsecSetting(f.db, models.CrowdSecEnabledSettingKey, "false")
-	mustWriteCrowdsecSetting(f.db, models.CrowdSecDeprecatedModeSettingKey, "disabled")
 	return CrowdsecStopResult{ProxyApplied: true}, nil
 }
 
@@ -200,7 +200,7 @@ func TestUpdateSetting_CrowdSecModeKeyRefusedOnBothMethods(t *testing.T) {
 			require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
 			assert.Contains(t, w.Body.String(), "crowdsec_setting_use_switch")
 			assert.Equal(t, 0, lc.startCalls+lc.stopCalls)
-			_, found := storedSettingValue(t, db, models.CrowdSecDeprecatedModeSettingKey)
+			_, found := storedSettingValue(t, db, models.CrowdSecRetiredModeSettingKey)
 			assert.False(t, found)
 		})
 	}
@@ -216,12 +216,19 @@ func TestUpdateSetting_CrowdSecEnabledEmptyIsNoOpWhenDecisionsMatch(t *testing.T
 		{name: "no setting, no mode key, row disabled", rowMode: "disabled", seedRow: true},
 		{name: "no setting, no mode key, no row"},
 		{
-			name: "running: enabled true, mode local, row local",
+			name: "running: enabled true, row local",
 			settings: map[string]string{
-				models.CrowdSecEnabledSettingKey:        "true",
-				models.CrowdSecDeprecatedModeSettingKey: "local",
+				models.CrowdSecEnabledSettingKey: "true",
 			},
 			rowMode: "local",
+			seedRow: true,
+		},
+		{
+			name: "leftover mode key has no effect: no setting, row disabled, mode local",
+			settings: map[string]string{
+				models.CrowdSecRetiredModeSettingKey: "local",
+			},
+			rowMode: "disabled",
 			seedRow: true,
 		},
 	}
@@ -260,12 +267,12 @@ func TestUpdateSetting_CrowdSecEnabledEmptyStartsWhenStoredSplit(t *testing.T) {
 	lc := &settingsCrowdsecLifecycle{}
 	router, db := newCrowdsecSettingsRouter(t, lc)
 	lc.db = db
-	// An older version left the setting off while the mode key says local: the decisions differ.
+	// The stored setting is off while the default row is local: the decisions differ. A leftover mode key is ignored.
 	seedCrowdsecSettings(t, db, map[string]string{
-		models.CrowdSecEnabledSettingKey:        "false",
-		models.CrowdSecDeprecatedModeSettingKey: "local",
+		models.CrowdSecEnabledSettingKey:     "false",
+		models.CrowdSecRetiredModeSettingKey: "disabled",
 	})
-	seedDefaultCrowdsecRow(t, db, "disabled")
+	seedDefaultCrowdsecRow(t, db, "local")
 
 	w := sendSettingsJSON(t, router, http.MethodPost, "/settings", `{"key":"security.crowdsec.enabled","value":""}`)
 
@@ -281,12 +288,12 @@ func TestUpdateSetting_CrowdSecEnabledEmptyStopsWhenStalePair(t *testing.T) {
 	lc := &settingsCrowdsecLifecycle{}
 	router, db := newCrowdsecSettingsRouter(t, lc)
 	lc.db = db
-	// The upgrade case: enabled true with the mode key disabled, from an older version.
+	// The stored setting is on while the default row is disabled: the decisions differ. A leftover mode key is ignored.
 	seedCrowdsecSettings(t, db, map[string]string{
-		models.CrowdSecEnabledSettingKey:        "true",
-		models.CrowdSecDeprecatedModeSettingKey: "disabled",
+		models.CrowdSecEnabledSettingKey:     "true",
+		models.CrowdSecRetiredModeSettingKey: "local",
 	})
-	seedDefaultCrowdsecRow(t, db, "local")
+	seedDefaultCrowdsecRow(t, db, "disabled")
 
 	w := sendSettingsJSON(t, router, http.MethodPost, "/settings", `{"key":"security.crowdsec.enabled","value":""}`)
 
@@ -303,8 +310,7 @@ func TestUpdateSetting_CrowdSecEnabledEmptyBusyWritesNothing(t *testing.T) {
 	h := NewSettingsHandler(db).WithCrowdsecLifecycle(busy)
 	router.POST("/busy-settings", h.UpdateSetting)
 	seedCrowdsecSettings(t, db, map[string]string{
-		models.CrowdSecEnabledSettingKey:        "false",
-		models.CrowdSecDeprecatedModeSettingKey: "local",
+		models.CrowdSecEnabledSettingKey: "false",
 	})
 	seedDefaultCrowdsecRow(t, db, "local")
 
@@ -314,8 +320,6 @@ func TestUpdateSetting_CrowdSecEnabledEmptyBusyWritesNothing(t *testing.T) {
 	assert.Equal(t, 1, busy.startAttempts)
 	value, _ := storedSettingValue(t, db, models.CrowdSecEnabledSettingKey)
 	assert.Equal(t, "false", value)
-	mode, _ := storedSettingValue(t, db, models.CrowdSecDeprecatedModeSettingKey)
-	assert.Equal(t, "local", mode)
 	assert.Equal(t, "local", storedCrowdsecRowMode(t, db))
 }
 
@@ -338,15 +342,16 @@ func (b *busyCrowdsecLifecycle) ResetCrowdSecState(write func() error) error { r
 
 func (b *busyCrowdsecLifecycle) StopAfterReset(error) {}
 
+func (*busyCrowdsecLifecycle) WaitRegistrations(context.Context) error { return nil }
+
 func TestUpdateSetting_CrowdSecEnabledEmptyFailedStartWritesNothing(t *testing.T) {
 	lc := &settingsCrowdsecLifecycle{startErr: fmt.Errorf("%w: boom", errCrowdsecStart)}
 	router, db := newCrowdsecSettingsRouter(t, lc)
 	lc.db = db
 	seedCrowdsecSettings(t, db, map[string]string{
-		models.CrowdSecEnabledSettingKey:        "false",
-		models.CrowdSecDeprecatedModeSettingKey: "local",
+		models.CrowdSecEnabledSettingKey: "false",
 	})
-	seedDefaultCrowdsecRow(t, db, "disabled")
+	seedDefaultCrowdsecRow(t, db, "local")
 
 	w := sendSettingsJSON(t, router, http.MethodPost, "/settings", `{"key":"security.crowdsec.enabled","value":""}`)
 
@@ -354,7 +359,7 @@ func TestUpdateSetting_CrowdSecEnabledEmptyFailedStartWritesNothing(t *testing.T
 	assert.Contains(t, w.Body.String(), "failed to start CrowdSec")
 	value, _ := storedSettingValue(t, db, models.CrowdSecEnabledSettingKey)
 	assert.Equal(t, "false", value)
-	assert.Equal(t, "disabled", storedCrowdsecRowMode(t, db))
+	assert.Equal(t, "local", storedCrowdsecRowMode(t, db))
 }
 
 func TestUpdateSetting_CrowdSecWithoutLifecycleAnswersUnavailable(t *testing.T) {
@@ -373,10 +378,9 @@ func TestUpdateSetting_CrowdSecWithoutLifecycleAnswersUnavailable(t *testing.T) 
 	t.Run("empty value with a differing decision", func(t *testing.T) {
 		router, db := newCrowdsecSettingsRouter(t, nil)
 		seedCrowdsecSettings(t, db, map[string]string{
-			models.CrowdSecEnabledSettingKey:        "false",
-			models.CrowdSecDeprecatedModeSettingKey: "local",
+			models.CrowdSecEnabledSettingKey: "false",
 		})
-		seedDefaultCrowdsecRow(t, db, "disabled")
+		seedDefaultCrowdsecRow(t, db, "local")
 
 		w := sendSettingsJSON(t, router, http.MethodPost, "/settings", `{"key":"security.crowdsec.enabled","value":""}`)
 
@@ -423,25 +427,29 @@ func TestPatchConfig_CrowdSecSwitchKeysRefusedWithoutWriting(t *testing.T) {
 	}
 }
 
-func TestCrowdsecLifecycle_StartAndStopWriteModeKey(t *testing.T) {
+// TestCrowdsecLifecycle_StartAndStopLeaveModeKeyUnwritten pins that Start and Stop write only the row and the enabled
+// setting: the retired mode key is never created by them.
+func TestCrowdsecLifecycle_StartAndStopLeaveModeKeyUnwritten(t *testing.T) {
 	db := setupCrowdDB(t)
 	seedDefaultCrowdsecRow(t, db, "disabled")
 	h := newTestCrowdsecHandler(t, db, &fakeExec{}, "/bin/false", t.TempDir())
 
 	_, err := h.StartCrowdSec(context.Background())
 	require.NoError(t, err)
-	mode, _ := storedSettingValue(t, db, models.CrowdSecDeprecatedModeSettingKey)
-	assert.Equal(t, "local", mode)
+	enabled, _ := storedSettingValue(t, db, models.CrowdSecEnabledSettingKey)
+	assert.Equal(t, "true", enabled)
+	assertNoRetiredModeKey(t, db)
 
 	_, err = h.StopCrowdSec(context.Background())
 	require.NoError(t, err)
-	mode, _ = storedSettingValue(t, db, models.CrowdSecDeprecatedModeSettingKey)
-	assert.Equal(t, "disabled", mode)
-	enabled, _ := storedSettingValue(t, db, models.CrowdSecEnabledSettingKey)
+	enabled, _ = storedSettingValue(t, db, models.CrowdSecEnabledSettingKey)
 	assert.Equal(t, "false", enabled)
+	assertNoRetiredModeKey(t, db)
 }
 
-func TestCrowdsecLifecycle_FailedStartRestoresModeKeyExactly(t *testing.T) {
+// TestCrowdsecLifecycle_FailedStartLeavesLeftoverModeKeyAsIs pins that a failed Start neither writes nor deletes a
+// retired mode key that an older build left behind.
+func TestCrowdsecLifecycle_FailedStartLeavesLeftoverModeKeyAsIs(t *testing.T) {
 	tests := []struct {
 		name     string
 		prior    *string
@@ -457,18 +465,26 @@ func TestCrowdsecLifecycle_FailedStartRestoresModeKeyExactly(t *testing.T) {
 			db := setupCrowdDB(t)
 			seedDefaultCrowdsecRow(t, db, "disabled")
 			if tt.prior != nil {
-				mustWriteCrowdsecSetting(db, models.CrowdSecDeprecatedModeSettingKey, *tt.prior)
+				mustWriteCrowdsecSetting(db, models.CrowdSecRetiredModeSettingKey, *tt.prior)
 			}
 			h := newTestCrowdsecHandler(t, db, &fakeExec{startErr: errors.New("boom")}, "/bin/false", t.TempDir())
 
 			_, err := h.StartCrowdSec(context.Background())
 			require.Error(t, err)
 
-			mode, found := storedSettingValue(t, db, models.CrowdSecDeprecatedModeSettingKey)
+			mode, found := storedSettingValue(t, db, models.CrowdSecRetiredModeSettingKey)
 			assert.Equal(t, tt.wantRow, found)
 			assert.Equal(t, tt.wantMode, mode)
 		})
 	}
+}
+
+// assertNoRetiredModeKey fails when the retired mode key has a row.
+func assertNoRetiredModeKey(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	var rows int64
+	require.NoError(t, db.Model(&models.Setting{}).Where("key = ?", models.CrowdSecRetiredModeSettingKey).Count(&rows).Error)
+	assert.Zero(t, rows, "the retired mode key must not be written")
 }
 
 func strPtr(s string) *string { return &s }
@@ -479,8 +495,7 @@ func TestCrowdsecLifecycle_ResetThenStartThenEmptyIsNoOp(t *testing.T) {
 	db := setupCrowdDB(t)
 	seedDefaultCrowdsecRow(t, db, "disabled")
 	seedCrowdsecSettings(t, db, map[string]string{
-		models.CrowdSecEnabledSettingKey:        "false",
-		models.CrowdSecDeprecatedModeSettingKey: "disabled",
+		models.CrowdSecEnabledSettingKey: "false",
 	})
 	fe := &fakeExec{}
 	lifecycle := newTestCrowdsecHandler(t, db, fe, "/bin/false", t.TempDir())

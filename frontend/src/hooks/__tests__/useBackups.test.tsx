@@ -367,6 +367,38 @@ describe('useBackupSettingsForm', () => {
     expect(result.current.saveDisabled).toBe(false)
   })
 
+  it('falls back to a generic message and tolerates a missing onError when a job fails without detail', async () => {
+    vi.mocked(api.createBackup).mockResolvedValue({ job_id: 'job-3', type: 'create', status: 'pending' })
+    vi.mocked(api.getBackupJob).mockResolvedValue({
+      job_id: 'job-3',
+      type: 'create',
+      status: 'failed',
+      created_at: '2026-07-16T10:00:00Z',
+    })
+
+    const { result } = renderHook(() => useCreateBackup(), { wrapper: createWrapper() })
+    act(() => result.current.mutate(undefined))
+
+    await waitFor(() => expect(result.current.isPending).toBe(false))
+  })
+
+  it('sends retention 1 when the retention input is not a number', async () => {
+    vi.mocked(api.getBackupSettings).mockResolvedValue(mockSettings)
+    vi.mocked(api.updateBackupSettings).mockResolvedValue(mockSettings)
+    const { result } = renderHook(() => useBackupSettingsForm(), { wrapper: createWrapper() })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    act(() => result.current.setRetentionCount('abc'))
+    act(() => result.current.setRemoteRetentionCount(''))
+    act(() => result.current.save())
+
+    await waitFor(() => expect(api.updateBackupSettings).toHaveBeenCalled())
+    expect(vi.mocked(api.updateBackupSettings).mock.calls[0][0]).toMatchObject({
+      retention_count: 1,
+      remote_retention_count: 1,
+    })
+  })
+
   it('save() sends the combined payload and omits the passphrase field when blank', async () => {
     vi.mocked(api.getBackupSettings).mockResolvedValue(mockSettings)
     vi.mocked(api.updateBackupSettings).mockResolvedValue(mockSettings)
@@ -411,5 +443,50 @@ describe('useBackupSettingsForm', () => {
     act(() => result.current.save({ onError }))
 
     await waitFor(() => expect(onError).toHaveBeenCalledWith(new Error('invalid cron expression')))
+  })
+
+  it('hydrates a weekly preset and derives its cron from the stored day and hour', async () => {
+    vi.mocked(api.getBackupSettings).mockResolvedValue({ ...mockSettings, schedule_cron: '0 5 * * 3' })
+    const { result } = renderHook(() => useBackupSettingsForm(), { wrapper: createWrapper() })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    expect(result.current.frequency).toBe('weekly')
+    expect(result.current.dayOfWeek).toBe('3')
+    expect(result.current.time).toBe('05:00')
+    expect(result.current.cronExpression).toBe('0 5 * * 3')
+  })
+
+  it('hydrates a non-preset cron verbatim as custom and leaves it untouched when time or day change', async () => {
+    vi.mocked(api.getBackupSettings).mockResolvedValue({ ...mockSettings, schedule_cron: '*/15 * * * *' })
+    const { result } = renderHook(() => useBackupSettingsForm(), { wrapper: createWrapper() })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    expect(result.current.frequency).toBe('custom')
+    expect(result.current.cronExpression).toBe('*/15 * * * *')
+
+    act(() => result.current.setTime('09:00'))
+    act(() => result.current.setDayOfWeek('4'))
+    expect(result.current.cronExpression).toBe('*/15 * * * *')
+  })
+
+  it('ignores a day-of-week change while the daily preset is active', async () => {
+    vi.mocked(api.getBackupSettings).mockResolvedValue(mockSettings)
+    const { result } = renderHook(() => useBackupSettingsForm(), { wrapper: createWrapper() })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    act(() => result.current.setDayOfWeek('5'))
+    expect(result.current.frequency).toBe('daily')
+    expect(result.current.cronExpression).toBe('0 3 * * *')
+  })
+
+  it('keeps an edited custom cron when the time changes', async () => {
+    vi.mocked(api.getBackupSettings).mockResolvedValue(mockSettings)
+    const { result } = renderHook(() => useBackupSettingsForm(), { wrapper: createWrapper() })
+    await waitFor(() => expect(result.current.isLoading).toBe(false))
+
+    act(() => result.current.setFrequency('custom'))
+    act(() => result.current.setCronExpression('30 2 * * *'))
+    act(() => result.current.setTime('07:00'))
+    expect(result.current.cronExpression).toBe('30 2 * * *')
   })
 })

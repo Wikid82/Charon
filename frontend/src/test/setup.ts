@@ -47,7 +47,7 @@ vi.mock('react-i18next', async () => {
         // Handle interpolation: replace {{variable}} with the value from options
         if (options && typeof result === 'string') {
           for (const [k, v] of Object.entries(options)) {
-            result = result.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), String(v))
+            result = result.split(`{{${k}}}`).join(String(v))
           }
         }
         return result

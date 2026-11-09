@@ -2,6 +2,7 @@ import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import type { UserRole } from '../utils/TestDataManager';
 import { waitForDialog, waitForLoadingComplete } from '../utils/wait-helpers';
 import { suppressChangelogModal } from '../utils/api-helpers';
+import type { UserRecord } from '../utils/api-records';
 
 async function getAuthToken(page: import('@playwright/test').Page): Promise<string> {
   return await page.evaluate(() => {
@@ -13,6 +14,7 @@ async function getAuthToken(page: import('@playwright/test').Page): Promise<stri
           return parsed.token;
         }
       } catch {
+        // Malformed auth storage: fall through to the next token source.
       }
     }
 
@@ -164,7 +166,7 @@ test.describe('Data Consistency', () => {
       const users = await response.json();
       expect(Array.isArray(users)).toBe(true);
       const foundUser = Array.isArray(users)
-        ? users.find((u: any) => u.email === testUser.email)
+        ? users.find((u: UserRecord) => u.email === testUser.email)
         : null;
 
       expect(foundUser).toBeTruthy();
@@ -197,7 +199,7 @@ test.describe('Data Consistency', () => {
       const users = await usersResponse.json();
       expect(Array.isArray(users)).toBe(true);
       const user = Array.isArray(users)
-        ? users.find((u: any) => u.email === testUser.email)
+        ? users.find((u: UserRecord) => u.email === testUser.email)
         : null;
 
       expect(user).toBeTruthy();
@@ -274,7 +276,7 @@ test.describe('Data Consistency', () => {
       const users = await response.json();
       expect(Array.isArray(users)).toBe(true);
       if (Array.isArray(users)) {
-        const foundUser = users.find((u: any) => u.email === testUser.email);
+        const foundUser = users.find((u: UserRecord) => u.email === testUser.email);
         expect(foundUser).toBeUndefined();
       }
     });
@@ -301,7 +303,7 @@ test.describe('Data Consistency', () => {
       const users = await usersResponse.json();
       expect(Array.isArray(users)).toBe(true);
       const user = Array.isArray(users)
-        ? users.find((u: any) => u.email === testUser.email)
+        ? users.find((u: UserRecord) => u.email === testUser.email)
         : null;
 
       expect(user).toBeTruthy();
@@ -430,7 +432,7 @@ test.describe('Data Consistency', () => {
       expect(usersResponse.ok()).toBe(true);
       const users = await usersResponse.json();
       expect(Array.isArray(users)).toBe(true);
-      const matchingUsers = users.filter((u: any) => u.email === testUser.email);
+      const matchingUsers = users.filter((u: UserRecord) => u.email === testUser.email);
       expect(matchingUsers).toHaveLength(1);
     });
   });
@@ -519,8 +521,7 @@ test.describe('Data Consistency', () => {
           await prevButton.click();
           await waitForLoadingComplete(page, { timeout: 15000 });
 
-          const backPage1Items = await page.locator('table tbody tr').count();
-          expect(backPage1Items).toBe(page1Items);
+          await expect(page.locator('table tbody tr')).toHaveCount(page1Items);
         }
       }
     });

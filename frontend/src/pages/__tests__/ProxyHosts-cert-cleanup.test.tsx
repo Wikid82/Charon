@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { toast } from 'react-hot-toast'
 import { MemoryRouter } from 'react-router'
 import { vi, describe, it, expect, beforeEach } from 'vitest'
 
@@ -36,6 +37,7 @@ vi.mock('../../api/proxyHosts', () => ({
 vi.mock('../../api/certificates', () => ({
   getCertificates: vi.fn(),
   deleteCertificate: vi.fn(),
+  bulkDeleteCertificates: vi.fn(),
 }))
 vi.mock('../../api/accessLists', () => ({ accessListsApi: { list: vi.fn() } }))
 vi.mock('../../api/settings', () => ({ getSettings: vi.fn() }))
@@ -68,6 +70,28 @@ const renderWithProviders = (ui: React.ReactNode) => {
 }
 
 const baseHost = (overrides: Partial<ProxyHost> = {}) => createMockProxyHost(overrides)
+
+/** Selects every row, runs the toolbar bulk delete, and confirms the host deletion modal. */
+const bulkDeleteAllHostsAndConfirmCerts = async () => {
+  await userEvent.click(screen.getByLabelText('Select all rows'))
+
+  expect(await screen.findByText('Manage ACL')).toBeTruthy()
+  const manageACLButton = screen.getByText('Manage ACL')
+  const bulkDeleteButton = manageACLButton.parentElement?.querySelector('button:last-child') as HTMLButtonElement
+  await userEvent.click(bulkDeleteButton)
+
+  expect(await screen.findByText(/Delete 2 Proxy Host/)).toBeTruthy()
+  await userEvent.click(screen.getByRole('button', { name: /Delete Permanently/i }))
+}
+
+/** Ticks the certificate deletion checkbox in the cleanup dialog and confirms it. */
+const confirmCertificateCleanup = async () => {
+  const certCheckbox = document.getElementById('delete_certs') as HTMLInputElement
+  await userEvent.click(certCheckbox)
+
+  const deleteButtons = screen.getAllByRole('button', { name: 'Delete' })
+  await userEvent.click(deleteButtons[deleteButtons.length - 1])
+}
 
 describe('ProxyHosts - Certificate Cleanup Prompts', () => {
   beforeEach(() => {
@@ -336,25 +360,12 @@ describe('ProxyHosts - Certificate Cleanup Prompts', () => {
     vi.mocked(proxyHostsApi.getProxyHosts).mockResolvedValue([host1, host2])
     vi.mocked(certificatesApi.getCertificates).mockResolvedValue([])
     vi.mocked(proxyHostsApi.deleteProxyHost).mockResolvedValue()
-    vi.mocked(certificatesApi.deleteCertificate).mockResolvedValue()
+    vi.mocked(certificatesApi.bulkDeleteCertificates).mockResolvedValue({ deleted: ['cert-1'], failed: [] })
 
     renderWithProviders(<ProxyHosts />)
     expect(await screen.findByText('Host1')).toBeTruthy()
 
-    // Select all hosts
-    const selectAllCheckbox = screen.getByLabelText('Select all rows')
-    await userEvent.click(selectAllCheckbox)
-
-    // Click bulk delete button (the delete button in the toolbar, after Manage ACL)
-    expect(await screen.findByText('Manage ACL')).toBeTruthy()
-    const manageACLButton = screen.getByText('Manage ACL')
-    const bulkDeleteButton = manageACLButton.parentElement?.querySelector('button:last-child') as HTMLButtonElement
-    await userEvent.click(bulkDeleteButton)
-
-    // Confirm in bulk delete modal - text uses pluralized form "Proxy Host(s)"
-    expect(await screen.findByText(/Delete 2 Proxy Host/)).toBeTruthy()
-    const deletePermBtn = screen.getByRole('button', { name: /Delete Permanently/i })
-    await userEvent.click(deletePermBtn)
+    await bulkDeleteAllHostsAndConfirmCerts()
 
     // Should show certificate cleanup dialog (both hosts use same cert, deleting both = orphaned)
     await waitFor(() => {
@@ -362,19 +373,94 @@ describe('ProxyHosts - Certificate Cleanup Prompts', () => {
       expect(screen.getByText('BulkCert')).toBeTruthy()
     })
 
-    // Check the certificate deletion checkbox
-    const certCheckbox = document.getElementById('delete_certs') as HTMLInputElement
-    await userEvent.click(certCheckbox)
-
-    // Confirm
-    const deleteButtons = screen.getAllByRole('button', { name: 'Delete' })
-    await userEvent.click(deleteButtons[deleteButtons.length - 1])
+    await confirmCertificateCleanup()
 
     await waitFor(() => {
       expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('h1')
-      expect(certificatesApi.deleteCertificate).toHaveBeenCalledWith('cert-1')
+      expect(certificatesApi.bulkDeleteCertificates).toHaveBeenCalledWith(['cert-1'])
     })
     expect(proxyHostsApi.deleteProxyHost).toHaveBeenCalledWith('h2')
+    expect(certificatesApi.deleteCertificate).not.toHaveBeenCalled()
+    expect(toast.success).toHaveBeenCalledWith('Deleted 2 host(s) and 1 certificate(s)')
+  })
+
+  it('bulk delete sends all orphaned certificate uuids in one bulk request', async () => {
+    const certOne: Certificate = { id: 1, uuid: 'cert-1', provider: 'custom', name: 'CertOne', domains: 'one.com', expires_at: '2026-01-01T00:00:00Z' }
+    const certTwo: Certificate = { id: 2, uuid: 'cert-2', provider: 'custom', name: 'CertTwo', domains: 'two.com', expires_at: '2026-01-01T00:00:00Z' }
+    const host1 = baseHost({ uuid: 'h1', name: 'Host1', certificate_id: 1, certificate: certOne })
+    const host2 = baseHost({ uuid: 'h2', name: 'Host2', certificate_id: 2, certificate: certTwo })
+
+    vi.mocked(proxyHostsApi.getProxyHosts).mockResolvedValue([host1, host2])
+    vi.mocked(certificatesApi.getCertificates).mockResolvedValue([])
+    vi.mocked(proxyHostsApi.deleteProxyHost).mockResolvedValue()
+    vi.mocked(certificatesApi.bulkDeleteCertificates).mockResolvedValue({ deleted: ['cert-1', 'cert-2'], failed: [] })
+
+    renderWithProviders(<ProxyHosts />)
+    expect(await screen.findByText('Host1')).toBeTruthy()
+
+    await bulkDeleteAllHostsAndConfirmCerts()
+    expect(await screen.findByText(/orphaned certificate/i)).toBeTruthy()
+    await confirmCertificateCleanup()
+
+    await waitFor(() => {
+      expect(certificatesApi.bulkDeleteCertificates).toHaveBeenCalledTimes(1)
+    })
+    expect(certificatesApi.bulkDeleteCertificates).toHaveBeenCalledWith(['cert-1', 'cert-2'])
+    expect(certificatesApi.deleteCertificate).not.toHaveBeenCalled()
+    expect(toast.success).toHaveBeenCalledWith('Deleted 2 host(s) and 2 certificate(s)')
+  })
+
+  it('bulk delete reports partial certificate failures from the bulk response', async () => {
+    const certOne: Certificate = { id: 1, uuid: 'cert-1', provider: 'custom', name: 'CertOne', domains: 'one.com', expires_at: '2026-01-01T00:00:00Z' }
+    const certTwo: Certificate = { id: 2, uuid: 'cert-2', provider: 'custom', name: 'CertTwo', domains: 'two.com', expires_at: '2026-01-01T00:00:00Z' }
+    const host1 = baseHost({ uuid: 'h1', name: 'Host1', certificate_id: 1, certificate: certOne })
+    const host2 = baseHost({ uuid: 'h2', name: 'Host2', certificate_id: 2, certificate: certTwo })
+
+    vi.mocked(proxyHostsApi.getProxyHosts).mockResolvedValue([host1, host2])
+    vi.mocked(certificatesApi.getCertificates).mockResolvedValue([])
+    vi.mocked(proxyHostsApi.deleteProxyHost).mockResolvedValue()
+    vi.mocked(certificatesApi.bulkDeleteCertificates).mockResolvedValue({
+      deleted: ['cert-1'],
+      failed: [{ uuid: 'cert-2', reason: 'in_use' }],
+    })
+
+    renderWithProviders(<ProxyHosts />)
+    expect(await screen.findByText('Host1')).toBeTruthy()
+
+    await bulkDeleteAllHostsAndConfirmCerts()
+    expect(await screen.findByText(/orphaned certificate/i)).toBeTruthy()
+    await confirmCertificateCleanup()
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith('Deleted 2 host(s) and 1 certificate(s), 1 certificate(s) failed')
+    })
+    expect(certificatesApi.bulkDeleteCertificates).toHaveBeenCalledWith(['cert-1', 'cert-2'])
+    expect(toast.success).not.toHaveBeenCalledWith(expect.stringContaining('certificate(s)'))
+  })
+
+  it('bulk delete counts every certificate as failed when the bulk request rejects', async () => {
+    const certOne: Certificate = { id: 1, uuid: 'cert-1', provider: 'custom', name: 'CertOne', domains: 'one.com', expires_at: '2026-01-01T00:00:00Z' }
+    const certTwo: Certificate = { id: 2, uuid: 'cert-2', provider: 'custom', name: 'CertTwo', domains: 'two.com', expires_at: '2026-01-01T00:00:00Z' }
+    const host1 = baseHost({ uuid: 'h1', name: 'Host1', certificate_id: 1, certificate: certOne })
+    const host2 = baseHost({ uuid: 'h2', name: 'Host2', certificate_id: 2, certificate: certTwo })
+
+    vi.mocked(proxyHostsApi.getProxyHosts).mockResolvedValue([host1, host2])
+    vi.mocked(certificatesApi.getCertificates).mockResolvedValue([])
+    vi.mocked(proxyHostsApi.deleteProxyHost).mockResolvedValue()
+    vi.mocked(certificatesApi.bulkDeleteCertificates).mockRejectedValue(new Error('backup failed'))
+
+    renderWithProviders(<ProxyHosts />)
+    expect(await screen.findByText('Host1')).toBeTruthy()
+
+    await bulkDeleteAllHostsAndConfirmCerts()
+    expect(await screen.findByText(/orphaned certificate/i)).toBeTruthy()
+    await confirmCertificateCleanup()
+
+    await waitFor(() => {
+      expect(toast.error).toHaveBeenCalledWith('Deleted 2 host(s) and 0 certificate(s), 2 certificate(s) failed')
+    })
+    expect(certificatesApi.bulkDeleteCertificates).toHaveBeenCalledTimes(1)
+    expect(certificatesApi.deleteCertificate).not.toHaveBeenCalled()
   })
 
   it('bulk delete does NOT prompt when certificate is still used by other hosts', async () => {

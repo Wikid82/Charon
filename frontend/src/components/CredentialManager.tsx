@@ -1,7 +1,17 @@
 import { Plus, Edit, Trash2, CheckCircle, XCircle, TestTube } from 'lucide-react'
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import {
+  useCredentials,
+  useCreateCredential,
+  useUpdateCredential,
+  useDeleteCredential,
+  useTestCredential,
+  type DNSProviderCredential,
+  type CredentialRequest,
+} from '../hooks/useCredentials'
+import { toast } from '../utils/toast'
 import {
   Dialog,
   DialogContent,
@@ -14,16 +24,6 @@ import {
   Checkbox,
   EmptyState,
 } from './ui'
-import {
-  useCredentials,
-  useCreateCredential,
-  useUpdateCredential,
-  useDeleteCredential,
-  useTestCredential,
-  type DNSProviderCredential,
-  type CredentialRequest,
-} from '../hooks/useCredentials'
-import { toast } from '../utils/toast'
 
 import type { DNSProvider, DNSProviderTypeInfo } from '../api/dnsProviders'
 
@@ -262,7 +262,6 @@ export default function CredentialManager({
       {/* Credential Form Dialog */}
       {isFormOpen && (
         <CredentialForm
-          open={isFormOpen}
           onOpenChange={setIsFormOpen}
           providerId={provider.uuid}
           providerTypeInfo={providerTypeInfo}
@@ -304,7 +303,6 @@ export default function CredentialManager({
 }
 
 interface CredentialFormProps {
-  open: boolean
   onOpenChange: (open: boolean) => void
   providerId: string
   providerTypeInfo?: DNSProviderTypeInfo
@@ -313,7 +311,6 @@ interface CredentialFormProps {
 }
 
 function CredentialForm({
-  open,
   onOpenChange,
   providerId,
   providerTypeInfo,
@@ -325,36 +322,15 @@ function CredentialForm({
   const updateMutation = useUpdateCredential()
   const testMutation = useTestCredential()
 
-  const [label, setLabel] = useState('')
-  const [zoneFilter, setZoneFilter] = useState('')
-  const [credentials, setCredentials] = useState<Record<string, string>>({})
-  const [propagationTimeout, setPropagationTimeout] = useState(120)
-  const [pollingInterval, setPollingInterval] = useState(5)
-  const [enabled, setEnabled] = useState(true)
+  // The dialog is mounted fresh on every open (see CredentialManager), so the
+  // initial state is the seed: stored values for an edit, defaults for an add.
+  const [label, setLabel] = useState(credential?.label ?? '')
+  const [zoneFilter, setZoneFilter] = useState(credential?.zone_filter ?? '')
+  const [credentials, setCredentials] = useState<Record<string, string>>({}) // Never pre-filled (encrypted)
+  const [propagationTimeout, setPropagationTimeout] = useState(credential?.propagation_timeout ?? 120)
+  const [pollingInterval, setPollingInterval] = useState(credential?.polling_interval ?? 5)
+  const [enabled, setEnabled] = useState(credential?.enabled ?? true)
   const [errors, setErrors] = useState<Record<string, string>>({})
-
-  useEffect(() => {
-    if (credential) {
-      setLabel(credential.label)
-      setZoneFilter(credential.zone_filter)
-      setPropagationTimeout(credential.propagation_timeout)
-      setPollingInterval(credential.polling_interval)
-      setEnabled(credential.enabled)
-      setCredentials({}) // Don't pre-fill credentials (they're encrypted)
-    } else {
-      resetForm()
-    }
-  }, [credential, open])
-
-  const resetForm = () => {
-    setLabel('')
-    setZoneFilter('')
-    setCredentials({})
-    setPropagationTimeout(120)
-    setPollingInterval(5)
-    setEnabled(true)
-    setErrors({})
-  }
 
   const validateZoneFilter = (value: string): boolean => {
     if (!value) return true // Empty is valid (catch-all)
@@ -468,7 +444,7 @@ function CredentialForm({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open onOpenChange={onOpenChange}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>

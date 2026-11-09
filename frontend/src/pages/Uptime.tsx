@@ -8,6 +8,8 @@ import { useTranslation } from 'react-i18next';
 import { updateMonitor, deleteMonitor, checkMonitor, createMonitor, syncMonitors, type UptimeMonitor, type MonitorSummary, type BeatDTO } from '../api/uptime';
 import { useUptimeSummary } from '../hooks/useUptimeSummary';
 
+import type { TFunction } from 'i18next';
+
 
 type BaseMonitorStatus = 'up' | 'down' | 'pending';
 type EffectiveMonitorStatus = BaseMonitorStatus | 'paused';
@@ -27,14 +29,10 @@ const isQueueFull = (err: unknown): boolean =>
 
 const normalizeMonitorStatus = (status: string | undefined): BaseMonitorStatus => {
   const normalized = status?.toLowerCase();
-  if (normalized === 'up' || normalized === 'down' || normalized === 'pending') {
-    return normalized;
-  }
-
-  return 'down';
+  return normalized === 'up' || normalized === 'down' || normalized === 'pending' ? normalized : 'down';
 };
 
-const MonitorCard: FC<{ monitor: MonitorSummary; onEdit: (monitor: MonitorSummary) => void; t: (key: string, options?: Record<string, unknown>) => string }> = ({ monitor, onEdit, t }) => {
+const MonitorCard: FC<{ monitor: MonitorSummary; onEdit: (monitor: MonitorSummary) => void; t: TFunction }> = ({ monitor, onEdit, t }) => {
   const queryClient = useQueryClient()
 
   const deleteMutation = useMutation({
@@ -269,7 +267,7 @@ const EditMonitorModal: FC<{ monitor: MonitorSummary; onClose: () => void; t: (k
     return (
         <>
             {/* Layer 1: Background overlay (z-40) */}
-            <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
+            <div className="fixed inset-0 bg-black/50 z-40" role="presentation" onClick={onClose} />
 
             {/* Layer 2: Form container (z-50, pointer-events-none) */}
             <div className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-50">
@@ -403,7 +401,7 @@ const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }
     return (
         <>
             {/* Layer 1: Background overlay (z-40) */}
-            <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
+            <div className="fixed inset-0 bg-black/50 z-40" role="presentation" onClick={onClose} />
 
             {/* Layer 2: Form container (z-50, pointer-events-none) */}
             <div className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-50">
@@ -443,11 +441,7 @@ const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }
                             onChange={(e) => {
                                 const newType = e.target.value as 'http' | 'tcp';
                                 setType(newType);
-                                if (newType === 'tcp' && url.trim().includes('://')) {
-                                    setUrlError(t('uptime.invalidTcpFormat'));
-                                } else {
-                                    setUrlError('');
-                                }
+                                setUrlError(newType === 'tcp' && url.trim().includes('://') ? t('uptime.invalidTcpFormat') : '');
                             }}
                             className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
                         >
@@ -467,11 +461,7 @@ const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }
                             onChange={(e) => {
                                 const val = e.target.value;
                                 setUrl(val);
-                                if (type === 'tcp' && val.includes('://')) {
-                                    setUrlError(t('uptime.invalidTcpFormat'));
-                                } else {
-                                    setUrlError('');
-                                }
+                                setUrlError(type === 'tcp' && val.includes('://') ? t('uptime.invalidTcpFormat') : '');
                             }}
                             required
                             aria-invalid={urlError ? true : undefined}

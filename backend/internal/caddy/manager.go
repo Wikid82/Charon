@@ -17,6 +17,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -394,6 +395,12 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 			logger.Log().WithError(err).Warn("failed to create coraza rulesets dir")
 		}
 		for _, rs := range rulesets {
+			// A rule set without a rule line would load a WAF that blocks nothing. Skip it before the engine directives
+			// are prepended below, which would otherwise make the file look non-empty. Its old file is removed as stale.
+			if !models.HasRuleLines(rs.Content) {
+				logger.Log().WithField("ruleset", rs.Name).Warn("skipping WAF rule set that has no rules")
+				continue
+			}
 			// Sanitize name to a safe filename - prevent path traversal and special chars
 			safeName := strings.ToLower(rs.Name)
 			safeName = strings.ReplaceAll(safeName, " ", "-")
@@ -481,6 +488,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		WithEncryptionService(m.encSvc),
 		WithRedirectionHosts(redirectHosts),
 		WithRemoteHosts(remoteHosts),
+		WithBouncerKeyPath(bouncerkey.PathFor(m.securityCfg.CrowdSecConfigDir)),
 		WithEnforcementSink(func(report EnforcementReport) { generatedReport = &report }),
 	}
 	if m.hopSecret != nil {
@@ -757,7 +765,7 @@ func (m *Manager) computeEffectiveFlags(_ context.Context) (cerbEnabled, aclEnab
 		logModuleReadError("acl", aclErr)
 		aclEnabled = aclRes.Enabled
 
-		// CrowdSec: the enabled setting, then the deprecated mode setting, then the default row (shared with status and boot).
+		// CrowdSec: the enabled setting, then the default row (shared with status and boot).
 		var crowdSecErr error
 		crowdsecEnabled, crowdSecErr = models.CrowdSecEnabled(m.db, crowdSecRow)
 		if crowdSecErr != nil {

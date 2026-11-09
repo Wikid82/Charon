@@ -154,12 +154,12 @@ Stores reverse proxy host configurations.
 
 **Relationships:**
 
-- `RemoteServer`: Many-to-One (optional) - Links to remote Caddy instance
+- `RemoteServer`: Many-to-One (optional) - Links to a saved backend server (the upstream target a proxy host forwards to)
 - `CaddyConfig`: One-to-One - Generated Caddyfile configuration
 
 ### RemoteServer
 
-Stores remote Caddy server connection information.
+Stores a saved backend server that proxy hosts can be set to forward traffic to.
 
 | Column | Type | Description |
 | -------- | ------ | ------------- |
@@ -167,7 +167,7 @@ Stores remote Caddy server connection information.
 | `name` | TEXT | Friendly name |
 | `provider` | TEXT | generic, docker, kubernetes, aws, gcp, azure |
 | `host` | TEXT | Hostname or IP address |
-| `port` | INTEGER | Port number (default 2019) |
+| `port` | INTEGER | Port number the backend server listens on |
 | `reachable` | BOOLEAN | Connection test result |
 | `last_checked` | TIMESTAMP | Last connection test time |
 | `enabled` | BOOLEAN | Server is active |

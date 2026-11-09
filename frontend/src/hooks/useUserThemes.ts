@@ -1,6 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 
-import { useAuth } from './useAuth'
 import {
   listUserThemes,
   createUserTheme,
@@ -8,6 +7,7 @@ import {
   deleteUserTheme,
   parseUserThemeDTO,
 } from '../api/themes'
+import { useAuth } from './useAuth'
 
 import type { UserTheme, CustomThemeColors } from '../context/ThemeContextValue'
 

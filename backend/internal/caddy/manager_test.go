@@ -392,7 +392,7 @@ func TestComputeEffectiveFlags_DB_CerberusDisabled(t *testing.T) {
 // TestComputeEffectiveFlags_DB_ACLDisables: replaced by TestComputeEffectiveFlags_DB_ACLTrueAndFalse
 // TestComputeEffectiveFlags_DB_ACLDisables: Replaced by focused tests TestComputeEffectiveFlags_DB_ACLTrueAndFalse
 
-func TestComputeEffectiveFlags_DB_CrowdSecExternal(t *testing.T) {
+func TestComputeEffectiveFlags_DB_CrowdSecEnabledFalse(t *testing.T) {
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
@@ -401,14 +401,14 @@ func TestComputeEffectiveFlags_DB_CrowdSecExternal(t *testing.T) {
 	secCfg := config.SecurityConfig{CerberusEnabled: true, ACLMode: "enabled", WAFMode: "enabled", RateLimitMode: "enabled", CrowdSecMode: "local"}
 	manager := NewManager(nil, db, "", "", false, secCfg)
 
-	res := db.Create(&models.Setting{Key: "security.crowdsec.mode", Value: "unknown"})
+	res := db.Create(&models.Setting{Key: models.CrowdSecEnabledSettingKey, Value: "false"})
 	require.NoError(t, res.Error)
 
 	_, _, _, _, cs := manager.computeEffectiveFlags(context.Background())
 	require.False(t, cs)
 }
 
-func TestComputeEffectiveFlags_DB_CrowdSecUnknown(t *testing.T) {
+func TestComputeEffectiveFlags_DB_CrowdSecEnabledUnknown(t *testing.T) {
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
@@ -417,13 +417,13 @@ func TestComputeEffectiveFlags_DB_CrowdSecUnknown(t *testing.T) {
 	secCfg := config.SecurityConfig{CerberusEnabled: true, ACLMode: "enabled", WAFMode: "enabled", RateLimitMode: "enabled", CrowdSecMode: "local"}
 	manager := NewManager(nil, db, "", "", false, secCfg)
 
-	res := db.Create(&models.Setting{Key: "security.crowdsec.mode", Value: "unknown"})
+	res := db.Create(&models.Setting{Key: models.CrowdSecEnabledSettingKey, Value: "unknown"})
 	require.NoError(t, res.Error)
 	_, _, _, _, cs := manager.computeEffectiveFlags(context.Background())
 	require.False(t, cs)
 }
 
-func TestComputeEffectiveFlags_DB_CrowdSecLocal(t *testing.T) {
+func TestComputeEffectiveFlags_DB_CrowdSecEnabledTrue(t *testing.T) {
 	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 	require.NoError(t, err)
@@ -432,7 +432,7 @@ func TestComputeEffectiveFlags_DB_CrowdSecLocal(t *testing.T) {
 	secCfg := config.SecurityConfig{CerberusEnabled: true, ACLMode: "enabled", WAFMode: "enabled", RateLimitMode: "enabled", CrowdSecMode: "local"}
 	manager := NewManager(nil, db, "", "", false, secCfg)
 
-	res := db.Create(&models.Setting{Key: "security.crowdsec.mode", Value: "local"})
+	res := db.Create(&models.Setting{Key: models.CrowdSecEnabledSettingKey, Value: "true"})
 	require.NoError(t, res.Error)
 	_, _, _, _, cs := manager.computeEffectiveFlags(context.Background())
 	require.True(t, cs)

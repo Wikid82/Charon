@@ -113,7 +113,8 @@ The `reason` value is one of these:
 
 - `no_ruleset`: the WAF is on, but no rule set exists yet.
 - `ruleset_not_selected`: rule sets exist, but none is chosen for the host.
-- `ruleset_unavailable`: the chosen rule set has no file ready to load.
+- `ruleset_unavailable`: the chosen rule set has rules but no file ready to load.
+- `ruleset_empty`: the chosen rule set has no rules (for example, only comments), so nothing is loaded. Edit the rule set to add a rule.
 - `thresholds_unset`: the rate limit is on, but its request count or time window is not set. See the rate limit rules under Upsert below.
 
 #### Get Global Security Config
@@ -137,6 +138,7 @@ Only the fields present in the request body are changed. Every other stored sett
 - An explicit empty string (`""`), `0` or `false` is applied. Use these to clear a text setting or turn a setting off.
 - A body with no settable field (for example `{}`) changes nothing.
 - `crowdsec_mode` is accepted for compatibility and checked for a valid value, but it is not stored. Turn CrowdSec on or off with the CrowdSec switch instead.
+- Every value that is sent is checked before anything is saved. The allowed range for each setting is listed under [Allowed Values](#allowed-values) below.
 
 Request Body (example; only these two fields change):
 
@@ -148,6 +150,22 @@ Request Body (example; only these two fields change):
 ```
 
 Response 200: `{ "config": { ... } }`. The `config` object is the stored row after the save, with every field.
+
+#### Allowed Values
+
+Every value is checked before anything is written. If a value in the request is outside its allowed range or format, the whole save is refused with `400`, the message names the setting that is wrong, and nothing is stored.
+
+- **`waf_paranoia_level`**: a whole number from `1` to `4`. `0` is not allowed.
+- **`rate_limit_requests`**: a whole number from `0` to `100000`.
+- **`rate_limit_burst`**: a whole number from `0` to `10000`.
+- **`rate_limit_window_sec`**: a whole number of seconds from `0` to `86400` (one day).
+- **`rate_limit_mode`**: exactly `""`, `disabled` or `enabled`, in lowercase. Other spellings, such as `Enabled`, are refused.
+- **`rate_limit_bypass_list`**: a comma-separated list of IP addresses or CIDR ranges (a range such as `203.0.113.0/24`). Blank entries are skipped. An empty value clears the list.
+- **`crowdsec_api_url`**: empty, or an absolute `http://` or `https://` address that includes a host name.
+
+For the three rate limit numbers, `0` means not set.
+
+A value that is already saved is accepted when it is sent back unchanged. A read, edit one field, and save cycle therefore works even when a stored value is outside the ranges above.
 
 #### Module Switches and Rule Sets
 
@@ -267,14 +285,27 @@ Payload:
 
 ```json
 {
-  "name": "owasp-crs-quick",
-  "source_url": "https://example.com/owasp-crs.txt",
-  "mode": "owasp",
-  "content": "# raw rules"
+  "name": "my-first-rules",
+  "source_url": "https://example.com/my-rules.txt",
+  "mode": "detection",
+  "content": "SecRule REQUEST_URI \"@contains /blocked-example\" \"id:100001,phase:1,deny,status:403\""
 }
 ```
 
+`content` must contain at least one rule line (a line that starts with `SecRule`, `SecAction` or `Include`). Empty content, or content with only comments or settings lines, is refused.
+
+`source_url` is optional. It is stored for reference only. Charon does not download it.
+
 Response 200: `{ "ruleset": { ... } }`
+
+Response 400 when the rule set has no rules:
+
+```json
+{
+  "error": "A rule set needs at least one rule. Add a SecRule line.",
+  "error_code": "ruleset_empty"
+}
+```
 
 #### Delete Ruleset
 
@@ -940,6 +971,41 @@ DELETE /certificates/:id
 
 **Note:** A backup is automatically created before deletion. The certificate files are removed from disk along with the database record.
 
+#### Bulk Delete Certificates
+
+Delete several certificates in one request. This endpoint is admin-only; other roles receive `403 Forbidden`. A single backup is taken before any deletion, so a batch of up to 200 certificates does not trigger one backup per certificate. Certificates in use, or not found, are reported in `failed` and do not stop the rest of the batch.
+
+```http
+POST /certificates/bulk-delete
+```
+
+**Request body:**
+
+```json
+{
+  "uuids": ["3f2b8c1e-5a4d-4e7f-9b1a-2c3d4e5f6a7b"]
+}
+```
+
+`uuids` must contain between 1 and 200 valid UUIDs. UUIDs are accepted case-insensitively and normalized to lowercase canonical form in the response. Duplicates are ignored.
+
+**Response 200:**
+
+```json
+{
+  "deleted": ["3f2b8c1e-5a4d-4e7f-9b1a-2c3d4e5f6a7b"],
+  "failed": [{ "uuid": "9a8b7c6d-1e2f-4a3b-8c4d-5e6f7a8b9c0d", "reason": "in_use" }]
+}
+```
+
+`reason` is one of `in_use`, `not_found` or `error`.
+
+**Response 400:** `{"error": "invalid request"}` for a malformed body, or `{"error": "uuids must contain between 1 and 200 entries"}` / `{"error": "uuids must contain valid UUIDs"}`.
+
+**Response 500:** `{"error": "failed to create backup before deletion"}`. Nothing is deleted in this case.
+
+**Response 507:** `{"error": "insufficient disk space for backup"}`. Nothing is deleted in this case.
+
 #### Export Certificate
 
 Download a certificate, optionally with its private key, as a file.
@@ -1443,7 +1509,7 @@ Each message received from the WebSocket is a JSON-encoded `LogEntry`:
 
 - If upgrade fails, returns HTTP 400 with error message
 - Authentication required (when auth is implemented)
-- Rate limiting applies (when rate limiting is implemented)
+- Rate limiting: see the [Rate Limiting](features/rate-limiting.md) page for which limits apply to the management API.
 
 **Example: Filter for critical WAF events only**
 

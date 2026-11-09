@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"slices"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -109,9 +110,20 @@ func (g *gatedApplier) ApplyConfig(context.Context) error {
 // disabled and the enabled setting is false. The engine, the cscli stand-in and the proxy applier belong to the test.
 func newResetLifecycleHandler(t *testing.T, eng CrowdsecExecutor, cmd CommandExecutor, applier CaddyConfigManager) *CrowdsecHandler {
 	t.Helper()
+	return newResetLifecycleHandlerSeeded(t, eng, cmd, applier, false)
+}
+
+// newResetLifecycleHandlerSeeded is newResetLifecycleHandler with the module seeded enabled or disabled. An enabled
+// seed is a local-mode default row and an enabled setting of "true".
+func newResetLifecycleHandlerSeeded(t *testing.T, eng CrowdsecExecutor, cmd CommandExecutor, applier CaddyConfigManager, enabled bool) *CrowdsecHandler {
+	t.Helper()
 	db := setupCrowdDB(t)
-	require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName, Enabled: false, CrowdSecMode: "disabled"}).Error)
-	require.NoError(t, db.Create(&models.Setting{Key: models.CrowdSecEnabledSettingKey, Value: "false", Category: "security", Type: "bool"}).Error)
+	mode := "disabled"
+	if enabled {
+		mode = "local"
+	}
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName, Enabled: enabled, CrowdSecMode: mode}).Error)
+	require.NoError(t, db.Create(&models.Setting{Key: models.CrowdSecEnabledSettingKey, Value: strconv.FormatBool(enabled), Category: "security", Type: "bool"}).Error)
 	h := newTestCrowdsecHandler(t, db, eng, "/bin/false", t.TempDir())
 	h.CmdExec = cmd
 	h.caddyManager = applier
@@ -474,9 +486,9 @@ func TestCrowdsecLifecycleReset_ThirdWriteFailureStopsEngine(t *testing.T) {
 	require.False(t, eng.isRunning())
 	// The reset failed before its row update, so only the CrowdSec keys it wrote are asserted: both are off.
 	require.Equal(t, "false", lifecycleSettingValue(t, h.DB))
-	var mode models.Setting
-	require.NoError(t, h.DB.Where("key = ?", models.CrowdSecDeprecatedModeSettingKey).First(&mode).Error)
-	require.Equal(t, "disabled", mode.Value)
+	var modeRows int64
+	require.NoError(t, h.DB.Model(&models.Setting{}).Where("key = ?", models.CrowdSecRetiredModeSettingKey).Count(&modeRows).Error)
+	require.Zero(t, modeRows, "the retired mode key is never written")
 }
 
 // TestCrowdsecLifecycleReset_ReadErrorAfterFailedResetDoesNotStop: when a failed reset leaves the decision unreadable,
@@ -521,7 +533,7 @@ func TestCrowdsecLifecycleReset_EngineStopFollowsReplyAndStopsEngine(t *testing.
 	}
 	require.NoError(t, json.Unmarshal(res.Body.Bytes(), &body))
 	require.True(t, body.Success)
-	require.Len(t, body.DisabledModules, 5)
+	require.Len(t, body.DisabledModules, 4)
 }
 
 // TestCrowdsecLifecycleReset_ManyPairsEndConsistent: concurrent Starts and resets end with no stop pending, and the

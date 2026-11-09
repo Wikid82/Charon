@@ -192,7 +192,7 @@ describe('OrthrusAgentManager', () => {
       }),
     );
 
-    await waitFor(() => screen.getByRole('dialog'));
+    await screen.findByRole('dialog')
 
     fireEvent.click(screen.getByText('hecate.agentManager.deleteConfirm'));
 
@@ -211,7 +211,7 @@ describe('OrthrusAgentManager', () => {
       }),
     );
 
-    await waitFor(() => screen.getByRole('dialog'));
+    await screen.findByRole('dialog')
 
     fireEvent.click(screen.getByText('common.cancel'));
 
@@ -247,7 +247,7 @@ describe('OrthrusAgentManager', () => {
       }),
     );
 
-    await waitFor(() => screen.getByTestId('assign-dialog'));
+    await screen.findByTestId('assign-dialog')
 
     fireEvent.click(screen.getByText('CloseAssign'));
 
@@ -400,9 +400,7 @@ describe('OrthrusAgentManager', () => {
       }),
     );
 
-    await waitFor(() =>
-      expect(screen.getByTestId('proxy-dialog')).toBeInTheDocument(),
-    );
+    expect(await screen.findByTestId('proxy-dialog')).toBeInTheDocument();
   });
 
   it('proxy dialog onClose clears proxyConfigAgent', async () => {
@@ -414,9 +412,7 @@ describe('OrthrusAgentManager', () => {
       }),
     );
 
-    await waitFor(() =>
-      expect(screen.getByTestId('proxy-dialog')).toBeInTheDocument(),
-    );
+    expect(await screen.findByTestId('proxy-dialog')).toBeInTheDocument();
 
     fireEvent.click(screen.getByText('CloseProxy'));
 
@@ -458,7 +454,7 @@ describe('OrthrusAgentManager', () => {
       }),
     );
 
-    await waitFor(() => screen.getByTestId('write-mode-dialog'));
+    await screen.findByTestId('write-mode-dialog')
 
     fireEvent.click(screen.getByText('CloseWriteMode'));
 

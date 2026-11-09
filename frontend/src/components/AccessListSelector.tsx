@@ -67,11 +67,7 @@ function getOptionToken(acl: { id?: number | string; uuid?: string }): string | 
     }
   }
 
-  if (acl.uuid) {
-    return `uuid:${acl.uuid}`;
-  }
-
-  return null;
+  return acl.uuid ? `uuid:${acl.uuid}` : null;
 }
 
 export default function AccessListSelector({ value, onChange }: AccessListSelectorProps) {

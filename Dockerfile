@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-fce6d08166e8b2d0
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:e4fef686313ccfeafb959bec2fe35ab12bb82eb202a47eed68e26f73b38dbcea
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-a4f3ac6092c1f0d8
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:2b7b20a825eefa8073681f4278d46ca10c60b88d130e52e91a53d9bb861aac81
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -31,10 +31,18 @@ ARG CROWDSEC_BUILDER_SRC=toolchain-prebuilt
 
 # ---- Pinned Toolchain Versions ----
 # renovate: datasource=docker depName=golang versioning=docker
-ARG GO_VERSION=1.27.3
+ARG GOLANG_IMAGE=golang:1.27.3-alpine@sha256:fa3d596898d9f126af7c01d14ee7597bab3f39cccf392ef36b69fe77cd681f18
 
 # renovate: datasource=docker depName=alpine versioning=docker
-ARG ALPINE_IMAGE=alpine:3.24.3@sha256:be2656061b536c1883c4034790e21d0a09c5aaaf51968b89368a3c0371ea2c9a
+ARG ALPINE_IMAGE=alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
+
+# ---- Shared zlib Pin ----
+# zlib is pinned to an exact version so no image silently keeps an older vulnerable build
+# from the Alpine base layer (`apk upgrade` alone left Aikido flagging it). Consumed by BOTH
+# the final runtime stage and the toolchain-runtime stage (scanned separately as
+# ghcr.io/wikid82/charon-toolchain) so the two never drift.
+# renovate: datasource=apk depName=zlib versioning=loose
+ARG ZLIB_VERSION=1.4-r0
 
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
@@ -72,7 +80,7 @@ ARG KLAUSPOST_COMPRESS_VERSION=1.20.3
 # renovate: datasource=go depName=google.golang.org/grpc
 ARG GRPC_VERSION=1.83.2
 # renovate: datasource=npm depName=npm
-ARG NPM_VERSION=12.2.1
+ARG NPM_VERSION=12.2.2
 
 # Allow pinning Caddy version - Renovate will update this
 # Build the most recent Caddy 2.x release (keeps major pinned under v3).
@@ -82,10 +90,7 @@ ARG NPM_VERSION=12.2.1
 ## Try to build the requested Caddy v2.x tag (Renovate can update this ARG).
 ## If the requested tag isn't available, fall back to a known-good v2.11.6 build.
 # renovate: datasource=go depName=github.com/caddyserver/caddy/v2
-ARG CADDY_VERSION=2.11.7
-# renovate: datasource=go depName=github.com/caddyserver/caddy/v2
-ARG CADDY_CANDIDATE_VERSION=2.11.7
-ARG CADDY_USE_CANDIDATE=0
+ARG CADDY_VERSION=2.11.9
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
 ARG CADDY_SECURITY_VERSION=1.6.2
@@ -206,6 +211,12 @@ ARG CADDY_DNS_DNSIMPLE_GO_VERSION=10.0.0
 ## upstream caddy image tags while still shipping a pinned caddy binary.
 ## Alpine 3.23 base to reduce glibc CVE exposure and image size.
 
+# Patch known CVEs in Alpine's SQLite and SQLite-libs packages when fix is published upstream. 
+# CVE-2026-119591, CVE-2026-119372, CVE-2026-119378, CVE-2026-119375, CVE-2026-119371, CVE-2026-119376, CVE-2026-119377
+# Renovate tracking requires a matching rule for apk
+# renovate: datasource=apk depName=sqlite
+ARG SQLITE_VERSION=3.54.1-r0
+
 # ---- Cross-Compilation Helpers ----
 # renovate: datasource=docker depName=tonistiigi/xx
 FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.10.0@sha256:40fe21f44bb8cddf1eb1226db190d0a984118f62ee02a91b77d99448d28264a6 AS xx
@@ -215,7 +226,7 @@ FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.10.0@sha256:40fe21f44bb8cddf1eb12
 # This fixes 22 HIGH/CRITICAL CVEs in stdlib embedded in Debian's gosu package
 # CVEs fixed: CVE-2023-24531, CVE-2023-24540, CVE-2023-29402, CVE-2023-29404,
 #             CVE-2023-29405, CVE-2024-24790, CVE-2025-22871, and 15 more
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine AS gosu-builder
+FROM --platform=$BUILDPLATFORM ${GOLANG_IMAGE} AS gosu-builder
 COPY --from=xx / /
 
 WORKDIR /tmp/gosu
@@ -273,8 +284,8 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:26.13.0-alpine@sha256:c6ad9e9c1d80f6eb607c26b4b0a132ff7a2344fad1c78ea3baa2a7d4c8de6d94 AS frontend-builder
-RUN npm install -g npm@12.2.1 && npm cache clean --force
+FROM --platform=$BUILDPLATFORM node:26.13.0-alpine@sha256:8996bb5821d62a8fd9bb27c1cb07462f3fdce6e47d640c6a881ead0b064ce216 AS frontend-builder
+RUN npm install -g npm@${NPM_VERSION} && npm cache clean --force
 WORKDIR /app/frontend
 
 # Copy frontend package files
@@ -282,8 +293,6 @@ COPY frontend/package*.json ./
 
 # Build-time project version (propagated from top-level build-arg)
 ARG VERSION=dev
-# Make version available to Vite as VITE_APP_VERSION during the frontend build
-ENV VITE_APP_VERSION=${VERSION}
 
 # Vite 8: Rolldown native bindings auto-resolved per platform via optionalDependencies
 ARG NPM_VERSION
@@ -309,16 +318,19 @@ RUN npm ci --ignore-scripts --fetch-retries=5 --fetch-retry-mintimeout=10000
 
 # Copy frontend source and build.
 # Sync package.json to the release version for semver builds; skip for
-# non-semver values like "dev" or branch names, which npm version rejects.
+# non-semver values like "dev", which npm version rejects. Build metadata such as
+# X.Y.Z+pr.N is not part of npm's version, so npm gets only X.Y.Z (any leading "v"
+# is stripped too).
 COPY frontend/ ./
 RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
-    if echo "${VERSION}" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+'; then \
-        npm version "${VERSION#v}" --no-git-tag-version --allow-same-version; \
+    if echo "${VERSION}" | grep -Eq '^v?[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?(\+|$)'; then \
+        PKG_VERSION="${VERSION%%+*}" && \
+        npm version "${PKG_VERSION#v}" --no-git-tag-version --allow-same-version; \
     fi && \
     npm run build
 
 # ---- Backend Builder ----
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS backend-builder
+FROM --platform=$BUILDPLATFORM ${GOLANG_IMAGE} AS backend-builder
 # Copy xx helpers for cross-compilation
 COPY --from=xx / /
 
@@ -330,6 +342,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # xx-apk installs packages for the TARGET architecture
 ARG TARGETPLATFORM
 ARG TARGETARCH
+ARG SQLITE_VERSION
 # hadolint ignore=DL3018
 RUN apk add --no-cache git clang lld
 # hadolint ignore=DL3059
@@ -450,16 +463,13 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # .github/workflows/toolchain-image.yml (--target toolchain-runtime) and on the
 # fork / bootstrap / offline fallback path.
 #
-# N4: the golang:${GO_VERSION}-alpine tag is a moving reference; digest-pin it so
-# a silent upstream base rebuild is caught by toolchain-key.sh. The pinned digest
-# is refreshed by the daily toolchain rebuild's `--pull` + Renovate.
-# renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS caddy-inline
+# N4: GOLANG_IMAGE (top of file) is the single digest-pinned golang reference for every
+# Go builder stage; a silent upstream base rebuild is caught by toolchain-key.sh.
+# Renovate refreshes the digest in one place.
+FROM --platform=$BUILDPLATFORM ${GOLANG_IMAGE} AS caddy-inline
 ARG TARGETOS
 ARG TARGETARCH
 ARG CADDY_VERSION
-ARG CADDY_CANDIDATE_VERSION
-ARG CADDY_USE_CANDIDATE
 ARG CADDY_PATCH_SCENARIO
 ARG CADDY_SECURITY_VERSION
 ARG CORAZA_CADDY_VERSION
@@ -557,17 +567,13 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
                 sed -i "s/IPEquals: value,/IPEquals: \&value,/g" "${_PF}"; \
             fi; \
         done; \
-        CADDY_TARGET_VERSION="${CADDY_VERSION}"; \
-        if [ "${CADDY_USE_CANDIDATE}" = "1" ]; then \
-            CADDY_TARGET_VERSION="${CADDY_CANDIDATE_VERSION}"; \
-        fi; \
-        echo "Using Caddy target version: v${CADDY_TARGET_VERSION}"; \
+        echo "Using Caddy target version: v${CADDY_VERSION}"; \
         echo "Using Caddy patch scenario: ${CADDY_PATCH_SCENARIO}"; \
         export XCADDY_SKIP_CLEANUP=1; \
         echo "Stage 1: Generate go.mod with xcaddy..."; \
         # Run xcaddy to generate the build directory and go.mod
-        _retry env GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_TARGET_VERSION} \
-            --with github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION} \
+        _retry env GOOS=$TARGETOS GOARCH=$TARGETARCH xcaddy build v${CADDY_VERSION} \
+            --with github.com/caddyserver/caddy/v2@v${CADDY_VERSION} \
             --with github.com/greenpau/caddy-security@v${CADDY_SECURITY_VERSION} \
             --with github.com/corazawaf/coraza-caddy/v2@v${CORAZA_CADDY_VERSION} \
             --with github.com/hslatman/caddy-crowdsec-bouncer@v0.12.1 \
@@ -636,7 +642,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # renovate: datasource=go depName=github.com/go-jose/go-jose/v3
         _retry go get github.com/go-jose/go-jose/v3@v3.0.5; \
         # renovate: datasource=go depName=github.com/go-jose/go-jose/v4
-        _retry go get github.com/go-jose/go-jose/v4@v4.1.6; \
+        _retry go get github.com/go-jose/go-jose/v4@v4.1.8; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/sdk
         _retry go get go.opentelemetry.io/otel/sdk@v1.47.0; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp
@@ -656,6 +662,8 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         _retry go get github.com/russellhaering/goxmldsig@v1.6.1; \
         # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
         # Affects /usr/bin/caddy (transitive dependency). Fix available at v0.1.1.
+        # renovate: datasource=go depName=github.com/smallstep/certificates
+        _retry go get github.com/smallstep/certificates@v0.30.2; \
         # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
         _retry go get github.com/Azure/go-ntlmssp@v0.1.1; \
         # renovate: datasource=go depName=github.com/buger/jsonparser
@@ -693,7 +701,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
             exit 1; \
         fi; \
         # Final re-pin: enforce requested Caddy core version after plugin/security updates.
-        _retry go get github.com/caddyserver/caddy/v2@v${CADDY_TARGET_VERSION}; \
+        _retry go get github.com/caddyserver/caddy/v2@v${CADDY_VERSION}; \
         # Final re-pin: grpc-go (CVE-2026-84304). MUST come after the OpenTelemetry
         # go.get block above: `go get .../otlp*http@v0.19.0 / v1.43.0` is a *downgrade*,
         # and go get's downgrade cascade drags google.golang.org/grpc back down to the
@@ -747,8 +755,8 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         fi; \
         # Hard assertion: fail if module graph resolves to a different Caddy core version.
         ACTUAL_CADDY_VERSION="$(go list -m -f "{{.Version}}" github.com/caddyserver/caddy/v2)"; \
-        if [ "$ACTUAL_CADDY_VERSION" != "v${CADDY_TARGET_VERSION}" ]; then \
-            echo "ERROR: Resolved Caddy version ${ACTUAL_CADDY_VERSION} does not match target v${CADDY_TARGET_VERSION}"; \
+        if [ "$ACTUAL_CADDY_VERSION" != "v${CADDY_VERSION}" ]; then \
+            echo "ERROR: Resolved Caddy version ${ACTUAL_CADDY_VERSION} does not match target v${CADDY_VERSION}"; \
             exit 1; \
         fi; \
         echo "Verified Caddy module version: ${ACTUAL_CADDY_VERSION}"; \
@@ -800,8 +808,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # Like caddy-inline, this is the single source of truth for the CrowdSec build
 # recipe. Compiled by toolchain-image.yml and the fork/offline fallback only; the
 # default app build COPY --from's its output out of the pinned toolchain image.
-# renovate: datasource=docker depName=golang
-FROM --platform=$BUILDPLATFORM golang:${GO_VERSION}-alpine@sha256:d200d2dd76b03a99b52651fd1325aff7dcd35422c35c01bac56571b0507f3deb AS crowdsec-inline
+FROM --platform=$BUILDPLATFORM ${GOLANG_IMAGE} AS crowdsec-inline
 COPY --from=xx / /
 
 WORKDIR /tmp/crowdsec
@@ -873,9 +880,9 @@ RUN set -e; \
     _retry go get go.opentelemetry.io/otel@v1.47.0; \
     # GHSA-xmrv-pmrh-hhx2: AWS SDK v2 event stream injection
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
-    _retry go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.25; \
+    _retry go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.26; \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.91.0; \
+    _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.92.1; \
     _retry go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7; \
     _retry go get github.com/aws/aws-sdk-go-v2/service/s3@v1.102.1; \
     # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
@@ -883,10 +890,10 @@ RUN set -e; \
     # renovate: datasource=go depName=github.com/Azure/go-ntlmssp
     _retry go get github.com/Azure/go-ntlmssp@v0.1.1; \
     # renovate: datasource=go depName=github.com/quic-go/quic-go
-    _retry go get github.com/quic-go/quic-go@v0.64.1; \
+    _retry go get github.com/quic-go/quic-go@v0.65.0; \
     # renovate: datasource=go depName=github.com/buger/jsonparser
     _retry go get github.com/buger/jsonparser@v1.6.1; \
-    _retry go get github.com/getkin/kin-openapi@v0.152.0; \
+    _retry go get github.com/getkin/kin-openapi@v0.153.0; \
     # CVE-2026-56864 / CVE-2026-56865: golang.org/x/mod/sumdb GOSUMDB tile-verification bypass
     # (a colluding GOPROXY+GOSUMDB pair could forge sumdb tiles / serve module content outside
     # the transparency log). Affects /usr/local/bin/crowdsec and /usr/local/bin/cscli — go mod
@@ -950,6 +957,9 @@ RUN mkdir -p /crowdsec-out/config && \
 # inline stages produce, so the final-stage COPY --from lines need no change.
 FROM ${ALPINE_IMAGE} AS toolchain-runtime
 ARG CHARON_TOOLCHAIN_TAG
+ARG ZLIB_VERSION
+# Pin zlib so the published toolchain image does not carry the stale base-layer build.
+RUN apk add --no-cache "zlib=${ZLIB_VERSION}"
 COPY --from=caddy-inline    /usr/bin/caddy          /usr/bin/caddy
 COPY --from=crowdsec-inline /crowdsec-out/crowdsec  /crowdsec-out/crowdsec
 COPY --from=crowdsec-inline /crowdsec-out/cscli     /crowdsec-out/cscli
@@ -987,20 +997,23 @@ WORKDIR /app
 #
 # libxml2 carries open CVEs with no upstream fix as of 2.13.9-r2. It is declared as a
 # minimum-version floor (`>=`) so builds always pull the newest Alpine package, and the
-# floor itself is bumped by Renovate (repology) the moment a patched release is published.
-# renovate: datasource=repology depName=alpine_3_24/libxml2 versioning=loose
+# floor itself is bumped by Renovate (apk) the moment a patched release is published.
+# renovate: datasource=apk depName=libxml2 versioning=loose
 ARG LIBXML2_VERSION=2.13.9-r2
 #
-# zlib is pinned to an exact version so the image never silently keeps an older vulnerable
-# build from the base layer (`apk upgrade` alone left Aikido flagging it).
-ARG ZLIB_VERSION=1.3.2-r1
+# zlib: exact-version pin is declared globally (ZLIB_VERSION, top of file) and shared with
+# the toolchain-runtime stage.
+ARG ZLIB_VERSION
 #
 # ca-certificates is a minimum-version floor so the image always carries a Mozilla bundle that
 # distrusts the compromised eMudhra intermediates' roots (Oct 2026) even when the base image
-# layer is stale; Renovate (repology) raises the floor as newer bundles ship.
-# renovate: datasource=repology depName=alpine_3_24/ca-certificates versioning=loose
+# layer is stale; Renovate (apk) raises the floor as newer bundles ship.
+# renovate: datasource=apk depName=ca-certificates versioning=loose
 ARG CA_CERTIFICATES_VERSION=20261020-r0
 # hadolint ignore=DL3018
+
+ARG SQLITE_VERSION
+
 RUN apk add --no-cache \
     bash "ca-certificates>=${CA_CERTIFICATES_VERSION}" "ca-certificates-bundle>=${CA_CERTIFICATES_VERSION}" sqlite-libs sqlite tzdata gettext libcap libcap-utils \
     c-ares busybox-extras "libxml2>=${LIBXML2_VERSION}" "zlib=${ZLIB_VERSION}" \
@@ -1023,7 +1036,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
-ARG GEOLITE2_COUNTRY_SHA256=7ef3b24a63044aee370098795c0ed01cb53bb2aaee8407dfc6475c5b42394d87
+ARG GEOLITE2_COUNTRY_SHA256=2c2d05c474baeb669298cce912a6236b5ecc4e50f0316a93e01ba5cf22183600
 RUN mkdir -p /app/data/geoip && \
         if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
             echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
@@ -1135,10 +1148,9 @@ RUN if [ ! -f /etc/crowdsec.dist/config.yaml ]; then \
 # Copy CrowdSec configuration templates from source
 COPY configs/crowdsec/acquis.yaml /etc/crowdsec.dist/acquis.yaml
 COPY configs/crowdsec/install_hub_items.sh /usr/local/bin/install_hub_items.sh
-COPY configs/crowdsec/register_bouncer.sh /usr/local/bin/register_bouncer.sh
 
 # Make CrowdSec scripts executable
-RUN chmod +x /usr/local/bin/install_hub_items.sh /usr/local/bin/register_bouncer.sh
+RUN chmod +x /usr/local/bin/install_hub_items.sh
 
 # Copy Go binary from backend builder
 COPY --from=backend-builder --chown=charon:charon /app/backend/charon /app/charon
@@ -1169,7 +1181,6 @@ RUN chmod +x /app/scripts/db-recovery.sh
 ENV CHARON_ENV=production \
     CHARON_DB_PATH=/app/data/charon.db \
     CHARON_FRONTEND_DIR=/app/frontend/dist \
-    CHARON_CADDY_ADMIN_API=http://localhost:2019 \
     CHARON_CADDY_CONFIG_DIR=/app/data/caddy \
     CHARON_GEOIP_DB_PATH=/app/data/geoip/GeoLite2-Country.mmdb \
     CHARON_HTTP_PORT=8080 \

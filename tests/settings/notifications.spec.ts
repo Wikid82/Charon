@@ -565,7 +565,7 @@ test.describe('Notification Providers', () => {
         await expect(enabledCheckbox).toBeVisible({ timeout: 5000 });
         const isChecked = await enabledCheckbox.isChecked();
         await enabledCheckbox.setChecked(!isChecked);
-        expect(await enabledCheckbox.isChecked()).toBe(!isChecked);
+        await expect(enabledCheckbox).toBeChecked({ checked: !isChecked });
       });
     });
 

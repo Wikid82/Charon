@@ -1,0 +1,11 @@
+#!/bin/sh
+cscli machines add -a --force
+if cscli parsers inspect x >/dev/null 2>&1; then
+    echo yes
+fi
+timeout 60 cscli hub update
+cscli_cfg machines list
+run_interruptible cscli collections list
+x=$(cscli bouncers list)
+cscli \
+    machines list

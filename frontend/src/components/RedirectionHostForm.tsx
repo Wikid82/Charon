@@ -1,5 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
+import {
+  REDIRECT_STATUS_CODES,
+  type RedirectionHost,
+  type RedirectStatusCode,
+} from '../api/redirectionHosts'
+import { useCertificates } from '../hooks/useCertificates'
 import DNSProviderSelector from './DNSProviderSelector'
 import {
   Alert,
@@ -18,13 +24,8 @@ import {
   SelectValue,
   Switch,
 } from './ui'
+
 import type { Certificate } from '../api/certificates'
-import {
-  REDIRECT_STATUS_CODES,
-  type RedirectionHost,
-  type RedirectStatusCode,
-} from '../api/redirectionHosts'
-import { useCertificates } from '../hooks/useCertificates'
 
 interface RedirectionHostFormProps {
   host?: RedirectionHost
@@ -109,10 +110,13 @@ export default function RedirectionHostForm({ host, onSubmit, onCancel }: Redire
   const [loading, setLoading] = useState(false)
   const { certificates } = useCertificates()
 
-  useEffect(() => {
+  // Re-seed when the parent passes a different host (adjust-during-render, no effect).
+  const [seenHost, setSeenHost] = useState(host)
+  if (seenHost !== host) {
+    setSeenHost(host)
     setFormData(buildInitialFormData(host))
     setError(null)
-  }, [host])
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()

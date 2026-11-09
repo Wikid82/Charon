@@ -22,6 +22,8 @@ func (inertCrowdsecLifecycle) ResetCrowdSecState(write func() error) error { ret
 
 func (inertCrowdsecLifecycle) StopAfterReset(error) {}
 
+func (inertCrowdsecLifecycle) WaitRegistrations(context.Context) error { return nil }
+
 func (inertCrowdsecLifecycle) StartCrowdSec(context.Context) (CrowdsecStartResult, error) {
 	return CrowdsecStartResult{Status: "started"}, nil
 }
@@ -56,15 +58,14 @@ func TestUpdateSetting_CrowdSecEmptyAnswersErrorWhenDefaultRowReadFails(t *testi
 	assert.False(t, found, "a failed read must not store the empty value")
 }
 
-// The deprecated mode key decides the absent-key case, so a failed read of it is answered as a server error.
-func TestUpdateSetting_CrowdSecEmptyAnswersErrorWhenModeReadFails(t *testing.T) {
+// The retired mode key is never read for a decision, so a fault on it does not change the answer to an empty value.
+func TestUpdateSetting_CrowdSecEmptyIgnoresRetiredModeKeyFaults(t *testing.T) {
 	h, db := newCrowdsecSettingsHandler(t, nil)
-	gormfault.Inject(t, db, gormfault.Query, "settings", gormfault.VarIs(models.CrowdSecDeprecatedModeSettingKey))
+	gormfault.Inject(t, db, gormfault.Query, "settings", gormfault.VarIs(models.CrowdSecRetiredModeSettingKey))
 
 	w := postCrowdsecEnabled(t, settingsRouterFor(h), "")
 
-	require.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Contains(t, w.Body.String(), "Failed to read CrowdSec setting")
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
 }
 
 // The stored enabled value is read after the mode key, so a failed read of it is answered as a server error.

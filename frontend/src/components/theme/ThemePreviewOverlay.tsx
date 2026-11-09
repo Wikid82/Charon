@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
 
-import { isUserThemeId } from '../../context/ThemeContextValue'
-import type { DataThemeValue, ThemeId } from '../../context/ThemeContextValue'
+import { isUserThemeId, type DataThemeValue, type ThemeId} from '../../context/ThemeContextValue'
 
 export interface ThemePreviewOverlayProps {
   previewTheme: ThemeId | null

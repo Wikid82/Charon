@@ -284,7 +284,7 @@ func TestAddExportFileRefusesWhatLstatRejects(t *testing.T) {
 	require.NoError(t, os.Symlink(filepath.Join(dir, "real.yaml"), filepath.Join(dir, "link.yaml")))
 	require.NoError(t, os.Mkdir(filepath.Join(dir, "sub"), 0o750))
 
-	tw := tar.NewWriter(io.Discard)
+	tw := &exportTar{Writer: tar.NewWriter(io.Discard), maxEntries: MaxImportEntries}
 	cases := map[string]string{
 		"symlink swapped in":    "link.yaml",
 		"directory swapped in":  "sub",

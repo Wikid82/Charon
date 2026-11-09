@@ -14,7 +14,7 @@ every CI image build.
 | `Dockerfile` `toolchain-runtime` stage | `docker buildx build --target toolchain-runtime` → the publishable image. |
 | `Dockerfile` `ARG CHARON_TOOLCHAIN_TAG` / `CHARON_TOOLCHAIN_DIGEST` | The pin. `DIGEST` is the arch-independent manifest-list (OCI index) digest. Bot-owned — do **not** hand-edit. |
 | `Dockerfile` `ARG CADDY_BUILDER_SRC` / `CROWDSEC_BUILDER_SRC` | Selector: `toolchain-prebuilt` (default) or `caddy-inline` / `crowdsec-inline`. |
-| `scripts/toolchain-key.sh` | Prints `caddy-crowdsec-<16hex>` — a content hash of the two inline stage bodies + every consumed version ARG (incl. the two pinned xcaddy plugins) + the digest-pinned `golang`/`xx` bases + `.trivyignore` + a `SCHEMA_VERSION`. |
+| `scripts/toolchain-key.sh` | Prints `caddy-crowdsec-<16hex>` — a content hash of the two inline stage bodies + every consumed version ARG (incl. the two pinned xcaddy plugins) + the digest-pinned `golang`/`xx` bases + a `SCHEMA_VERSION`. Scan ignore lists (`.trivyignore`, `.grype.yaml`) are deliberately not inputs: they don't change image bytes. |
 | `scripts/verify-toolchain-pin.sh` | Required PR check. Failure-closed on trusted same-repo runs: needs `regctl` + `GHCR_READ_TOKEN`, resolves `:$KEY` in GHCR, and asserts the pinned digest matches. A fork PR degrades to a tag-only check with a `::warning::`. |
 | `scripts/lib/dockerfile-stage.sh` | Shared `extract_stage` used by both scripts. |
 | `.github/workflows/toolchain-image.yml` | Builds / publishes / scans. |
@@ -114,6 +114,13 @@ recomputes the same key, finds the pin already fresh and exits without pushing.
 If the head is already the bot's own `chore(docker): sync toolchain image pin`
 commit and the pin is still stale, the job fails instead of pushing again. Bot
 digest-bump PRs (`bot/bump-toolchain-image*`) are skipped by `sync-pin-on-pr`.
+
+**Stale-run guard:** the key and digest are computed for the commit the run
+built, but the sync job checks out the branch *tip*. If a newer commit landed
+while the build was running, the job logs a notice and exits without pushing; the
+run for the newer head owns the pin. Without this, a slow run for an old head
+could stamp its stale key onto the new tip, which the loop guard above would then
+refuse to repair.
 
 ## One-time bootstrap notes
 

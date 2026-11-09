@@ -109,6 +109,26 @@ func crowdSecModeFromSetting(tx *gorm.DB) (mode string, found bool, err error) {
 	return "disabled", true, nil
 }
 
+// SyncCrowdSecRowToSetting makes the default row's crowd_sec_mode agree with the security.crowdsec.enabled setting.
+// It only writes when the setting has a non-blank value and the row's CrowdSec decision (CrowdSecRowEnabled) differs
+// from it, so an absent or blank setting leaves the row alone. Only crowd_sec_mode is written; the row's enabled
+// column is never touched. On a read or write error the row is returned unchanged with the error. The caller
+// decides with models.CrowdSecEnabled, which prefers the setting, so a failed sync does not change the decision.
+func SyncCrowdSecRowToSetting(db *gorm.DB, cfg SecurityConfig) (SecurityConfig, error) {
+	mode, found, err := crowdSecModeFromSetting(db)
+	if err != nil {
+		return cfg, fmt.Errorf("read CrowdSec setting for default security config: %w", err)
+	}
+	if !found || CrowdSecRowEnabled(cfg) == (mode == "local") {
+		return cfg, nil
+	}
+	if err := db.Model(&SecurityConfig{}).Where("id = ?", cfg.ID).Update("crowd_sec_mode", mode).Error; err != nil {
+		return cfg, fmt.Errorf("sync default security config crowd_sec_mode: %w", err)
+	}
+	cfg.CrowdSecMode = mode
+	return cfg, nil
+}
+
 func deleteLegacySecurityConfigRows(tx *gorm.DB) error {
 	if err := tx.Where("name = ?", legacyDefaultSecurityConfigName).Delete(&SecurityConfig{}).Error; err != nil {
 		return fmt.Errorf("delete legacy default security config rows: %w", err)

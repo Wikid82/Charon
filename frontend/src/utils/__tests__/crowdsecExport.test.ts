@@ -1,4 +1,3 @@
-import type { TFunction } from 'i18next'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import {
@@ -6,6 +5,8 @@ import {
   promptCrowdsecFilename,
   downloadCrowdsecExport,
 } from '../crowdsecExport'
+
+import type { TFunction } from 'i18next'
 
 const t = vi.fn((key: string) => `translated:${key}`) as unknown as TFunction
 
@@ -187,10 +188,7 @@ describe('crowdsecExport', () => {
       }
 
       vi.spyOn(document, 'createElement').mockImplementation((tag) => {
-        if (tag === 'a') {
-          return anchorElement as unknown as HTMLAnchorElement
-        }
-        return document.createElement(tag)
+        return tag === 'a' ? (anchorElement as unknown as HTMLAnchorElement) : document.createElement(tag)
       })
 
       appendChildSpy = vi.fn((node: Node) => node)

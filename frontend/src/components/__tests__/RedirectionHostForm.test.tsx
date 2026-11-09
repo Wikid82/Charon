@@ -1,7 +1,6 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import { act } from 'react'
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 
 import RedirectionHostForm from '../RedirectionHostForm'
@@ -35,12 +34,6 @@ const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false 
 
 const renderWithClient = (ui: React.ReactElement) =>
   render(<QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>)
-
-const renderWithClientAct = async (ui: React.ReactElement) => {
-  await act(async () => {
-    renderWithClient(ui)
-  })
-}
 
 const selectComboboxOption = async (label: string | RegExp, optionText: string | RegExp) => {
   const trigger = screen.getByRole('combobox', { name: label })
@@ -80,7 +73,7 @@ describe('RedirectionHostForm', () => {
   })
 
   it('renders the Add dialog with all expected fields', async () => {
-    await renderWithClientAct(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+    renderWithClient(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
 
     expect(screen.getByRole('dialog', { name: /add redirection host/i })).toBeInTheDocument()
     expect(screen.getByLabelText(/^name/i)).toBeInTheDocument()
@@ -92,7 +85,7 @@ describe('RedirectionHostForm', () => {
 
   it('renders the Edit dialog title and prefills fields from the host', async () => {
     const host = sampleHost({ name: 'My Redirect', status_code: 308, preserve_path: false })
-    await renderWithClientAct(<RedirectionHostForm host={host} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+    renderWithClient(<RedirectionHostForm host={host} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
 
     expect(screen.getByRole('dialog', { name: /edit redirection host/i })).toBeInTheDocument()
     expect(screen.getByLabelText(/^name/i)).toHaveValue('My Redirect')
@@ -103,7 +96,7 @@ describe('RedirectionHostForm', () => {
   })
 
   it('offers exactly the four supported status codes with plain-language labels', async () => {
-    await renderWithClientAct(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+    renderWithClient(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
 
     await userEvent.click(screen.getByRole('combobox', { name: /status code/i }))
 
@@ -117,7 +110,7 @@ describe('RedirectionHostForm', () => {
   })
 
   it('selecting a status code updates the combobox value', async () => {
-    await renderWithClientAct(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+    renderWithClient(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
 
     await selectComboboxOption(/status code/i, /302.*temporary/i)
 
@@ -125,7 +118,7 @@ describe('RedirectionHostForm', () => {
   })
 
   it('toggling Preserve Path off is reflected in the submitted payload', async () => {
-    await renderWithClientAct(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+    renderWithClient(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
 
     await userEvent.type(screen.getByLabelText(/domain names/i), 'example.com')
     await userEvent.type(screen.getByLabelText(/target url/i), 'https://elsewhere.example.com')
@@ -141,7 +134,7 @@ describe('RedirectionHostForm', () => {
   })
 
   it('shows a validation error and does not submit when Domain Names is empty', async () => {
-    await renderWithClientAct(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+    renderWithClient(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
 
     await userEvent.type(screen.getByLabelText(/target url/i), 'https://elsewhere.example.com')
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
@@ -151,7 +144,7 @@ describe('RedirectionHostForm', () => {
   })
 
   it('shows a validation error and does not submit when Target URL is empty', async () => {
-    await renderWithClientAct(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+    renderWithClient(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
 
     await userEvent.type(screen.getByLabelText(/domain names/i), 'example.com')
     await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
@@ -161,7 +154,7 @@ describe('RedirectionHostForm', () => {
   })
 
   it('submits the full payload with all defaults on create', async () => {
-    await renderWithClientAct(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+    renderWithClient(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
 
     await userEvent.type(screen.getByLabelText(/^name/i), 'My Redirect')
     await userEvent.type(screen.getByLabelText(/domain names/i), 'old.example.com')
@@ -192,7 +185,7 @@ describe('RedirectionHostForm', () => {
     const failingSubmit = vi.fn().mockRejectedValue(
       new Error("redirect target cannot point back to one of this host's own domains")
     )
-    await renderWithClientAct(<RedirectionHostForm onSubmit={failingSubmit} onCancel={mockOnCancel} />)
+    renderWithClient(<RedirectionHostForm onSubmit={failingSubmit} onCancel={mockOnCancel} />)
 
     await userEvent.type(screen.getByLabelText(/domain names/i), 'self.example.com')
     await userEvent.type(screen.getByLabelText(/target url/i), 'https://self.example.com')
@@ -206,7 +199,7 @@ describe('RedirectionHostForm', () => {
 
   it('displays the server-returned domain conflict error', async () => {
     const failingSubmit = vi.fn().mockRejectedValue(new Error('domain already in use by another host'))
-    await renderWithClientAct(<RedirectionHostForm onSubmit={failingSubmit} onCancel={mockOnCancel} />)
+    renderWithClient(<RedirectionHostForm onSubmit={failingSubmit} onCancel={mockOnCancel} />)
 
     await userEvent.type(screen.getByLabelText(/domain names/i), 'taken.example.com')
     await userEvent.type(screen.getByLabelText(/target url/i), 'https://elsewhere.example.com')
@@ -216,7 +209,7 @@ describe('RedirectionHostForm', () => {
   })
 
   it('requires a DNS provider once "Use DNS Challenge" is enabled', async () => {
-    await renderWithClientAct(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+    renderWithClient(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
 
     await userEvent.type(screen.getByLabelText(/domain names/i), 'example.com')
     await userEvent.type(screen.getByLabelText(/target url/i), 'https://elsewhere.example.com')
@@ -231,14 +224,14 @@ describe('RedirectionHostForm', () => {
   })
 
   it('calls onCancel when Cancel is clicked', async () => {
-    await renderWithClientAct(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+    renderWithClient(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
 
     await userEvent.click(screen.getByRole('button', { name: /^cancel$/i }))
     expect(mockOnCancel).toHaveBeenCalled()
   })
 
   it('treats dismissing the dialog (e.g. pressing Escape) the same as Cancel', async () => {
-    await renderWithClientAct(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+    renderWithClient(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
 
     await userEvent.keyboard('{Escape}')
 
@@ -248,7 +241,7 @@ describe('RedirectionHostForm', () => {
   })
 
   it('reflects toggling Force SSL, HTTP/2, HSTS, and HSTS Subdomains in the submitted payload', async () => {
-    await renderWithClientAct(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+    renderWithClient(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
 
     await userEvent.type(screen.getByLabelText(/domain names/i), 'example.com')
     await userEvent.type(screen.getByLabelText(/target url/i), 'https://elsewhere.example.com')
@@ -275,7 +268,7 @@ describe('RedirectionHostForm', () => {
   })
 
   it('submits the selected DNS provider id once one is chosen under DNS Challenge', async () => {
-    await renderWithClientAct(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+    renderWithClient(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
 
     await userEvent.type(screen.getByLabelText(/domain names/i), 'example.com')
     await userEvent.type(screen.getByLabelText(/target url/i), 'https://elsewhere.example.com')
@@ -300,35 +293,35 @@ describe('RedirectionHostForm', () => {
   describe('Certificate token normalization on load', () => {
     it('pre-selects the certificate by numeric id when certificate_id is a plain number', async () => {
       const host = sampleHost({ certificate_id: 1 })
-      await renderWithClientAct(<RedirectionHostForm host={host} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+      renderWithClient(<RedirectionHostForm host={host} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
 
       expect(screen.getByRole('combobox', { name: /certificate/i })).toHaveTextContent(/cert 1/i)
     })
 
     it('pre-selects auto-manage when certificate_id is a blank string', async () => {
       const host = sampleHost({ certificate_id: '   ' })
-      await renderWithClientAct(<RedirectionHostForm host={host} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+      renderWithClient(<RedirectionHostForm host={host} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
 
       expect(screen.getByRole('combobox', { name: /certificate/i })).toHaveTextContent(/let's encrypt/i)
     })
 
     it('pre-selects the certificate when certificate_id is already an "id:" token', async () => {
       const host = sampleHost({ certificate_id: 'id:1' })
-      await renderWithClientAct(<RedirectionHostForm host={host} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+      renderWithClient(<RedirectionHostForm host={host} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
 
       expect(screen.getByRole('combobox', { name: /certificate/i })).toHaveTextContent(/cert 1/i)
     })
 
     it('pre-selects the certificate when certificate_id is a bare numeric string', async () => {
       const host = sampleHost({ certificate_id: '1' })
-      await renderWithClientAct(<RedirectionHostForm host={host} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+      renderWithClient(<RedirectionHostForm host={host} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
 
       expect(screen.getByRole('combobox', { name: /certificate/i })).toHaveTextContent(/cert 1/i)
     })
 
     it('pre-selects the certificate by uuid when certificate_id is a raw, unprefixed uuid string', async () => {
       const host = sampleHost({ certificate_id: 'cert-2-uuid' })
-      await renderWithClientAct(<RedirectionHostForm host={host} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+      renderWithClient(<RedirectionHostForm host={host} onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
 
       expect(screen.getByRole('combobox', { name: /certificate/i })).toHaveTextContent(/cert two/i)
     })
@@ -340,7 +333,7 @@ describe('RedirectionHostForm', () => {
     })
 
     it('lists available certificates plus the auto-manage option', async () => {
-      await renderWithClientAct(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+      renderWithClient(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
 
       await userEvent.click(screen.getByRole('combobox', { name: /certificate/i }))
 
@@ -349,7 +342,7 @@ describe('RedirectionHostForm', () => {
     })
 
     it('excludes a certificate with neither id nor uuid from the options list', async () => {
-      await renderWithClientAct(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+      renderWithClient(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
 
       await userEvent.click(screen.getByRole('combobox', { name: /certificate/i }))
 
@@ -358,7 +351,7 @@ describe('RedirectionHostForm', () => {
     })
 
     it('selecting a certificate identified only by uuid sets certificate_id to that uuid on submit', async () => {
-      await renderWithClientAct(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+      renderWithClient(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
 
       await userEvent.type(screen.getByLabelText(/domain names/i), 'example.com')
       await userEvent.type(screen.getByLabelText(/target url/i), 'https://elsewhere.example.com')
@@ -372,7 +365,7 @@ describe('RedirectionHostForm', () => {
     })
 
     it('choosing auto-manage after selecting a certificate clears certificate_id on submit', async () => {
-      await renderWithClientAct(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
+      renderWithClient(<RedirectionHostForm onSubmit={mockOnSubmit} onCancel={mockOnCancel} />)
 
       await userEvent.type(screen.getByLabelText(/domain names/i), 'example.com')
       await userEvent.type(screen.getByLabelText(/target url/i), 'https://elsewhere.example.com')
@@ -385,5 +378,36 @@ describe('RedirectionHostForm', () => {
         expect(mockOnSubmit).toHaveBeenCalledWith(expect.objectContaining({ certificate_id: null }))
       })
     })
+  })
+})
+
+describe('RedirectionHostForm re-seeding', () => {
+  const tree = (host: RedirectionHost | undefined) => (
+    <QueryClientProvider client={queryClient}>
+      <RedirectionHostForm host={host} onSubmit={vi.fn()} onCancel={vi.fn()} />
+    </QueryClientProvider>
+  )
+
+  it('re-seeds the form when the host prop changes to a different host', () => {
+    const { rerender } = render(tree(sampleHost()))
+    rerender(tree(sampleHost({ uuid: 'rh-2', domain_names: 'other.example.com' })))
+    expect(screen.getByLabelText(/domain names/i)).toHaveValue('other.example.com')
+  })
+
+  it('keeps unsaved edits when re-rendered with the same host object', async () => {
+    const host = sampleHost()
+    const { rerender } = render(tree(host))
+    const domainInput = screen.getByLabelText(/domain names/i)
+    await userEvent.clear(domainInput)
+    await userEvent.type(domainInput, 'edited.example.com')
+
+    rerender(tree(host))
+    expect(screen.getByLabelText(/domain names/i)).toHaveValue('edited.example.com')
+  })
+
+  it('resets to blank create defaults when the host prop is cleared', () => {
+    const { rerender } = render(tree(sampleHost()))
+    rerender(tree(undefined))
+    expect(screen.getByLabelText(/domain names/i)).toHaveValue('')
   })
 })

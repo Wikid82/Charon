@@ -6,7 +6,7 @@
  * and toggle switches disabled when Cerberus is off.
  */
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import { act, render, screen, waitFor } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { BrowserRouter } from 'react-router'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -92,9 +92,7 @@ describe('Security Dashboard - Card Status Tests', () => {
   )
 
   const renderSecurityPage = async () => {
-    await act(async () => {
-      render(<Security />, { wrapper })
-    })
+    render(<Security />, { wrapper })
   }
 
   describe('SD-01: Cerberus Disabled Banner', () => {

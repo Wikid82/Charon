@@ -14,6 +14,7 @@
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
 import { clickSwitch } from '../utils/ui-helpers';
+import { RULESETS_PATH } from '../utils/security-settings-api';
 
 test.describe('WAF Configuration @security', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -131,6 +132,35 @@ test.describe('WAF Configuration @security', () => {
           await page.waitForTimeout(500);
         });
       }
+    });
+  });
+
+  test.describe('Rule set needs rules', () => {
+    test('the create form offers no placeholder preset and will not save a URL alone', async ({ page }) => {
+      await page.getByTestId('create-ruleset-btn').click();
+
+      await expect(page.getByRole('option', { name: 'OWASP Core Rule Set' })).toHaveCount(0);
+
+      await page.getByTestId('ruleset-name-input').fill(`url-only-${Date.now()}`);
+      await page.getByTestId('ruleset-url-input').fill('https://example.com/rules.conf');
+
+      await expect(page.getByRole('button', { name: 'Create Rule Set' })).toBeDisabled();
+    });
+
+    test('a direct save of a rule set with no rule lines is refused with ruleset_empty and stored nothing', async ({ request }) => {
+      const name = `comment-only-${Date.now()}`;
+
+      const response = await request.post(RULESETS_PATH, {
+        data: { name, content: '# nothing but a comment\n' },
+      });
+
+      expect(response.status()).toBe(400);
+      const refusal = (await response.json()) as { error_code?: string };
+      expect(refusal.error_code).toBe('ruleset_empty');
+
+      const listed = await request.get(RULESETS_PATH);
+      const body = (await listed.json()) as { rulesets: Array<{ name: string }> };
+      expect(body.rulesets.map((rs) => rs.name)).not.toContain(name);
     });
   });
 

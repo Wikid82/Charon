@@ -74,7 +74,7 @@ This step:
 
 - Builds the latest Docker image with your code changes
 - Starts the `charon-e2e` container with proper environment variables from `.env`
-- Exposes required ports: 8080 (app), 2020 (emergency), 2019 (Caddy admin)
+- Exposes required ports: 8080 (app), 2020 (emergency). Port 2019 (Caddy admin) stays inside the container.
 - Waits for health check to pass
 
 **Without this step**, tests will fail with:

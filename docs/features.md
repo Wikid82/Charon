@@ -236,7 +236,7 @@ Connect Docker with **Orthrus** (recommended: a small helper holds the Docker so
 
 ### � Orthrus — Remote Tunnel Agent
 
-Your HomeLab is behind a firewall? Orthrus is a small agent you install on any remote machine. It dials outward to Charon over a secure connection — no open inbound ports required. Once connected, Charon can discover and proxy Docker containers on that machine just like local ones.
+Your HomeLab is behind a firewall? Orthrus is a small agent you install on any remote machine. It dials outward to Charon over a secure connection — no open inbound ports required. Once connected, Charon can discover and proxy Docker containers on that machine just like local ones. The agent runs as a low-privilege user, not as the machine's administrator.
 
 → [Learn More](features/orthrus.md)
 
@@ -401,8 +401,10 @@ Make Charon look exactly the way you want. Choose from five built-in themes — 
 Never wonder what changed after an update. The next time you log in after Charon updates, a "What's New" popup shows you exactly what's new — new features, fixes, and improvements — since you were last here.
 
 - **Automatic** — Content is generated straight from the release history, so there's never any manual changelog writing to fall behind on
+- **Nightly and development too** — Development and nightly builds show the popup too, for releases up to the one they are based on
+- **Short and sweet** — The popup shows at most the 3 newest releases you haven't seen yet
 - **Your call** — Don't want the popup? Turn it off anytime in Settings > Appearance
-- **Revisit anytime** — Missed it, or just want to look back? Click the "What's New" link in Settings > Appearance to reopen it whenever you like
+- **Revisit anytime** — Missed it, or just want to look back? Click the "What's New" link in Settings > Appearance to browse the full history, 10 releases at a time
 
 ---
 

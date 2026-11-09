@@ -1,5 +1,5 @@
 import { type QueryClient } from '@tanstack/react-query'
-import { screen, waitFor, act, cleanup, within, fireEvent } from '@testing-library/react'
+import { screen, waitFor, act, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AxiosError } from 'axios'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
@@ -92,10 +92,14 @@ const axiosError = (status: number, message: string, data?: Record<string, unkno
 
 const defaultFileList = ['acquis.yaml', 'collections.yaml']
 
+// Case-insensitive substring match on an accessible name; avoids building a RegExp from fixture text.
+const includesTitle = (title: string) => (accessibleName: string) =>
+  accessibleName.toLowerCase().includes(title.toLowerCase())
+
 const renderPage = async (client?: QueryClient) => {
-  const result = renderWithQueryClient(<CrowdSecConfig />, { client })
-  await waitFor(() => screen.getByText('CrowdSec Configuration'))
-  return result
+  const view = renderWithQueryClient(<CrowdSecConfig />, { client })
+  await screen.findByText('CrowdSec Configuration')
+  return view
 }
 
 describe('CrowdSecConfig coverage', () => {
@@ -158,10 +162,10 @@ describe('CrowdSecConfig coverage', () => {
 
   it('renders loading and error boundaries', async () => {
     vi.mocked(securityApi.getSecurityStatus).mockReturnValue(new Promise(() => {}))
-    renderWithQueryClient(<CrowdSecConfig />)
+    const view = renderWithQueryClient(<CrowdSecConfig />)
     expect(await screen.findByText('Loading CrowdSec configuration...')).toBeInTheDocument()
 
-    cleanup()
+    view.unmount()
 
     vi.mocked(securityApi.getSecurityStatus).mockRejectedValue(new Error('boom'))
     renderWithQueryClient(<CrowdSecConfig />)
@@ -170,10 +174,10 @@ describe('CrowdSecConfig coverage', () => {
 
   it('handles missing status and missing crowdsec sections', async () => {
     vi.mocked(securityApi.getSecurityStatus).mockRejectedValueOnce(new Error('data is undefined'))
-    renderWithQueryClient(<CrowdSecConfig />)
+    const view = renderWithQueryClient(<CrowdSecConfig />)
     expect(await screen.findByText(/Error loading CrowdSec status/)).toBeInTheDocument()
 
-    cleanup()
+    view.unmount()
 
     vi.mocked(securityApi.getSecurityStatus).mockResolvedValueOnce({ cerberus: { enabled: true } } as never)
     renderWithQueryClient(<CrowdSecConfig />)
@@ -360,8 +364,8 @@ describe('CrowdSecConfig coverage', () => {
 
     await renderPage()
 
-    const firstCard = await screen.findByRole('button', { name: new RegExp(HUB_PRESET_FIXTURES[0].title, 'i') })
-    const secondCard = await screen.findByRole('button', { name: new RegExp(HUB_PRESET_FIXTURES[1].title, 'i') })
+    const firstCard = await screen.findByRole('button', { name: includesTitle(HUB_PRESET_FIXTURES[0].title) })
+    const secondCard = await screen.findByRole('button', { name: includesTitle(HUB_PRESET_FIXTURES[1].title) })
 
     firstCard.focus()
     await userEvent.keyboard('{Enter}')
@@ -395,11 +399,11 @@ describe('CrowdSecConfig coverage', () => {
 
   it('records backup info on apply failure and generic errors', async () => {
     vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValueOnce(axiosError(500, 'failed', { error: 'boom', backup: 'crowdsec.backup.20260101-000000.000000' }))
-    await renderPage()
+    const view = await renderPage()
     await userEvent.click(screen.getByTestId('apply-preset-btn'))
     await waitFor(() => expect(screen.getByTestId('preset-apply-info')).toHaveTextContent('crowdsec.backup.20260101-000000.000000'))
 
-    cleanup()
+    view.unmount()
 
     vi.mocked(presetsApi.applyCrowdsecPreset).mockRejectedValueOnce(new Error('unexpected'))
     await renderPage()
@@ -486,11 +490,11 @@ describe('CrowdSecConfig coverage', () => {
       error: 'cscli timed out',
       error_code: 'cscli_timeout',
     })
-    await renderPage()
+    const view = await renderPage()
     expect(await screen.findByTestId('crowdsec-list-error-note')).toBeInTheDocument()
     expect(await screen.findByText('No banned IPs')).toBeInTheDocument()
 
-    cleanup()
+    view.unmount()
 
     vi.mocked(crowdsecApi.listCrowdsecDecisions).mockResolvedValueOnce({ decisions: [] })
     await renderPage()
@@ -500,29 +504,29 @@ describe('CrowdSecConfig coverage', () => {
 
   it('shows decisions table, handles loading/error/empty states, and unban errors', async () => {
     vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(disabledStatus)
-    await renderPage()
+    let view = await renderPage()
     expect(screen.getByText('Enable CrowdSec to manage banned IPs')).toBeInTheDocument()
 
-    cleanup()
+    view.unmount()
 
     vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(baseStatus)
     vi.mocked(crowdsecApi.listCrowdsecDecisions).mockReturnValue(new Promise(() => {}))
-    await renderPage()
+    view = await renderPage()
     expect(screen.getByText('Loading banned IPs...')).toBeInTheDocument()
 
-    cleanup()
+    view.unmount()
 
     vi.mocked(crowdsecApi.listCrowdsecDecisions).mockRejectedValueOnce(new Error('decisions'))
-    await renderPage()
+    view = await renderPage()
     expect(await screen.findByText('Failed to load banned IPs')).toBeInTheDocument()
 
-    cleanup()
+    view.unmount()
 
     vi.mocked(crowdsecApi.listCrowdsecDecisions).mockResolvedValueOnce({ decisions: [] })
-    await renderPage()
+    view = await renderPage()
     expect(await screen.findByText('No banned IPs')).toBeInTheDocument()
 
-    cleanup()
+    view.unmount()
 
     vi.mocked(crowdsecApi.listCrowdsecDecisions).mockResolvedValueOnce({
       decisions: [
@@ -652,11 +656,11 @@ describe('CrowdSecConfig coverage', () => {
   it('shows overlay messaging for preset pull, apply, import, write, and mode updates', async () => {
     // pull pending
     vi.mocked(presetsApi.pullCrowdsecPreset).mockImplementation(() => new Promise(() => {}))
-    await renderPage()
+    let view = await renderPage()
     await userEvent.click(screen.getByText('Pull Preview'))
     expect(await screen.findByText('Fetching preset...')).toBeInTheDocument()
 
-    cleanup()
+    view.unmount()
     vi.mocked(presetsApi.pullCrowdsecPreset).mockReset()
     vi.mocked(presetsApi.pullCrowdsecPreset).mockResolvedValue({
       status: 'pulled',
@@ -679,12 +683,12 @@ describe('CrowdSecConfig coverage', () => {
           resolveApply = () => resolve({ status: 'applied', cache_key: 'cache-123' } as never)
         }),
     )
-    await renderPage()
+    view = await renderPage()
     await userEvent.click(screen.getAllByTestId('apply-preset-btn')[0])
     expect(await screen.findByText('Loading preset...')).toBeInTheDocument()
     resolveApply?.()
 
-    cleanup()
+    view.unmount()
 
     // import pending
     vi.mocked(presetsApi.pullCrowdsecPreset).mockResolvedValueOnce({
@@ -700,7 +704,7 @@ describe('CrowdSecConfig coverage', () => {
           resolveImport = () => resolve({})
         }),
     )
-    const { queryClient } = await renderPage(createTestQueryClient())
+    const { queryClient, unmount } = await renderPage(createTestQueryClient())
     expect(await screen.findByTestId('preset-preview')).toBeInTheDocument()
     const fileInput = screen.getByTestId('import-file') as HTMLInputElement
     await userEvent.upload(fileInput, new File(['data'], 'cfg.tar.gz'))
@@ -709,7 +713,7 @@ describe('CrowdSecConfig coverage', () => {
     resolveImport?.()
     await act(async () => queryClient.cancelQueries())
 
-    cleanup()
+    unmount()
 
     // write pending shows loading overlay
     let resolveWrite: (() => void) | undefined

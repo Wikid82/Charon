@@ -47,7 +47,7 @@ test.describe('Audit Logs @security', () => {
     test('should display log data table', async ({ page }) => {
       // Wait for the app-level loading to complete (showing "Loading application...")
       try {
-        await page.waitForSelector('[role="status"]', { state: 'hidden', timeout: 5000 });
+        await expect(page.locator('[role="status"]')).toBeHidden({ timeout: 5000 });
       } catch {
         // Loading might already be done
       }
@@ -333,7 +333,7 @@ test.describe('Audit Logs @security', () => {
     test('should be keyboard navigable', async ({ page }) => {
       // Wait for the app-level loading to complete
       try {
-        await page.waitForSelector('[role="status"]', { state: 'hidden', timeout: 5000 });
+        await expect(page.locator('[role="status"]')).toBeHidden({ timeout: 5000 });
       } catch {
         // Loading might already be done
       }

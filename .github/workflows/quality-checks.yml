@@ -16,7 +16,6 @@ permissions:
   checks: write
 
 env:
-  GO_VERSION: '1.27.3'
   NODE_VERSION: '26.13.0'
   GOTOOLCHAIN: auto
 
@@ -26,7 +25,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -68,7 +67,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -94,7 +93,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -125,12 +124,16 @@ jobs:
       - name: bats (Playwright container helpers)
         run: bats scripts/tests/check-playwright-image-version.bats scripts/tests/run-playwright-container.bats
 
+      - name: shellcheck (integration test tooling, severity=error)
+        run: |
+          shellcheck --severity=error scripts/waf_integration.sh scripts/cerberus_integration.sh scripts/crowdsec_decision_integration.sh scripts/rate_limit_integration.sh scripts/security_headers_integration.sh scripts/coraza_integration.sh scripts/debug_rate_limit.sh scripts/integration-test.sh scripts/crowdsec_integration.sh scripts/verify_crowdsec_app_config.sh
+
   container-prune-tests:
     name: Container registry prune scripts (bats)
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -159,7 +162,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -173,11 +176,12 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y shellcheck dash busybox
 
-      - name: shellcheck (hub mirror helper, entrypoint and its test)
+      - name: shellcheck (hub mirror helper, entrypoint, install script and its test)
         run: |
           shellcheck --severity=error \
             .docker/cscli-hub-mirror.sh \
             .docker/docker-entrypoint.sh \
+            configs/crowdsec/install_hub_items.sh \
             scripts/cscli_hub_mirror_test.sh
 
       - name: Hub mirror helper tests (bash, dash, busybox sh)
@@ -191,7 +195,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -220,7 +224,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -241,6 +245,62 @@ jobs:
       - name: bats
         run: bats scripts/tests/check-nightly-sequencing.bats
 
+  changelog-data-tests:
+    permissions:
+      contents: read
+    name: Changelog generator and data guard (bats)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install bats + shellcheck + jq
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y bats shellcheck jq
+
+      - name: shellcheck (shell severity=error)
+        run: |
+          shellcheck --severity=error scripts/generate-changelog.sh scripts/ci/check-changelog-data.sh scripts/ci/detect-release-commit.sh scripts/ci/smoke-whats-new.sh
+
+      - name: bats
+        run: bats scripts/tests/generate-changelog.bats scripts/tests/check-changelog-data.bats scripts/tests/detect-release-commit.bats scripts/tests/smoke-whats-new.bats
+
+  build-version-resolver-tests:
+    permissions:
+      contents: read
+    name: Build version resolver (bats)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Install bats + shellcheck + jq
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y bats shellcheck jq
+
+      - name: shellcheck (shell severity=error)
+        run: |
+          shellcheck --severity=error scripts/ci/resolve-build-version.sh
+
+      - name: bats
+        run: bats scripts/tests/resolve-build-version.bats
+
   verify-toolchain-pin:
     name: Toolchain pin freshness (verify-toolchain-pin)
     runs-on: ubuntu-latest
@@ -252,7 +312,7 @@ jobs:
       packages: read
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -282,7 +342,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -500,14 +560,14 @@ jobs:
           # renovate: datasource=github-releases depName=golangci/golangci-lint
           version: v2.15.0
           working-directory: backend
-          args: --timeout=5m
+          args: --timeout=10m
 
   agent-quality:
     name: Agent (Go)
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -580,14 +640,14 @@ jobs:
           # renovate: datasource=github-releases depName=golangci/golangci-lint
           version: v2.15.0
           working-directory: agent
-          args: --config ../backend/.golangci.yml --timeout=5m
+          args: --config ../backend/.golangci.yml --timeout=10m
 
   frontend-quality:
     name: Frontend (React)
     runs-on: ubuntu-latest
     steps:
       - name: Harden the runner (Audit all outbound calls)
-        uses: step-security/harden-runner@46b06cea07f9e64621fdf066ba77ac6915163d43 # v2.22.3
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
 
@@ -686,7 +746,41 @@ jobs:
 
 
 
+      # Blocking: `lint` runs with --max-warnings 0 (see frontend/package.json).
       - name: Run frontend lint
         working-directory: frontend
         run: npm run lint
-        continue-on-error: true
+
+      - name: Run frontend locale lint
+        working-directory: frontend
+        run: npm run lint:locales
+
+  # Not path-filtered on purpose: a path-filtered job is skipped on unrelated PRs,
+  # and a skipped job cannot satisfy a required status check. Running it always
+  # keeps it requirable without an always-run wrapper job. It is cheap (root
+  # npm ci plus eslint over tests/).
+  e2e-lint:
+    name: E2E Test Lint (Playwright)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci --ignore-scripts
+
+      - name: Run E2E lint
+        run: npm run lint:e2e

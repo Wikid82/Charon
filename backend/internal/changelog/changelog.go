@@ -9,13 +9,25 @@ package changelog
 import (
 	_ "embed"
 	"encoding/json"
+	"regexp"
 	"sort"
 
-	"golang.org/x/mod/semver"
+	"github.com/Wikid82/charon/backend/internal/version"
 )
 
 //go:embed data/changelog.json
 var rawData []byte
+
+// firstViewEntryLimit caps every status response at the newest N entries,
+// whatever the user's last-seen version is. Without the cap, a user seeded
+// long ago (or never acked) would be shown the whole history on login. The
+// full history stays available through GetAllEntries (Settings browse mode).
+const firstViewEntryLimit = 3
+
+// commitSHAPattern is the only shape accepted for a security entry's commit
+// link. Anything else is dropped so the frontend never builds a link from
+// unvalidated text.
+var commitSHAPattern = regexp.MustCompile(`^[0-9a-f]{7,40}$`)
 
 // Entry describes one released version's categorized, novice-friendly
 // changelog content.
@@ -91,64 +103,83 @@ func (s *Service) SetCurrentVersion(v string) { s.currentVersion = v }
 // CurrentVersion returns the effective current version.
 func (s *Service) CurrentVersion() string { return s.currentVersion }
 
-// IsUnversionedBuild reports whether v is unsuitable as a changelog
-// "since" comparison anchor: either the unversioned "dev" sentinel
-// (version.Version's default), or any other string that isn't valid
-// semver. The latter case covers real CI-produced distributable builds
-// that are non-"dev" but still non-semver — e.g.
-// nightly-build.yml/docker-build.yml tag images as "nightly-<git-sha>"
-// or a branch-derived docker/metadata-action value.
-// golang.org/x/mod/semver.Compare defines an invalid version string as
-// always less than a valid one, so treating only literal "dev" as
-// unversioned would let those builds seed users with an incomparable
-// LastSeenVersion: every real changelog entry would permanently compare
-// as "newer," and the user could never dismiss the changelog.
-//
-// This is the single shared authority for the concept — every call site
-// that needs to decide "is this version string safe to use as a
-// changelog anchor" (Service.IsDevBuild, seedLastSeenVersion in
-// user_handler.go, ChangelogHandler.Ack's dismiss_permanent guard) must
-// go through this function rather than re-deriving the check, which is
-// exactly what let a nightly-build user get permanently stuck with an
-// unrecoverable LastSeenVersion in the past.
-func IsUnversionedBuild(v string) bool {
-	return v == "dev" || !semver.IsValid("v"+v)
-}
-
 // IsDevBuild reports whether the effective current version is unsuitable
-// as a changelog "since" comparison anchor. See IsUnversionedBuild for
-// the full rationale. Callers (the /changelog/status handler) must gate
+// as a changelog "since" comparison anchor: the unversioned "dev"
+// sentinel (version.Version's default), or any other non-SemVer string
+// (including the legacy nightly-<sha> format). Such values can come from
+// distributable builds that are non-"dev" but non-semver. Seeding a user with one of those would
+// leave them with an incomparable LastSeenVersion that could never be
+// dismissed. The check itself lives in version.IsUnversioned, the single
+// shared authority; callers (the /changelog/status handler) must gate
 // show_changelog on this, not just on currentVersion == "dev".
 func (s *Service) IsDevBuild() bool {
-	return IsUnversionedBuild(s.currentVersion)
+	return version.IsUnversioned(s.currentVersion)
 }
 
-// GetEntriesSince returns entries newer than lastSeen, newest-first.
-// Empty lastSeen is treated as "behind everything" (all entries
-// returned) — the pre-existing-user catch-up case: a user who has never
-// seen any version is behind every released version, not just the
-// newest one.
+// AnchorVersion returns the bare SemVer form of the current version, the
+// value dismiss_permanent stores in LastSeenVersion. It returns "" for an
+// unversioned build, which must never be written as an anchor.
+func (s *Service) AnchorVersion() string {
+	anchor, _ := version.Canonical(s.currentVersion)
+	return anchor
+}
+
+// withinCeiling reports whether an entry may be shown at all. A versioned
+// build never shows entries newer than itself, so an upgrade-then-downgrade
+// or a pre-release can't surface notes for code it doesn't run. An
+// unversioned build (local UI iteration) has no ceiling.
+func (s *Service) withinCeiling(entryVersion string) bool {
+	if s.IsDevBuild() {
+		return true
+	}
+	cmp, ok := version.Compare(entryVersion, s.currentVersion)
+	return ok && cmp <= 0
+}
+
+// GetEntriesSince returns the entries a user has not yet seen, newest-first,
+// capped at firstViewEntryLimit whatever lastSeen holds.
+//
+// Empty lastSeen is treated as "behind everything" (all entries are
+// candidates), the pre-existing-user catch-up case. The cap then keeps the
+// first view short, and the rest of the history is reachable through
+// GetAllEntries.
 //
 // A non-empty lastSeen that is not valid semver is treated as "already
-// seen everything" (no entries returned) instead. This is a
-// defense-in-depth belt-and-suspenders check independent of the
-// IsDevBuild() handler-level gate: a user's stored LastSeenVersion can
-// only be invalid semver if it was written while running a non-semver
-// build (see IsDevBuild's doc comment), and IsDevBuild() already stops
-// that same build from ever calling GetEntriesSince. But if the app is
-// later upgraded to a real semver release, that user's stale invalid
-// LastSeenVersion must not fall into the "behind everything" branch —
-// semver.Compare's "invalid always compares less than valid" rule would
-// otherwise make every real entry look newer forever, and
-// dismiss_permanent (which just re-anchors LastSeenVersion to
-// CurrentVersion()) could never fix it for a still-non-semver build.
+// seen everything" (no entries returned). This is a defense-in-depth check:
+// an unversioned comparison would otherwise make every real entry look newer
+// forever, and dismiss_permanent could never fix it for a non-semver build.
+// Entries above the running version are excluded (see withinCeiling).
 func (s *Service) GetEntriesSince(lastSeen string) []Entry {
-	if lastSeen != "" && !semver.IsValid("v"+lastSeen) {
-		return nil
+	if lastSeen != "" && version.IsUnversioned(lastSeen) {
+		return []Entry{}
 	}
-	var result []Entry
+	result := []Entry{}
 	for _, e := range allEntries {
-		if lastSeen == "" || semver.Compare("v"+e.Version, "v"+lastSeen) > 0 {
+		if !s.withinCeiling(e.Version) {
+			continue
+		}
+		if lastSeen != "" {
+			cmp, ok := version.Compare(e.Version, lastSeen)
+			if !ok || cmp <= 0 {
+				continue
+			}
+		}
+		result = append(result, normalizeEntry(e))
+	}
+	sortNewestFirst(result)
+	if len(result) > firstViewEntryLimit {
+		result = result[:firstViewEntryLimit]
+	}
+	return result
+}
+
+// GetAllEntries returns the full changelog history, newest-first, as a
+// copy safe for callers to mutate. It applies the version ceiling when the
+// build is versioned, and it is never capped: this is the opt-in browse view.
+func (s *Service) GetAllEntries() []Entry {
+	result := []Entry{}
+	for _, e := range allEntries {
+		if s.withinCeiling(e.Version) {
 			result = append(result, normalizeEntry(e))
 		}
 	}
@@ -156,19 +187,10 @@ func (s *Service) GetEntriesSince(lastSeen string) []Entry {
 	return result
 }
 
-// GetAllEntries returns the full changelog history, newest-first, as a
-// copy safe for callers to mutate.
-func (s *Service) GetAllEntries() []Entry {
-	result := make([]Entry, len(allEntries))
-	for i, e := range allEntries {
-		result[i] = normalizeEntry(e)
-	}
-	sortNewestFirst(result)
-	return result
-}
-
-// normalizeEntry returns a copy of e with every array field
-// (Features/Fixes/Other/Security) guaranteed non-nil.
+// normalizeEntry returns a copy of e that is safe to serve: every array field
+// is non-nil, each list is deduplicated while keeping its order (defense in
+// depth against a duplicated React key, F18), and a security entry whose SHA
+// is not a plain hex commit id is dropped (F17).
 //
 // The embedded data/changelog.json is always generator-produced
 // (scripts/generate-changelog.sh's jq program builds these via `map`,
@@ -187,23 +209,46 @@ func (s *Service) GetAllEntries() []Entry {
 // before returning, regardless of whether it originated from the
 // embedded init() parse or a test's SetEntriesForTesting override.
 func normalizeEntry(e Entry) Entry {
-	if e.Features == nil {
-		e.Features = []string{}
+	return Entry{
+		Version:  e.Version,
+		Date:     e.Date,
+		Features: dedupeKeepOrder(e.Features),
+		Fixes:    dedupeKeepOrder(e.Fixes),
+		Other:    dedupeKeepOrder(e.Other),
+		Security: validSecurityEntries(e.Security),
 	}
-	if e.Fixes == nil {
-		e.Fixes = []string{}
+}
+
+// dedupeKeepOrder returns a new non-nil slice with the first occurrence of
+// each value, in its original order.
+func dedupeKeepOrder[T comparable](in []T) []T {
+	out := make([]T, 0, len(in))
+	seen := make(map[T]struct{}, len(in))
+	for _, v := range in {
+		if _, dup := seen[v]; dup {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
 	}
-	if e.Other == nil {
-		e.Other = []string{}
+	return out
+}
+
+// validSecurityEntries drops security entries whose SHA is not a plain hex
+// commit id, then dedupes the rest. The result is never nil.
+func validSecurityEntries(in []SecurityEntry) []SecurityEntry {
+	valid := make([]SecurityEntry, 0, len(in))
+	for _, s := range in {
+		if commitSHAPattern.MatchString(s.SHA) {
+			valid = append(valid, s)
+		}
 	}
-	if e.Security == nil {
-		e.Security = []SecurityEntry{}
-	}
-	return e
+	return dedupeKeepOrder(valid)
 }
 
 func sortNewestFirst(entries []Entry) {
 	sort.Slice(entries, func(i, j int) bool {
-		return semver.Compare("v"+entries[i].Version, "v"+entries[j].Version) > 0
+		cmp, ok := version.Compare(entries[i].Version, entries[j].Version)
+		return ok && cmp > 0
 	})
 }

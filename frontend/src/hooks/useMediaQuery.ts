@@ -1,18 +1,21 @@
-import { useState, useEffect } from 'react'
+import { useCallback, useSyncExternalStore } from 'react'
 
+// Charon is a client-only SPA, so the server snapshot only matters if the
+// hook is ever rendered outside the browser; it reports "no match" there.
+const getServerSnapshot = (): boolean => false
+
+/** Tracks whether a CSS media query currently matches, updating on change events. */
 export function useMediaQuery(query: string): boolean {
-  const [matches, setMatches] = useState(() =>
-    /* v8 ignore next */
-    typeof window !== 'undefined' ? window.matchMedia(query).matches : false
+  const subscribe = useCallback(
+    (onChange: () => void) => {
+      const mq = window.matchMedia(query)
+      mq.addEventListener('change', onChange)
+      return () => mq.removeEventListener('change', onChange)
+    },
+    [query]
   )
-  useEffect(() => {
-    /* v8 ignore next */
-    if (typeof window === 'undefined') return
-    const mq = window.matchMedia(query)
-    setMatches(mq.matches)
-    const handler = (e: MediaQueryListEvent) => setMatches(e.matches)
-    mq.addEventListener('change', handler)
-    return () => mq.removeEventListener('change', handler)
-  }, [query])
-  return matches
+
+  const getSnapshot = useCallback(() => window.matchMedia(query).matches, [query])
+
+  return useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot)
 }

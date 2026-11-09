@@ -9,11 +9,18 @@ import (
 	"strconv"
 	"strings"
 
+	charonconfig "github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
 )
+
+// AdminListenAddress is the address the generated Caddy config binds its admin
+// API to. It equals the address the backend dials and the entrypoint bootstrap
+// writes, so applying a config never rebinds the interface.
+const AdminListenAddress = charonconfig.CaddyAdminAddress
 
 // serverShutdownGracePeriod bounds how long Caddy's http app waits for open
 // keep-alive and HTTP/3 connections on shutdown. Caddy's default is unbounded,
@@ -46,7 +53,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	shutdownGracePeriod := serverShutdownGracePeriod
 	config := &Config{
 		Admin: &AdminConfig{
-			Listen: "0.0.0.0:2019", // Bind to all interfaces for container access
+			Listen: AdminListenAddress, // listens on the loopback address only
 		},
 		Logging: &LoggingConfig{
 			Logs: map[string]*LogConfig{
@@ -85,19 +92,15 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	// crowdsecEnabled, because the engine keeps reading the log.
 	crowdsecInProxy := false
 	if crowdsecEnabled {
-		apiKey := getCrowdSecAPIKey()
+		apiKey := getCrowdSecAPIKey(resolvedOpts.bouncerKeyPath)
 		if apiKey == "" {
 			logger.Log().Warn(crowdSecNoKeyWarning)
 		} else {
 			crowdsecInProxy = true
-			apiURL := "http://127.0.0.1:8085"
-			if secCfg != nil && secCfg.CrowdSecAPIURL != "" {
-				apiURL = secCfg.CrowdSecAPIURL
-			}
 			enableStreaming := true
 
 			config.Apps.CrowdSec = &CrowdSecApp{
-				APIUrl:          apiURL,
+				APIUrl:          crowdsec.LocalLAPIURL,
 				APIKey:          apiKey,
 				TickerInterval:  "60s",
 				EnableStreaming: &enableStreaming,
@@ -542,10 +545,14 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		// eligible, so it is left out of the enforcement counts.
 		if wafEnabled && !host.WAFDisabled {
 			wafH, reason := buildWAFHandlerWithReason(&host, rulesets, rulesetPaths, secCfg)
-			report.WAF.record(wafH != nil, reason)
 			if wafH != nil {
 				securityHandlers = append(securityHandlers, wafH)
-			} else {
+			}
+			// A host whose own advanced_config WAF handler has directives is protected even when the global
+			// source gives no handler. Only the count changes; no second global handler is added for it.
+			protected := wafH != nil || hostHasOwnWAFHandler(&host, rulesetPaths)
+			report.WAF.record(protected, reason)
+			if !protected {
 				wafUnprotectedHosts++
 			}
 		}
@@ -625,17 +632,10 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 					if _, ok := v["handler"]; ok {
 						// Capture ruleset_name if present, remove it from advanced_config,
 						// and set up 'directives' with Include statement for coraza-caddy plugin.
-						if rn, has := v["ruleset_name"]; has {
-							if rnStr, ok := rn.(string); ok && rnStr != "" {
-								// Set 'directives' with Include statement for coraza-caddy
-								if rulesetPaths != nil {
-									if p, ok := rulesetPaths[rnStr]; ok && p != "" {
-										v["directives"] = fmt.Sprintf("Include %s", p)
-									}
-								}
-							}
-							delete(v, "ruleset_name")
+						if inc := rulesetIncludeDirective(v, rulesetPaths); inc != "" {
+							v["directives"] = inc
 						}
+						delete(v, "ruleset_name")
 						normalizeHandlerHeaders(v)
 						handlers = append(handlers, Handler(v))
 					} else {
@@ -644,16 +644,10 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 				case []any:
 					for _, it := range v {
 						if m, ok := it.(map[string]any); ok {
-							if rn, has := m["ruleset_name"]; has {
-								if rnStr, ok := rn.(string); ok && rnStr != "" {
-									if rulesetPaths != nil {
-										if p, ok := rulesetPaths[rnStr]; ok && p != "" {
-											m["directives"] = fmt.Sprintf("Include %s", p)
-										}
-									}
-								}
-								delete(m, "ruleset_name")
+							if inc := rulesetIncludeDirective(m, rulesetPaths); inc != "" {
+								m["directives"] = inc
 							}
+							delete(m, "ruleset_name")
 							normalizeHandlerHeaders(m)
 							if _, ok2 := m["handler"]; ok2 {
 								handlers = append(handlers, Handler(m))
@@ -1125,23 +1119,21 @@ func buildCrowdSecHandler(_ *models.ProxyHost, _ *models.SecurityConfig, crowdse
 // getCrowdSecAPIKey retrieves the CrowdSec bouncer API key the proxy uses.
 // The saved key file wins over the environment variables (see bouncerkey.Resolve),
 // so a key that Charon validated or registered is used even if an invalid
-// variable is still set in docker-compose.yml.
-func getCrowdSecAPIKey() string {
-	key, src := bouncerkey.Resolve(crowdSecBouncerKeyFile)
+// variable is still set in docker-compose.yml. keyPath is the saved key file (see WithBouncerKeyPath).
+func getCrowdSecAPIKey(keyPath string) string {
+	key, src := bouncerkey.Resolve(keyPath)
 	switch src {
 	case bouncerkey.SourceFile:
-		logger.Log().WithField("source", "file").WithField("file", crowdSecBouncerKeyFile).Debug("CrowdSec API key loaded from file")
+		logger.Log().WithField("source", "file").WithField("file", keyPath).Debug("CrowdSec API key loaded from file")
 	case bouncerkey.SourceEnv:
 		logger.Log().WithField("source", "env_var").Debug("CrowdSec API key loaded from environment variable")
+	case bouncerkey.SourceMemory:
+		logger.Log().WithField("source", "memory").Debug("CrowdSec API key held in memory after a failed save")
 	default:
 		logger.Log().Debug("No CrowdSec API key found in file or environment variables")
 	}
 	return key
 }
-
-// crowdSecBouncerKeyFile is the saved bouncer key location. A variable (not a
-// constant) so tests can point the file branch at a temporary file.
-var crowdSecBouncerKeyFile = bouncerkey.DefaultFile
 
 // getAccessLogPath determines the appropriate path for Caddy access logs.
 // When CrowdSec is enabled or running in Docker (detected via /.dockerenv),
@@ -1229,15 +1221,23 @@ func buildWAFHandlerWithReason(host *models.ProxyHost, rulesets []models.Securit
 	// 4. Fallback to the OWASP CRS ruleset (name matched loosely, see isOWASPCRSName)
 	// 5. Fallback to the only ruleset, if exactly one exists
 	var selected *models.SecurityRuleSet
-	var hostRulesetMatch, appMatch, owaspFallback *models.SecurityRuleSet
+	var hostRulesetMatch, appMatch, owaspFallback, lone *models.SecurityRuleSet
+	usableCount := 0
 
 	// First pass: find all potential matches
 	for i, r := range rulesets {
-		// Priority 1: Global WAF rules source - highest priority, select immediately
+		// Priority 1: Global WAF rules source - highest priority, select immediately. Stays strict: an empty
+		// set chosen here is not replaced by another set.
 		if secCfg != nil && secCfg.WAFRulesSource != "" && r.Name == secCfg.WAFRulesSource {
 			selected = &rulesets[i]
 			break
 		}
+		// Priorities 2 to 5 only consider sets that have rules, so a legacy empty row never hides a valid set.
+		if !models.HasRuleLines(r.Content) {
+			continue
+		}
+		usableCount++
+		lone = &rulesets[i]
 		// Priority 2: Per-host ruleset name from advanced_config
 		if hostRulesetName != "" && r.Name == hostRulesetName && hostRulesetMatch == nil {
 			hostRulesetMatch = &rulesets[i]
@@ -1262,10 +1262,10 @@ func buildWAFHandlerWithReason(host *models.ProxyHost, rulesets []models.Securit
 			selected = appMatch
 		case owaspFallback != nil:
 			selected = owaspFallback
-		case len(rulesets) == 1:
-			// Priority 5: a lone ruleset is unambiguous. Without this a WAF that the UI
+		case usableCount == 1:
+			// Priority 5: a lone usable ruleset is unambiguous. Without this a WAF that the UI
 			// shows as enabled silently protects nothing.
-			selected = &rulesets[0]
+			selected = lone
 		}
 	}
 
@@ -1285,17 +1285,81 @@ func buildWAFHandlerWithReason(host *models.ProxyHost, rulesets []models.Securit
 	return h, ""
 }
 
+// rulesetIncludeDirective returns the Include directive for the ruleset_name of an advanced_config handler, or "" when
+// the name is missing or has no file on disk. It is the single place that turns a per-host ruleset name into a file.
+func rulesetIncludeDirective(handler map[string]any, rulesetPaths map[string]string) string {
+	name, _ := handler["ruleset_name"].(string)
+	if name == "" {
+		return ""
+	}
+	p := rulesetPaths[name]
+	if p == "" {
+		return ""
+	}
+	return fmt.Sprintf("Include %s", p)
+}
+
+// hostHasOwnWAFHandler reports whether the host's advanced_config carries a WAF handler with directives: an explicit
+// non-blank directives string, or a ruleset_name that resolves in rulesetPaths. It only reads the host. The handler
+// itself is built by the advanced_config processing in GenerateConfig.
+func hostHasOwnWAFHandler(host *models.ProxyHost, rulesetPaths map[string]string) bool {
+	if host == nil || host.AdvancedConfig == "" {
+		return false
+	}
+	var parsed any
+	if err := json.Unmarshal([]byte(host.AdvancedConfig), &parsed); err != nil {
+		return false
+	}
+	switch v := parsed.(type) {
+	case map[string]any:
+		return isWAFHandlerWithDirectives(v, rulesetPaths)
+	case []any:
+		for _, it := range v {
+			if m, ok := it.(map[string]any); ok && isWAFHandlerWithDirectives(m, rulesetPaths) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// isWAFHandlerWithDirectives reports whether one advanced_config handler is a WAF handler that has directives.
+func isWAFHandlerWithDirectives(handler map[string]any, rulesetPaths map[string]string) bool {
+	if handler["handler"] != "waf" {
+		return false
+	}
+	if d, ok := handler["directives"].(string); ok && strings.TrimSpace(d) != "" {
+		return true
+	}
+	return rulesetIncludeDirective(handler, rulesetPaths) != ""
+}
+
 // unresolvedRulesetReason names why no WAF directives were built: there is no ruleset at all, none is chosen for the
-// host, or the chosen ruleset has no file on disk.
+// host, every ruleset is empty, the chosen ruleset has no rules, or the chosen ruleset has rules but no file on disk.
+// The rules are read from the content, not the file, because an empty set is never written to disk.
 func unresolvedRulesetReason(rulesets []models.SecurityRuleSet, selected *models.SecurityRuleSet) string {
 	switch {
+	case selected != nil && !models.HasRuleLines(selected.Content):
+		return ReasonRulesetEmpty
 	case selected != nil:
 		return ReasonRulesetUnavailable
 	case len(rulesets) == 0:
 		return ReasonNoRuleset
+	case allRulesetsEmpty(rulesets):
+		return ReasonRulesetEmpty
 	default:
 		return ReasonRulesetNotSelected
 	}
+}
+
+// allRulesetsEmpty reports whether no ruleset has a rule line.
+func allRulesetsEmpty(rulesets []models.SecurityRuleSet) bool {
+	for _, r := range rulesets {
+		if models.HasRuleLines(r.Content) {
+			return false
+		}
+	}
+	return true
 }
 
 // isOWASPCRSName reports whether a ruleset name refers to the OWASP Core Rule Set,

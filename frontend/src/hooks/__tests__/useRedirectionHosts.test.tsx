@@ -12,8 +12,10 @@ import {
   useUpdateRedirectionHost,
 } from '../useRedirectionHosts'
 
+import type * as redirectionHostsModule from '../../api/redirectionHosts'
+
 vi.mock('../../api/redirectionHosts', async () => {
-  const actual = await vi.importActual<typeof import('../../api/redirectionHosts')>('../../api/redirectionHosts')
+  const actual = await vi.importActual<typeof redirectionHostsModule>('../../api/redirectionHosts')
   return {
     ...actual,
     redirectionHostsApi: {

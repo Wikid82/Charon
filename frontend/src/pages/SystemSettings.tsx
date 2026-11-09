@@ -21,6 +21,8 @@ import { Switch } from '../components/ui/Switch'
 import { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider } from '../components/ui/Tooltip'
 import { WebSocketStatusCard } from '../components/WebSocketStatusCard'
 import { useAuth } from '../hooks/useAuth'
+import { useSeedOnChange } from '../hooks/useSeedOnChange'
+import { useSystemUpdates } from '../hooks/useSystemUpdates'
 import { useUptimeHealth } from '../hooks/useUptimeSummary'
 import { cn } from '../utils/cn'
 import { toast } from '../utils/toast'
@@ -31,13 +33,6 @@ interface HealthResponse {
   version: string
   git_commit: string
   build_time: string
-}
-
-interface UpdateInfo {
-  current_version: string
-  latest_version: string
-  update_available: boolean
-  release_url?: string
 }
 
 /**
@@ -58,12 +53,32 @@ const UPTIME_BOUNDS: Record<string, { min: number; max: number }> = {
   [UPTIME_SETTING_KEYS.retention]: { min: 1, max: 3650 },
 }
 
+// Loading skeleton for settings
+const SettingsSkeleton = () => (
+  <div className="space-y-6">
+    <div className="flex items-center gap-3">
+      <Skeleton className="h-8 w-8" />
+      <Skeleton className="h-8 w-48" />
+    </div>
+    {[1, 2, 3].map((i) => (
+      <Card key={i} className="p-6">
+        <div className="space-y-4">
+          <Skeleton className="h-6 w-32" />
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Skeleton className="h-10 w-full" />
+            <Skeleton className="h-10 w-full" />
+          </div>
+        </div>
+      </Card>
+    ))}
+  </div>
+)
+
 export default function SystemSettings() {
   const { t } = useTranslation()
   const { user } = useAuth()
   const isAdmin = user?.role === 'admin'
   const queryClient = useQueryClient()
-  const [caddyAdminAPI, setCaddyAdminAPI] = useState('http://localhost:2019')
   const [sslProvider, setSslProvider] = useState('auto')
   const [keepaliveIdle, setKeepaliveIdle] = useState('')
   const [keepaliveCount, setKeepaliveCount] = useState('')
@@ -105,24 +120,21 @@ export default function SystemSettings() {
   })
 
   // Update local state when settings load
-  useEffect(() => {
-    if (settings) {
-      if (settings['caddy.admin_api']) setCaddyAdminAPI(settings['caddy.admin_api'])
-      // Default to 'auto' if empty or invalid value
-      if (settings['caddy.ssl_provider']) {
-        const validProviders = ['auto', 'letsencrypt-staging', 'letsencrypt-prod', 'zerossl']
-        const provider = settings['caddy.ssl_provider']
-        setSslProvider(validProviders.includes(provider) ? provider : 'auto')
-      }
-      setKeepaliveIdle(settings['caddy.keepalive_idle'] ?? '')
-      setKeepaliveCount(settings['caddy.keepalive_count'] ?? '')
-      if (settings['ui.domain_link_behavior']) setDomainLinkBehavior(settings['ui.domain_link_behavior'])
-      if (settings['app.public_url']) setPublicURL(settings['app.public_url'])
-      setUptimeInterval(settings[UPTIME_SETTING_KEYS.interval] ?? '')
-      setUptimeWorkers(settings[UPTIME_SETTING_KEYS.workers] ?? '')
-      setUptimeRetention(settings[UPTIME_SETTING_KEYS.retention] ?? '')
+  useSeedOnChange(settings, (loaded) => {
+    // Default to 'auto' if empty or invalid value
+    if (loaded['caddy.ssl_provider']) {
+      const validProviders = ['auto', 'letsencrypt-staging', 'letsencrypt-prod', 'zerossl']
+      const provider = loaded['caddy.ssl_provider']
+      setSslProvider(validProviders.includes(provider) ? provider : 'auto')
     }
-  }, [settings])
+    setKeepaliveIdle(loaded['caddy.keepalive_idle'] ?? '')
+    setKeepaliveCount(loaded['caddy.keepalive_count'] ?? '')
+    if (loaded['ui.domain_link_behavior']) setDomainLinkBehavior(loaded['ui.domain_link_behavior'])
+    if (loaded['app.public_url']) setPublicURL(loaded['app.public_url'])
+    setUptimeInterval(loaded[UPTIME_SETTING_KEYS.interval] ?? '')
+    setUptimeWorkers(loaded[UPTIME_SETTING_KEYS.workers] ?? '')
+    setUptimeRetention(loaded[UPTIME_SETTING_KEYS.retention] ?? '')
+  })
 
   // Validate Public URL with debouncing
   const validatePublicURL = async (url: string) => {
@@ -181,18 +193,12 @@ export default function SystemSettings() {
   }
 
   // Check for Updates
+  // Manual-only: the card shows the shared cached result, and the button triggers a fresh check.
   const {
     data: updateInfo,
-    refetch: checkUpdates,
+    refetch: refetchUpdates,
     isFetching: isCheckingUpdates,
-  } = useQuery({
-    queryKey: ['updates'],
-    queryFn: async (): Promise<UpdateInfo> => {
-      const response = await client.get<UpdateInfo>('/system/updates')
-      return response.data
-    },
-    enabled: false, // Manual trigger
-  })
+  } = useSystemUpdates({ enabled: false })
 
   const saveSettingsMutation = useMutation({
     mutationFn: async () => {
@@ -200,7 +206,6 @@ export default function SystemSettings() {
         throw new Error(t('systemSettings.general.keepaliveValidationFailed'))
       }
 
-      await updateSetting('caddy.admin_api', caddyAdminAPI, 'caddy', 'string')
       await updateSetting('caddy.ssl_provider', sslProvider, 'caddy', 'string')
       await updateSetting('caddy.keepalive_idle', keepaliveIdleTrimmed, 'caddy', 'string')
       await updateSetting('caddy.keepalive_count', keepaliveCountTrimmed, 'caddy', 'string')
@@ -237,8 +242,7 @@ export default function SystemSettings() {
       return t('systemSettings.uptime.intervalFloorError')
     }
     const { min, max } = UPTIME_BOUNDS[key]
-    if (n < min || n > max) return t(uptimeErrorI18n[key])
-    return undefined
+    return n < min || n > max ? t(uptimeErrorI18n[key]) : undefined
   }
 
   const uptimeClientErrors: Record<string, string | undefined> = {
@@ -346,27 +350,6 @@ export default function SystemSettings() {
     ? { message: t('systemSettings.updatingFeatures'), submessage: t('systemSettings.applyingChanges') }
     : { message: t('common.loading'), submessage: t('systemSettings.pleaseWait') }
 
-  // Loading skeleton for settings
-  const SettingsSkeleton = () => (
-    <div className="space-y-6">
-      <div className="flex items-center gap-3">
-        <Skeleton className="h-8 w-8" />
-        <Skeleton className="h-8 w-48" />
-      </div>
-      {[1, 2, 3].map((i) => (
-        <Card key={i} className="p-6">
-          <div className="space-y-4">
-            <Skeleton className="h-6 w-32" />
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-            </div>
-          </div>
-        </Card>
-      ))}
-    </div>
-  )
-
   // Show skeleton while loading initial data
   if (!settings && !featureFlags) {
     return <SettingsSkeleton />
@@ -441,18 +424,6 @@ export default function SystemSettings() {
             <CardDescription>{t('systemSettings.general.description')}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-6">
-            <div className="space-y-2">
-              <Label htmlFor="caddy-api">{t('systemSettings.general.caddyAdminApi')}</Label>
-              <Input
-                id="caddy-api"
-                type="text"
-                value={caddyAdminAPI}
-                onChange={(e) => setCaddyAdminAPI(e.target.value)}
-                placeholder="http://localhost:2019"
-                helperText={t('systemSettings.general.caddyAdminApiHelper')}
-              />
-            </div>
-
             <div className="space-y-2">
               <Label htmlFor="ssl-provider">{t('systemSettings.general.sslProvider')}</Label>
               <Select value={sslProvider} onValueChange={setSslProvider}>
@@ -698,12 +669,12 @@ export default function SystemSettings() {
                   </div>
                 </div>
 
-                {updateInfo.update_available ? (
+                {updateInfo.available ? (
                   <Alert variant="info" title={t('systemSettings.updates.updateAvailable')}>
                     {t('systemSettings.updates.newVersionAvailable')}{' '}
-                    {updateInfo.release_url && (
+                    {updateInfo.changelog_url && (
                       <a
-                        href={updateInfo.release_url}
+                        href={updateInfo.changelog_url}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="inline-flex items-center gap-1 text-brand-500 hover:underline font-medium"
@@ -723,7 +694,7 @@ export default function SystemSettings() {
           </CardContent>
           <CardFooter>
             <Button
-              onClick={() => checkUpdates()}
+              onClick={() => refetchUpdates()}
               isLoading={isCheckingUpdates}
               variant="secondary"
             >

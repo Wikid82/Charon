@@ -16,9 +16,9 @@ vi.mock('../../../api/hecate', () => ({
   connectTunnelLogs: vi.fn(),
 }))
 
-import { CloudflareTunnelWizard } from '../CloudflareTunnelWizard'
 import * as hecateApi from '../../../api/hecate'
 import * as useHecateHook from '../../../hooks/useHecate'
+import { CloudflareTunnelWizard } from '../CloudflareTunnelWizard'
 
 const mockCreateTunnel = vi.fn()
 

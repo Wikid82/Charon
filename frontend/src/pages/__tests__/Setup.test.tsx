@@ -8,11 +8,12 @@ import * as setupApi from '../../api/setup';
 import Setup from '../Setup';
 
 // Mock AuthContext so useAuth works in tests
+let mockIsAuthenticated = false;
 vi.mock('../../hooks/useAuth', () => ({
   useAuth: () => ({
     login: vi.fn(),
     logout: vi.fn(),
-    isAuthenticated: false,
+    isAuthenticated: mockIsAuthenticated,
     isLoading: false,
     user: null,
   }),
@@ -64,6 +65,7 @@ describe('Setup Page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     queryClient.clear();
+    mockIsAuthenticated = false;
   });
 
   it('renders setup form when setup is required', async () => {
@@ -95,6 +97,18 @@ describe('Setup Page', () => {
     await waitFor(() => {
       expect(mockNavigate).toHaveBeenCalledWith('/login');
     });
+  });
+
+  it('redirects an authenticated user to the dashboard when setup is not required', async () => {
+    mockIsAuthenticated = true;
+    vi.mocked(setupApi.getSetupStatus).mockResolvedValue({ setupRequired: false });
+
+    renderWithProviders(<Setup />);
+
+    await waitFor(() => {
+      expect(mockNavigate).toHaveBeenCalledWith('/');
+    });
+    expect(mockNavigate).not.toHaveBeenCalledWith('/login');
   });
 
   it('submits form successfully', async () => {

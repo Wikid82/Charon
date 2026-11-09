@@ -36,12 +36,10 @@ services:
       - CHARON_HTTP_PORT=8080
       - CHARON_DB_PATH=/app/data/charon.db
       - CHARON_FRONTEND_DIR=/app/frontend/dist
-      - CHARON_CADDY_ADMIN_API=http://localhost:2019
       - CHARON_CADDY_CONFIG_DIR=/app/data/caddy
       - CHARON_CADDY_BINARY=caddy
       - CHARON_IMPORT_CADDYFILE=/import/Caddyfile
       - CHARON_IMPORT_DIR=/app/data/imports
-      - CHARON_SECURITY_CROWDSEC_API_URL=http://localhost:8085
     extra_hosts:
       - "host.docker.internal:host-gateway"
     volumes:
@@ -52,7 +50,7 @@ services:
       - plugins_data:/app/plugins:ro # Read-only in production for security
       # Optional: only needed for direct local container discovery. Orthrus (docs/features/orthrus.md)
       # is the recommended, more secure way to connect Docker; remove this line if you use it.
-      - /var/run/docker.sock:/var/run/docker.sock:ro # For local container discovery
+      # - ${DOCKER_SOCK}:/var/run/docker.sock:ro # For local container discovery
       # Mount your existing Caddyfile for automatic import (optional)
       # - ./my-existing-Caddyfile:/import/Caddyfile:ro
       # - ./sites:/import/sites:ro # If your Caddyfile imports other files
@@ -62,6 +60,28 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  orthrus:
+    image: wikid82/orthrus:latest
+    restart: always
+    container_name: orthrus
+    environment:
+      # User and group the agent runs as. PGID must match your Docker socket's group (see docs/features/orthrus.md).
+      - PUID=${PUID}
+      - PGID=${PGID}
+      - TZ=${TZ}
+      # The websocket URL of your Charon instance. Use wss://charon.example.com when Charon is behind HTTPS (a reverse proxy with a certificate),
+      # or ws://<host>:<port> (e.g. ws://100.x.y.z:8080) when connecting to Charon directly over HTTP, such as on Tailscale or a Docker network.
+      # Charon itself does not serve TLS, so wss:// to its plain HTTP port fails with "first record does not look like a TLS handshake".
+      - ORTHRUS_SERVER_URL=${ORTHRUS_SERVER_URL}
+      # The agent ID shown when you registered this agent in Charon (Hecate -> Agent -> Add Agent)
+      - ORTHRUS_AGENT_ID=${ORTHRUS_AGENT_ID}
+      # The one-time auth key shown when you registered this agent
+      - ORTHRUS_AUTH_KEY=${ORTHRUS_AUTH_KEY}
+    volumes:
+      # Read-only access to the host Docker socket (DOCKER_SOCK in your .env). The agent is read-only by default;
+      # write access is an explicit per-agent opt-in in Charon (see docs/features/orthrus.md).
+      - ${DOCKER_SOCK}:/var/run/docker.sock:ro
 
 volumes:
   cpm_data:

@@ -112,10 +112,14 @@ if [ -r "$CS_HUB_MIRROR_HELPER" ]; then
     # shellcheck source=/dev/null
     . "$CS_HUB_MIRROR_HELPER"
 else
+    # Same two entry points as the helper, for an image without it: every call still names the live config file.
+    cscli_cfg() {
+        cscli -c "${CHARON_CSCLI_CONFIG:-/etc/crowdsec/config.yaml}" "$@"
+    }
     cscli_hub() {
         _budget=$1
         shift
-        run_interruptible timeout "$_budget" cscli "$@"
+        run_interruptible timeout "$_budget" cscli -c "${CHARON_CSCLI_CONFIG:-/etc/crowdsec/config.yaml}" "$@"
     }
 fi
 
@@ -333,6 +337,11 @@ if command -v cscli >/dev/null; then
         echo "✓ Persistent config already exists: $CS_CONFIG_DIR/config.yaml"
     fi
 
+    # Every cscli call below names this file with -c (the persistent file, not the symlink, so the flag names the
+    # file the entrypoint just initialised). Assigned unconditionally: a value from the environment is never trusted.
+    CHARON_CSCLI_CONFIG="$CS_CONFIG_DIR/config.yaml"
+    export CHARON_CSCLI_CONFIG
+
     # Verify symlink exists (created at build time)
     # Note: Symlink is created in Dockerfile as root before switching to non-root user
     # Non-root users cannot create symlinks in /etc, so this must be done at build time
@@ -469,7 +478,7 @@ ACQUIS_EOF
     # Machine registration is fast (local DB write) and required for LAPI auth.
     # Always run regardless of environment.
     echo "Registering local machine..."
-    cscli machines add -a --force 2>/dev/null || echo "Warning: Machine registration may have failed"
+    cscli_cfg machines add -a --force 2>/dev/null || echo "Warning: Machine registration may have failed"
 
     # Hub index update and hub item downloads are internet-bound operations (30–120 s).
     # Skip them when CHARON_SECURITY_TESTS_ENABLED=false (non-security CI shards) so the
@@ -553,7 +562,7 @@ echo "CrowdSec configuration initialized. Agent lifecycle is GUI-controlled."
 
 # Start Caddy in the background with initial empty config
 # Run Caddy as charon user for security
-echo '{"admin":{"listen":"0.0.0.0:2019"},"apps":{}}' > /config/caddy.json
+echo '{"admin":{"listen":"127.0.0.1:2019"},"apps":{}}' > /config/caddy.json
 # Use JSON config directly; no adapter needed
 start_as_charon CADDY_PID caddy run --config /config/caddy.json
 echo "Caddy started (PID: $CADDY_PID)"

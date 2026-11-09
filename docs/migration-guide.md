@@ -72,7 +72,9 @@ If you see any of these:
 Also remove (if present):
 
 ```yaml
-# These are no longer used (external mode removed)
+# These are no longer used (external mode removed). Charon always uses its own
+# CrowdSec engine, so the CrowdSec address saved in its settings is ignored too.
+- CHARON_SECURITY_CROWDSEC_API_URL=
 - CERBERUS_SECURITY_CROWDSEC_API_URL=
 - CERBERUS_SECURITY_CROWDSEC_API_KEY=
 ```

@@ -56,7 +56,12 @@ On your **remote machine**, open a terminal and:
 2. Copy the Docker Compose snippet from the Charon UI
 3. Create a file called `docker-compose.yml` and paste the snippet into it
 4. Replace `<AUTH_KEY>` with the key you saved in Step 1
-5. Run:
+5. Check the permission settings. The file should include `PUID`, `PGID`, and `TZ` lines. Set `PGID` to your Docker group's number: run `stat -c '%g' /var/run/docker.sock` on the remote machine and put the number it prints after `PGID=`. Most setups need this. See [Set the Permissions](../features/orthrus.md#set-the-permissions-puid-pgid-and-tz) for details.
+
+   > **Heads up:** That number goes in `PGID` only. `DOCKER_SOCK` stays the socket's *path* (`/var/run/docker.sock`); do not build it from the number. To check it, run `getent group <number>`; it should print the `docker` group.
+   >
+   > **Using rootless Docker?** The settings are different. See [Rootless Docker](../features/orthrus.md#rootless-docker).
+6. Run:
 
 ```bash
 docker compose up -d
@@ -165,6 +170,7 @@ Charon will check the service regularly and alert you through your configured no
 | Agent stays **Pending** | Install snippet not run yet | Run `docker compose up -d` on the remote machine |
 | **Test Connection** fails | Agent is offline | Check the agent container is running: `docker ps` |
 | No containers listed | Docker socket not mounted in agent | Add `-v /var/run/docker.sock:/var/run/docker.sock:ro` to the agent's volumes |
+| No containers listed, and the agent cannot open the socket | `PGID` does not match the Docker group | Set `PGID` to the output of `stat -c '%g' /var/run/docker.sock`, then run `docker compose up -d` again |
 | Auth key rejected | Key copied incorrectly | Delete the agent, create a new one, copy the key carefully |
 | Agent disconnects repeatedly | Network instability | Normal — the agent reconnects automatically, no action needed |
 | Third-party tool can't reach my agent's Docker API | Wrong port configured in the tool | Check the tool is using the External Proxy port shown in the gear-icon dialog — not Charon's main web port |

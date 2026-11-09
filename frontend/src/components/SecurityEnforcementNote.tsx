@@ -7,7 +7,7 @@ export type EnforcementModuleName = 'waf' | 'rate_limit'
 
 /** Reasons the backend reports per module. Any other reason shows the generic line. */
 const KNOWN_REASONS: Record<EnforcementModuleName, readonly string[]> = {
-  waf: ['no_ruleset', 'ruleset_not_selected', 'ruleset_unavailable'],
+  waf: ['no_ruleset', 'ruleset_not_selected', 'ruleset_unavailable', 'ruleset_empty'],
   rate_limit: ['thresholds_unset'],
 }
 

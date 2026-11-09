@@ -19,6 +19,97 @@ import { fixupPluginRules } from '@eslint/compat';
 import i18nJson from 'eslint-plugin-i18n-json';
 import path from 'node:path';
 
+// Legacy testing-library warnings tracked in GH #1853. These files keep
+// testing-library/no-node-access and no-container at "off" until their hits are
+// fixed. Remove entries as files are cleaned up; the list may only shrink. Every
+// other test file keeps the rules at "warn" (see the test-file block below).
+const LEGACY_TESTING_LIBRARY_FILES = [
+  'src/components/__tests__/AccessListForm.test.tsx',
+  'src/components/__tests__/AccessListSelector-token-coverage.test.tsx',
+  'src/components/__tests__/ActiveDecisionsTable.test.tsx',
+  'src/components/__tests__/CSPBuilder.test.tsx',
+  'src/components/__tests__/CertificateList.test.tsx',
+  'src/components/__tests__/CertificateStatusCard.test.tsx',
+  'src/components/__tests__/CredentialManager.test.tsx',
+  'src/components/__tests__/CrowdSecBouncerKeyDisplay.test.tsx',
+  'src/components/__tests__/DatabaseMaintenance.test.tsx',
+  'src/components/__tests__/FeedbackWidget.test.tsx',
+  'src/components/__tests__/GroupDropZone.test.tsx',
+  'src/components/__tests__/LanguageSelector.test.tsx',
+  'src/components/__tests__/Layout.test.tsx',
+  'src/components/__tests__/LiveLogViewer.test.tsx',
+  'src/components/__tests__/LoadingStates-overlays.test.tsx',
+  'src/components/__tests__/LoadingStates.security.test.tsx',
+  'src/components/__tests__/LogTable.test.tsx',
+  'src/components/__tests__/ManualDNSChallenge.test.tsx',
+  'src/components/__tests__/ProxyGroupBadge.test.tsx',
+  'src/components/__tests__/ProxyHostDragHandle.test.tsx',
+  'src/components/__tests__/ProxyHostForm-token-coverage.test.tsx',
+  'src/components/__tests__/ProxyHostForm-uptime.test.tsx',
+  'src/components/__tests__/ProxyHostForm.test.tsx',
+  'src/components/__tests__/RedirectionHostForm-token-coverage.test.tsx',
+  'src/components/__tests__/RemoteServerForm.test.tsx',
+  'src/components/__tests__/SecurityHeaderProfileForm.test.tsx',
+  'src/components/__tests__/SecurityNotificationSettingsModal.test.tsx',
+  'src/components/__tests__/SecurityScoreDisplay.test.tsx',
+  'src/components/__tests__/WebSocketStatusCard.test.tsx',
+  'src/components/backups/__tests__/BackupEncryptionCard.test.tsx',
+  'src/components/dialogs/WhatsNewModal.test.tsx',
+  'src/components/dialogs/__tests__/CertificateExportDialog.test.tsx',
+  'src/components/dialogs/__tests__/CertificateUploadDialog.test.tsx',
+  'src/components/dialogs/__tests__/ImportSuccessModal.test.tsx',
+  'src/components/hecate/__tests__/ConnectionTypeSelector.test.tsx',
+  'src/components/hecate/__tests__/ProviderDevicePicker.test.tsx',
+  'src/components/hecate/__tests__/TunnelStatusBadge.test.tsx',
+  'src/components/stats/__tests__/TopHostsChart.test.tsx',
+  'src/components/theme/__tests__/BannerCustomizer.test.tsx',
+  'src/components/theme/__tests__/LogoCustomizer.test.tsx',
+  'src/components/theme/__tests__/ThemePreviewOverlay.test.tsx',
+  'src/components/theme/__tests__/UserThemeManager.test.tsx',
+  'src/components/ui/__tests__/Alert.test.tsx',
+  'src/components/ui/__tests__/DataTable.test.tsx',
+  'src/components/ui/__tests__/FileDropZone.test.tsx',
+  'src/components/ui/__tests__/Input.test.tsx',
+  'src/components/ui/__tests__/Skeleton.test.tsx',
+  'src/components/ui/__tests__/StatsCard.test.tsx',
+  'src/pages/__tests__/AccessLists.test.tsx',
+  'src/pages/__tests__/AuditLogs.test.tsx',
+  'src/pages/__tests__/CrowdSecConfig.branchCoverage.test.tsx',
+  'src/pages/__tests__/CrowdSecConfig.coverage.test.tsx',
+  'src/pages/__tests__/CrowdSecConfig.spec.tsx',
+  'src/pages/__tests__/DNS.test.tsx',
+  'src/pages/__tests__/EncryptionManagement.test.tsx',
+  'src/pages/__tests__/ImportCaddy-multifile-modal.test.tsx',
+  'src/pages/__tests__/ImportCrowdSec.spec.tsx',
+  'src/pages/__tests__/Login.overlay.audit.test.tsx',
+  'src/pages/__tests__/Plugins.test.tsx',
+  'src/pages/__tests__/ProxyHosts-bulk-acl.test.tsx',
+  'src/pages/__tests__/ProxyHosts-bulk-apply-all-settings.test.tsx',
+  'src/pages/__tests__/ProxyHosts-bulk-apply-progress.test.tsx',
+  'src/pages/__tests__/ProxyHosts-bulk-apply.test.tsx',
+  'src/pages/__tests__/ProxyHosts-bulk-delete.test.tsx',
+  'src/pages/__tests__/ProxyHosts-cert-cleanup.test.tsx',
+  'src/pages/__tests__/ProxyHosts-coverage-isolated.test.tsx',
+  'src/pages/__tests__/ProxyHosts-coverage.test.tsx',
+  'src/pages/__tests__/ProxyHosts-extra.test.tsx',
+  'src/pages/__tests__/ProxyHosts-groups.test.tsx',
+  'src/pages/__tests__/ProxyHosts-progress.test.tsx',
+  'src/pages/__tests__/ProxyHosts.bulkApplyHeaders.test.tsx',
+  'src/pages/__tests__/RemoteServers.test.tsx',
+  'src/pages/__tests__/SMTPSettings.test.tsx',
+  'src/pages/__tests__/Security.audit.test.tsx',
+  'src/pages/__tests__/Security.functional.test.tsx',
+  'src/pages/__tests__/Security.loading.test.tsx',
+  'src/pages/__tests__/Security.test.tsx',
+  'src/pages/__tests__/SecurityHeaders.test.tsx',
+  'src/pages/__tests__/SystemSettings.test.tsx',
+  'src/pages/__tests__/Uptime.spec.tsx',
+  'src/pages/__tests__/Uptime.tcp-ux.test.tsx',
+  'src/pages/__tests__/Uptime.test.tsx',
+  'src/pages/__tests__/UsersPage.test.tsx',
+  'src/pages/__tests__/WafConfig.spec.tsx',
+];
+
 export default tseslint.config(
   { ignores: ['dist/**', 'node_modules/**', 'coverage/**'] },
 
@@ -53,16 +144,13 @@ export default tseslint.config(
     rules: {
       // ── React ──
       'react-refresh/only-export-components': 'warn',
-      // React Compiler diagnostics now ship with eslint-plugin-react-hooks
-      // (the standalone eslint-plugin-react-compiler is deprecated); keep
-      // them at 'warn' to match the old react-compiler/react-compiler rule.
+      // React Compiler diagnostics ship with eslint-plugin-react-hooks; every
+      // rule is an error so the cleared findings cannot regress.
       ...Object.fromEntries(
         Object.keys(reactHooks.configs['recommended-latest'].rules).map(
-          name => [name, 'warn']
+          name => [name, 'error']
         )
       ),
-      'react-hooks/rules-of-hooks': 'error',
-      'react-hooks/exhaustive-deps': 'warn',
 
       // ── TypeScript ──
       '@typescript-eslint/no-explicit-any': 'warn',
@@ -167,6 +255,15 @@ export default tseslint.config(
       'testing-library/no-manual-cleanup': 'warn',
       'testing-library/render-result-naming-convention': 'warn',
       'vitest/expect-expect': 'warn',
+    },
+  },
+
+  // ── Legacy testing-library exemptions (GH #1853). Must follow the test-file block ──
+  {
+    files: LEGACY_TESTING_LIBRARY_FILES,
+    rules: {
+      'testing-library/no-node-access': 'off',
+      'testing-library/no-container': 'off',
     },
   },
 
