@@ -318,6 +318,8 @@ Access lists let you block or allow specific countries, IP addresses, or network
 
 **Country lists need a map file (the GeoIP database).** Charon includes it in the Docker image. If that file is ever missing, country lists are not enforced: an allow-list lets everyone in and a block-list blocks no one. Charon chooses this on purpose so that a missing file never locks you out of your own sites. A red alert in the notification bell tells you when this is happening. See [Country Access Lists Are Not Being Enforced](troubleshooting/geoip-database.md).
 
+Changing the country map is limited to admins. Replacing it, removing your uploaded copy, and reloading it are each recorded in the audit log, and the browser must be on Charon's own page to make these changes, so a page on another website cannot make them for you. The uploaded file is kept only in your data folder, and the copy included with Charon is never changed.
+
 ### Example 1: Block a Country
 
 **Scenario:** You only need access from the US, so block everyone else.

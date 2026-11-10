@@ -133,6 +133,8 @@ No SSH required. No CLI commands. Just open the Dashboard tab and see what's hap
 
 Define exactly who can access what. Block specific countries, allow only certain IP ranges, or require authentication for sensitive applications. Fine-grained rules give you complete control.
 
+- **Country database card:** Admins can check, reload, or replace the country map from the Security page, without using a terminal.
+
 → [Learn More](features/access-control.md)
 
 ---
