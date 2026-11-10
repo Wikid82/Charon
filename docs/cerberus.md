@@ -31,7 +31,7 @@ All components are disabled by default and can be enabled independently.
 When a visitor's request reaches one of your proxied sites, Caddy runs these checks in order. Each check runs only when its switch is on.
 
 1. **Cerberus switch** — If the security switch on the Security page is off, none of the checks below run.
-2. **Block decisions** — Addresses with a block decision get a 403 response. Addresses on the admin allow list are not refused this way.
+2. **Block decisions** — Addresses with a block decision get a 403 response. Addresses on the admin whitelist are never refused this way, so a block decision on one of them has no effect.
 3. **CrowdSec** — The CrowdSec bouncer checks the address against CrowdSec decisions.
 4. **WAF** — The selected rule set checks the request when the WAF is on for the site. A rule set in Blocking mode refuses matching requests. A rule set in Detection mode only logs them.
 5. **Rate limit** — A visitor who is over the limit gets a 429 response. Runs only when the request count and time window are both set.
@@ -97,7 +97,7 @@ The WAF provides **pattern-based detection** for zero-day exploits:
 ## Request Processing Pipeline
 
 ```text
-1. [Block decisions] Refuse addresses with a block decision (admin allow list excepted)
+1. [Block decisions] Refuse addresses with a block decision (admin whitelist excepted)
 2. [CrowdSec]        Check the address against CrowdSec decisions, when on
 3. [WAF]             Inspect the request with the selected rule set, when on
 4. [Rate Limit]      Count requests per visitor, when on and its numbers are set
@@ -248,6 +248,7 @@ Each `AccessList` defines:
 
 **Evaluation logic:**
 
+- **Admin whitelist (every type):** If the address is on the admin whitelist → allow, before any other check below
 - **Whitelist:** If IP matches list → allow; else → deny
 - **Blacklist:** If IP matches list → deny; else → allow
 - **Geo Whitelist:** If country matches → allow; else → deny
@@ -270,7 +271,7 @@ Country lists (Geo Whitelist and Geo Blacklist) need the MaxMind GeoLite2-Countr
 - **Where it comes from:** The Docker image tries to download the database when it is built and keeps it outside the data folder, in `/app/geoip/`, so a data volume does not hide it. If the download fails, the image is still built without it.
 - **Using a newer copy:** Put your own `GeoLite2-Country.mmdb` in the `geoip` folder inside your data folder (`/app/data/geoip/` in the container). When both that copy and the image's copy are present, Charon uses the one with the newer MaxMind build date. If the data-folder copy cannot be read, the image's copy is used. Then restart Charon or reload the database (see below).
 - **Custom location:** Set `CHARON_GEOIP_DB_PATH` to the full path of the `.mmdb` file. Charon uses that path exactly, and it wins over both copies above. The file name must end in `.mmdb`. A file with any other ending is treated as unavailable. If the variable is set to `/app/data/geoip/GeoLite2-Country.mmdb` and no file is there (an old setting copied from an earlier image), Charon ignores the variable and uses the image's copy.
-- **When the database is missing:** Country lists refuse every request until a database is provided. The build log shows a warning, and the Security page shows a note. Your other lists and sites are not affected.
+- **When the database is missing:** Country lists refuse every request until a database is provided, except requests from admin whitelist addresses. The build log shows a warning, and the Security page shows a note. Your other lists and sites are not affected.
 - **After adding or replacing the file:** Restart Charon, or send `POST /api/v1/security/geoip/reload`. The proxy then applies your country lists again.
 - **Updates:** Download a new copy from MaxMind about once a month to keep country data accurate.
 
@@ -707,11 +708,13 @@ type SecurityDecision struct {
 
 **Purpose:** Prevent admins from blocking themselves
 
-**Implementation:**
+**How it works:**
 
-- Stored in `SecurityConfig.admin_whitelist` as CSV
-- Checked before applying any block decision
-- If requesting IP matches whitelist → always allow
+- Set on the Security settings page as a list of IP addresses or ranges
+- Checked before every access list rule, for every list type (IP allow lists, IP block lists, country lists and local-network-only lists)
+- If the requesting address is on the whitelist → always allowed through, and no block list or country rule can refuse it
+- Block lists refuse only the addresses they list. A manual block decision on a whitelisted address has no effect, so remove the address from the whitelist first if you really want to block it
+- The Test IP tool on the Access Lists page gives the same answer the proxy gives
 
 **Recommendation:** Add your VPN IP, Tailscale IP, or home network before enabling Cerberus.
 
