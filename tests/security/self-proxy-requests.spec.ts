@@ -28,14 +28,10 @@ import { execFileSync } from 'node:child_process';
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { EMERGENCY_SERVER } from '../fixtures/security';
 import { caddyProxyOrigin, getAuthTokenFromPage } from '../utils/api-helpers';
+import { findE2EContainer } from '../utils/container-exec';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
 
 const CHARON_PORT = 8080;
-const CONTAINER_CANDIDATES = [
-  process.env.PLAYWRIGHT_CONTAINER_NAME,
-  'charon-e2e',
-  'charon-playwright',
-].filter((n): n is string => Boolean(n));
 
 const HOP_SECRET_HEADER = 'X-Charon-Self-Hop';
 const HOP_CLIENT_HEADER = 'X-Charon-Self-Hop-Client';
@@ -44,18 +40,6 @@ const HOP_CLIENT_HEADER = 'X-Charon-Self-Hop-Client';
 const SUPPLIED_FORWARDED_ADDRESS = '203.0.113.77';
 const SUPPLIED_HOP_CLIENT_ADDRESS = '198.51.100.23';
 const SUPPLIED_HOP_SECRET = 'supplied-value-0123456789abcdef0123456789abcdef';
-
-function resolveContainer(): string {
-  for (const name of CONTAINER_CANDIDATES) {
-    try {
-      execFileSync('docker', ['inspect', '--format', '{{.Id}}', name], { stdio: 'pipe' });
-      return name;
-    } catch {
-      // try the next candidate
-    }
-  }
-  throw new Error(`No E2E container found among: ${CONTAINER_CANDIDATES.join(', ')}`);
-}
 
 function dockerLogs(container: string): string {
   return execFileSync('docker', ['logs', container], {
@@ -266,7 +250,7 @@ test.describe('Requests through a proxy host that targets Charon @security', () 
   });
 
   test('keeps the per-process hop value out of responses and logs', async ({ page }) => {
-    const container = resolveContainer();
+    const container = findE2EContainer();
 
     // The value is read from the proxy's admin API inside the container. If that
     // read ever stops working this assertion fails rather than silently weakening
@@ -339,7 +323,7 @@ test.describe('Emergency server request handling @security', () => {
   test('uses the connecting address and requires credentials regardless of forwarding headers', async ({
     request,
   }) => {
-    const container = resolveContainer();
+    const container = findE2EContainer();
 
     await test.step('Health answers without credentials when forwarding headers are supplied', async () => {
       const response = await request.get(`${EMERGENCY_SERVER.baseURL}/health`, {

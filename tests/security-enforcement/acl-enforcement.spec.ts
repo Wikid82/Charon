@@ -15,6 +15,7 @@
 import { test, expect } from '../fixtures/test';
 import { request } from '@playwright/test';
 import type { APIRequestContext } from '@playwright/test';
+import { BlockList, isIP } from 'node:net';
 import { STORAGE_STATE } from '../constants';
 import {
   getSecurityStatus,
@@ -25,11 +26,33 @@ import {
 } from '../utils/security-helpers';
 import {
   createCountryAllowList,
+  createIpBlockList,
   createProxyHost,
   deleteAccessList,
   deleteProxyHost,
   fetchThroughProxy,
 } from '../utils/proxy-refusal-helpers';
+import { fetchFromContainer, findE2EContainer } from '../utils/container-exec';
+import { RUNNER_WHITELIST_NO_LOOPBACK, withRateLimitRetry } from '../utils/security-settings-api';
+
+const APP_BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
+
+/** Sets the admin whitelist through the config API the admin page uses. */
+async function setAdminWhitelist(requestContext: APIRequestContext, whitelist: string) {
+  const response = await withRateLimitRetry(() =>
+    requestContext.patch(`${APP_BASE_URL}/api/v1/config`, {
+      data: {
+        security: {
+          admin_whitelist: whitelist,
+        },
+      },
+    })
+  );
+
+  if (!response.ok()) {
+    throw new Error(`Failed to set admin whitelist: ${response.status()}`);
+  }
+}
 
 /**
  * Configure admin whitelist to allow test runner IPs.
@@ -37,24 +60,67 @@ import {
  */
 async function configureAdminWhitelist(requestContext: APIRequestContext) {
   // Configure whitelist to allow test runner IPs (localhost, Docker networks)
-  const testWhitelist = '127.0.0.1/32,172.16.0.0/12,192.168.0.0/16,10.0.0.0/8';
-
-  const response = await requestContext.patch(
-    `${process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080'}/api/v1/config`,
-    {
-      data: {
-        security: {
-          admin_whitelist: testWhitelist,
-        },
-      },
-    }
-  );
-
-  if (!response.ok()) {
-    throw new Error(`Failed to configure admin whitelist: ${response.status()}`);
-  }
+  await setAdminWhitelist(requestContext, '127.0.0.1/32,172.16.0.0/12,192.168.0.0/16,10.0.0.0/8');
 
   console.log('✅ Admin whitelist configured for test IP ranges');
+}
+
+/** Parses comma-separated IPv4 CIDRs so membership is decided by the runtime, not by string comparison. */
+function ipv4BlockList(cidrs: string): BlockList {
+  const list = new BlockList();
+  for (const cidr of cidrs.split(',')) {
+    const [address, prefix] = cidr.trim().split('/');
+    list.addSubnet(address, Number(prefix), 'ipv4');
+  }
+  return list;
+}
+
+/** Returns the IPv4 form of an address the API reports, or undefined for anything else (for example plain IPv6). */
+function asIpv4(address: string): string | undefined {
+  const bare = address.startsWith('::ffff:') ? address.slice('::ffff:'.length) : address;
+  return isIP(bare) === 4 ? bare : undefined;
+}
+
+/**
+ * Fails unless the runner reaches the API from an address the narrowed whitelist admits and that is not loopback.
+ * Without this, the two-sided block-list cases would prove nothing about the runner.
+ */
+async function assertRunnerIsWhitelistedWithoutLoopback(requestContext: APIRequestContext): Promise<void> {
+  const response = await withRateLimitRetry(() => requestContext.get('/api/v1/system/my-ip'));
+  if (!response.ok()) {
+    throw new Error(`GET /api/v1/system/my-ip failed with ${response.status()}`);
+  }
+  const { ip } = (await response.json()) as { ip: string };
+  const ipv4 = asIpv4(ip);
+  const admitted = ipv4 !== undefined && ipv4BlockList(RUNNER_WHITELIST_NO_LOOPBACK).check(ipv4, 'ipv4');
+  const loopback = ipv4 !== undefined && ipv4BlockList('127.0.0.0/8').check(ipv4, 'ipv4');
+  if (!admitted || loopback) {
+    throw new Error(
+      `Runner reaches the API from ${ip}, which is loopback or outside ${RUNNER_WHITELIST_NO_LOOPBACK}`
+    );
+  }
+}
+
+/**
+ * Runs every cleanup step even when an earlier one fails, then rethrows the first failure. A failed delete must not
+ * leave the whitelist narrowed or the rate limit off for the specs that follow.
+ */
+async function runCleanupSteps(steps: Array<() => Promise<unknown>>): Promise<void> {
+  let firstError: unknown;
+  let failed = false;
+  for (const step of steps) {
+    try {
+      await step();
+    } catch (error) {
+      if (!failed) {
+        firstError = error;
+        failed = true;
+      }
+    }
+  }
+  if (failed) {
+    throw firstError;
+  }
 }
 
 test.describe('ACL Enforcement', () => {
@@ -425,6 +491,131 @@ test.describe('ACL Enforcement', () => {
 
         expect(response.status()).not.toBe(403);
         expect(response.status()).toBe(direct.status());
+      });
+    });
+  });
+
+  test.describe('IP block-lists with an admin whitelist', () => {
+    // Two-sided cases: the in-container client (loopback, 127.0.0.1) must be refused only when a list names it, and
+    // the whitelisted runner must never be refused by these lists. The dead upstream (port 3001) makes a loaded,
+    // non-refusing route answer 502, so a refusal (403) and a missing route (catch-all 200) are told apart.
+    const CIDR_NOT_THE_CLIENT = '203.0.113.77/32';
+    const CIDR_LOOPBACK = '127.0.0.1/32';
+    const DEAD_UPSTREAM_PORT = 3001;
+    const IP_BLOCK_LIST_BODY = 'Access denied: IP blacklisted';
+
+    test.describe.configure({ mode: 'serial' });
+
+    let container: string;
+    let proxyContext: APIRequestContext;
+    let snapshot: SecurityStateSnapshot | undefined;
+    let originalWhitelist: string | undefined;
+
+    let notClientDomain = '';
+    let notClientListUuid = '';
+    let notClientHostUuid = '';
+    let loopbackDomain = '';
+    let loopbackListUuid = '';
+    let loopbackHostUuid = '';
+
+    /** One request from inside the container, as the loopback client. */
+    function fromLoopback(domain: string) {
+      return fetchFromContainer(container, { host: domain, path: '/' });
+    }
+
+    test.beforeAll(async () => {
+      container = findE2EContainer();
+      proxyContext = await request.newContext();
+      snapshot = await captureSecurityState(requestContext);
+      const stored = snapshot.config?.admin_whitelist;
+      originalWhitelist = typeof stored === 'string' ? stored : undefined;
+
+      // Rate limiting off, so polling from the loopback client cannot meet a rate_limit handler.
+      await setSecurityModuleEnabled(requestContext, 'rateLimit', false);
+      // Narrow the whitelist before any list or host exists, so the first apply that holds a list already has it.
+      await setAdminWhitelist(requestContext, RUNNER_WHITELIST_NO_LOOPBACK);
+      await assertRunnerIsWhitelistedWithoutLoopback(requestContext);
+      await getSecurityStatus(requestContext);
+
+      // Case 1 is created first. Case 2 is created second, and the poll on its 403 proves the applied config was
+      // generated after both lists were saved, so case 1 is never checked against a config that lacks its list.
+      const suffix = Date.now();
+      notClientDomain = `ip-block-elsewhere-${suffix}.example.test`;
+      notClientListUuid = await createIpBlockList(requestContext, `Block elsewhere ${suffix}`, CIDR_NOT_THE_CLIENT);
+      notClientHostUuid = await createProxyHost(requestContext, {
+        domain: notClientDomain,
+        forwardPort: DEAD_UPSTREAM_PORT,
+        name: 'IP block-list elsewhere host',
+        accessListUuid: notClientListUuid,
+      });
+
+      loopbackDomain = `ip-block-loopback-${suffix}.example.test`;
+      loopbackListUuid = await createIpBlockList(requestContext, `Block loopback ${suffix}`, CIDR_LOOPBACK);
+      loopbackHostUuid = await createProxyHost(requestContext, {
+        domain: loopbackDomain,
+        forwardPort: DEAD_UPSTREAM_PORT,
+        name: 'IP block-list loopback host',
+        accessListUuid: loopbackListUuid,
+      });
+
+      await expect
+        .poll(async () => (await fromLoopback(loopbackDomain)).status, {
+          timeout: 30_000,
+          message: 'loopback block-list route should be loaded and refuse the loopback client',
+        })
+        .toBe(403);
+    });
+
+    test.afterAll(async () => {
+      const cleanup: Array<() => Promise<unknown>> = [];
+      for (const uuid of [notClientHostUuid, loopbackHostUuid]) {
+        if (uuid) {
+          cleanup.push(() => deleteProxyHost(requestContext, uuid));
+        }
+      }
+      for (const uuid of [notClientListUuid, loopbackListUuid]) {
+        if (uuid) {
+          cleanup.push(() => deleteAccessList(requestContext, uuid));
+        }
+      }
+      const whitelist = originalWhitelist;
+      if (whitelist !== undefined) {
+        cleanup.push(() => setAdminWhitelist(requestContext, whitelist));
+      }
+      const captured = snapshot;
+      if (captured) {
+        cleanup.push(() => restoreSecurityState(requestContext, captured));
+      }
+      const context = proxyContext;
+      if (context) {
+        cleanup.push(() => context.dispose());
+      }
+      await runCleanupSteps(cleanup);
+    });
+
+    test('does not refuse a loopback client for a block-list on another address', async () => {
+      await test.step('In-container client reaches the route: not refused, the dead upstream answers 502', async () => {
+        // Before the A0 fix every non-admin address was refused here (403), the #1891 regression.
+        const response = await fromLoopback(notClientDomain);
+        expect(response.status).toBe(502);
+      });
+
+      await test.step('Whitelisted runner reaches the same route: 502', async () => {
+        const response = await fetchThroughProxy(proxyContext, notClientDomain, '/');
+        expect(response.status()).toBe(502);
+      });
+    });
+
+    test('refuses a listed loopback client with the block-list body and does not refuse the runner', async () => {
+      await test.step('In-container client is refused with the block-list body', async () => {
+        const response = await fromLoopback(loopbackDomain);
+        expect(response.status).toBe(403);
+        expect(response.body).toContain(IP_BLOCK_LIST_BODY);
+      });
+
+      await test.step('Whitelisted runner reaches the same route: 502', async () => {
+        const response = await fetchThroughProxy(proxyContext, loopbackDomain, '/');
+        expect(response.status()).toBe(502);
       });
     });
   });
