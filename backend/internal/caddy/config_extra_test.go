@@ -242,13 +242,15 @@ func TestGenerateConfig_SecurityPipeline_Order(t *testing.T) {
 		}
 	}
 
-	// Expected pipeline: crowdsec -> waf -> rate_limit -> subroute (acl) -> headers -> vars (BlockExploits) -> reverse_proxy
-	require.GreaterOrEqual(t, len(names), 4)
-	require.Equal(t, "crowdsec", names[0])
-	require.Equal(t, "waf", names[1])
-	require.Equal(t, "rate_limit", names[2])
+	// Expected pipeline: headers (HSTS pair) -> crowdsec -> waf -> rate_limit -> subroute (acl) -> vars (BlockExploits) -> reverse_proxy
+	require.GreaterOrEqual(t, len(names), 6)
+	require.Equal(t, "headers", names[0])
+	require.Equal(t, "headers", names[1])
+	require.Equal(t, "crowdsec", names[2])
+	require.Equal(t, "waf", names[3])
+	require.Equal(t, "rate_limit", names[4])
 	// ACL is subroute
-	require.Equal(t, "subroute", names[3])
+	require.Equal(t, "subroute", names[5])
 }
 
 func TestGenerateConfig_SecurityPipeline_OmitWhenDisabled(t *testing.T) {

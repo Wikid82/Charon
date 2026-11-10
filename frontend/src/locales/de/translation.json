@@ -607,7 +607,10 @@
       "rate_limit": {
         "thresholds_unset": "Die Ratenbegrenzung ist aktiv, aber es sind noch keine Grenzwerte festgelegt. Lege Anfragen und Zeitfenster auf der Seite Ratenbegrenzung fest."
       },
-      "unknown": "Noch nicht auf alle Hosts angewendet. Prüfe die Einstellungen dieses Moduls."
+      "unknown": "Noch nicht auf alle Hosts angewendet. Prüfe die Einstellungen dieses Moduls.",
+      "acl": {
+        "geoip_unavailable": "Länderlisten benötigen die GeoIP-Datenbank, die in dieser Installation fehlt, und lehnen Anfragen so lange ab, bis sie bereitgestellt wird. Siehe Dokumentation."
+      }
     }
   },
   "accessLists": {
@@ -640,7 +643,10 @@
     "deleteItems": "{{count}} Elemente löschen",
     "deleting": "Wird gelöscht...",
     "noAccessLists": "Keine Zugriffslisten",
-    "noAccessListsDescription": "Erstellen Sie Ihre erste Zugriffsliste, um zu kontrollieren, wer auf Ihre Dienste zugreifen kann"
+    "noAccessListsDescription": "Erstellen Sie Ihre erste Zugriffsliste, um zu kontrollieren, wer auf Ihre Dienste zugreifen kann",
+    "errors": {
+      "access_list_rules_required": "Eine aktivierte Allowlist benötigt mindestens eine Regel. Füge eine Regel hinzu oder deaktiviere die Liste und speichere erneut."
+    }
   },
   "rateLimiting": {
     "title": "Ratenbegrenzungskonfiguration",

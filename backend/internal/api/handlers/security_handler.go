@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
+	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -207,6 +208,11 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		"enabled": rateLimitEnabled,
 	}
 	h.addAppliedState(wafStatus, rateLimitStatus, wafEnabled, rateLimitEnabled)
+	aclStatus := gin.H{
+		"mode":    aclMode,
+		"enabled": aclEnabled,
+	}
+	h.addACLGeoIPReason(aclStatus, aclEnabled)
 
 	c.JSON(http.StatusOK, gin.H{
 		"cerberus": gin.H{"enabled": enabled},
@@ -215,12 +221,9 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 			"api_url": crowdsec.LocalLAPIURL,
 			"enabled": crowdsecEnabled,
 		},
-		"waf":        wafStatus,
-		"rate_limit": rateLimitStatus,
-		"acl": gin.H{
-			"mode":    aclMode,
-			"enabled": aclEnabled,
-		},
+		"waf":          wafStatus,
+		"rate_limit":   rateLimitStatus,
+		"acl":          aclStatus,
 		"config_apply": latestConfigApplyState(h.db),
 	})
 }
@@ -698,21 +701,26 @@ func (h *SecurityHandler) GetRateLimitPresets(c *gin.Context) {
 }
 
 // GetGeoIPStatus returns the current status of the GeoIP service.
+// The reason is present only when the database is unavailable, so the card can show why country lists cannot match.
 func (h *SecurityHandler) GetGeoIPStatus(c *gin.Context) {
-	if h.geoipSvc == nil {
-		c.JSON(http.StatusOK, gin.H{
-			"loaded":  false,
-			"message": "GeoIP service not initialized",
-			"db_path": "",
-		})
-		return
+	available := geoipDatabaseAvailable(h.geoipSvc)
+	body := gin.H{
+		"available": available,
+		"loaded":    false,
+		"db_path":   "",
+		"message":   "GeoIP service not initialized",
 	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"loaded":  h.geoipSvc.IsLoaded(),
-		"db_path": h.geoipSvc.GetDatabasePath(),
-		"message": "GeoIP service available",
-	})
+	if h.geoipSvc != nil {
+		body["loaded"] = h.geoipSvc.IsLoaded()
+		body["db_path"] = h.geoipSvc.GetDatabasePath()
+		body["message"] = "GeoIP database unavailable"
+	}
+	if available {
+		body["message"] = "GeoIP service available"
+	} else {
+		body["reason"] = caddy.ReasonGeoIPUnavailable
+	}
+	c.JSON(http.StatusOK, body)
 }
 
 // ReloadGeoIP reloads the GeoIP database from disk.
@@ -734,6 +742,16 @@ func (h *SecurityHandler) ReloadGeoIP(c *gin.Context) {
 			"error": "Failed to reload GeoIP database: " + err.Error(),
 		})
 		return
+	}
+
+	// The proxy reads the database only when its config is generated, so a reloaded database reaches traffic on the
+	// next apply. Apply now, so country lists follow the reload at once.
+	if h.caddyManager != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
+			log.WithError(err).Warn("failed to apply proxy config after GeoIP reload")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
+			return
+		}
 	}
 
 	// Log audit event
@@ -1203,7 +1221,7 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 		return
 	}
 
-	if settingKey == models.SecurityACLEnabledSettingKey && enabled && !h.allowACLEnable(c) {
+	if settingKey == models.SecurityACLEnabledSettingKey && enabled && !allowACLEnable(c, h.db) {
 		return
 	}
 
@@ -1336,14 +1354,17 @@ func upsertSetting(db *gorm.DB, setting models.Setting) error {
 	return nil
 }
 
-func (h *SecurityHandler) allowACLEnable(c *gin.Context) bool {
+// allowACLEnable is a lock-out guard, not authorisation: it stops an admin from enabling the ACL from an address the
+// admin allow-list would already cut off. It does not decide who may change security settings (that is requireAdmin).
+// An empty allow-list allows.
+func allowACLEnable(c *gin.Context, db *gorm.DB) bool {
 	if middleware.IsEmergencyBypass(c) {
 		return true
 	}
 
-	cfg, err := h.svc.Get()
+	cfg, err := models.FindDefaultSecurityConfig(db)
 	if err != nil {
-		if errors.Is(err, services.ErrSecurityConfigNotFound) {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return true
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read security config"})

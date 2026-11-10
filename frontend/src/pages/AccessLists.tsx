@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next';
 
 
 import { createBackup } from '../api/backups';
+import { accessListErrorMessage } from '../api/errorBody';
 import { AccessListForm, type AccessListFormData } from '../components/AccessListForm';
 import { PageShell } from '../components/layout/PageShell';
 import {
@@ -41,6 +42,8 @@ export default function AccessLists() {
   const updateMutation = useUpdateAccessList();
   const deleteMutation = useDeleteAccessList();
   const testIPMutation = useTestIP();
+  const createSaveError = accessListErrorMessage(createMutation.error, t);
+  const updateSaveError = accessListErrorMessage(updateMutation.error, t);
 
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingACL, setEditingACL] = useState<AccessList | null>(null);
@@ -347,6 +350,7 @@ export default function AccessLists() {
             onSubmit={handleCreate}
             onCancel={() => setShowCreateForm(false)}
             isLoading={createMutation.isPending}
+            saveErrorMessage={createSaveError}
           />
         </Card>
       )}
@@ -361,6 +365,7 @@ export default function AccessLists() {
             onCancel={() => setEditingACL(null)}
             onDelete={() => setShowDeleteConfirm(editingACL)}
             isLoading={updateMutation.isPending}
+            saveErrorMessage={updateSaveError}
             isDeleting={isDeleting}
           />
         </Card>

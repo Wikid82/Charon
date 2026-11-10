@@ -581,7 +581,12 @@
       "loadError": "Login protection status could not be loaded."
     },
     "settingUpdated": "Security setting updated",
-    "settingUpdateFailed": "Failed to update setting: {{error}}"
+    "settingUpdateFailed": "Failed to update setting: {{error}}",
+    "enforcement": {
+      "acl": {
+        "geoip_unavailable": "Maaluettelot tarvitsevat GeoIP-tietokannan, joka puuttuu tästä asennuksesta, joten ne hylkäävät pyynnöt, kunnes tietokanta on toimitettu. Katso dokumentaatio."
+      }
+    }
   },
   "accessLists": {
     "title": "Access Lists",
@@ -613,7 +618,10 @@
     "deleteItems": "Delete {{count}} Items",
     "deleting": "Deleting...",
     "noAccessLists": "No Access Lists",
-    "noAccessListsDescription": "Create your first access list to control who can access your services"
+    "noAccessListsDescription": "Create your first access list to control who can access your services",
+    "errors": {
+      "access_list_rules_required": "Käytössä oleva sallittujen luettelo tarvitsee vähintään yhden säännön. Lisää sääntö tai poista luettelo käytöstä ja tallenna uudelleen."
+    }
   },
   "rateLimiting": {
     "title": "Rate Limiting Configuration",

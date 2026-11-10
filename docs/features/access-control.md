@@ -62,6 +62,19 @@ Common configurations:
 - **Block high-risk regions** — Deny specific countries, allow rest
 - **Compliance zones** — Allow only EU countries for GDPR compliance
 
+**Country lists need a GeoIP database.** Charon uses a MaxMind country database to find where each visitor is from. The Docker image tries to include it, but the download can fail. If the database is missing, country lists refuse every request until one is provided:
+
+1. Get the MaxMind GeoLite2-Country database file (it ends in `.mmdb`).
+2. Make the file available to Charon and set the `CHARON_GEOIP_DB_PATH` environment variable to its full path. Your Docker Compose file sets environment variables.
+3. Restart Charon, or send `POST /api/v1/security/geoip/reload`. Charon then applies your country lists again.
+
+The Security page shows a note while the database is missing. Your IP lists and your other sites keep working.
+
+### Entries Required for Allow Lists
+
+- An **enabled allow list** needs at least one entry, such as an IP address, an IP range or a country. Charon will not save an enabled allow list that is empty.
+- A **block list** can be empty. An empty block list blocks nobody.
+
 ### Applying to Proxy Hosts
 
 1. Edit your proxy host
@@ -79,6 +92,10 @@ Each proxy host can have one Access List assigned. Create multiple lists for dif
 3. Check country rules → Allow/Deny based on geo
 4. Apply default action
 ```
+
+## Refused Requests
+
+When an access list refuses a visitor, the visitor sees a 403 page (or a 429 page for rate limits). That page still includes the security headers you chose for the site. See [HTTP Security Headers](security-headers.md).
 
 ## Best Practices
 

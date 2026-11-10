@@ -2,6 +2,7 @@ package caddy
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
 )
 
@@ -52,6 +54,11 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	if resolvedOpts.enforcement != nil {
 		defer func() { resolvedOpts.enforcement(report) }()
 	}
+
+	// The module opens only <dir>/<edition>.mmdb, so a database path that does not name such a file cannot be used by
+	// the proxy, whatever the caller said. Country lists are refused while it is unavailable.
+	geoIPAvailable := resolvedOpts.geoIPAvailable && strings.HasSuffix(filepath.Base(resolvedOpts.geoIPPath), ".mmdb")
+	var geoRefusedLists []string
 
 	// Define log file paths for Caddy access logs.
 	// When CrowdSec is enabled, we use /var/log/caddy/access.log which is the standard
@@ -441,6 +448,9 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	// see docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §4.2/§4.3).
 	processedDomains := make(map[string]bool)
 	wafUnprotectedHosts := 0
+	// Allow-lists that cannot admit anyone get a deny handler; counted so one Warn covers the whole apply.
+	failClosedACLHosts := 0
+	var failClosedACLErr error
 	redirectRoutes, redirectIPSubjects := BuildRedirectRoutes(redirectHosts, processedDomains)
 	routes = append(routes, redirectRoutes...)
 	ipSubjects = append(ipSubjects, redirectIPSubjects...)
@@ -492,6 +502,10 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 
 		// Build handlers for this host
 		handlers := make([]Handler, 0)
+
+		// Security header handlers run first on every route, so refusals from the
+		// security pre-handlers still carry the profile headers.
+		headerHandlers := make([]Handler, 0)
 
 		// Build security pre-handlers for this host, in pipeline order.
 		securityHandlers := make([]Handler, 0)
@@ -577,24 +591,43 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 
 		// Add Access Control List (ACL) handler if configured and global ACL is enabled
 		if aclEnabled && host.AccessListID != nil && host.AccessList != nil && host.AccessList.Enabled {
-			aclHandler, err := buildACLHandler(host.AccessList, adminWhitelist)
-			if err != nil {
-				logger.Log().WithField("host", host.UUID).WithError(err).Warn("Failed to build ACL handler for host")
-			} else if aclHandler != nil {
-				securityHandlers = append(securityHandlers, aclHandler)
+			if isCountryList(host.AccessList) && !geoIPAvailable {
+				// A country list cannot match without the database, so the host refuses every request instead.
+				securityHandlers = append(securityHandlers, geoUnavailableDenyHandler())
+				if !slices.Contains(geoRefusedLists, host.AccessList.Name) {
+					geoRefusedLists = append(geoRefusedLists, host.AccessList.Name)
+				}
+			} else {
+				if isCountryList(host.AccessList) {
+					// The geoip2 handler sits directly before the country subroute and reads the database the app opens.
+					config.Apps.GeoIP2 = geoIP2AppFor(resolvedOpts.geoIPPath, storageDir)
+					securityHandlers = append(securityHandlers, geoIP2Handler())
+				}
+				aclHandler, err := buildACLHandler(host.AccessList, adminWhitelist)
+				if err != nil && errors.Is(err, errAllowListFailClosed) {
+					failClosedACLHosts++
+					if failClosedACLErr == nil {
+						failClosedACLErr = err
+					}
+				} else if err != nil {
+					logger.Log().WithField("host", host.UUID).WithError(err).Warn("Failed to build ACL handler for host")
+				}
+				if aclHandler != nil {
+					securityHandlers = append(securityHandlers, aclHandler)
+				}
 			}
 		}
 
 		// Add Security Headers handler
 		secHeaderHandlers := buildSecurityHeaderHandlers(&host)
-		handlers = append(handlers, secHeaderHandlers...)
+		headerHandlers = append(headerHandlers, secHeaderHandlers...)
 
 		// Add HSTS header if enabled (legacy - deprecated in favor of SecurityHeaderProfile).
 		// A profile that already sets HSTS wins outright: the non-deferred and
 		// deferred passes apply handlers in opposite orders, so emitting both
 		// would make the winner depend on the response path.
 		if host.HSTSEnabled && !setsResponseHeader(secHeaderHandlers, hstsHeader) {
-			handlers = append(handlers, HeaderHandlers(map[string][]string{
+			headerHandlers = append(headerHandlers, HeaderHandlers(map[string][]string{
 				hstsHeader: {legacyHSTSValue(host.HSTSSubdomains)},
 			})...)
 		}
@@ -604,11 +637,15 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			handlers = append(handlers, BlockExploitsHandler())
 		}
 
+		// Pipeline order for every route of this host: header pair, then security
+		// pre-handlers, then the remaining host handlers and the reverse proxy.
+		prefixHandlers := append(append([]Handler{}, headerHandlers...), securityHandlers...)
+
 		// Handle custom locations first (more specific routes)
 		for _, loc := range host.Locations {
 			dial := fmt.Sprintf("%s:%d", loc.ForwardHost, loc.ForwardPort)
 			// For each location, we want the same security pre-handlers before proxy
-			locHandlers := append(append([]Handler{}, securityHandlers...), handlers...)
+			locHandlers := append(append([]Handler{}, prefixHandlers...), handlers...)
 			// Determine if standard headers should be enabled (default true if nil)
 			enableStdHeaders := host.EnableStandardHeaders == nil || *host.EnableStandardHeaders
 			locHandlers = append(locHandlers, resolvedOpts.proxyHandler(dial, false, host.Application, enableStdHeaders))
@@ -668,7 +705,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 				}
 			}
 		}
-		// Build main handlers: security pre-handlers, other host-level handlers, then reverse proxy
+		// Build main handlers: header pair, security pre-handlers, other host-level handlers, then reverse proxy
 		// Determine if standard headers should be enabled (default true if nil)
 		enableStdHeaders := host.EnableStandardHeaders == nil || *host.EnableStandardHeaders
 		// Recovery route for the reset endpoint. It skips the security pre-handlers,
@@ -676,7 +713,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		// matches the exact reset paths only. The reset endpoint performs its own
 		// token and management-network checks.
 		if resolvedOpts.selfHop.isSelfUpstream(dial, resolvedOpts.isRemoteHost(host.UUID)) {
-			recoveryHandlers := append(append([]Handler{}, handlers...), resolvedOpts.proxyHandler(dial, resolvedOpts.isRemoteHost(host.UUID), host.Application, enableStdHeaders))
+			recoveryHandlers := append(append(append([]Handler{}, headerHandlers...), handlers...), resolvedOpts.proxyHandler(dial, resolvedOpts.isRemoteHost(host.UUID), host.Application, enableStdHeaders))
 			recoveryRoute := &Route{
 				Match: []Match{
 					{
@@ -697,7 +734,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			routes = append(routes, recoveryRoute)
 		}
 
-		mainHandlers := append(append([]Handler{}, securityHandlers...), handlers...)
+		mainHandlers := append(append([]Handler{}, prefixHandlers...), handlers...)
 		mainHandlers = append(mainHandlers, resolvedOpts.proxyHandler(dial, resolvedOpts.isRemoteHost(host.UUID), host.Application, enableStdHeaders))
 
 		route := &Route{
@@ -725,6 +762,19 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	if wafUnprotectedHosts > 0 {
 		logger.Log().WithField("hosts", wafUnprotectedHosts).WithField("reason", report.WAF.Reason).Warn(
 			"WAF is enabled but some hosts have no WAF handler; the security status shows the reason")
+	}
+
+	// An enabled allow-list has no usable rules, so its hosts refuse every request except admin whitelist addresses.
+	if failClosedACLHosts > 0 {
+		logger.Log().WithError(failClosedACLErr).WithField("hosts", failClosedACLHosts).Warn(
+			"Access list is enabled but has no usable IP rules; requests to those hosts are refused")
+	}
+
+	// A country list is enabled but no GeoIP database is usable, so its hosts refuse every request. One line per apply
+	// names the lists.
+	if len(geoRefusedLists) > 0 {
+		logger.Log().WithField("lists", geoRefusedLists).Warn(
+			"Country access list needs the GeoIP database, which is unavailable; requests to its hosts are refused")
 	}
 
 	// The rate limit is enabled but its request count or window is not set, so the hosts get no rate limit handler.
@@ -898,17 +948,66 @@ func NormalizeAdvancedConfig(parsed any) any {
 	}
 }
 
+// geoAccessDeniedBody is the response body for a request refused by a country list.
+const geoAccessDeniedBody = "Access denied: Geographic restriction"
+
+// geoIP2LockFileName is the lock file the caddy-geoip2 module uses, kept in Charon's Caddy data directory.
+const geoIP2LockFileName = "geoip2.lock"
+
+// isCountryList reports whether the access list matches on the visitor's country, which needs the GeoIP database.
+func isCountryList(acl *models.AccessList) bool {
+	return strings.HasPrefix(acl.Type, "geo_")
+}
+
+// geoIP2AppFor returns the caddy-geoip2 app settings for the database at path. The module opens
+// <databaseDirectory>/<editionID>.mmdb, so only a path whose file name ends in .mmdb can be expressed.
+func geoIP2AppFor(path, storageDir string) *GeoIP2App {
+	return &GeoIP2App{
+		DatabaseDirectory: filepath.Dir(path),
+		EditionIDs:        []string{strings.TrimSuffix(filepath.Base(path), ".mmdb")},
+		LockFile:          filepath.Join(storageDir, geoIP2LockFileName),
+	}
+}
+
+// geoIP2Handler returns the caddy-geoip2 handler. It reads the visitor address from the connection only: the trusted
+// proxy setting would let a forwarded header decide the country until the trust model is narrowed.
+func geoIP2Handler() Handler {
+	return Handler{"handler": "geoip2", "enable": "strict"}
+}
+
+// geoUnavailableDenyHandler refuses every request. It replaces a country list while no GeoIP database is usable.
+func geoUnavailableDenyHandler() Handler {
+	return Handler{
+		"handler": "subroute",
+		"routes": []map[string]any{
+			{
+				"handle": []map[string]any{
+					{
+						"handler":     "static_response",
+						"status_code": 403,
+						"body":        geoAccessDeniedBody,
+					},
+				},
+				"terminal": true,
+			},
+		},
+	}
+}
+
 // buildACLHandler creates access control handlers based on the AccessList configuration
 func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, error) {
 	// For geo-blocking, we use CEL (Common Expression Language) matcher with caddy-geoip2 placeholders
 	// For IP-based ACLs, we use Caddy's native remote_ip matcher
 
-	if strings.HasPrefix(acl.Type, "geo_") {
+	if isCountryList(acl) {
 		// Geo-blocking using caddy-geoip2
-		countryCodes := strings.Split(acl.CountryCodes, ",")
+		// Legacy rows may hold codes in any case; the matcher compares against upper-case ISO codes.
 		var trimmedCodes []string
-		for _, code := range countryCodes {
-			trimmedCodes = append(trimmedCodes, `"`+strings.TrimSpace(code)+`"`)
+		for _, code := range strings.Split(models.NormalizeCountryCodes(acl.CountryCodes), ",") {
+			if code == "" {
+				continue
+			}
+			trimmedCodes = append(trimmedCodes, `"`+code+`"`)
 		}
 
 		var expression string
@@ -933,7 +1032,7 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 							{
 								"handler":     "static_response",
 								"status_code": 403,
-								"body":        "Access denied: Geographic restriction",
+								"body":        geoAccessDeniedBody,
 							},
 						},
 						"terminal": true,
@@ -956,7 +1055,7 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 						{
 							"handler":     "static_response",
 							"status_code": 403,
-							"body":        "Access denied: Geographic restriction",
+							"body":        geoAccessDeniedBody,
 						},
 					},
 					"terminal": true,
@@ -977,16 +1076,7 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 							"not": []map[string]any{
 								{
 									"remote_ip": map[string]any{
-										"ranges": []string{
-											"10.0.0.0/8",
-											"172.16.0.0/12",
-											"192.168.0.0/16",
-											"127.0.0.0/8",
-											"169.254.0.0/16",
-											"fc00::/7",
-											"fe80::/10",
-											"::1/128",
-										},
+										"ranges": network.LocalNetworkCIDRs(),
 									},
 								},
 							},
@@ -1005,17 +1095,23 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 		}, nil
 	}
 
-	// Parse IP rules
-	if acl.IPRules == "" {
-		return nil, nil
-	}
-
+	// Parse IP rules. A block-list with nothing to block adds no handler. An allow-list with no usable rules
+	// is never left out: it gets a deny handler, and the error tells the caller to log it.
 	var rules []models.AccessListRule
-	if err := json.Unmarshal([]byte(acl.IPRules), &rules); err != nil {
-		return nil, fmt.Errorf("invalid IP rules JSON: %w", err)
+	if acl.IPRules != "" {
+		if err := json.Unmarshal([]byte(acl.IPRules), &rules); err != nil {
+			parseErr := fmt.Errorf("invalid IP rules JSON: %w", err)
+			if acl.Type == "whitelist" {
+				return allowListFailClosed(adminWhitelist, parseErr)
+			}
+			return nil, parseErr
+		}
 	}
 
 	if len(rules) == 0 {
+		if acl.Type == "whitelist" {
+			return allowListFailClosed(adminWhitelist, errors.New("no IP rules"))
+		}
 		return nil, nil
 	}
 
@@ -1026,63 +1122,17 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 	}
 
 	if acl.Type == "whitelist" {
-		// Allow only these IPs (block everything else)
-		// Merge adminWhitelist into allowed cidrs so that admins always bypass whitelist checks
-		if adminWhitelist != "" {
-			adminParts := strings.Split(adminWhitelist, ",")
-			for _, p := range adminParts {
-				p = strings.TrimSpace(p)
-				if p == "" {
-					continue
-				}
-				cidrs = append(cidrs, p)
-			}
-		}
-		return Handler{
-			"handler": "subroute",
-			"routes": []map[string]any{
-				{
-					"match": []map[string]any{
-						{
-							"not": []map[string]any{
-								{
-									"remote_ip": map[string]any{
-										"ranges": cidrs,
-									},
-								},
-							},
-						},
-					},
-					"handle": []map[string]any{
-						{
-							"handler":     "static_response",
-							"status_code": 403,
-							"body":        "Access denied: IP not in whitelist",
-						},
-					},
-					"terminal": true,
-				},
-			},
-		}, nil
+		// Allow only these IPs (block everything else). Admin whitelist addresses always bypass whitelist checks.
+		cidrs = append(cidrs, parseAdminWhitelist(adminWhitelist)...)
+		return whitelistDenyHandler(cidrs), nil
 	}
 
 	if acl.Type == "blacklist" {
 		// Block these IPs (allow everything else)
 		// For blacklist, add an explicit 'not' clause excluding adminWhitelist ranges from the match
 		var adminExclusion any
-		if adminWhitelist != "" {
-			adminParts := strings.Split(adminWhitelist, ",")
-			trims := make([]string, 0)
-			for _, p := range adminParts {
-				p = strings.TrimSpace(p)
-				if p == "" {
-					continue
-				}
-				trims = append(trims, p)
-			}
-			if len(trims) > 0 {
-				adminExclusion = map[string]any{"not": []map[string]any{{"remote_ip": map[string]any{"ranges": trims}}}}
-			}
+		if trims := parseAdminWhitelist(adminWhitelist); len(trims) > 0 {
+			adminExclusion = map[string]any{"not": []map[string]any{{"remote_ip": map[string]any{"ranges": trims}}}}
 		}
 		// Build matcher parts
 		matchParts := []map[string]any{}
@@ -1109,6 +1159,44 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 	}
 
 	return nil, nil
+}
+
+// errAllowListFailClosed marks an allow-list that was replaced by a deny handler because it has no usable rules.
+var errAllowListFailClosed = errors.New("allow-list has no usable IP rules; requests are refused")
+
+// allowListFailClosed returns the deny handler for an allow-list without usable rules, with the reason as an error.
+func allowListFailClosed(adminWhitelist string, cause error) (Handler, error) {
+	return whitelistDenyHandler(parseAdminWhitelist(adminWhitelist)), fmt.Errorf("%w: %w", errAllowListFailClosed, cause)
+}
+
+// whitelistDenyHandler refuses every request whose address is not in allowed. With no allowed address it refuses all.
+func whitelistDenyHandler(allowed []string) Handler {
+	deny := map[string]any{
+		"handler":     "static_response",
+		"status_code": 403,
+		"body":        "Access denied: IP not in whitelist",
+	}
+	route := map[string]any{
+		"handle":   []map[string]any{deny},
+		"terminal": true,
+	}
+	if len(allowed) > 0 {
+		route["match"] = []map[string]any{
+			{"not": []map[string]any{{"remote_ip": map[string]any{"ranges": allowed}}}},
+		}
+	}
+	return Handler{"handler": "subroute", "routes": []map[string]any{route}}
+}
+
+// parseAdminWhitelist splits the comma-separated admin whitelist and drops blank entries.
+func parseAdminWhitelist(adminWhitelist string) []string {
+	var addresses []string
+	for _, p := range strings.Split(adminWhitelist, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			addresses = append(addresses, p)
+		}
+	}
+	return addresses
 }
 
 // buildCrowdSecHandler returns a minimal CrowdSec handler for the caddy-crowdsec-bouncer plugin.

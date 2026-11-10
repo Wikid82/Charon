@@ -581,7 +581,12 @@
       "loadError": "Login protection status could not be loaded."
     },
     "settingUpdated": "Security setting updated",
-    "settingUpdateFailed": "Failed to update setting: {{error}}"
+    "settingUpdateFailed": "Failed to update setting: {{error}}",
+    "enforcement": {
+      "acl": {
+        "geoip_unavailable": "Listy krajów wymagają bazy danych GeoIP, której brak w tej instalacji, dlatego odrzucają żądania, dopóki nie zostanie ona dostarczona. Zobacz dokumentację."
+      }
+    }
   },
   "accessLists": {
     "title": "Access Lists",
@@ -613,7 +618,10 @@
     "deleteItems": "Delete {{count}} Items",
     "deleting": "Deleting...",
     "noAccessLists": "No Access Lists",
-    "noAccessListsDescription": "Create your first access list to control who can access your services"
+    "noAccessListsDescription": "Create your first access list to control who can access your services",
+    "errors": {
+      "access_list_rules_required": "Włączona lista dozwolonych wymaga co najmniej jednej reguły. Dodaj regułę lub wyłącz listę i zapisz ponownie."
+    }
   },
   "rateLimiting": {
     "title": "Rate Limiting Configuration",

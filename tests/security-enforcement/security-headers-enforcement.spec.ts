@@ -13,6 +13,24 @@ import { test, expect } from '../fixtures/test';
 import { request } from '@playwright/test';
 import type { APIRequestContext } from '@playwright/test';
 import { STORAGE_STATE } from '../constants';
+import {
+  captureSecurityState,
+  restoreSecurityState,
+  setSecurityModuleEnabled,
+  type SecurityStateSnapshot,
+} from '../utils/security-helpers';
+import { RUNNER_WHITELIST, saveConfig } from '../utils/security-settings-api';
+import {
+  PROFILE_HEADER_EXPECTATIONS,
+  createCountryAllowList,
+  createHeaderProfile,
+  createProxyHost,
+  deleteAccessList,
+  deleteHeaderProfile,
+  deleteProxyHost,
+  fetchThroughProxy,
+  type HeaderProfile,
+} from '../utils/proxy-refusal-helpers';
 
 test.describe('Security Headers Enforcement', () => {
   let requestContext: APIRequestContext;
@@ -104,5 +122,67 @@ test.describe('Security Headers Enforcement', () => {
       // CSP is optional - document its behavior when configured
       console.log('CSP not configured (optional - set per proxy host)');
     }
+  });
+
+  test.describe('Headers on access list refusals', () => {
+    const domain = `refusal-headers-acl-${Date.now()}.example.test`;
+    let snapshot: SecurityStateSnapshot;
+    let proxyContext: APIRequestContext;
+    let profile: HeaderProfile;
+    let aclUuid: string;
+    let proxyUuid: string;
+
+    test.beforeAll(async () => {
+      snapshot = await captureSecurityState(requestContext);
+
+      // The admin whitelist must be in place before the ACL is enabled, or the admin API refuses the runner.
+      await saveConfig(requestContext, { name: 'default', admin_whitelist: RUNNER_WHITELIST });
+      await setSecurityModuleEnabled(requestContext, 'cerberus', true);
+      // Rate limiting would answer first on a shared client IP and hide the ACL refusal.
+      await setSecurityModuleEnabled(requestContext, 'rateLimit', false);
+      await setSecurityModuleEnabled(requestContext, 'acl', true);
+
+      proxyContext = await request.newContext();
+      profile = await createHeaderProfile(requestContext, `Refusal Headers ${Date.now()}`);
+      // Country list that admits only US; the runner has no country, so the ACL refuses it.
+      aclUuid = await createCountryAllowList(requestContext, `Refusal Headers Allow List ${Date.now()}`);
+      proxyUuid = await createProxyHost(requestContext, {
+        domain,
+        forwardPort: 3001,
+        name: 'Refusal headers host',
+        accessListUuid: aclUuid,
+        headerProfileUuid: profile.uuid,
+      });
+
+      await expect
+        .poll(async () => (await fetchThroughProxy(proxyContext, domain, '/')).status(), {
+          timeout: 30_000,
+          message: 'refusal headers route should be loaded',
+        })
+        .toBe(403);
+    });
+
+    test.afterAll(async () => {
+      if (proxyUuid) {
+        await deleteProxyHost(requestContext, proxyUuid);
+      }
+      if (aclUuid) {
+        await deleteAccessList(requestContext, aclUuid);
+      }
+      if (profile) {
+        await deleteHeaderProfile(requestContext, profile);
+      }
+      await proxyContext.dispose();
+      if (snapshot) {
+        await restoreSecurityState(requestContext, snapshot);
+      }
+    });
+
+    test('should send the profile security headers with an access list refusal', async () => {
+      const response = await fetchThroughProxy(proxyContext, domain, '/');
+
+      expect(response.status()).toBe(403);
+      expect(response.headers()).toMatchObject(PROFILE_HEADER_EXPECTATIONS);
+    });
   });
 });

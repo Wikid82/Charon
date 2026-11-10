@@ -581,7 +581,12 @@
       "loadError": "Login protection status could not be loaded."
     },
     "settingUpdated": "Security setting updated",
-    "settingUpdateFailed": "Failed to update setting: {{error}}"
+    "settingUpdateFailed": "Failed to update setting: {{error}}",
+    "enforcement": {
+      "acl": {
+        "geoip_unavailable": "국가 목록에는 이 설치에 없는 GeoIP 데이터베이스가 필요하므로, 제공될 때까지 일치하는 요청을 거부합니다. 문서를 참조하세요."
+      }
+    }
   },
   "accessLists": {
     "title": "Access Lists",
@@ -613,7 +618,10 @@
     "deleteItems": "Delete {{count}} Items",
     "deleting": "Deleting...",
     "noAccessLists": "No Access Lists",
-    "noAccessListsDescription": "Create your first access list to control who can access your services"
+    "noAccessListsDescription": "Create your first access list to control who can access your services",
+    "errors": {
+      "access_list_rules_required": "사용 중인 허용 목록에는 규칙이 하나 이상 필요합니다. 규칙을 추가하거나 목록을 끈 뒤 다시 저장하세요."
+    }
   },
   "rateLimiting": {
     "title": "Rate Limiting Configuration",

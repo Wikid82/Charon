@@ -1036,29 +1036,33 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
+# The download is checked against GEOLITE2_COUNTRY_SHA256; a mismatch only prints a warning because the upstream copy
+# changes between hash updates. A failed or empty download prints a warning and writes the marker
+# /app/data/geoip/.missing so the runtime can report it. The build does not fail: the image then ships without a
+# database and country access lists refuse requests.
 ARG GEOLITE2_COUNTRY_SHA256=2c2d05c474baeb669298cce912a6236b5ecc4e50f0316a93e01ba5cf22183600
 RUN mkdir -p /app/data/geoip && \
-        if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
-            echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
-            if wget -qO /app/data/geoip/GeoLite2-Country.mmdb \
-                -T 10 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" 2>/dev/null \
-                && [ -s /app/data/geoip/GeoLite2-Country.mmdb ]; then \
-                echo "✅ GeoIP downloaded"; \
-            else \
-                echo "⚠️  GeoIP skipped"; \
-                touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder; \
-            fi; \
+    db=/app/data/geoip/GeoLite2-Country.mmdb && \
+    if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
+        echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
+        wget_opts="-T 10"; \
+    else \
+        echo "Local - full download (30s timeout, 3 retries)"; \
+        wget_opts="-T 30 -t 4"; \
+    fi && \
+    if wget -qO "$db" $wget_opts "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
+        && [ -s "$db" ]; then \
+        if echo "${GEOLITE2_COUNTRY_SHA256}  $db" | sha256sum -c - >/dev/null 2>&1; then \
+            echo "✅ GeoIP downloaded and checksum verified"; \
         else \
-            echo "Local - full download (30s timeout, 3 retries)"; \
-            if wget -qO /app/data/geoip/GeoLite2-Country.mmdb \
-                -T 30 -t 4 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
-                && [ -s /app/data/geoip/GeoLite2-Country.mmdb ]; then \
-                echo "✅ GeoIP downloaded"; \
-            else \
-                echo "⚠️  GeoIP download failed or empty — skipping"; \
-                touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder; \
-            fi; \
-        fi && \
+            echo "WARNING: GeoLite2-Country checksum differs from GEOLITE2_COUNTRY_SHA256 (the upstream copy was updated); keeping the downloaded database." >&2; \
+        fi; \
+    else \
+        echo "WARNING: GeoLite2-Country database not bundled (download failed or empty)." >&2; \
+        echo "WARNING: The image has no GeoIP database. Country access lists will refuse requests until one is provided at CHARON_GEOIP_DB_PATH." >&2; \
+        rm -f "$db"; \
+        touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder /app/data/geoip/.missing; \
+    fi && \
     chown -R charon:charon /app/data
 
 # Copy Caddy binary from caddy-builder (overwriting the one from base image)

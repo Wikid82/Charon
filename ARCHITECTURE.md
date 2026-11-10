@@ -603,6 +603,8 @@ check.
 #### Security Suite (`internal/cerberus/`)
 
 - **ACL (Access Control Lists):** IP-based allow/deny rules, GeoIP blocking
+  - **Country lists (GeoIP):** Enforced in Caddy, not in Charon's API. When at least one enabled country list is in use, the generator adds the `geoip2` app (database directory and edition split from the configured `.mmdb` path, lock file in Charon's Caddy data directory, no account or key) and a `geoip2` handler with `enable: "strict"` immediately before the country subroute. Charon checks database availability at generation time (file exists, name ends in `.mmdb`, `GeoIPService` loaded it). When unavailable, each enabled country list becomes a 403 deny handler, with one Warn per apply and a passive `geoip_unavailable` reason on `/security/status`. `POST /security/geoip/reload` triggers a proxy apply after a successful reload.
+  - **Allow lists without rules:** An enabled allow list with no rules, or rules that cannot be read, becomes a 403 deny handler with one Warn per apply. A block list with no rules is left out, since it blocks nobody.
 - **WAF (Web Application Firewall):** Coraza engine with user-provided rule sets (CRS-compatible)
 - **CrowdSec:** Behavior-based threat detection with global intelligence
 - **Rate Limiter:** Opt-in per-client API throttling (shared `internal/ratelimit` component)
@@ -725,12 +727,12 @@ export const useProxyHosts = () => {
 
 **Route Pattern: Main Route (plus a recovery route for Charon's own host)**
 
-For each proxy host, Charon generates a **main route** with the domain and no path matchers. Its handlers run the full Cerberus security pipeline before the reverse proxy. Locations are generated as separate path-matched routes that run the same pipeline.
+For each proxy host, Charon generates a **main route** with the domain and no path matchers. Its handlers run in a fixed order before the reverse proxy: security headers first, then the Cerberus security checks, then the proxy. Locations are generated as separate path-matched routes that run the same order.
 
 1. **Main Route** (without path matchers):
    - Matches: All paths for the domain
    - Purpose: Normal application traffic with full security
-   - Handlers: Full Cerberus security suite, then the reverse proxy
+   - Handlers: Security headers (applied to every response, including refusals), then the Cerberus security checks, then the reverse proxy. Country lists are checked by a `geoip2` handler placed immediately before the country subroute.
 
 2. **Recovery Route** (exact path matchers, only for a host that proxies Charon itself):
    - Matches: exactly `/api/v1/emergency/security-reset` and `/emergency/security-reset`, with no wildcards
@@ -754,7 +756,7 @@ Caddy processes routes in order, so the recovery route (when present) is evaluat
 // Main Route (evaluated second)
 {
   "match": [{"host": ["app.example.com"]}],
-  "handle": [/* Security middleware + proxy */],
+  "handle": [/* Security headers, security checks, then proxy */],
   "terminal": true
 }
 ```

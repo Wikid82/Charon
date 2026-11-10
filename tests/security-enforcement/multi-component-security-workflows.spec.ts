@@ -9,6 +9,11 @@ import {
   getAuthTokenFromPage as getAuthToken,
 } from '../utils/api-helpers';
 import type { ProxyHostRecord, UserRecord } from '../utils/api-records';
+import {
+  readApiRateLimitBudget,
+  restoreApiRateLimitBudget,
+  type ApiRateLimitBudget,
+} from '../utils/security-settings-api';
 
 async function resetSecurityState(page: import('@playwright/test').Page): Promise<void> {
   const emergencyToken = process.env.CHARON_EMERGENCY_TOKEN;
@@ -49,7 +54,10 @@ test.describe('Multi-Component Security Workflows', () => {
     password: 'MultiFlow123!',
   };
 
+  let apiBudgetBefore: ApiRateLimitBudget | undefined;
+
   test.beforeEach(async ({ page, adminUser }) => {
+    apiBudgetBefore = undefined;
     const suffix = uniqueSuffix();
     testProxy = {
       domain: `multi-workflow-${suffix}.local`,
@@ -68,6 +76,8 @@ test.describe('Multi-Component Security Workflows', () => {
     await waitForLoadingComplete(page, { timeout: 15000 });
     const meResponse = await page.request.get('/api/v1/auth/me');
     expect(meResponse.ok()).toBe(true);
+    // The rate limit step writes a one-request budget that the API limiter keeps after this case.
+    apiBudgetBefore = await readApiRateLimitBudget(page.request);
   });
 
   test.afterEach(async ({ page }) => {
@@ -108,6 +118,13 @@ test.describe('Multi-Component Security Workflows', () => {
     } catch {
       // Ignore cleanup errors
     } finally {
+      try {
+        if (apiBudgetBefore) {
+          await restoreApiRateLimitBudget(page.request, apiBudgetBefore);
+        }
+      } catch (error) {
+        console.error('Failed to restore the API rate limit budget:', error);
+      }
       await resetSecurityState(page);
     }
   });

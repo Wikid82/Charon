@@ -82,6 +82,9 @@ func (c *Client) Load(ctx context.Context, config *Config) error {
 		return fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
+	// Caddy skips reloading an identical config. must-revalidate makes every load reach the running config, so
+	// data read at startup (such as the GeoIP database) is re-read even when the generated JSON did not change.
+	req.Header.Set("Cache-Control", "must-revalidate")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

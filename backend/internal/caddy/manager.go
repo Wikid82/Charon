@@ -82,6 +82,8 @@ type Manager struct {
 	orthrusSvc  OrthrusAddrResolver
 	hopSecret   *selfhop.Secret
 	hopPort     string
+	// geoIPState reports the GeoIP database path and whether the proxy may use it. It is read at every apply.
+	geoIPState func() (path string, available bool)
 	// enforcement is the report of the last successful apply. It is nil while an apply runs and after any failed one.
 	enforcement atomic.Pointer[EnforcementReport]
 }
@@ -116,6 +118,12 @@ func (m *Manager) SetEncryptionService(svc *crypto.EncryptionService) {
 // SetOrthrusServer configures the Orthrus agent resolver for dynamic upstream host resolution.
 func (m *Manager) SetOrthrusServer(s OrthrusAddrResolver) {
 	m.orthrusSvc = s
+}
+
+// SetGeoIPState sets the source of the GeoIP database state. It is read at every apply, so a database loaded or
+// reloaded after startup reaches the next generated config. Without it every country list is refused.
+func (m *Manager) SetGeoIPState(state func() (path string, available bool)) {
+	m.geoIPState = state
 }
 
 // SetSelfHop enables recognition of requests proxied to Charon's own API on port.
@@ -493,6 +501,10 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	}
 	if m.hopSecret != nil {
 		genOpts = append(genOpts, WithSelfHop(m.hopSecret, m.hopPort))
+	}
+	if m.geoIPState != nil {
+		geoPath, geoAvailable := m.geoIPState()
+		genOpts = append(genOpts, WithGeoIPDatabase(geoPath, geoAvailable))
 	}
 
 	generatedConfig, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, effectiveProvider, effectiveStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, &secCfg, dnsProviderConfigs, genOpts...)

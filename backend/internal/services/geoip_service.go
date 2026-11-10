@@ -3,6 +3,7 @@ package services
 
 import (
 	"errors"
+	"fmt"
 	"net"
 	"net/netip"
 	"sync"
@@ -31,6 +32,13 @@ type geoIPCountryReader interface {
 	Close() error
 }
 
+// NewUnloadedGeoIPService returns a service bound to dbPath that has not opened the database. Load opens it once the
+// file exists, so a database added after startup is picked up without restarting. Every consumer can hold the same
+// service from startup on.
+func NewUnloadedGeoIPService(dbPath string) *GeoIPService {
+	return &GeoIPService{dbPath: dbPath}
+}
+
 // NewGeoIPService creates a new GeoIPService and loads the database.
 // Returns an error if the database cannot be loaded.
 func NewGeoIPService(dbPath string) (*GeoIPService, error) {
@@ -42,20 +50,19 @@ func NewGeoIPService(dbPath string) (*GeoIPService, error) {
 }
 
 // Load opens or reloads the GeoIP database.
+// The new file is opened before the current one is replaced, so a failed reload keeps the database already in use.
 // This method is thread-safe and can be called to hot-reload the database.
 func (s *GeoIPService) Load() error {
+	db, err := geoip2.Open(s.dbPath)
+	if err != nil {
+		return fmt.Errorf("open geoip database %s: %w", s.dbPath, err)
+	}
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Close existing database if open
 	if s.db != nil {
 		_ = s.db.Close()
-		s.db = nil
-	}
-
-	db, err := geoip2.Open(s.dbPath)
-	if err != nil {
-		return err
 	}
 	s.db = db
 	return nil

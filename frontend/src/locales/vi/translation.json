@@ -581,7 +581,12 @@
       "loadError": "Login protection status could not be loaded."
     },
     "settingUpdated": "Security setting updated",
-    "settingUpdateFailed": "Failed to update setting: {{error}}"
+    "settingUpdateFailed": "Failed to update setting: {{error}}",
+    "enforcement": {
+      "acl": {
+        "geoip_unavailable": "Danh sách quốc gia cần cơ sở dữ liệu GeoIP, hiện không có trong bản cài đặt này, nên các yêu cầu sẽ bị từ chối cho đến khi được cung cấp. Xem tài liệu."
+      }
+    }
   },
   "accessLists": {
     "title": "Access Lists",
@@ -613,7 +618,10 @@
     "deleteItems": "Delete {{count}} Items",
     "deleting": "Deleting...",
     "noAccessLists": "No Access Lists",
-    "noAccessListsDescription": "Create your first access list to control who can access your services"
+    "noAccessListsDescription": "Create your first access list to control who can access your services",
+    "errors": {
+      "access_list_rules_required": "Danh sách cho phép đang bật cần ít nhất một quy tắc. Thêm quy tắc hoặc tắt danh sách, rồi lưu lại."
+    }
   },
   "rateLimiting": {
     "title": "Rate Limiting Configuration",
