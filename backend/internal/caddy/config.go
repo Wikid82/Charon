@@ -50,7 +50,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	redirectHosts := resolvedOpts.redirectHosts
 
 	// The enforcement report is filled while hosts are built and handed to the sink on every return path.
-	report := EnforcementReport{WAFOn: wafEnabled, RateLimitOn: rateLimitEnabled}
+	report := EnforcementReport{WAFOn: wafEnabled, RateLimitOn: rateLimitEnabled, ACLOn: aclEnabled}
 	if resolvedOpts.enforcement != nil {
 		defer func() { resolvedOpts.enforcement(report) }()
 	}
@@ -58,7 +58,6 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	// The module opens only <dir>/<edition>.mmdb, so a database path that does not name such a file cannot be used by
 	// the proxy, whatever the caller said. Country lists are refused while it is unavailable.
 	geoIPAvailable := resolvedOpts.geoIPAvailable && strings.HasSuffix(filepath.Base(resolvedOpts.geoIPPath), ".mmdb")
-	var geoRefusedLists []string
 
 	// Define log file paths for Caddy access logs.
 	// When CrowdSec is enabled, we use /var/log/caddy/access.log which is the standard
@@ -597,9 +596,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			if isCountryList(host.AccessList) && !geoIPAvailable {
 				// A country list cannot match without the database, so the host refuses every request instead.
 				securityHandlers = append(securityHandlers, geoUnavailableDenyHandler(adminRanges))
-				if !slices.Contains(geoRefusedLists, host.AccessList.Name) {
-					geoRefusedLists = append(geoRefusedLists, host.AccessList.Name)
-				}
+				report.CountryListsWithoutDatabase = withSortedName(report.CountryListsWithoutDatabase, host.AccessList.Name)
 			} else {
 				if isCountryList(host.AccessList) {
 					// The geoip2 handler sits directly before the country subroute and reads the database the app opens.
@@ -775,8 +772,8 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 
 	// A country list is enabled but no GeoIP database is usable, so its hosts refuse every request. One line per apply
 	// names the lists.
-	if len(geoRefusedLists) > 0 {
-		logger.Log().WithField("lists", geoRefusedLists).Warn(
+	if len(report.CountryListsWithoutDatabase) > 0 {
+		logger.Log().WithField("lists", report.CountryListsWithoutDatabase).Warn(
 			"Country access list needs the GeoIP database, which is unavailable; requests to its hosts are refused")
 	}
 

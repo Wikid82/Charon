@@ -1,5 +1,7 @@
 package caddy
 
+import "slices"
+
 // Reasons a security module that is switched on is not applied to every eligible host. The security status reports
 // them so the admin can see the applied state.
 const (
@@ -49,6 +51,22 @@ func (m *ModuleEnforcement) record(hasHandler bool, reason string) {
 type EnforcementReport struct {
 	WAFOn       bool
 	RateLimitOn bool
-	WAF         ModuleEnforcement
-	RateLimit   ModuleEnforcement
+	// ACLOn is the access control state the config was generated for.
+	ACLOn bool
+	WAF   ModuleEnforcement
+	// RateLimit is the rate limit's enforcement across the eligible hosts.
+	RateLimit ModuleEnforcement
+	// CountryListsWithoutDatabase names the enabled country lists on enabled hosts that were built without country
+	// matching because no GeoIP database was usable. The names are sorted and unique.
+	CountryListsWithoutDatabase []string
+}
+
+// withSortedName adds name to the sorted, unique names and returns the result. A name already present is not added
+// again.
+func withSortedName(names []string, name string) []string {
+	i, found := slices.BinarySearch(names, name)
+	if found {
+		return names
+	}
+	return slices.Insert(names, i, name)
 }

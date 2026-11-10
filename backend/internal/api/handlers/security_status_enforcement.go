@@ -49,26 +49,55 @@ func addModuleAppliedState(status gin.H, module caddy.ModuleEnforcement) {
 // countryListTypes are the access list types that match on the GeoIP country.
 var countryListTypes = []string{"geo_whitelist", "geo_blacklist"}
 
-// addACLGeoIPReason adds the geoip_unavailable reason to the ACL status when the ACL is on, an enabled country list
-// is in use, and no GeoIP database is available. Such a list cannot match, so the status says why.
-func (h *SecurityHandler) addACLGeoIPReason(aclStatus gin.H, aclEnabled bool) {
-	if !aclEnabled || h.geoipSvc.Available() || !h.hasEnabledCountryList() {
-		return
-	}
-	aclStatus["reason"] = caddy.ReasonGeoIPUnavailable
+// appliedReporter is implemented by the caddy manager. It returns the report of the last successful apply.
+type appliedReporter interface {
+	LastAppliedReport() (caddy.EnforcementReport, bool)
 }
 
-// hasEnabledCountryList reports whether at least one enabled access list matches on country. A failed read counts as
-// none, so the status never reports a reason it cannot confirm.
-func (h *SecurityHandler) hasEnabledCountryList() bool {
-	if h.db == nil {
-		return false
+// countryListsNotEnforced returns the sorted names of the country lists the proxy is not enforcing because no GeoIP
+// database is usable. The alert and the ACL status reason both come from it, so they never disagree.
+//
+// After a successful apply the last applied report decides, and live database availability is not consulted: the
+// report describes the running config until a newer apply succeeds. Before any successful apply there is no report, so
+// the same rule the config generator uses is evaluated against the database. aclEnabled is the current ACL state and
+// is used only for that fallback.
+func (h *SecurityHandler) countryListsNotEnforced(aclEnabled bool) []string {
+	if reporter, ok := h.caddyManager.(appliedReporter); ok {
+		if report, applied := reporter.LastAppliedReport(); applied {
+			if !report.ACLOn {
+				return nil
+			}
+			return report.CountryListsWithoutDatabase
+		}
 	}
-	var count int64
-	err := h.db.Model(&models.AccessList{}).Where("enabled = ? AND type IN ?", true, countryListTypes).Count(&count).Error
+	return h.pendingCountryLists(aclEnabled)
+}
+
+// pendingCountryLists evaluates, before any apply, the rule the config generator uses: access control is on, no
+// database is available, and an enabled country list is attached to an enabled host with a domain. A failed read
+// counts as none, so the status never reports a reason it cannot confirm.
+func (h *SecurityHandler) pendingCountryLists(aclEnabled bool) []string {
+	if h.db == nil || !aclEnabled || h.geoipSvc.Available() {
+		return nil
+	}
+	var names []string
+	err := h.db.Model(&models.ProxyHost{}).
+		Joins("JOIN access_lists ON access_lists.id = proxy_hosts.access_list_id").
+		Where("proxy_hosts.enabled = ? AND proxy_hosts.domain_names <> ? AND access_lists.enabled = ? AND access_lists.type IN ?",
+			true, "", true, countryListTypes).
+		Distinct("access_lists.name").
+		Order("access_lists.name").
+		Pluck("access_lists.name", &names).Error
 	if err != nil {
-		logger.Log().WithError(err).Warn("Failed to count country access lists for status")
-		return false
+		logger.Log().WithError(err).Warn("Failed to read country access lists for status")
+		return nil
 	}
-	return count > 0
+	return names
+}
+
+// addACLGeoIPReason adds the geoip_unavailable reason to the ACL status when a country list is not being enforced.
+func (h *SecurityHandler) addACLGeoIPReason(aclStatus gin.H, aclEnabled bool) {
+	if len(h.countryListsNotEnforced(aclEnabled)) > 0 {
+		aclStatus["reason"] = caddy.ReasonGeoIPUnavailable
+	}
 }

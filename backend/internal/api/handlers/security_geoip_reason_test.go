@@ -44,7 +44,7 @@ func openGeoIPReasonTestDB(t *testing.T) *gorm.DB {
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = sqlDB.Close() })
-	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}, &models.AccessList{}))
+	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}, &models.AccessList{}, &models.ProxyHost{}))
 	return db
 }
 
@@ -93,7 +93,9 @@ func TestSecurityStatus_GeoIPStatusReportsUnavailableWhenServiceNotLoaded(t *tes
 
 func TestSecurityStatus_ACLReasonWhenCountryListWithoutDatabase(t *testing.T) {
 	db := openGeoIPReasonTestDB(t)
-	require.NoError(t, db.Create(&models.AccessList{UUID: "geo-1", Name: "geo", Type: "geo_whitelist", CountryCodes: "US", Enabled: true}).Error)
+	require.NoError(t, db.Create(&models.AccessList{ID: 1, UUID: "geo-1", Name: "geo", Type: "geo_whitelist", CountryCodes: "US", Enabled: true}).Error)
+	listID := uint(1)
+	require.NoError(t, db.Create(&models.ProxyHost{UUID: "geo-host", DomainNames: "geo.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080, AccessListID: &listID}).Error)
 
 	body := geoipReasonStatusBody(t, db, config.SecurityConfig{CerberusEnabled: true, ACLMode: "enabled"})
 	reason, has := aclReasonFromStatus(t, body)
