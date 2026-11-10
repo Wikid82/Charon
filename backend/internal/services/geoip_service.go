@@ -63,7 +63,12 @@ func NewGeoIPService(dbPath string) (*GeoIPService, error) {
 // and the reported path changes only with a successful load.
 // This method is thread-safe and can be called to hot-reload the database.
 func (s *GeoIPService) Load() error {
-	path := s.pathToLoad()
+	return s.LoadFrom(s.pathToLoad())
+}
+
+// LoadFrom opens the database at path exactly, without resolving a location. On success the service reports path and
+// serves lookups from it; on failure the database in use, if any, is kept.
+func (s *GeoIPService) LoadFrom(path string) error {
 	db, err := geoip2.Open(path)
 	if err != nil {
 		return fmt.Errorf("open geoip database %s: %w", path, err)

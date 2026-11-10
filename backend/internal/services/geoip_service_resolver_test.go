@@ -7,6 +7,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Wikid82/charon/backend/internal/testutil"
 )
 
 func TestNewResolvingGeoIPService_ReportsResolvedPathWithoutLoading(t *testing.T) {
@@ -16,6 +18,18 @@ func TestNewResolvingGeoIPService_ReportsResolvedPathWithoutLoading(t *testing.T
 
 	assert.Equal(t, path, svc.GetDatabasePath())
 	assert.False(t, svc.IsLoaded())
+}
+
+func TestGeoIPService_LoadFromOpensExactPathWithoutResolving(t *testing.T) {
+	resolved := filepath.Join(t.TempDir(), "absent.mmdb")
+	exact := filepath.Join(t.TempDir(), "GeoLite2-Country.mmdb")
+	testutil.WriteGeoIPCountryDB(t, exact, 1)
+
+	svc := NewResolvingGeoIPService(func() string { return resolved })
+	require.NoError(t, svc.LoadFrom(exact))
+
+	assert.True(t, svc.IsLoaded())
+	assert.Equal(t, exact, svc.GetDatabasePath())
 }
 
 func TestGeoIPService_LoadReresolvesPathAndKeepsPreviousOnFailure(t *testing.T) {

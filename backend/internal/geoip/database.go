@@ -1,17 +1,28 @@
-// Package geoip holds the GeoIP database facts shared by the API and the proxy config generator. It has no
-// dependencies on other Charon packages, so both can import it.
+// Package geoip holds the GeoIP database facts shared by the API and the proxy config generator. Apart from the logger,
+// it has no dependencies on other Charon packages, so both can import it.
 package geoip
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+
+	"github.com/oschwald/geoip2-golang/v2"
+
+	"github.com/Wikid82/charon/backend/internal/logger"
 )
 
 const (
 	// EnvDBPath names the environment variable that sets the database path explicitly. When it is set and not
-	// empty, it is used exactly and no file location is searched.
+	// empty, it is used exactly and no file location is searched, with one exception: see FormerImageDefaultDBPath.
 	EnvDBPath = "CHARON_GEOIP_DB_PATH"
+
+	// FormerImageDefaultDBPath is the value earlier images set for EnvDBPath. Containers whose configuration was
+	// copied from an earlier container may still carry it. When the file it names is not a regular file, the variable
+	// is treated as unset.
+	FormerImageDefaultDBPath = "/app/data/geoip/GeoLite2-Country.mmdb"
 
 	// DatabaseFileName is the MaxMind database file name used in every location.
 	DatabaseFileName = "GeoLite2-Country.mmdb"
@@ -27,23 +38,104 @@ const (
 	MissingMarkerName = ".missing"
 )
 
-// ResolveDatabasePath returns the database path to use. CHARON_GEOIP_DB_PATH wins when it is set. Otherwise a
-// database in the data folder is preferred, so an operator-provided file takes effect over the bundled copy. Without
-// either, the bundled path is returned, and it reports as missing until a database is provided there.
-func ResolveDatabasePath() string {
-	return resolveDatabasePath(os.Getenv(EnvDBPath), isRegularFile)
+// DataDatabasePath returns the database path in the data folder.
+func DataDatabasePath() string {
+	return filepath.Join(DataDatabaseDir, DatabaseFileName)
 }
 
-// resolveDatabasePath implements ResolveDatabasePath with the environment value and file check injected.
-func resolveDatabasePath(envPath string, exists func(path string) bool) string {
-	if envPath != "" {
-		return envPath
-	}
-	dataPath := filepath.Join(DataDatabaseDir, DatabaseFileName)
-	if exists(dataPath) {
-		return dataPath
-	}
+// BundledDatabasePath returns the database path the image ships.
+func BundledDatabasePath() string {
 	return filepath.Join(BundledDatabaseDir, DatabaseFileName)
+}
+
+// resolution is the outcome of choosing a database path, with the notes the caller reports once.
+type resolution struct {
+	path string
+	// ignoredFormerDefault is set when EnvDBPath named FormerImageDefaultDBPath, no file was there, and the variable
+	// was treated as unset.
+	ignoredFormerDefault bool
+	// skippedUnreadable names the data-folder copy that was passed over because it could not be read while the
+	// bundled copy could.
+	skippedUnreadable string
+}
+
+var (
+	reportIgnoredFormerDefault sync.Once
+	reportSkippedUnreadable    sync.Once
+)
+
+// ResolveDatabasePath returns the database path to use. CHARON_GEOIP_DB_PATH wins when it is set, except that the
+// former image default is treated as unset when no file is there. Otherwise, when both the data-folder copy and the
+// bundled copy exist, the one with the newer MaxMind build time wins; a tie or a copy that cannot be read is resolved
+// in favour of the readable one, and the data-folder copy otherwise. Without either, the bundled path is returned, and
+// it reports as missing until a database is provided there.
+func ResolveDatabasePath() string {
+	r := resolveDatabasePath(os.Getenv(EnvDBPath), isRegularFile, readBuildEpoch)
+	if r.ignoredFormerDefault {
+		reportIgnoredFormerDefault.Do(func() {
+			logger.Log().WithField("path", FormerImageDefaultDBPath).Info("CHARON_GEOIP_DB_PATH names the former image default, which is not a file; treating it as unset")
+		})
+	}
+	if r.skippedUnreadable != "" {
+		reportSkippedUnreadable.Do(func() {
+			logger.Log().WithField("path", r.skippedUnreadable).Warn("GeoIP database in the data folder cannot be read; using the bundled copy instead")
+		})
+	}
+	return r.path
+}
+
+// resolveDatabasePath implements ResolveDatabasePath with the environment value, the file check and the build-time
+// reader injected.
+func resolveDatabasePath(envPath string, isFile func(string) bool, buildEpoch func(string) (uint, error)) resolution {
+	var r resolution
+	if envPath == FormerImageDefaultDBPath && !isFile(envPath) {
+		envPath = ""
+		r.ignoredFormerDefault = true
+	}
+	if envPath != "" {
+		r.path = envPath
+		return r
+	}
+
+	dataPath := DataDatabasePath()
+	bundledPath := BundledDatabasePath()
+	if !isFile(dataPath) {
+		r.path = bundledPath
+		return r
+	}
+	if !isFile(bundledPath) {
+		r.path = dataPath
+		return r
+	}
+
+	dataEpoch, dataErr := buildEpoch(dataPath)
+	bundledEpoch, bundledErr := buildEpoch(bundledPath)
+	switch {
+	case dataErr != nil && bundledErr == nil:
+		r.path = bundledPath
+		r.skippedUnreadable = dataPath
+	case dataErr == nil && bundledErr != nil:
+		r.path = dataPath
+	case dataErr != nil && bundledErr != nil:
+		// Neither copy can be read; the data-folder copy keeps its place so the failure is reported against it.
+		r.path = dataPath
+	case bundledEpoch > dataEpoch:
+		r.path = bundledPath
+	default:
+		r.path = dataPath
+	}
+	return r
+}
+
+// readBuildEpoch returns the MaxMind build time, in Unix seconds, of the database at path. Opening the file reads its
+// metadata; the database is closed again straight away.
+func readBuildEpoch(path string) (uint, error) {
+	db, err := geoip2.Open(filepath.Clean(path)) //nolint:gosec // G703: database path, read-only open
+	if err != nil {
+		return 0, fmt.Errorf("open geoip database %s: %w", path, err)
+	}
+	defer func() { _ = db.Close() }()
+	return db.Metadata().BuildEpoch, nil
 }
 
 // isRegularFile reports whether path names an existing regular file. The path is cleaned first; it is either a fixed
