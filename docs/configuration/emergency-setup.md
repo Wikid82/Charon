@@ -199,7 +199,7 @@ environment:
 
 To stop anyone from guessing your emergency token, Charon limits wrong attempts for each address:
 
-- Each address gets **5 failed attempts** in a **5-minute** window.
+- Each address gets **5 failed attempts** in a **5-minute** window. A failed attempt is one with a wrong or missing token. Requests refused for other reasons, such as coming from outside the management network, do not count.
 - After that, each extra failed attempt needs a wait of about **one minute** before the next try. Charon answers "Too many requests" until the wait is over.
 - The main Charon port and the local-only emergency port (Tier 2) keep **separate** counters, so attempts on one never use up the other.
 - A **successful** reset does not use up any attempts. However, if your address is already waiting out a limit, you must wait for the timer to finish before trying again, even with the correct token.
