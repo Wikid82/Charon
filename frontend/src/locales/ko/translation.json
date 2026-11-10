@@ -377,6 +377,27 @@
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
   },
+  "notificationCenter": {
+    "title": "알림",
+    "bellLabel": "알림, 새 항목 {{count}}개",
+    "markAllRead": "모두 읽음으로 표시",
+    "empty": "새 알림이 없습니다",
+    "close": "닫기",
+    "updateAvailable": "업데이트 가능: {{version}}",
+    "viewChangelog": "변경 로그 보기",
+    "alerts": {
+      "label": "주의 필요",
+      "clearsItself": "문제가 해결되면 자동으로 사라집니다.",
+      "geoip_unavailable": {
+        "title": "국가별 액세스 목록이 적용되지 않고 있습니다",
+        "message": "GeoIP 국가 데이터베이스가 없거나 사용할 수 없어서, 국가 목록 {{count}}개({{lists}})가 데이터베이스를 다시 사용할 수 있을 때까지 모든 방문자를 통과시키고 있습니다.",
+        "messagePendingApply": "GeoIP 데이터베이스를 다시 사용할 수 있지만, 국가 목록 {{count}}개({{lists}})는 아직 적용되지 않았습니다. 보안 페이지에서 GeoIP 데이터베이스를 다시 불러오거나 Charon을 다시 시작하세요.",
+        "docsLink": "데이터베이스 제공 방법",
+        "issueHint": "Charon에는 보통 이 데이터베이스가 포함되어 있습니다. 수정할 수 있도록 GitHub에 issue를 열어 주세요.",
+        "issueLink": "issue 열기"
+      }
+    }
+  },
   "security": {
     "title": "Security",
     "description": "Configure security layers for your reverse proxy",

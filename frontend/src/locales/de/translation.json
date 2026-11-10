@@ -382,6 +382,27 @@
     "updateFailed": "Fehler beim Aktualisieren",
     "partialFailed": "Abgeschlossen mit {{count}} Fehler(n)"
   },
+  "notificationCenter": {
+    "title": "Benachrichtigungen",
+    "bellLabel": "Benachrichtigungen, {{count}} neu",
+    "markAllRead": "Alle als gelesen markieren",
+    "empty": "Keine neuen Benachrichtigungen",
+    "close": "Verwerfen",
+    "updateAvailable": "Update verfügbar: {{version}}",
+    "viewChangelog": "Changelog anzeigen",
+    "alerts": {
+      "label": "Benötigt Aufmerksamkeit",
+      "clearsItself": "Dies verschwindet automatisch, sobald das Problem behoben ist.",
+      "geoip_unavailable": {
+        "title": "Länderzugriffslisten werden nicht durchgesetzt",
+        "message": "Die GeoIP-Länderdatenbank fehlt oder ist unbrauchbar, daher lassen {{count}} Länderliste(n) ({{lists}}) jeden Besucher durch, bis sie wieder verfügbar ist.",
+        "messagePendingApply": "Die GeoIP-Datenbank ist wieder verfügbar, aber {{count}} Länderliste(n) ({{lists}}) werden noch nicht durchgesetzt. Lade die GeoIP-Datenbank auf der Sicherheitsseite erneut oder starte Charon neu.",
+        "docsLink": "So stellst du die Datenbank bereit",
+        "issueHint": "Charon enthält diese Datenbank normalerweise. Bitte ein GitHub-Issue eröffnen, damit wir das beheben können.",
+        "issueLink": "Issue eröffnen"
+      }
+    }
+  },
   "security": {
     "title": "Sicherheit",
     "description": "Sicherheitsebenen für Ihren Reverse-Proxy konfigurieren",

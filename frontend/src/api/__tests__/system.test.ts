@@ -1,7 +1,13 @@
 import { describe, it, expect, vi, afterEach } from 'vitest'
 
 import client from '../client'
-import { checkUpdates, getNotifications, markNotificationRead, markAllNotificationsRead } from '../system'
+import {
+  checkUpdates,
+  getActiveAlerts,
+  getNotifications,
+  markNotificationRead,
+  markAllNotificationsRead,
+} from '../system'
 
 vi.mock('../client', () => ({
   default: {
@@ -59,5 +65,29 @@ describe('System API', () => {
     await markAllNotificationsRead()
 
     expect(client.post).toHaveBeenCalledWith('/notifications/read-all')
+  })
+
+  it('getActiveAlerts calls /notifications/alerts and unwraps the alerts array', async () => {
+    const alerts = [
+      { key: 'geoip_unavailable', severity: 'error', affected_lists: ['Office'], affected_lists_total: 1, database_available: false },
+    ]
+    vi.mocked(client.get).mockResolvedValue({ data: { alerts } })
+
+    const result = await getActiveAlerts()
+
+    expect(client.get).toHaveBeenCalledWith('/notifications/alerts')
+    expect(result).toEqual(alerts)
+  })
+
+  it('getActiveAlerts returns an empty array when nothing needs attention', async () => {
+    vi.mocked(client.get).mockResolvedValue({ data: { alerts: [] } })
+
+    await expect(getActiveAlerts()).resolves.toEqual([])
+  })
+
+  it('getActiveAlerts propagates request failures', async () => {
+    vi.mocked(client.get).mockRejectedValue(new Error('network down'))
+
+    await expect(getActiveAlerts()).rejects.toThrow('network down')
   })
 })

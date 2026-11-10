@@ -377,6 +377,27 @@
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
   },
+  "notificationCenter": {
+    "title": "Értesítések",
+    "bellLabel": "Értesítések, {{count}} új",
+    "markAllRead": "Összes megjelölése olvasottként",
+    "empty": "Nincs új értesítés",
+    "close": "Elvetés",
+    "updateAvailable": "Frissítés elérhető: {{version}}",
+    "viewChangelog": "Változásnapló megtekintése",
+    "alerts": {
+      "label": "Figyelmet igényel",
+      "clearsItself": "A probléma megoldása után ez automatikusan megszűnik.",
+      "geoip_unavailable": {
+        "title": "Az országlista-alapú hozzáférés nincs érvényesítve",
+        "message": "A GeoIP országadatbázis hiányzik vagy nem használható, ezért {{count}} országlista ({{lists}}) minden látogatót átenged, amíg újra elérhetővé nem válik.",
+        "messagePendingApply": "A GeoIP-adatbázis ismét elérhető, de {{count}} országlista ({{lists}}) még nincs érvényesítve. Töltse újra a GeoIP-adatbázist a Biztonság oldalon, vagy indítsa újra a Charont.",
+        "docsLink": "Hogyan biztosítsa az adatbázist",
+        "issueHint": "A Charon általában tartalmazza ezt az adatbázist. Kérjük, nyisson GitHub-hibajelentést (issue), hogy javíthassuk.",
+        "issueLink": "Issue megnyitása"
+      }
+    }
+  },
   "security": {
     "title": "Security",
     "description": "Configure security layers for your reverse proxy",

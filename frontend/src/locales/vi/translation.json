@@ -377,6 +377,27 @@
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
   },
+  "notificationCenter": {
+    "title": "Thông báo",
+    "bellLabel": "Thông báo, {{count}} mới",
+    "markAllRead": "Đánh dấu tất cả là đã đọc",
+    "empty": "Không có thông báo mới",
+    "close": "Bỏ qua",
+    "updateAvailable": "Có bản cập nhật: {{version}}",
+    "viewChangelog": "Xem nhật ký thay đổi",
+    "alerts": {
+      "label": "Cần chú ý",
+      "clearsItself": "Mục này sẽ tự biến mất khi sự cố được khắc phục.",
+      "geoip_unavailable": {
+        "title": "Danh sách truy cập theo quốc gia chưa được áp dụng",
+        "message": "Cơ sở dữ liệu GeoIP quốc gia bị thiếu hoặc không dùng được, nên {{count}} danh sách quốc gia ({{lists}}) đang cho mọi khách truy cập đi qua cho đến khi cơ sở dữ liệu khả dụng trở lại.",
+        "messagePendingApply": "Cơ sở dữ liệu GeoIP đã khả dụng trở lại, nhưng {{count}} danh sách quốc gia ({{lists}}) chưa được áp dụng. Hãy tải lại cơ sở dữ liệu GeoIP từ trang Bảo mật hoặc khởi động lại Charon.",
+        "docsLink": "Cách cung cấp cơ sở dữ liệu",
+        "issueHint": "Charon thường đã bao gồm cơ sở dữ liệu này. Vui lòng mở issue trên GitHub để chúng tôi khắc phục.",
+        "issueLink": "Mở issue"
+      }
+    }
+  },
   "security": {
     "title": "Security",
     "description": "Configure security layers for your reverse proxy",

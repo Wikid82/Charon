@@ -377,6 +377,27 @@
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
   },
+  "notificationCenter": {
+    "title": "Notificări",
+    "bellLabel": "Notificări, {{count}} noi",
+    "markAllRead": "Marchează toate ca citite",
+    "empty": "Nicio notificare nouă",
+    "close": "Renunță",
+    "updateAvailable": "Actualizare disponibilă: {{version}}",
+    "viewChangelog": "Vezi jurnalul de modificări",
+    "alerts": {
+      "label": "Necesită atenție",
+      "clearsItself": "Acest lucru dispare de la sine când problema este rezolvată.",
+      "geoip_unavailable": {
+        "title": "Listele de acces pe țări nu sunt aplicate",
+        "message": "Baza de date GeoIP cu țări lipsește sau nu poate fi utilizată, deci {{count}} listă/liste de țări ({{lists}}) lasă să treacă orice vizitator până devine din nou disponibilă.",
+        "messagePendingApply": "Baza de date GeoIP este din nou disponibilă, dar {{count}} listă/liste de țări ({{lists}}) nu sunt încă aplicate. Reîncarcă baza de date GeoIP din pagina Securitate sau repornește Charon.",
+        "docsLink": "Cum se furnizează baza de date",
+        "issueHint": "Charon include de obicei această bază de date. Deschide un issue pe GitHub ca să putem remedia problema.",
+        "issueLink": "Deschide un issue"
+      }
+    }
+  },
   "security": {
     "title": "Security",
     "description": "Configure security layers for your reverse proxy",

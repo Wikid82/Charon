@@ -377,6 +377,27 @@
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
   },
+  "notificationCenter": {
+    "title": "Oznámení",
+    "bellLabel": "Oznámení, nových: {{count}}",
+    "markAllRead": "Označit vše jako přečtené",
+    "empty": "Žádná nová oznámení",
+    "close": "Zavřít",
+    "updateAvailable": "K dispozici je aktualizace: {{version}}",
+    "viewChangelog": "Zobrazit changelog",
+    "alerts": {
+      "label": "Vyžaduje pozornost",
+      "clearsItself": "Po opravení problému toto zmizí samo.",
+      "geoip_unavailable": {
+        "title": "Seznamy přístupu podle země se neuplatňují",
+        "message": "Databáze zemí GeoIP chybí nebo je nepoužitelná, takže {{count}} seznam(ů) zemí ({{lists}}) pustí každého návštěvníka, dokud nebude znovu dostupná.",
+        "messagePendingApply": "Databáze GeoIP je opět dostupná, ale {{count}} seznam(ů) zemí ({{lists}}) se zatím neuplatňuje. Znovu načtěte databázi GeoIP na stránce Zabezpečení nebo restartujte Charon.",
+        "docsLink": "Jak databázi zpřístupnit",
+        "issueHint": "Charon tuto databázi obvykle obsahuje. Otevřete prosím issue na GitHubu, abychom to mohli opravit.",
+        "issueLink": "Otevřít issue"
+      }
+    }
+  },
   "security": {
     "title": "Security",
     "description": "Configure security layers for your reverse proxy",

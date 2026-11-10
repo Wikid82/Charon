@@ -377,6 +377,27 @@
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
   },
+  "notificationCenter": {
+    "title": "Ilmoitukset",
+    "bellLabel": "Ilmoitukset, {{count}} uutta",
+    "markAllRead": "Merkitse kaikki luetuiksi",
+    "empty": "Ei uusia ilmoituksia",
+    "close": "Hylkää",
+    "updateAvailable": "Päivitys saatavilla: {{version}}",
+    "viewChangelog": "Näytä muutosloki",
+    "alerts": {
+      "label": "Vaatii huomiota",
+      "clearsItself": "Tämä poistuu itsestään, kun ongelma on korjattu.",
+      "geoip_unavailable": {
+        "title": "Maakohtaisia pääsylistoja ei noudateta",
+        "message": "GeoIP-maatietokanta puuttuu tai ei ole käytettävissä, joten {{count}} maalista ({{lists}}) päästää jokaisen kävijän läpi, kunnes tietokanta on taas saatavilla.",
+        "messagePendingApply": "GeoIP-tietokanta on taas saatavilla, mutta {{count}} maalistaa ({{lists}}) ei vielä noudateta. Lataa GeoIP-tietokanta uudelleen Suojaus-sivulta tai käynnistä Charon uudelleen.",
+        "docsLink": "Näin toimitat tietokannan",
+        "issueHint": "Charon sisältää yleensä tämän tietokannan. Avaa GitHubiin issue, jotta voimme korjata asian.",
+        "issueLink": "Avaa issue"
+      }
+    }
+  },
   "security": {
     "title": "Security",
     "description": "Configure security layers for your reverse proxy",

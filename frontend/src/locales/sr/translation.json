@@ -377,6 +377,27 @@
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
   },
+  "notificationCenter": {
+    "title": "Obaveštenja",
+    "bellLabel": "Obaveštenja, {{count}} novih",
+    "markAllRead": "Označi sve kao pročitano",
+    "empty": "Nema novih obaveštenja",
+    "close": "Odbaci",
+    "updateAvailable": "Dostupno ažuriranje: {{version}}",
+    "viewChangelog": "Pogledaj izmene",
+    "alerts": {
+      "label": "Zahteva pažnju",
+      "clearsItself": "Ovo nestaje samo od sebe kada se problem reši.",
+      "geoip_unavailable": {
+        "title": "Liste pristupa po državi se ne primenjuju",
+        "message": "GeoIP baza podataka o državama nedostaje ili se ne može koristiti, pa {{count}} lista(e) država ({{lists}}) propušta svakog posetioca dok ponovo ne bude dostupna.",
+        "messagePendingApply": "GeoIP baza podataka je ponovo dostupna, ali {{count}} lista(e) država ({{lists}}) još nisu primenjene. Ponovo učitajte GeoIP bazu na stranici Bezbednost ili ponovo pokrenite Charon.",
+        "docsLink": "Kako obezbediti bazu podataka",
+        "issueHint": "Charon obično uključuje ovu bazu podataka. Otvorite issue na GitHub-u kako bismo to mogli da popravimo.",
+        "issueLink": "Otvori issue"
+      }
+    }
+  },
   "security": {
     "title": "Security",
     "description": "Configure security layers for your reverse proxy",

@@ -377,6 +377,27 @@
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
   },
+  "notificationCenter": {
+    "title": "Aviseringar",
+    "bellLabel": "Aviseringar, {{count}} nya",
+    "markAllRead": "Markera alla som lästa",
+    "empty": "Inga nya aviseringar",
+    "close": "Avfärda",
+    "updateAvailable": "Uppdatering tillgänglig: {{version}}",
+    "viewChangelog": "Visa ändringslogg",
+    "alerts": {
+      "label": "Kräver uppmärksamhet",
+      "clearsItself": "Detta försvinner av sig självt när problemet är åtgärdat.",
+      "geoip_unavailable": {
+        "title": "Landslistor för åtkomst tillämpas inte",
+        "message": "GeoIP-landsdatabasen saknas eller kan inte användas, så {{count}} landslista(or) ({{lists}}) släpper igenom alla besökare tills den är tillgänglig igen.",
+        "messagePendingApply": "GeoIP-databasen är tillgänglig igen, men {{count}} landslista(or) ({{lists}}) tillämpas ännu inte. Läs in GeoIP-databasen igen på säkerhetssidan eller starta om Charon.",
+        "docsLink": "Så tillhandahåller du databasen",
+        "issueHint": "Charon brukar inkludera den här databasen. Öppna ett ärende på GitHub så att vi kan åtgärda det.",
+        "issueLink": "Öppna ett ärende"
+      }
+    }
+  },
   "security": {
     "title": "Security",
     "description": "Configure security layers for your reverse proxy",

@@ -377,6 +377,27 @@
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
   },
+  "notificationCenter": {
+    "title": "Notificações",
+    "bellLabel": "Notificações, {{count}} novas",
+    "markAllRead": "Marcar todas como lidas",
+    "empty": "Nenhuma notificação nova",
+    "close": "Dispensar",
+    "updateAvailable": "Atualização disponível: {{version}}",
+    "viewChangelog": "Ver changelog",
+    "alerts": {
+      "label": "Requer atenção",
+      "clearsItself": "Isso é resolvido automaticamente quando o problema for corrigido.",
+      "geoip_unavailable": {
+        "title": "As listas de acesso por país não estão sendo aplicadas",
+        "message": "O banco de dados GeoIP de países está ausente ou não pode ser usado, então {{count}} lista(s) de países ({{lists}}) deixam passar todos os visitantes até que ele esteja disponível novamente.",
+        "messagePendingApply": "O banco de dados GeoIP está disponível novamente, mas {{count}} lista(s) de países ({{lists}}) ainda não estão sendo aplicadas. Recarregue o banco de dados GeoIP na página de Segurança ou reinicie o Charon.",
+        "docsLink": "Como fornecer o banco de dados",
+        "issueHint": "O Charon normalmente inclui este banco de dados. Abra uma issue no GitHub para que possamos corrigir isso.",
+        "issueLink": "Abrir uma issue"
+      }
+    }
+  },
   "security": {
     "title": "Security",
     "description": "Configure security layers for your reverse proxy",

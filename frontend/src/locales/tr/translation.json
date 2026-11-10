@@ -377,6 +377,27 @@
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
   },
+  "notificationCenter": {
+    "title": "Bildirimler",
+    "bellLabel": "Bildirimler, {{count}} yeni",
+    "markAllRead": "Tümünü okundu olarak işaretle",
+    "empty": "Yeni bildirim yok",
+    "close": "Kapat",
+    "updateAvailable": "Güncelleme mevcut: {{version}}",
+    "viewChangelog": "Değişiklik günlüğünü gör",
+    "alerts": {
+      "label": "Dikkat gerektiriyor",
+      "clearsItself": "Sorun giderildiğinde bu kendiliğinden kaybolur.",
+      "geoip_unavailable": {
+        "title": "Ülke erişim listeleri uygulanmıyor",
+        "message": "GeoIP ülke veritabanı eksik veya kullanılamıyor; bu nedenle {{count}} ülke listesi ({{lists}}) veritabanı yeniden kullanılabilir olana kadar tüm ziyaretçilerin geçmesine izin veriyor.",
+        "messagePendingApply": "GeoIP veritabanı yeniden kullanılabilir, ancak {{count}} ülke listesi ({{lists}}) henüz uygulanmıyor. Güvenlik sayfasından GeoIP veritabanını yeniden yükleyin veya Charon’u yeniden başlatın.",
+        "docsLink": "Veritabanı nasıl sağlanır",
+        "issueHint": "Charon genellikle bu veritabanını içerir. Düzeltebilmemiz için lütfen GitHub’da bir issue açın.",
+        "issueLink": "Issue aç"
+      }
+    }
+  },
   "security": {
     "title": "Security",
     "description": "Configure security layers for your reverse proxy",

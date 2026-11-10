@@ -377,6 +377,27 @@
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
   },
+  "notificationCenter": {
+    "title": "Varsler",
+    "bellLabel": "Varsler, {{count}} nye",
+    "markAllRead": "Merk alle som lest",
+    "empty": "Ingen nye varsler",
+    "close": "Avvis",
+    "updateAvailable": "Oppdatering tilgjengelig: {{version}}",
+    "viewChangelog": "Vis endringslogg",
+    "alerts": {
+      "label": "Krever oppmerksomhet",
+      "clearsItself": "Dette forsvinner av seg selv når problemet er løst.",
+      "geoip_unavailable": {
+        "title": "Landlister for tilgang håndheves ikke",
+        "message": "GeoIP-landdatabasen mangler eller kan ikke brukes, så {{count}} landliste(r) ({{lists}}) slipper alle besøkende gjennom til den er tilgjengelig igjen.",
+        "messagePendingApply": "GeoIP-databasen er tilgjengelig igjen, men {{count}} landliste(r) ({{lists}}) håndheves ikke ennå. Last GeoIP-databasen på nytt fra sikkerhetssiden, eller start Charon på nytt.",
+        "docsLink": "Slik skaffer du databasen",
+        "issueHint": "Charon inkluderer normalt denne databasen. Åpne en sak på GitHub, så vi kan rette opp i dette.",
+        "issueLink": "Åpne en sak"
+      }
+    }
+  },
   "security": {
     "title": "Security",
     "description": "Configure security layers for your reverse proxy",

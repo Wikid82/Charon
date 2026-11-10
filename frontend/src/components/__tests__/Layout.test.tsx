@@ -47,6 +47,7 @@ vi.mock('../../api/featureFlags', () => ({
 // Mock System API to prevent unhandled network requests
 vi.mock('../../api/system', () => ({
   getNotifications: vi.fn().mockResolvedValue([]),
+  getActiveAlerts: vi.fn().mockResolvedValue([]),
   markNotificationRead: vi.fn(),
   markAllNotificationsRead: vi.fn(),
   checkUpdates: vi.fn().mockResolvedValue({ available: false }),

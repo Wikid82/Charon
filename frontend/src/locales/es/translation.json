@@ -382,6 +382,27 @@
     "updateFailed": "Error al actualizar",
     "partialFailed": "Completado con {{count}} error(es)"
   },
+  "notificationCenter": {
+    "title": "Notificaciones",
+    "bellLabel": "Notificaciones, {{count}} nuevas",
+    "markAllRead": "Marcar todas como leídas",
+    "empty": "No hay notificaciones nuevas",
+    "close": "Descartar",
+    "updateAvailable": "Actualización disponible: {{version}}",
+    "viewChangelog": "Ver registro de cambios",
+    "alerts": {
+      "label": "Requiere atención",
+      "clearsItself": "Esto se resuelve solo cuando se corrige el problema.",
+      "geoip_unavailable": {
+        "title": "Las listas de acceso por país no se están aplicando",
+        "message": "La base de datos de países GeoIP falta o no se puede usar, así que {{count}} lista(s) de países ({{lists}}) dejan pasar a cualquier visitante hasta que vuelva a estar disponible.",
+        "messagePendingApply": "La base de datos GeoIP vuelve a estar disponible, pero {{count}} lista(s) de países ({{lists}}) aún no se aplican. Recarga la base de datos GeoIP desde la página de Seguridad o reinicia Charon.",
+        "docsLink": "Cómo proporcionar la base de datos",
+        "issueHint": "Charon normalmente incluye esta base de datos. Abre un issue en GitHub para que podamos corregirlo.",
+        "issueLink": "Abrir un issue"
+      }
+    }
+  },
   "security": {
     "title": "Seguridad",
     "description": "Configura las capas de seguridad para tu proxy inverso",

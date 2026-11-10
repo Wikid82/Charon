@@ -377,6 +377,27 @@
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
   },
+  "notificationCenter": {
+    "title": "התראות",
+    "bellLabel": "התראות, {{count}} חדשות",
+    "markAllRead": "סמן הכול כנקרא",
+    "empty": "אין התראות חדשות",
+    "close": "סגור",
+    "updateAvailable": "עדכון זמין: {{version}}",
+    "viewChangelog": "הצג יומן שינויים",
+    "alerts": {
+      "label": "דורש תשומת לב",
+      "clearsItself": "זה ייעלם מעצמו כשהבעיה תיפתר.",
+      "geoip_unavailable": {
+        "title": "רשימות גישה לפי מדינה אינן נאכפות",
+        "message": "מסד הנתונים של מדינות GeoIP חסר או אינו שמיש, ולכן {{count}} רשימות מדינות ({{lists}}) מתירות לכל מבקר לעבור עד שיהיה זמין שוב.",
+        "messagePendingApply": "מסד הנתונים של GeoIP זמין שוב, אך {{count}} רשימות מדינות ({{lists}}) עדיין לא נאכפות. טען מחדש את מסד הנתונים של GeoIP מדף האבטחה או הפעל מחדש את Charon.",
+        "docsLink": "כיצד לספק את מסד הנתונים",
+        "issueHint": "Charon כולל בדרך כלל את מסד הנתונים הזה. אנא פתחו issue ב-GitHub כדי שנוכל לתקן זאת.",
+        "issueLink": "פתח issue"
+      }
+    }
+  },
   "security": {
     "title": "Security",
     "description": "Configure security layers for your reverse proxy",

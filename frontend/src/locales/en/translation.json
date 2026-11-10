@@ -382,6 +382,27 @@
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
   },
+  "notificationCenter": {
+    "title": "Notifications",
+    "bellLabel": "Notifications, {{count}} new",
+    "markAllRead": "Mark all read",
+    "empty": "No new notifications",
+    "close": "Dismiss",
+    "updateAvailable": "Update available: {{version}}",
+    "viewChangelog": "View changelog",
+    "alerts": {
+      "label": "Needs attention",
+      "clearsItself": "This clears by itself when the problem is fixed.",
+      "geoip_unavailable": {
+        "title": "Country access lists are not being enforced",
+        "message": "The GeoIP country database is missing or unusable, so {{count}} country list(s) ({{lists}}) let every visitor through until it is available again.",
+        "messagePendingApply": "The GeoIP database is available again, but {{count}} country list(s) ({{lists}}) are not enforced yet. Reload the GeoIP database from the Security page or restart Charon.",
+        "docsLink": "How to provide the database",
+        "issueHint": "Charon normally includes this database. Please open a GitHub issue so we can fix it.",
+        "issueLink": "Open an issue"
+      }
+    }
+  },
   "security": {
     "title": "Security",
     "description": "Configure security layers for your reverse proxy",

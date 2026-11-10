@@ -382,6 +382,27 @@
     "updateFailed": "更新失败",
     "partialFailed": "完成，有 {{count}} 个错误"
   },
+  "notificationCenter": {
+    "title": "通知",
+    "bellLabel": "通知，{{count}} 条新消息",
+    "markAllRead": "全部标为已读",
+    "empty": "没有新通知",
+    "close": "忽略",
+    "updateAvailable": "有可用更新：{{version}}",
+    "viewChangelog": "查看更新日志",
+    "alerts": {
+      "label": "需要注意",
+      "clearsItself": "问题修复后将自动消失。",
+      "geoip_unavailable": {
+        "title": "国家/地区访问列表未生效",
+        "message": "GeoIP 国家数据库缺失或不可用，因此 {{count}} 个国家/地区列表（{{lists}}）在数据库恢复可用之前会放行所有访客。",
+        "messagePendingApply": "GeoIP 数据库已恢复可用，但 {{count}} 个国家/地区列表（{{lists}}）尚未生效。请在安全页面重新加载 GeoIP 数据库，或重启 Charon。",
+        "docsLink": "如何提供数据库",
+        "issueHint": "Charon 通常会内置此数据库。请在 GitHub 上提交 issue，以便我们修复。",
+        "issueLink": "提交 issue"
+      }
+    }
+  },
   "security": {
     "title": "安全",
     "description": "为反向代理配置安全层",

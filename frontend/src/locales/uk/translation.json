@@ -377,6 +377,27 @@
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
   },
+  "notificationCenter": {
+    "title": "Сповіщення",
+    "bellLabel": "Сповіщення, нових: {{count}}",
+    "markAllRead": "Позначити всі як прочитані",
+    "empty": "Нових сповіщень немає",
+    "close": "Приховати",
+    "updateAvailable": "Доступне оновлення: {{version}}",
+    "viewChangelog": "Переглянути зміни",
+    "alerts": {
+      "label": "Потребує уваги",
+      "clearsItself": "Це зникне саме, коли проблему буде виправлено.",
+      "geoip_unavailable": {
+        "title": "Списки доступу за країнами не застосовуються",
+        "message": "База даних GeoIP за країнами відсутня або непридатна, тож {{count}} список(ки) країн ({{lists}}) пропускає всіх відвідувачів, доки база знову не стане доступною.",
+        "messagePendingApply": "База даних GeoIP знову доступна, але {{count}} список(ки) країн ({{lists}}) ще не застосовуються. Перезавантажте базу GeoIP на сторінці «Безпека» або перезапустіть Charon.",
+        "docsLink": "Як надати базу даних",
+        "issueHint": "Зазвичай Charon містить цю базу даних. Створіть, будь ласка, issue на GitHub, щоб ми могли це виправити.",
+        "issueLink": "Створити issue"
+      }
+    }
+  },
   "security": {
     "title": "Security",
     "description": "Configure security layers for your reverse proxy",
