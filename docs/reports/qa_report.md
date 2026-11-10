@@ -1,76 +1,102 @@
-# QA Report: GeoIP Database Location
+# QA Report: Handling of Sensitive Requests
 
-- Branch: `fix/geoip-database-location` (commits `d6a39b7b5`, `d9b4ad2e2` on `development`)
-- Scope: the image keeps the GeoIP database in `/app/geoip/` instead of the data folder; the database path is chosen at startup and on every reload (`CHARON_GEOIP_DB_PATH`, then `/app/data/geoip/GeoLite2-Country.mmdb` when it is a regular file, then `/app/geoip/GeoLite2-Country.mmdb`); the build marker moves to `/app/geoip/.missing`; the image no longer sets `CHARON_GEOIP_DB_PATH`; ownership of `/app/data` is set in a separate build step.
-- Image under test: the repository `Dockerfile` built with `VERSION=dev` under a throwaway tag, plus a variant whose GeoIP download step was run against an unreachable address.
+- Branch: `fix/sensitive-request-handling` at `a2a3d00de` (13 commits on `development` `c3383e14c`).
+- Scope: spec `docs/plans/cerberus_hardening_batch6_spec.md` section 5 (PR 23b). Items: 455 (query token kept out of the connection list, logs and streamed log entries), 430 (live log socket limits), 898 (key-containing export formats always ask for the password), 589 (backup before a certificate delete follows the encryption setting), 805 (management networks), 870 (emergency reset attempt limits).
+- This is a re-verification after the fixes for the four items that blocked the first review (patch coverage, lint, E2E attempt budget, log socket test race).
+- Image under test: `charon:local`, rebuilt from `a2a3d00de` with `docker-rebuild-e2e`.
 - Date: 2026-11-10
 
 ## Verdict
 
-**APPROVED.** All checks pass. Two non-blocking findings are listed below for a decision.
+**NOT APPROVED (one test-only blocker).** All four earlier blockers are resolved: patch coverage is 100%, `make lint-backend` reports 0 issues, the E2E specs stay well inside the failed-attempt budget, and the earlier race in `TestConfigureLogSocket_PongRefreshesReadDeadline` no longer appears. Every behaviour check passes. One new test, `TestWriteLogSocketPing_SetsWriteDeadline`, is flaky under `-race` (B5). It does not affect application behaviour, but CI runs the backend suite with `-race`, so it must be fixed before merge.
+
+## Earlier Blockers
+
+| ID | Item | Status | Evidence |
+| --- | --- | --- | --- |
+| B1 | Patch coverage 91.0% | RESOLVED | `scripts/local-patch-report.sh` (strict, baseline `origin/development`): 281/281 changed backend lines covered, 100.0%. Frontend and agent: no changed executable lines |
+| B2 | `make lint-backend` reported 2 issues | RESOLVED | `make lint-backend`: 0 issues (8 linters, exit 0) |
+| B3 | E2E reset tests had no spare room in the failed-attempt budget | RESOLVED | See "E2E Attempt Budget" below: 1 charged attempt per listener per CI run, at most 3 with `retries: 2`, against a budget of 5 |
+| B4 | Data race in `log_socket_deadlines_test.go` | RESOLVED for the reported race; see B5 | The pong-refresh test no longer leaks its ping goroutine. In three `go test -race -count=15` loops over the log socket tests, the only race report came together with a B5 timeout |
+
+## Blocking Item
+
+| ID | Item | Evidence | Remediation |
+| --- | --- | --- | --- |
+| B5 | `TestWriteLogSocketPing_SetsWriteDeadline` is flaky under `-race` | `go test -race -count=15 -run 'LogSocket\|ConfigureLogSocket\|WriteLogSocket' ./internal/api/handlers/` failed in 2 of 3 loops. Each failure was one run of this test at 30.0 s ("ping writes never hit the write deadline", `log_socket_deadlines_test.go:227`); the other 14 runs took 7-9 s. One of the two failures also reported "race detected during execution of test". The test relies on 2,000,000 empty pings filling the socket buffers of a client that never reads. Loopback buffers grow automatically (receive maximum on the test host: 32 MiB), so whether and when the writes block depends on the kernel, not on the code under test. When the test times out, its handler goroutine keeps calling `writeLogSocketPing`, which reads `logSocketWriteWait` after the test's cleanup has restored it, so the race is a consequence of the timeout | Make the buffer size deterministic: in the handler, set a small send buffer on the underlying connection (`conn.NetConn().(*net.TCPConn).SetWriteBuffer(4096)`), and dial with a `websocket.Dialer` whose `NetDialContext` sets a small receive buffer on the client side. Then loop until the first error instead of a fixed count. Make the test wait for the handler goroutine before cleanup (for example close the client and receive from `writeErr` in a `t.Cleanup` registered after `withLogSocketTimings`). Apply the same buffer setup to `TestWriteLogSocketJSON_SetsWriteDeadline`, which passes today only because its 64 KiB payloads fill the buffers quickly |
 
 ## Gate Results
 
 | Gate | Result | Evidence |
 | --- | --- | --- |
 | `make lint-backend` | PASS | 0 issues |
-| `go build ./...` | PASS | Clean |
-| Scoped `go test` (geoip, services, routes, handlers, caddy) | PASS | All packages ok |
-| Backend coverage (`scripts/go-test-coverage.sh`) | PASS | Statement 93.3%, line 92.2% (gate 87%) |
-| Local patch coverage (`scripts/local-patch-report.sh`, strict) | PASS | 100% (41/41 backend lines) |
-| `lefthook run pre-commit` on the branch files | PASS | All hooks passed; semgrep 0 findings |
+| `go build ./...` (backend) | PASS | Clean |
+| `go test -race` on `internal/ratelimit`, `internal/api/middleware`, `internal/server` | PASS | All ok |
+| `go test -race -count=15` on the log socket tests | FAIL (B5) | 3 loops: 1 pass, 2 failures, all in `TestWriteLogSocketPing_SetsWriteDeadline` |
+| Backend coverage (`scripts/go-test-coverage.sh`, full run with `-race`) | PASS | Statement 93.4%, line 92.3% (gate 87%), zero test failures |
+| Local patch coverage (`scripts/local-patch-report.sh`, strict) | PASS | 100.0% (281/281) |
+| Playwright `--project=security-tests --retries=0`, two runs back-to-back on one freshly rebuilt container: `emergency-token`, `emergency-reset`, `emergency-server/tier2-validation`, `zzzz-break-glass-recovery`, `acl-enforcement`, `security/websocket-connection-token` | PASS | Run 1: 33 passed (22.4 s). Run 2, started 25 s later: 33 passed (21.8 s) |
+| Frontend gates (coverage, type check, build) | PASS (carried over) | No frontend files changed since the first review; results from that review stand (lines 92.52%) |
+| GORM scan | PASS (carried over) | No model, query or migration changes since the first review |
+| CodeQL and Trivy | Deferred to CI | The fix commits add no new feature surface; the first review's local scans were clean for this branch |
 
-CodeQL and Trivy were not run locally: the change is a fix with no new feature surface, and CI runs both on every PR. No model or migration changes, so the GORM scan does not apply.
+## E2E Attempt Budget
+
+Only a 401 from the reset handler (wrong or missing emergency token) spends the per-address budget: 5 attempts, refilling one per minute, separately for the main listener and the Tier 2 listener. Requests refused earlier (Basic Auth on the Tier 2 listener, the management network check, the ACL, or a route the reset endpoint does not serve) spend nothing.
+
+Every spec that sends a reset request was audited (`grep -rn security-reset tests/`):
+
+| Spec | Requests that are refused | Charged on main | Charged on Tier 2 |
+| --- | --- | --- | --- |
+| `security-enforcement/emergency-token.spec.ts` | One wrong token in "Emergency reset requires a valid token and never throttles successful resets" | 1 | 0 |
+| `security-enforcement/emergency-server/tier2-validation.spec.ts` | One wrong token ("should reject invalid emergency token on Tier 2"); one request without Basic Auth (refused before the throttle) | 0 | 1 |
+| `security-enforcement/emergency-server/emergency-server.spec.ts` | One request without Basic Auth (refused before the throttle) | 0 | 0 |
+| `security/self-proxy-requests.spec.ts` | One request without Basic Auth (refused before the throttle) | 0 | 0 |
+| `security-enforcement/acl-enforcement.spec.ts` | A GET to the reset path (the throttle guards only POST) and a POST to `/emergency/security-reset` on the main listener (not a reset route there) | 0 | 0 |
+| Setup files and all other specs (`auth.setup.ts`, `security-shard.setup.ts`, `fixtures/security.ts`, `utils/security-settings-api.ts`, `crowdsec-lifecycle`, `zzz-admin-whitelist-blocking`, `user-lifecycle`, `multi-component-*`, `security-dashboard`) | Correct token only. Contexts with `httpCredentials` first receive a Basic Auth challenge (401 before the throttle) | 0 | 0 |
+| **Total per CI run** | | **1** | **1** |
+| **Worst case with `retries: 2`** (both tests fail on every attempt) | | **3** | **1 + 2 = 3** |
+
+Each CI security job starts its own container, so budgets are not shared across jobs. The container logs from the two local runs match the table: one handler 401 on the main listener per run; on the Tier 2 listener, the Basic Auth challenges plus one handler 401 per run.
 
 ## Container Checks
 
-Throwaway containers with their own networks, volumes and host folders. The API was bound to loopback only. Clients ran in separate containers on internal networks whose subnets resolve as GB, SE and US in the bundled database. One proxy host used a country allow-list (GB), one a country block-list (SE). All containers, networks, volumes, folders and test images were removed afterwards.
+Throwaway containers from `charon:local` with their own volume and Docker network; clients ran in separate containers at fixed addresses. Everything was removed afterwards.
 
-### (1) Image layout (PASS)
+### Query token in logs (PASS)
 
-- `/app/geoip/GeoLite2-Country.mmdb` exists, owned by `charon:charon`, mode 644; its checksum matches `GEOLITE2_COUNTRY_SHA256`.
-- No `CHARON_GEOIP_DB_PATH` in the image environment.
-- The image has no `/app/data/geoip`; the entrypoint creates it.
+Setup: Cerberus and CrowdSec on, a proxy host whose upstream is Charon itself, and a Cerberus live-log socket open. Through the proxy host: two requests with a session token in the query string (`?token=…` and `?a=1&token=…&b=2`), one unknown path with the token, a live-log socket upgrade with the token, and five normal requests.
 
-### (2) Empty host folder mounted over `/app/data` (PASS)
+- **Container output (`docker logs`):** no line contains the token (checked for the full value and its first 40 characters). Normal proxy runtime messages still do (server start, config load, admin API, TLS and CrowdSec module messages: 46 lines). The application's own request lines show the path only.
+- **Access log file** (`/var/log/caddy/access.log`): 20 lines, none with the token. URIs were written as `/api/v1/websocket/stats`, `/api/v1/websocket/stats?a=1&b=2`, `/api/v1/logs/live` and `/api/v1/does-not-exist`; other query parameters are kept (`/api/v1/health?n=1`). All lines are valid JSON.
+- **Live-log stream:** 10 entries for the proxy host, none with the token.
+- **CrowdSec:** `cscli metrics show acquisition` shows `file:/var/log/caddy/access.log` with 20 lines read and 20 parsed.
+- **Data files:** a search of `/app/data` and `/var/log` found no file containing the token.
 
-Started as root (as the existing deployment does) with an empty host folder at `/app/data`:
+### Reset attempt limits and management networks (PASS)
 
-- Startup log: database loaded from `/app/geoip/GeoLite2-Country.mmdb`.
-- `/security/geoip/status`: `available: true`, `loaded: true`, `db_path: /app/geoip/GeoLite2-Country.mmdb`. The proxy `geoip2` app uses `databaseDirectory: /app/geoip`.
+Management networks set to one client address (A); a second client (B) is outside it.
 
-| Client | Allow-list host (GB) | Block-list host (SE) |
+| Client | Requests | Results |
 | --- | --- | --- |
-| GB | 200 | 200 |
-| SE | 403 | 403 |
-| US | 403 | 200 |
-
-### (3) Database placed in the data folder (PASS)
-
-- A valid country database with no addresses was copied to `/app/data/geoip/GeoLite2-Country.mmdb`. Before the reload the answers did not change. `POST /security/geoip/reload` returned 200 with `db_path: /app/data/geoip/GeoLite2-Country.mmdb`; the status and the proxy `geoip2` app switched to `/app/data/geoip`; all clients then got 403 on the allow-list host and 200 on the block-list host, as expected for an empty database.
-- After a restart with that file still present, the data-folder copy was loaded at startup.
-- After removing it and reloading, the bundled copy was used again and the table in (2) was restored.
-- A file that is not a database, placed in the data folder and reloaded: the reload returned an error naming the file and the bundled database stayed in use with unchanged answers.
-- A directory with the database file name in the data folder is ignored; the bundled copy is used.
-- `CHARON_GEOIP_DB_PATH` pointing to a missing file: status `available: false` with that path, although the bundled copy exists (the variable is used exactly).
-
-### (4) Data folder ownership and writes (PASS)
-
-- Default user (`charon`) with a new named volume: `/app/data` and the created `geoip`, `caddy`, `crowdsec` folders are owned by `charon`; the database and other files are written; both `/app/data` and `/app/data/geoip` are writable.
-- Root with an empty host folder, and root with `PUID=1001`, `PGID=988` set: the entrypoint changed the folders to `charon`, the app and the proxy run as `charon`, and `/app/data/geoip` is writable as `charon`. `PUID`/`PGID` have no effect on this image.
-
-### (5) Image without a database (PASS)
-
-The GeoIP build step from the `Dockerfile` was run with the download address replaced by an unreachable one:
-
-- The build printed both warnings and completed. `/app/geoip/` holds `.missing` and `GeoLite2-Country.mmdb.placeholder`, owned by `charon`.
-- At startup the log showed that the database was not found at `/app/geoip/GeoLite2-Country.mmdb` and one Info line that the image was built without the database. Status: `available: false`, `reason: geoip_unavailable`. All clients got 403 on both country hosts.
-- After copying a database to `/app/data/geoip/` and reloading (200), status became available and the table in (2) was restored without a restart.
+| B, main listener | 8 resets with the correct token, then 7 with a wrong token, then 1 correct | All 16 returned 403; none returned 429, so refused requests spend no attempts |
+| B, Tier 2 listener (with Basic Auth) | 8 correct, then 7 wrong | All 403 |
+| B, Tier 2 listener (no Basic Auth) | 7 | All 401 from Basic Auth |
+| A, main listener | 1 correct | 200 |
+| A, main listener | 7 wrong | 401, 401, 401, 401, 401, 429, 429 |
+| A, main listener | 1 correct, right after | 429 with `Retry-After: 60` (as documented) |
+| A, Tier 2 listener | 7 wrong | 401 five times, then 429 twice: a separate budget from the main listener |
 
 ## Findings
 
 | ID | Severity | Finding | Evidence | Suggested follow-up |
 | --- | --- | --- | --- | --- |
-| F1 | Medium | Installs that use a named Docker volume for `/app/data` already hold a copy of the build-time database in `/app/data/geoip/`, because Docker filled the empty volume from the earlier image on first use. After upgrading, that copy takes precedence over the bundled one, so later images with newer data are not used and country data stays at the age of the first install. Bind-mounted folders are not affected. | A volume first used by the previous image contained `geoip/GeoLite2-Country.mmdb`; the new image then reported `db_path: /app/data/geoip/GeoLite2-Country.mmdb` | Decide before merge: prefer the newer of the two files (for example by the database build date in its metadata), or have the entrypoint remove a data-folder copy that matches a previously bundled one, or document the step in the upgrade notes |
-| F2 | Low | When the data-folder copy cannot be read at startup, country lists refuse all requests even though the bundled database is fine. A reload in the same situation keeps the bundled database. Behaviour is fail-closed, logged as a warning and shown in the status. | Startup with a non-database file in `/app/data/geoip/`: `available: false`, all clients 403; a reload with the same file while running kept the bundled copy | Optional: fall back to the bundled copy at startup when the preferred file cannot be opened, or document the difference |
-| F3 | Low | Containers whose configuration was copied from an earlier container (some update tools copy the full environment) keep `CHARON_GEOIP_DB_PATH=/app/data/geoip/GeoLite2-Country.mmdb` from the earlier image. With a bind-mounted data folder that path does not exist, so country lists keep refusing requests until the variable is removed or a database is placed there. Containers created fresh from the new image are not affected. | The existing dev deployment's container configuration still lists that variable | Mention in the release notes; optionally treat that exact former default as unset when the file does not exist |
+| F1 | Medium | Flaky log socket deadline test | B5 | Fix in this PR (B5) |
+| F2 | Low | A management list that names only remote addresses also blocks resets from the Charon machine, including on the Tier 2 listener | First review, management network table | Document that `127.0.0.1` must be listed to keep resets from the Charon machine working, or always allow loopback on the Tier 2 listener |
+| F3 | Info | Trivy HIGH findings in bundled third-party binaries with no upstream fix | First review | Already accepted in `.grype.yaml`; no action in this PR |
+
+Resolved since the first review: the E2E attempt budget (now 1 per listener per run), non-401 refusals spending the budget (only 401 counts now, confirmed above), and the outdated limit comment in `tier2-validation.spec.ts`.
+
+## Notes
+
+- The shared `charon-e2e` container was recreated by `docker-rebuild-e2e` before the E2E runs. No other running containers were touched.
