@@ -2,7 +2,7 @@ package services
 
 import (
 	"encoding/json"
-	"net"
+	"net/netip"
 	"testing"
 	"time"
 
@@ -557,11 +557,8 @@ func TestAccessListService_Validation(t *testing.T) {
 	})
 }
 
-// TestIPMatchesCIDR_Helper tests the ipMatchesCIDR helper function
-func TestIPMatchesCIDR_Helper(t *testing.T) {
-	db := setupTestDB(t)
-	service := NewAccessListService(db)
-
+// TestAddrInEntry_Helper tests the addrInEntry helper function
+func TestAddrInEntry_Helper(t *testing.T) {
 	tests := []struct {
 		name    string
 		ipStr   string
@@ -579,21 +576,14 @@ func TestIPMatchesCIDR_Helper(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ip := net.ParseIP(tt.ipStr)
-			if ip == nil {
-				t.Fatalf("Failed to parse test IP: %s", tt.ipStr)
-			}
-			result := service.ipMatchesCIDR(ip, tt.cidr)
+			result := addrInEntry(tt.cidr, netip.MustParseAddr(tt.ipStr))
 			assert.Equal(t, tt.matches, result)
 		})
 	}
 }
 
-// TestIsPrivateIP_Helper tests the isPrivateIP helper function
-func TestIsPrivateIP_Helper(t *testing.T) {
-	db := setupTestDB(t)
-	service := NewAccessListService(db)
-
+// TestLocalNetworkContains_Helper tests the localNetworkContains helper function
+func TestLocalNetworkContains_Helper(t *testing.T) {
 	tests := []struct {
 		name      string
 		ipStr     string
@@ -612,11 +602,7 @@ func TestIsPrivateIP_Helper(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ip := net.ParseIP(tt.ipStr)
-			if ip == nil {
-				t.Fatalf("Failed to parse test IP: %s", tt.ipStr)
-			}
-			result := service.isPrivateIP(ip)
+			result := localNetworkContains(netip.MustParseAddr(tt.ipStr))
 			assert.Equal(t, tt.isPrivate, result)
 		})
 	}
@@ -749,36 +735,33 @@ func TestAccessListService_GetTemplates_Structure(t *testing.T) {
 
 // TestAccessListService_ParseCountryCodes tests the country code parsing helper.
 func TestAccessListService_ParseCountryCodes(t *testing.T) {
-	db := setupTestDB(t)
-	service := NewAccessListService(db)
-
 	t.Run("parse single code", func(t *testing.T) {
-		codes := service.parseCountryCodes("US")
+		codes := parseCountryCodes("US")
 		assert.Equal(t, []string{"US"}, codes)
 	})
 
 	t.Run("parse multiple codes", func(t *testing.T) {
-		codes := service.parseCountryCodes("US,GB,DE")
+		codes := parseCountryCodes("US,GB,DE")
 		assert.Equal(t, []string{"US", "GB", "DE"}, codes)
 	})
 
 	t.Run("parse with spaces", func(t *testing.T) {
-		codes := service.parseCountryCodes("US, GB, DE")
+		codes := parseCountryCodes("US, GB, DE")
 		assert.Equal(t, []string{"US", "GB", "DE"}, codes)
 	})
 
 	t.Run("parse with lowercase", func(t *testing.T) {
-		codes := service.parseCountryCodes("us,gb,de")
+		codes := parseCountryCodes("us,gb,de")
 		assert.Equal(t, []string{"US", "GB", "DE"}, codes)
 	})
 
 	t.Run("parse empty string", func(t *testing.T) {
-		codes := service.parseCountryCodes("")
+		codes := parseCountryCodes("")
 		assert.Nil(t, codes)
 	})
 
 	t.Run("parse with empty entries", func(t *testing.T) {
-		codes := service.parseCountryCodes("US,,GB,,,DE")
+		codes := parseCountryCodes("US,,GB,,,DE")
 		assert.Equal(t, []string{"US", "GB", "DE"}, codes)
 	})
 }
@@ -842,4 +825,12 @@ func TestAccessListService_ValidateACLRules(t *testing.T) {
 		assert.Error(t, err)
 		assert.ErrorIs(t, err, ErrInvalidIPAddress)
 	})
+}
+
+func TestTestIPRefusesZonedAddress(t *testing.T) {
+	svc := characterizationService(t, nil)
+	id := insertCharacterizationACL(t, svc.db, &models.AccessList{Type: "whitelist", Enabled: true})
+
+	_, _, err := svc.TestIP(id, "fe80::1%eth0")
+	assert.ErrorIs(t, err, ErrInvalidIPAddress)
 }

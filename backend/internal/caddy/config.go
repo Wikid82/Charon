@@ -455,6 +455,8 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	// Initialize routes slice
 	routes := make([]*Route, 0)
 	// Track IP-only hostnames to skip AutoHTTPS/ACME
+	// Admin whitelist ranges are parsed once; every deny route excludes them through denyMatcherSet.
+	adminRanges := network.SplitAddressList(adminWhitelist)
 	ipSubjects := make([]string, 0)
 
 	// Track processed domains to prevent duplicates (Ghost Host fix).
@@ -536,30 +538,13 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			}
 		}
 		if len(decisionIPs) > 0 {
-			// Build a subroute to match these remote IPs and serve 403
-			// Admin whitelist exclusion must be applied: exclude adminWhitelist if present
-			// Build matchParts
-			var matchParts []map[string]any
-			matchParts = append(matchParts, map[string]any{"remote_ip": map[string]any{"ranges": decisionIPs}})
-			if adminWhitelist != "" {
-				adminParts := strings.Split(adminWhitelist, ",")
-				trims := make([]string, 0)
-				for _, p := range adminParts {
-					p = strings.TrimSpace(p)
-					if p == "" {
-						continue
-					}
-					trims = append(trims, p)
-				}
-				if len(trims) > 0 {
-					matchParts = append(matchParts, map[string]any{"not": []map[string]any{{"remote_ip": map[string]any{"ranges": trims}}}})
-				}
-			}
+			// Build a subroute that answers 403 for these remote IPs, except admin whitelist addresses.
+			decisionSet := denyMatcherSet(map[string]any{"remote_ip": map[string]any{"ranges": decisionIPs}}, nil, adminRanges)
 			decHandler := Handler{
 				"handler": "subroute",
 				"routes": []map[string]any{
 					{
-						"match": matchParts,
+						"match": []map[string]any{decisionSet},
 						"handle": []map[string]any{
 							{
 								"handler":     "static_response",
@@ -611,7 +596,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		if aclEnabled && host.AccessListID != nil && host.AccessList != nil && host.AccessList.Enabled {
 			if isCountryList(host.AccessList) && !geoIPAvailable {
 				// A country list cannot match without the database, so the host refuses every request instead.
-				securityHandlers = append(securityHandlers, geoUnavailableDenyHandler())
+				securityHandlers = append(securityHandlers, geoUnavailableDenyHandler(adminRanges))
 				if !slices.Contains(geoRefusedLists, host.AccessList.Name) {
 					geoRefusedLists = append(geoRefusedLists, host.AccessList.Name)
 				}
@@ -993,29 +978,37 @@ func geoIP2Handler() Handler {
 	return Handler{"handler": "geoip2", "enable": "strict"}
 }
 
-// geoUnavailableDenyHandler refuses every request. It replaces a country list while no GeoIP database is usable.
-func geoUnavailableDenyHandler() Handler {
-	return Handler{
-		"handler": "subroute",
-		"routes": []map[string]any{
+// geoUnavailableDenyHandler refuses every request except admin whitelist addresses. It replaces a country list while
+// no GeoIP database is usable. With no admin whitelist it refuses every request.
+func geoUnavailableDenyHandler(adminRanges []string) Handler {
+	return denyRoute(denyMatcherSet(nil, nil, adminRanges), geoAccessDeniedBody)
+}
+
+// denyRoute returns a subroute with one terminal route that answers 403 with body when the matcher set matches.
+// A nil set matches every request.
+func denyRoute(set map[string]any, body string) Handler {
+	route := map[string]any{
+		"handle": []map[string]any{
 			{
-				"handle": []map[string]any{
-					{
-						"handler":     "static_response",
-						"status_code": 403,
-						"body":        geoAccessDeniedBody,
-					},
-				},
-				"terminal": true,
+				"handler":     "static_response",
+				"status_code": 403,
+				"body":        body,
 			},
 		},
+		"terminal": true,
 	}
+	if set != nil {
+		route["match"] = []map[string]any{set}
+	}
+	return Handler{"handler": "subroute", "routes": []map[string]any{route}}
 }
 
 // buildACLHandler creates access control handlers based on the AccessList configuration
 func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, error) {
 	// For geo-blocking, we use CEL (Common Expression Language) matcher with caddy-geoip2 placeholders
 	// For IP-based ACLs, we use Caddy's native remote_ip matcher
+	// Admin whitelist addresses are excluded from every deny route through denyMatcherSet.
+	adminRanges := network.SplitAddressList(adminWhitelist)
 
 	if isCountryList(acl) {
 		// Geo-blocking using caddy-geoip2
@@ -1028,89 +1021,22 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 			trimmedCodes = append(trimmedCodes, `"`+code+`"`)
 		}
 
-		var expression string
+		expression := fmt.Sprintf("{geoip2.country_code} in [%s]", strings.Join(trimmedCodes, ", "))
 		if acl.Type == "geo_whitelist" {
-			// Allow only these countries, so block when not in the whitelist
-			expression = fmt.Sprintf("{geoip2.country_code} in [%s]", strings.Join(trimmedCodes, ", "))
-			// For whitelist, block when NOT in the list
-			return Handler{
-				"handler": "subroute",
-				"routes": []map[string]any{
-					{
-						"match": []map[string]any{
-							{
-								"not": []map[string]any{
-									{
-										"expression": expression,
-									},
-								},
-							},
-						},
-						"handle": []map[string]any{
-							{
-								"handler":     "static_response",
-								"status_code": 403,
-								"body":        geoAccessDeniedBody,
-							},
-						},
-						"terminal": true,
-					},
-				},
-			}, nil
+			// Allow only these countries: refuse when the country is not listed and the address is not an admin address.
+			return denyRoute(denyMatcherSet(nil, []map[string]any{{"expression": expression}}, adminRanges), geoAccessDeniedBody), nil
 		}
-		// geo_blacklist: Block these countries directly
-		expression = fmt.Sprintf("{geoip2.country_code} in [%s]", strings.Join(trimmedCodes, ", "))
-		return Handler{
-			"handler": "subroute",
-			"routes": []map[string]any{
-				{
-					"match": []map[string]any{
-						{
-							"expression": expression,
-						},
-					},
-					"handle": []map[string]any{
-						{
-							"handler":     "static_response",
-							"status_code": 403,
-							"body":        geoAccessDeniedBody,
-						},
-					},
-					"terminal": true,
-				},
-			},
-		}, nil
+		// geo_blacklist: refuse these countries, except admin addresses.
+		return denyRoute(denyMatcherSet(map[string]any{"expression": expression}, nil, adminRanges), geoAccessDeniedBody), nil
 	}
 
 	// IP/CIDR-based ACLs using Caddy's native remote_ip matcher
 	if acl.LocalNetworkOnly {
-		// Allow only RFC1918 private networks
-		return Handler{
-			"handler": "subroute",
-			"routes": []map[string]any{
-				{
-					"match": []map[string]any{
-						{
-							"not": []map[string]any{
-								{
-									"remote_ip": map[string]any{
-										"ranges": network.LocalNetworkCIDRs(),
-									},
-								},
-							},
-						},
-					},
-					"handle": []map[string]any{
-						{
-							"handler":     "static_response",
-							"status_code": 403,
-							"body":        "Access denied: Not a local network IP",
-						},
-					},
-					"terminal": true,
-				},
-			},
-		}, nil
+		// Allow only RFC1918 private networks, and admin whitelist addresses
+		localSet := denyMatcherSet(nil, []map[string]any{
+			{"remote_ip": map[string]any{"ranges": network.LocalNetworkCIDRs()}},
+		}, adminRanges)
+		return denyRoute(localSet, "Access denied: Not a local network IP"), nil
 	}
 
 	// Parse IP rules. A block-list with nothing to block adds no handler. An allow-list with no usable rules
@@ -1140,40 +1066,14 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 	}
 
 	if acl.Type == "whitelist" {
-		// Allow only these IPs (block everything else). Admin whitelist addresses always bypass whitelist checks.
-		cidrs = append(cidrs, parseAdminWhitelist(adminWhitelist)...)
+		// Allow only these IPs (block everything else). Admin whitelist addresses are always allowed.
+		cidrs = append(cidrs, adminRanges...)
 		return whitelistDenyHandler(cidrs), nil
 	}
 
 	if acl.Type == "blacklist" {
-		// Block these IPs (allow everything else)
-		// For blacklist, add an explicit 'not' clause excluding adminWhitelist ranges from the match
-		var adminExclusion any
-		if trims := parseAdminWhitelist(adminWhitelist); len(trims) > 0 {
-			adminExclusion = map[string]any{"not": []map[string]any{{"remote_ip": map[string]any{"ranges": trims}}}}
-		}
-		// Build matcher parts
-		matchParts := []map[string]any{}
-		matchParts = append(matchParts, map[string]any{"remote_ip": map[string]any{"ranges": cidrs}})
-		if adminExclusion != nil {
-			matchParts = append(matchParts, adminExclusion.(map[string]any))
-		}
-		return Handler{
-			"handler": "subroute",
-			"routes": []map[string]any{
-				{
-					"match": matchParts,
-					"handle": []map[string]any{
-						{
-							"handler":     "static_response",
-							"status_code": 403,
-							"body":        "Access denied: IP blacklisted",
-						},
-					},
-					"terminal": true,
-				},
-			},
-		}, nil
+		// Block these IPs (allow everything else). Admin whitelist addresses are never refused.
+		return denyRoute(denyMatcherSet(map[string]any{"remote_ip": map[string]any{"ranges": cidrs}}, nil, adminRanges), "Access denied: IP blacklisted"), nil
 	}
 
 	return nil, nil
@@ -1184,7 +1084,7 @@ var errAllowListFailClosed = errors.New("allow-list has no usable IP rules; requ
 
 // allowListFailClosed returns the deny handler for an allow-list without usable rules, with the reason as an error.
 func allowListFailClosed(adminWhitelist string, cause error) (Handler, error) {
-	return whitelistDenyHandler(parseAdminWhitelist(adminWhitelist)), fmt.Errorf("%w: %w", errAllowListFailClosed, cause)
+	return whitelistDenyHandler(network.SplitAddressList(adminWhitelist)), fmt.Errorf("%w: %w", errAllowListFailClosed, cause)
 }
 
 // whitelistDenyHandler refuses every request whose address is not in allowed. With no allowed address it refuses all.
@@ -1206,15 +1106,34 @@ func whitelistDenyHandler(allowed []string) Handler {
 	return Handler{"handler": "subroute", "routes": []map[string]any{route}}
 }
 
-// parseAdminWhitelist splits the comma-separated admin whitelist and drops blank entries.
-func parseAdminWhitelist(adminWhitelist string) []string {
-	var addresses []string
-	for _, p := range strings.Split(adminWhitelist, ",") {
-		if p = strings.TrimSpace(p); p != "" {
-			addresses = append(addresses, p)
-		}
+// denyMatcherSet returns the single matcher set of a deny route, or nil when the set would be empty (the route then
+// matches every request). Caddy ORs the sets in a route's "match" list and ANDs the matchers inside one set, and "not"
+// is true when none of its sets matches. The admin ranges become the first negated set, so the route refuses a request
+// only when its own condition holds and the connection address is not an admin address. Callers must emit the result
+// as the only element of "match"; never append a second set, because two sets are OR'd and refuse every other visitor.
+func denyMatcherSet(positive map[string]any, negated []map[string]any, adminRanges []string) map[string]any {
+	set := make(map[string]any, len(positive)+1)
+	var not []map[string]any
+	if len(adminRanges) > 0 {
+		not = append(not, map[string]any{"remote_ip": map[string]any{"ranges": adminRanges}})
 	}
-	return addresses
+	for key, value := range positive {
+		if key == "not" {
+			if existing, ok := value.([]map[string]any); ok {
+				not = append(not, existing...)
+			}
+			continue
+		}
+		set[key] = value
+	}
+	not = append(not, negated...)
+	if len(not) > 0 {
+		set["not"] = not
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	return set
 }
 
 // buildCrowdSecHandler returns a minimal CrowdSec handler for the caddy-crowdsec-bouncer plugin.

@@ -1,102 +1,317 @@
-# QA Report: Handling of Sensitive Requests
+# QA Report: Admin Whitelist and Access List Matching
+# QA Report: Admin Whitelist and Access List Matching
 
-- Branch: `fix/sensitive-request-handling` at `a2a3d00de` (13 commits on `development` `c3383e14c`).
-- Scope: spec `docs/plans/cerberus_hardening_batch6_spec.md` section 5 (PR 23b). Items: 455 (query token kept out of the connection list, logs and streamed log entries), 430 (live log socket limits), 898 (key-containing export formats always ask for the password), 589 (backup before a certificate delete follows the encryption setting), 805 (management networks), 870 (emergency reset attempt limits).
-- This is a re-verification after the fixes for the four items that blocked the first review (patch coverage, lint, E2E attempt budget, log socket test race).
-- Image under test: `charon:local`, rebuilt from `a2a3d00de` with `docker-rebuild-e2e`.
+- Branch: `fix/admin-exclusion-matchers` (9 commits on `development`, `5e7fa0bc7`..`cd75c2e87`)
+- Scope: deny routes for blocked addresses, IP block-lists, country lists and local-network lists are built as one
+  matcher set that excludes the admin whitelist; country and local-network lists honour the admin whitelist (also
+  while no GeoIP database is available); the access list tester reports the proxy's decision; GeoIP reload errors
+  return a stable `error_code` and a fixed message; documentation for the admin whitelist.
+- Image under test: `charon:local` from `docker-rebuild-e2e` on the branch head.
+- Branch: `fix/admin-exclusion-matchers` (9 commits on `development`, `5e7fa0bc7`..`cd75c2e87`)
+- Scope: deny routes for blocked addresses, IP block-lists, country lists and local-network lists are built as one
+  matcher set that excludes the admin whitelist; country and local-network lists honour the admin whitelist (also
+  while no GeoIP database is available); the access list tester reports the proxy's decision; GeoIP reload errors
+  return a stable `error_code` and a fixed message; documentation for the admin whitelist.
+- Image under test: `charon:local` from `docker-rebuild-e2e` on the branch head.
 - Date: 2026-11-10
 
 ## Verdict
 
-**NOT APPROVED (one test-only blocker).** All four earlier blockers are resolved: patch coverage is 100%, `make lint-backend` reports 0 issues, the E2E specs stay well inside the failed-attempt budget, and the earlier race in `TestConfigureLogSocket_PongRefreshesReadDeadline` no longer appears. Every behaviour check passes. One new test, `TestWriteLogSocketPing_SetsWriteDeadline`, is flaky under `-race` (B5). It does not affect application behaviour, but CI runs the backend suite with `-race`, so it must be fixed before merge.
+All gates pass. Local patch coverage is 100% (391 of 391 changed lines) after the coverage fixes made in response to the first QA pass.
 
-## Earlier Blockers
+## Static checks and build
 
-| ID | Item | Status | Evidence |
-| --- | --- | --- | --- |
-| B1 | Patch coverage 91.0% | RESOLVED | `scripts/local-patch-report.sh` (strict, baseline `origin/development`): 281/281 changed backend lines covered, 100.0%. Frontend and agent: no changed executable lines |
-| B2 | `make lint-backend` reported 2 issues | RESOLVED | `make lint-backend`: 0 issues (8 linters, exit 0) |
-| B3 | E2E reset tests had no spare room in the failed-attempt budget | RESOLVED | See "E2E Attempt Budget" below: 1 charged attempt per listener per CI run, at most 3 with `retries: 2`, against a budget of 5 |
-| B4 | Data race in `log_socket_deadlines_test.go` | RESOLVED for the reported race; see B5 | The pong-refresh test no longer leaks its ping goroutine. In three `go test -race -count=15` loops over the log socket tests, the only race report came together with a B5 timeout |
+| Check | Result |
+| --- | --- |
+| `make lint-backend` (golangci-lint, full config) | 0 issues |
+| `make lint-fast` (backend + agent) | 0 issues |
+| `go build ./...` | pass |
+| `go list -deps ./cmd/api \| grep -c caddymatchtest` | `0` (test helper not linked into the binary) |
+| `lefthook run pre-commit` on the branch files (forced) | all hooks pass, including semgrep; `shellcheck` exits with "No files specified" because the branch changes no `.sh` files (artefact of forcing the hook, not a finding) |
+| Frontend | untouched (`git diff origin/development..HEAD -- frontend/` is empty) |
+| Models | untouched; GORM scan not required |
+| `npm run lint:e2e` | 0 errors, 124 warnings (limit 124) |
+| `npx tsc --noEmit -p tests/tsconfig.json` | pass |
 
-## Blocking Item
+## Backend tests
 
-| ID | Item | Evidence | Remediation |
-| --- | --- | --- | --- |
-| B5 | `TestWriteLogSocketPing_SetsWriteDeadline` is flaky under `-race` | `go test -race -count=15 -run 'LogSocket\|ConfigureLogSocket\|WriteLogSocket' ./internal/api/handlers/` failed in 2 of 3 loops. Each failure was one run of this test at 30.0 s ("ping writes never hit the write deadline", `log_socket_deadlines_test.go:227`); the other 14 runs took 7-9 s. One of the two failures also reported "race detected during execution of test". The test relies on 2,000,000 empty pings filling the socket buffers of a client that never reads. Loopback buffers grow automatically (receive maximum on the test host: 32 MiB), so whether and when the writes block depends on the kernel, not on the code under test. When the test times out, its handler goroutine keeps calling `writeLogSocketPing`, which reads `logSocketWriteWait` after the test's cleanup has restored it, so the race is a consequence of the timeout | Make the buffer size deterministic: in the handler, set a small send buffer on the underlying connection (`conn.NetConn().(*net.TCPConn).SetWriteBuffer(4096)`), and dial with a `websocket.Dialer` whose `NetDialContext` sets a small receive buffer on the client side. Then loop until the first error instead of a fixed count. Make the test wait for the handler goroutine before cleanup (for example close the client and receive from `writeErr` in a `t.Cleanup` registered after `withLogSocketTimings`). Apply the same buffer setup to `TestWriteLogSocketJSON_SetsWriteDeadline`, which passes today only because its 64 KiB payloads fill the buffers quickly |
+| Run | Result |
+| --- | --- |
+| `go test -race` scoped to access list, GeoIP, evaluate and reload tests in `services` and `handlers` | pass |
+| `go test -race` for `caddy`, `caddy/caddymatchtest`, `api/routes`, `cerberus` | pass |
+| Full backend with `-race` via `scripts/go-test-coverage.sh` (30 min per-package timeout) | pass, no failures |
 
-## Gate Results
+A plain `go test -race` of `services` and `handlers` with Go's default 10 minute timeout stops on the timeout
+(the slowest packages take 10-11 minutes under `-race`); the coverage script sets a 30 minute timeout for this reason.
+Not related to this branch.
 
-| Gate | Result | Evidence |
+## Coverage
+
+| Measure | Value |
+| --- | --- |
+| Backend statement coverage (full run) | 93.4% |
+| Backend line coverage gate | 92.2% (minimum 87%) |
+| Local patch coverage (`scripts/local-patch-report.sh`, strict) | 100% (391 of 391 changed lines) |
+
+Uncovered changed lines:
+
+| File | Lines | Code |
 | --- | --- | --- |
-| `make lint-backend` | PASS | 0 issues |
-| `go build ./...` (backend) | PASS | Clean |
-| `go test -race` on `internal/ratelimit`, `internal/api/middleware`, `internal/server` | PASS | All ok |
-| `go test -race -count=15` on the log socket tests | FAIL (B5) | 3 loops: 1 pass, 2 failures, all in `TestWriteLogSocketPing_SetsWriteDeadline` |
-| Backend coverage (`scripts/go-test-coverage.sh`, full run with `-race`) | PASS | Statement 93.4%, line 92.3% (gate 87%), zero test failures |
-| Local patch coverage (`scripts/local-patch-report.sh`, strict) | PASS | 100.0% (281/281) |
-| Playwright `--project=security-tests --retries=0`, two runs back-to-back on one freshly rebuilt container: `emergency-token`, `emergency-reset`, `emergency-server/tier2-validation`, `zzzz-break-glass-recovery`, `acl-enforcement`, `security/websocket-connection-token` | PASS | Run 1: 33 passed (22.4 s). Run 2, started 25 s later: 33 passed (21.8 s) |
-| Frontend gates (coverage, type check, build) | PASS (carried over) | No frontend files changed since the first review; results from that review stand (lines 92.52%) |
-| GORM scan | PASS (carried over) | No model, query or migration changes since the first review |
-| CodeQL and Trivy | Deferred to CI | The fix commits add no new feature surface; the first review's local scans were clean for this branch |
+| `backend/internal/caddy/config.go` | 1104-1107 | `denyMatcherSet`: merging an existing `"not"` list from `positive` (no caller passes one) |
+| `backend/internal/services/access_list_service.go` | 208-209 | `TestIP`: `netip.AddrFromSlice` failure after a successful `net.ParseIP` |
+| `backend/internal/services/access_list_evaluate.go` | 193 | `evaluateIPRules`: `default` branch for an unknown list type |
+| `backend/internal/caddy/caddymatchtest/caddymatchtest.go` | 252-253, 256-257, 271-272, 276-277, 282-283, 291-292, 300-301, 309-310, 317-318, 321-322 | guard and `t.Fatalf` branches of the test helper (`isHostCatchAll`, `parsePrefix`, `statusCode`, `decodeJSON`, `asMap`, `listOf`) |
 
-## E2E Attempt Budget
+Remediation:
 
-Only a 401 from the reset handler (wrong or missing emergency token) spends the per-address budget: 5 attempts, refilling one per minute, separately for the main listener and the Tier 2 listener. Requests refused earlier (Basic Auth on the Tier 2 listener, the management network check, the ACL, or a route the reset endpoint does not serve) spend nothing.
+- `config.go` 1104-1107: add a unit test calling `denyMatcherSet` with `positive` that already holds a `"not"` list
+  and assert the admin set comes first, followed by the existing sets, then `negated`.
+- `access_list_service.go` 208-209: `net.ParseIP` always returns a 4 or 16 byte slice, so this branch cannot run.
+  Replace the pair with `netip.ParseAddr` (keeping today's error) or drop the branch.
+- `access_list_evaluate.go` 193: add an `Evaluate` case with an unknown `Type` and no `LocalNetworkOnly`, asserting
+  allowed (matching `buildACLHandler`, which adds no handler for an unknown type).
+- `caddymatchtest.go`: either cover the guards with a `testing.TB` fake that records `Fatalf`, or add
+  `backend/internal/caddy/caddymatchtest/**` to the `ignore` list in `codecov.yml` (precedent:
+  `backend/internal/crowdsec/hubcachetest/**`). The package is test-only and is not linked into the binary.
 
-Every spec that sends a reset request was audited (`grep -rn security-reset tests/`):
+## E2E (Playwright, `--project=security-tests`, after the image rebuild)
 
-| Spec | Requests that are refused | Charged on main | Charged on Tier 2 |
+`tests/security-enforcement/acl-enforcement.spec.ts`, `tests/security-enforcement/security-headers-enforcement.spec.ts`,
+`tests/security/self-proxy-requests.spec.ts`, run twice back-to-back against the same container:
+
+| Run | Result |
+| --- | --- |
+| 1 | 24 passed (24.9 s) |
+| 2 | 24 passed (22.2 s) |
+
+No flaky or skipped tests.
+
+## Container gates
+
+Throwaway container from the rebuilt image, a control client on a private bridge network, and client containers
+on separate bridge networks whose subnets are public ranges, so the proxy sees public addresses with known
+countries (bundled GeoLite2 Country database):
+
+| Client | Address | Country | Admin whitelist |
+## Container gates
+
+Throwaway container from the rebuilt image, a control client on a private bridge network, and client containers
+on separate bridge networks whose subnets are public ranges, so the proxy sees public addresses with known
+countries (bundled GeoLite2 Country database):
+
+| Client | Address | Country | Admin whitelist |
 | --- | --- | --- | --- |
-| `security-enforcement/emergency-token.spec.ts` | One wrong token in "Emergency reset requires a valid token and never throttles successful resets" | 1 | 0 |
-| `security-enforcement/emergency-server/tier2-validation.spec.ts` | One wrong token ("should reject invalid emergency token on Tier 2"); one request without Basic Auth (refused before the throttle) | 0 | 1 |
-| `security-enforcement/emergency-server/emergency-server.spec.ts` | One request without Basic Auth (refused before the throttle) | 0 | 0 |
-| `security/self-proxy-requests.spec.ts` | One request without Basic Auth (refused before the throttle) | 0 | 0 |
-| `security-enforcement/acl-enforcement.spec.ts` | A GET to the reset path (the throttle guards only POST) and a POST to `/emergency/security-reset` on the main listener (not a reset route there) | 0 | 0 |
-| Setup files and all other specs (`auth.setup.ts`, `security-shard.setup.ts`, `fixtures/security.ts`, `utils/security-settings-api.ts`, `crowdsec-lifecycle`, `zzz-admin-whitelist-blocking`, `user-lifecycle`, `multi-component-*`, `security-dashboard`) | Correct token only. Contexts with `httpCredentials` first receive a Basic Auth challenge (401 before the throttle) | 0 | 0 |
-| **Total per CI run** | | **1** | **1** |
-| **Worst case with `retries: 2`** (both tests fail on every attempt) | | **3** | **1 + 2 = 3** |
+| usa | 216.160.83.56 | US | yes (`/32`) |
+| usb | 50.114.0.10 | US | no |
+| gbc | 81.2.69.142 | GB | no |
+| sed | 89.160.20.112 | SE | no (added for the database-missing case) |
 
-Each CI security job starts its own container, so budgets are not shared across jobs. The container logs from the two local runs match the table: one handler 401 on the main listener per run; on the Tier 2 listener, the Basic Auth challenges plus one handler 401 per run.
+Admin whitelist: the control client and `216.160.83.56/32`. Cerberus and ACL on. Hosts forward to the app, so a pass
+is 200 and a refusal is 403.
 
-## Container Checks
+| Host | List |
+| --- | --- |
+| plain.qa | none |
+| block.qa | IP block-list `50.114.0.0/24` |
+| geoallow.qa | country allow-list `GB` |
+| geoblock.qa | country block-list `US` |
+| local.qa | local network only |
 
-Throwaway containers from `charon:local` with their own volume and Docker network; clients ran in separate containers at fixed addresses. Everything was removed afterwards.
+### Database available
 
-### Query token in logs (PASS)
+| Host | usa | usb | gbc |
+| usa | 216.160.83.56 | US | yes (`/32`) |
+| usb | 50.114.0.10 | US | no |
+| gbc | 81.2.69.142 | GB | no |
+| sed | 89.160.20.112 | SE | no (added for the database-missing case) |
 
-Setup: Cerberus and CrowdSec on, a proxy host whose upstream is Charon itself, and a Cerberus live-log socket open. Through the proxy host: two requests with a session token in the query string (`?token=…` and `?a=1&token=…&b=2`), one unknown path with the token, a live-log socket upgrade with the token, and five normal requests.
+Admin whitelist: the control client and `216.160.83.56/32`. Cerberus and ACL on. Hosts forward to the app, so a pass
+is 200 and a refusal is 403.
 
-- **Container output (`docker logs`):** no line contains the token (checked for the full value and its first 40 characters). Normal proxy runtime messages still do (server start, config load, admin API, TLS and CrowdSec module messages: 46 lines). The application's own request lines show the path only.
-- **Access log file** (`/var/log/caddy/access.log`): 20 lines, none with the token. URIs were written as `/api/v1/websocket/stats`, `/api/v1/websocket/stats?a=1&b=2`, `/api/v1/logs/live` and `/api/v1/does-not-exist`; other query parameters are kept (`/api/v1/health?n=1`). All lines are valid JSON.
-- **Live-log stream:** 10 entries for the proxy host, none with the token.
-- **CrowdSec:** `cscli metrics show acquisition` shows `file:/var/log/caddy/access.log` with 20 lines read and 20 parsed.
-- **Data files:** a search of `/app/data` and `/var/log` found no file containing the token.
+| Host | List |
+| --- | --- |
+| plain.qa | none |
+| block.qa | IP block-list `50.114.0.0/24` |
+| geoallow.qa | country allow-list `GB` |
+| geoblock.qa | country block-list `US` |
+| local.qa | local network only |
 
-### Reset attempt limits and management networks (PASS)
+### Database available
 
-Management networks set to one client address (A); a second client (B) is outside it.
+| Host | usa | usb | gbc |
+| --- | --- | --- | --- |
+| plain.qa | 200 | 200 | 200 |
+| block.qa | 200 | 403 `Access denied: IP blacklisted` | 200 |
+| geoallow.qa | 200 | 403 `Access denied: Geographic restriction` | 200 |
+| geoblock.qa | 200 | 403 `Access denied: Geographic restriction` | 200 |
+| local.qa | 200 | 403 `Access denied: Not a local network IP` | 403 |
 
-| Client | Requests | Results |
-| --- | --- | --- |
-| B, main listener | 8 resets with the correct token, then 7 with a wrong token, then 1 correct | All 16 returned 403; none returned 429, so refused requests spend no attempts |
-| B, Tier 2 listener (with Basic Auth) | 8 correct, then 7 wrong | All 403 |
-| B, Tier 2 listener (no Basic Auth) | 7 | All 401 from Basic Auth |
-| A, main listener | 1 correct | 200 |
-| A, main listener | 7 wrong | 401, 401, 401, 401, 401, 429, 429 |
-| A, main listener | 1 correct, right after | 429 with `Retry-After: 60` (as documented) |
-| A, Tier 2 listener | 7 wrong | 401 five times, then 429 twice: a separate budget from the main listener |
+- G-A0 IP block-list: only the listed subnet's client is refused; the other clients pass.
+- G-A1 country allow-list (GB): the whitelisted US client passes, the non-whitelisted US client is refused, GB passes.
+  Country block-list (US): the same pattern.
+- G-A1 local network only: the whitelisted public client passes; the other public clients are refused.
+- The live Caddy config shows one matcher set per deny route, with the admin ranges as the first entry of `not`.
 
-## Findings
+### Security decision
 
-| ID | Severity | Finding | Evidence | Suggested follow-up |
+A manual `block` decision for `81.2.69.142`, after the next config apply:
+| plain.qa | 200 | 200 | 200 |
+| block.qa | 200 | 403 `Access denied: IP blacklisted` | 200 |
+| geoallow.qa | 200 | 403 `Access denied: Geographic restriction` | 200 |
+| geoblock.qa | 200 | 403 `Access denied: Geographic restriction` | 200 |
+| local.qa | 200 | 403 `Access denied: Not a local network IP` | 403 |
+
+- G-A0 IP block-list: only the listed subnet's client is refused; the other clients pass.
+- G-A1 country allow-list (GB): the whitelisted US client passes, the non-whitelisted US client is refused, GB passes.
+  Country block-list (US): the same pattern.
+- G-A1 local network only: the whitelisted public client passes; the other public clients are refused.
+- The live Caddy config shows one matcher set per deny route, with the admin ranges as the first entry of `not`.
+
+### Security decision
+
+A manual `block` decision for `81.2.69.142`, after the next config apply:
+
+| Host | usa | usb | gbc |
+| Host | usa | usb | gbc |
+| --- | --- | --- | --- |
+| plain.qa | 200 | 200 | 403 `Access denied: Blocked by security decision` |
+| every listed host | as above | as above | 403 |
+
+Only the decided address is refused, on every host; the other clients keep their list outcomes. A `block` decision
+for the admin-whitelisted `216.160.83.56` has no effect (documented behaviour).
+
+### Database removed
+
+`/app/geoip/GeoLite2-Country.mmdb` removed (only the `.placeholder` left, `/app/data/geoip` empty), container
+restarted. `GET /security/geoip/status` reports `available: false`; `GET /security/status` reports
+`acl.reason: geoip_unavailable`.
+
+| Host | usa | usb | gbc (decided) | sed |
+| plain.qa | 200 | 200 | 403 `Access denied: Blocked by security decision` |
+| every listed host | as above | as above | 403 |
+
+Only the decided address is refused, on every host; the other clients keep their list outcomes. A `block` decision
+for the admin-whitelisted `216.160.83.56` has no effect (documented behaviour).
+
+### Database removed
+
+`/app/geoip/GeoLite2-Country.mmdb` removed (only the `.placeholder` left, `/app/data/geoip` empty), container
+restarted. `GET /security/geoip/status` reports `available: false`; `GET /security/status` reports
+`acl.reason: geoip_unavailable`.
+
+| Host | usa | usb | gbc (decided) | sed |
 | --- | --- | --- | --- | --- |
-| F1 | Medium | Flaky log socket deadline test | B5 | Fix in this PR (B5) |
-| F2 | Low | A management list that names only remote addresses also blocks resets from the Charon machine, including on the Tier 2 listener | First review, management network table | Document that `127.0.0.1` must be listed to keep resets from the Charon machine working, or always allow loopback on the Tier 2 listener |
-| F3 | Info | Trivy HIGH findings in bundled third-party binaries with no upstream fix | First review | Already accepted in `.grype.yaml`; no action in this PR |
+| geoallow.qa | 200 | 403 | 403 | 403 |
+| geoblock.qa | 200 | 403 | 403 | 403 |
+| block.qa | 200 | 403 | 403 | 200 |
+| local.qa | 200 | 403 | 403 | 403 |
 
-Resolved since the first review: the E2E attempt budget (now 1 per listener per run), non-401 refusals spending the budget (only 401 counts now, confirmed above), and the outdated limit comment in `tier2-validation.spec.ts`.
+The whitelisted client passes the country lists; non-whitelisted clients are refused by them, including the SE
+client that the US block-list admits while the database is present.
 
-## Notes
+### Tester parity (G-A2)
 
-- The shared `charon-e2e` container was recreated by `docker-rebuild-e2e` before the E2E runs. No other running containers were touched.
+`POST /access-lists/:id/test` for each client address and list, with and without the database:
+
+- Every answer equals the proxy's outcome for the access list. Reasons seen: "Address is in the admin whitelist",
+  "Blocked by geo whitelist: country is not in the allowed countries", "Not a private network IP (RFC1918)",
+  "GeoIP database not available - country lists refuse every address except admin addresses".
+- The tester evaluates the access list only. For the decided address `81.2.69.142` it reports the list's answer
+  (for example allowed on `block.qa`) while the proxy refuses it because of the decision.
+- A zoned address (`fe80::1%eth0`) returns 400 `invalid IP address`; an IPv4-mapped IPv6 address is evaluated as
+  the IPv4 address.
+
+### Reload errors (G-A3)
+
+| Case | Response |
+| --- | --- |
+| Database file removed | 500 `{"error":"Failed to reload the GeoIP database","error_code":"geoip_reload_failed"}` |
+| Corrupt file at `/app/data/geoip/GeoLite2-Country.mmdb` | same body |
+| Second container with `CHARON_GEOIP_DB_PATH` naming a missing file | same body |
+| Unauthenticated | 401 |
+
+No response body contains a file path. The path and OS error appear only in the server log (`detail` field).
+
+### Cerberus API middleware
+
+Unauthenticated `GET /api/v1/setup` from the public clients:
+
+| Enabled lists | usa | usb | gbc / sed |
+| --- | --- | --- | --- |
+| All four | 403 `Blocked by access control list` | 403 | 403 |
+| Country lists only (database present) | 200 | 200 | 200 |
+| Country lists only (database removed) | 200 | 200 | 200 |
+
+Country lists remain "allowed" on `/api`; the local-network list refuses public unauthenticated callers whether or
+not they are admin-whitelisted. These are the outcomes the branch keeps unchanged.
+
+## Security review
+
+- No Gotify tokens in the diff, test helpers, logs or report.
+- Reload error bodies no longer carry OS error text; errors are logged through `util.SanitizeForLog`.
+- The admin exclusion uses the connection address (`remote_ip`), so forwarded headers cannot claim it.
+- Admin whitelist entries are validated on save (`invalid admin whitelist CIDR`), so the tester's admin range parse
+  does not see malformed input from the API.
+- Local CodeQL/Trivy not run (fix-scoped PR; CI runs both).
+
+## Cleanup
+
+All throwaway containers, networks and the data volume were removed. `charon-e2e` was rebuilt by the skill and left
+running.
+| geoallow.qa | 200 | 403 | 403 | 403 |
+| geoblock.qa | 200 | 403 | 403 | 403 |
+| block.qa | 200 | 403 | 403 | 200 |
+| local.qa | 200 | 403 | 403 | 403 |
+
+The whitelisted client passes the country lists; non-whitelisted clients are refused by them, including the SE
+client that the US block-list admits while the database is present.
+
+### Tester parity (G-A2)
+
+`POST /access-lists/:id/test` for each client address and list, with and without the database:
+
+- Every answer equals the proxy's outcome for the access list. Reasons seen: "Address is in the admin whitelist",
+  "Blocked by geo whitelist: country is not in the allowed countries", "Not a private network IP (RFC1918)",
+  "GeoIP database not available - country lists refuse every address except admin addresses".
+- The tester evaluates the access list only. For the decided address `81.2.69.142` it reports the list's answer
+  (for example allowed on `block.qa`) while the proxy refuses it because of the decision.
+- A zoned address (`fe80::1%eth0`) returns 400 `invalid IP address`; an IPv4-mapped IPv6 address is evaluated as
+  the IPv4 address.
+
+### Reload errors (G-A3)
+
+| Case | Response |
+| --- | --- |
+| Database file removed | 500 `{"error":"Failed to reload the GeoIP database","error_code":"geoip_reload_failed"}` |
+| Corrupt file at `/app/data/geoip/GeoLite2-Country.mmdb` | same body |
+| Second container with `CHARON_GEOIP_DB_PATH` naming a missing file | same body |
+| Unauthenticated | 401 |
+
+No response body contains a file path. The path and OS error appear only in the server log (`detail` field).
+
+### Cerberus API middleware
+
+Unauthenticated `GET /api/v1/setup` from the public clients:
+
+| Enabled lists | usa | usb | gbc / sed |
+| --- | --- | --- | --- |
+| All four | 403 `Blocked by access control list` | 403 | 403 |
+| Country lists only (database present) | 200 | 200 | 200 |
+| Country lists only (database removed) | 200 | 200 | 200 |
+
+Country lists remain "allowed" on `/api`; the local-network list refuses public unauthenticated callers whether or
+not they are admin-whitelisted. These are the outcomes the branch keeps unchanged.
+
+## Security review
+
+- No Gotify tokens in the diff, test helpers, logs or report.
+- Reload error bodies no longer carry OS error text; errors are logged through `util.SanitizeForLog`.
+- The admin exclusion uses the connection address (`remote_ip`), so forwarded headers cannot claim it.
+- Admin whitelist entries are validated on save (`invalid admin whitelist CIDR`), so the tester's admin range parse
+  does not see malformed input from the API.
+- Local CodeQL/Trivy not run (fix-scoped PR; CI runs both).
+
+## Cleanup
+
+All throwaway containers, networks and the data volume were removed. `charon-e2e` was rebuilt by the skill and left
+running.

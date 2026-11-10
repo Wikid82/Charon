@@ -9,6 +9,8 @@ import (
 	"sync"
 
 	"github.com/oschwald/geoip2-golang/v2"
+
+	"github.com/Wikid82/charon/backend/internal/geoip"
 )
 
 var (
@@ -138,6 +140,15 @@ func (s *GeoIPService) LookupCountry(ipStr string) (string, error) {
 	}
 
 	return record.Country.ISOCode, nil
+}
+
+// Available reports whether the database can serve country lookups now: it is loaded and the file the proxy module
+// reads is a usable database. It is nil-safe; a nil service has no database.
+func (s *GeoIPService) Available() bool {
+	if s == nil {
+		return false
+	}
+	return geoip.DatabaseAvailable(s.GetDatabasePath(), s.IsLoaded())
 }
 
 // IsLoaded returns true if the GeoIP database is currently loaded.

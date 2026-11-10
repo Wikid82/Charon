@@ -31,6 +31,13 @@ import {
   fetchThroughProxy,
   type HeaderProfile,
 } from '../utils/proxy-refusal-helpers';
+import { fetchFromContainer, findE2EContainer } from '../utils/container-exec';
+import { narrowAdminWhitelistForLoopbackClient, runCleanupSteps } from '../utils/loopback-client-case';
+
+/** Body of a country-list refusal (both database states answer with it). */
+const GEO_REFUSAL_BODY = 'Access denied: Geographic restriction';
+/** Port nothing listens on, so a route that is loaded and admits a request answers 502. */
+const DEAD_UPSTREAM_PORT = 3001;
 
 test.describe('Security Headers Enforcement', () => {
   let requestContext: APIRequestContext;
@@ -126,63 +133,71 @@ test.describe('Security Headers Enforcement', () => {
 
   test.describe('Headers on access list refusals', () => {
     const domain = `refusal-headers-acl-${Date.now()}.example.test`;
-    let snapshot: SecurityStateSnapshot;
-    let proxyContext: APIRequestContext;
-    let profile: HeaderProfile;
-    let aclUuid: string;
-    let proxyUuid: string;
+    let snapshot: SecurityStateSnapshot | undefined;
+    let container: string;
+    let proxyContext: APIRequestContext | undefined;
+    let profile: HeaderProfile | undefined;
+    let aclUuid: string | undefined;
+    let proxyUuid: string | undefined;
 
     test.beforeAll(async () => {
+      container = findE2EContainer();
       snapshot = await captureSecurityState(requestContext);
 
       // The admin whitelist must be in place before the ACL is enabled, or the admin API refuses the runner.
       await saveConfig(requestContext, { name: 'default', admin_whitelist: RUNNER_WHITELIST });
       await setSecurityModuleEnabled(requestContext, 'cerberus', true);
-      // Rate limiting would answer first on a shared client IP and hide the ACL refusal.
-      await setSecurityModuleEnabled(requestContext, 'rateLimit', false);
       await setSecurityModuleEnabled(requestContext, 'acl', true);
+      // Narrows the whitelist before any host exists, and turns rate limiting off (it would answer first on a shared
+      // client IP and hide the ACL refusal).
+      await narrowAdminWhitelistForLoopbackClient(requestContext);
 
       proxyContext = await request.newContext();
       profile = await createHeaderProfile(requestContext, `Refusal Headers ${Date.now()}`);
-      // Country list that admits only US; the runner has no country, so the ACL refuses it.
+      // Country list that admits only US; the loopback client has no country, so the ACL refuses it. The runner is
+      // admin-whitelisted and is admitted.
       aclUuid = await createCountryAllowList(requestContext, `Refusal Headers Allow List ${Date.now()}`);
       proxyUuid = await createProxyHost(requestContext, {
         domain,
-        forwardPort: 3001,
+        forwardPort: DEAD_UPSTREAM_PORT,
         name: 'Refusal headers host',
         accessListUuid: aclUuid,
         headerProfileUuid: profile.uuid,
       });
 
+      // Only a refusal ends the poll: a missing route answers the catch-all page (200).
       await expect
-        .poll(async () => (await fetchThroughProxy(proxyContext, domain, '/')).status(), {
+        .poll(async () => (await fetchFromContainer(container, { host: domain, path: '/' })).status, {
           timeout: 30_000,
-          message: 'refusal headers route should be loaded',
+          message: 'refusal headers route should be loaded and refuse the loopback client',
         })
         .toBe(403);
     });
 
     test.afterAll(async () => {
-      if (proxyUuid) {
-        await deleteProxyHost(requestContext, proxyUuid);
-      }
-      if (aclUuid) {
-        await deleteAccessList(requestContext, aclUuid);
-      }
-      if (profile) {
-        await deleteHeaderProfile(requestContext, profile);
-      }
-      await proxyContext.dispose();
-      if (snapshot) {
-        await restoreSecurityState(requestContext, snapshot);
-      }
+      await runCleanupSteps([
+        ...(proxyUuid ? [() => deleteProxyHost(requestContext, proxyUuid as string)] : []),
+        ...(aclUuid ? [() => deleteAccessList(requestContext, aclUuid as string)] : []),
+        ...(profile ? [() => deleteHeaderProfile(requestContext, profile as HeaderProfile)] : []),
+        ...(proxyContext ? [() => (proxyContext as APIRequestContext).dispose()] : []),
+        ...(snapshot ? [() => restoreSecurityState(requestContext, snapshot as SecurityStateSnapshot)] : []),
+      ]);
     });
 
     test('should send the profile security headers with an access list refusal', async () => {
-      const response = await fetchThroughProxy(proxyContext, domain, '/');
+      await test.step('Loopback client refusal carries the profile headers and the geographic body', async () => {
+        const response = await fetchFromContainer(container, { host: domain, path: '/' });
 
-      expect(response.status()).toBe(403);
-      expect(response.headers()).toMatchObject(PROFILE_HEADER_EXPECTATIONS);
+        expect(response.status).toBe(403);
+        expect(response.headers).toMatchObject(PROFILE_HEADER_EXPECTATIONS);
+        expect(response.body).toContain(GEO_REFUSAL_BODY);
+      });
+
+      await test.step('Whitelisted runner is admitted: 502 from the dead upstream', async () => {
+        const response = await fetchThroughProxy(proxyContext as APIRequestContext, domain, '/');
+
+        expect(response.status()).toBe(502);
+      });
     });
   });
 });

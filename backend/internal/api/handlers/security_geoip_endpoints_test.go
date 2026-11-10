@@ -87,7 +87,7 @@ func TestSecurityHandler_ReloadGeoIP_LoadError(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Contains(t, w.Body.String(), "Failed to reload GeoIP database")
+	assert.Contains(t, w.Body.String(), "\"error_code\":\"geoip_reload_failed\"")
 }
 
 func TestSecurityHandler_LookupGeoIP_MissingIPAddress(t *testing.T) {

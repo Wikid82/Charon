@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"strconv"
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
@@ -230,20 +231,51 @@ func (h *AccessListHandler) TestIP(c *gin.Context) {
 		return
 	}
 
-	allowed, reason, err := h.service.TestIP(acl.ID, req.IPAddress)
+	// The tester reports the decision the proxy makes for this address, from the same evaluation the proxy
+	// configuration is generated from.
+	addr, parseErr := netip.ParseAddr(req.IPAddress)
+	if parseErr != nil || addr.Zone() != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid IP address"})
+		return
+	}
+	decision, err := h.service.Evaluate(acl, addr.Unmap(), h.service.AdminWhitelistRanges())
 	if err != nil {
-		if err == services.ErrInvalidIPAddress {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid IP address"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"allowed": allowed,
-		"reason":  reason,
+		"allowed": decision.Allowed,
+		"reason":  accessListDecisionText(decision.Reason),
 	})
+}
+
+// accessListDecisionText returns the sentence the tester shows for a decision reason.
+func accessListDecisionText(reason string) string {
+	switch reason {
+	case services.ReasonListDisabled:
+		return "Access list is disabled - all traffic allowed"
+	case services.ReasonAdminWhitelisted:
+		return "Address is in the admin whitelist"
+	case services.ReasonAllowed:
+		return "Allowed by access list"
+	case services.ReasonGeoIPUnavailable:
+		return "GeoIP database not available - country lists refuse every address except admin addresses"
+	case services.ReasonCountryNotAllowed:
+		return "Blocked by geo whitelist: country is not in the allowed countries"
+	case services.ReasonCountryBlocked:
+		return "Blocked by geo blacklist: country is in the blocked countries"
+	case services.ReasonNoCountry:
+		return "No country found for IP"
+	case services.ReasonNotLocalNetwork:
+		return "Not a private network IP (RFC1918)"
+	case services.ReasonIPNotAllowed:
+		return "Not in whitelist"
+	case services.ReasonIPBlocked:
+		return "Blocked by blacklist rule"
+	default:
+		return reason
+	}
 }
 
 // GetTemplates handles GET /api/v1/access-lists/templates

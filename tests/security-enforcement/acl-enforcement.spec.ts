@@ -9,6 +9,10 @@
  * - Run enforcement tests
  * - Disable ACL in afterAll (handled by security-teardown project)
  *
+ * Refusal cases use two clients. The test runner is admin-whitelisted, so it must be admitted; the in-container loopback
+ * client is refused by the lists, after the admin whitelist is narrowed to exclude 127.0.0.1 (see
+ * utils/loopback-client-case.ts).
+ *
  * @see /projects/Charon/docs/plans/current_spec.md - ACL Enforcement Tests
  */
 
@@ -25,36 +29,35 @@ import {
 } from '../utils/security-helpers';
 import {
   createCountryAllowList,
+  createIpBlockList,
   createProxyHost,
   deleteAccessList,
   deleteProxyHost,
   fetchThroughProxy,
 } from '../utils/proxy-refusal-helpers';
+import { fetchFromContainer, findE2EContainer, type ContainerHttpRequest } from '../utils/container-exec';
+import {
+  narrowAdminWhitelistForLoopbackClient,
+  runCleanupSteps,
+  setAdminWhitelist,
+} from '../utils/loopback-client-case';
 
-/**
- * Configure admin whitelist to allow test runner IPs.
- * CRITICAL: Must be called BEFORE enabling any security modules to prevent 403 blocking.
- */
+const APP_BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
+/** Body of a country-list refusal (both database states answer with it, see config.go geoAccessDeniedBody). */
+const GEO_REFUSAL_BODY = 'Access denied: Geographic restriction';
+/** Port nothing listens on, so a route that is loaded and admits a request answers 502. */
+const DEAD_UPSTREAM_PORT = 3001;
+
+/** Configure admin whitelist to allow test runner IPs (localhost, Docker networks). */
 async function configureAdminWhitelist(requestContext: APIRequestContext) {
-  // Configure whitelist to allow test runner IPs (localhost, Docker networks)
-  const testWhitelist = '127.0.0.1/32,172.16.0.0/12,192.168.0.0/16,10.0.0.0/8';
-
-  const response = await requestContext.patch(
-    `${process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080'}/api/v1/config`,
-    {
-      data: {
-        security: {
-          admin_whitelist: testWhitelist,
-        },
-      },
-    }
-  );
-
-  if (!response.ok()) {
-    throw new Error(`Failed to configure admin whitelist: ${response.status()}`);
-  }
+  await setAdminWhitelist(requestContext, '127.0.0.1/32,172.16.0.0/12,192.168.0.0/16,10.0.0.0/8');
 
   console.log('✅ Admin whitelist configured for test IP ranges');
+}
+
+/** Returns the parsed request for the loopback client, sent from inside the container. */
+function fromLoopback(container: string, domain: string, path = '/', method: ContainerHttpRequest['method'] = 'GET') {
+  return fetchFromContainer(container, { host: domain, path, method });
 }
 
 test.describe('ACL Enforcement', () => {
@@ -143,26 +146,36 @@ test.describe('ACL Enforcement', () => {
   });
 
   test('should test IP against access list', async () => {
-    // First, get the list of access lists
-    const listResponse = await requestContext.get('/api/v1/access-lists');
-    expect(listResponse.ok()).toBe(true);
+    // The test creates its own block-list over a documentation range, so the decisions below do not depend on
+    // whatever lists other specs left behind. Neither address is in the admin whitelist.
+    const LISTED_ADDRESS = '203.0.113.10';
+    const UNLISTED_ADDRESS = '198.51.100.10';
+    const listUuid = await createIpBlockList(requestContext, `Tester block-list ${Date.now()}`, '203.0.113.0/24');
 
-    const lists = await listResponse.json();
+    try {
+      await test.step('Address inside the blocked range is refused by the tester', async () => {
+        const response = await requestContext.post(`/api/v1/access-lists/${listUuid}/test`, {
+          data: { ip_address: LISTED_ADDRESS },
+        });
+        expect(response.ok()).toBe(true);
+        expect(await response.json()).toEqual({
+          allowed: false,
+          reason: 'Blocked by blacklist rule',
+        });
+      });
 
-    // If there are any access lists, test an IP against the first one
-    if (lists.length > 0) {
-      const testIp = '192.168.1.1';
-      const testResponse = await requestContext.post(
-        `/api/v1/access-lists/${lists[0].uuid}/test`,
-        { data: { ip_address: testIp } }
-      );
-      expect(testResponse.ok()).toBe(true);
-
-      const result = await testResponse.json();
-      expect(typeof result.allowed).toBe('boolean');
-    } else {
-      // No access lists exist - this is valid, just log it
-      console.log('No access lists exist to test against');
+      await test.step('Address outside the blocked range is allowed by the tester', async () => {
+        const response = await requestContext.post(`/api/v1/access-lists/${listUuid}/test`, {
+          data: { ip_address: UNLISTED_ADDRESS },
+        });
+        expect(response.ok()).toBe(true);
+        expect(await response.json()).toEqual({
+          allowed: true,
+          reason: 'Allowed by access list',
+        });
+      });
+    } finally {
+      await deleteAccessList(requestContext, listUuid);
     }
   });
 
@@ -182,7 +195,11 @@ test.describe('ACL Enforcement', () => {
       data: {
         name: 'Test Enforcement ACL',
         type: 'blacklist',
-        ip_rules: JSON.stringify([{ cidr: '10.255.255.255/32', description: 'Test blocked IP' }]),
+        // 10.255.255.255 is listed too, but sits inside the admin whitelist (10.0.0.0/8), so the tester must admit it.
+        ip_rules: JSON.stringify([
+          { cidr: '203.0.113.77/32', description: 'Test blocked IP' },
+          { cidr: '10.255.255.255/32', description: 'Test listed admin address' },
+        ]),
         enabled: true,
       },
     });
@@ -194,14 +211,25 @@ test.describe('ACL Enforcement', () => {
       // Verify the list was created with correct structure
       expect(createdList.name).toBe('Test Enforcement ACL');
 
-      // Test IP against the list using POST
+      // Test a listed, non-admin address using POST: the tester reports the proxy's refusal
       const testResponse = await requestContext.post(
         `/api/v1/access-lists/${createdList.uuid}/test`,
-        { data: { ip_address: '10.255.255.255' } }
+        { data: { ip_address: '203.0.113.77' } }
       );
       expect(testResponse.ok()).toBe(true);
       const testResult = await testResponse.json();
       expect(testResult.allowed).toBe(false);
+      expect(testResult.reason).toBe('Blocked by blacklist rule');
+
+      // Test a listed address inside the admin whitelist: the proxy exempts it, so the tester must admit it
+      const adminResponse = await requestContext.post(
+        `/api/v1/access-lists/${createdList.uuid}/test`,
+        { data: { ip_address: '10.255.255.255' } }
+      );
+      expect(adminResponse.ok()).toBe(true);
+      const adminResult = await adminResponse.json();
+      expect(adminResult.allowed).toBe(true);
+      expect(adminResult.reason).toBe('Address is in the admin whitelist');
 
       // Cleanup: Delete the test ACL
       const deleteResponse = await requestContext.delete(
@@ -233,53 +261,71 @@ test.describe('ACL Enforcement', () => {
 
   test.describe('Country lists', () => {
     const domain = `country-list-${Date.now()}.example.test`;
-    let proxyContext: APIRequestContext;
-    let aclUuid: string;
-    let proxyUuid: string;
+    let snapshot: SecurityStateSnapshot | undefined;
+    let container: string;
+    let proxyContext: APIRequestContext | undefined;
+    let aclUuid: string | undefined;
+    let proxyUuid: string | undefined;
 
     test.beforeAll(async () => {
+      container = findE2EContainer();
       proxyContext = await request.newContext();
+      snapshot = await captureSecurityState(requestContext);
+      await narrowAdminWhitelistForLoopbackClient(requestContext);
+
       aclUuid = await createCountryAllowList(requestContext, `Country Allow List ${Date.now()}`);
       proxyUuid = await createProxyHost(requestContext, {
         domain,
-        forwardPort: 3001,
+        forwardPort: DEAD_UPSTREAM_PORT,
         name: 'Country list host',
         accessListUuid: aclUuid,
       });
 
-      // Wait for the route to be loaded: the country list refuses the runner, which has no country.
+      // Wait for the route to be loaded: the loopback client is refused. A missing route would answer the catch-all
+      // page (200), so only a refusal ends the poll.
       await expect
-        .poll(async () => (await fetchThroughProxy(proxyContext, domain, '/')).status(), {
+        .poll(async () => (await fromLoopback(container, domain)).status, {
           timeout: 30_000,
-          message: 'country list route should be loaded',
+          message: 'country list route should be loaded and refuse the loopback client',
         })
         .toBe(403);
     });
 
     test.afterAll(async () => {
-      if (proxyUuid) {
-        await deleteProxyHost(requestContext, proxyUuid);
-      }
-      if (aclUuid) {
-        await deleteAccessList(requestContext, aclUuid);
-      }
-      await proxyContext.dispose();
+      await runCleanupSteps([
+        ...(proxyUuid ? [() => deleteProxyHost(requestContext, proxyUuid as string)] : []),
+        ...(aclUuid ? [() => deleteAccessList(requestContext, aclUuid as string)] : []),
+        ...(snapshot ? [() => restoreSecurityState(requestContext, snapshot as SecurityStateSnapshot)] : []),
+        ...(proxyContext ? [() => (proxyContext as APIRequestContext).dispose()] : []),
+      ]);
     });
 
     test('should refuse a client outside the listed countries and report the GeoIP database state', async () => {
-      await test.step('Refused with the geographic body', async () => {
-        const response = await fetchThroughProxy(proxyContext, domain, '/');
+      await test.step('Loopback client is refused with the geographic body', async () => {
+        const response = await fromLoopback(container, domain);
 
-        expect(response.status()).toBe(403);
-        expect(await response.text()).toContain('Access denied: Geographic restriction');
+        expect(response.status).toBe(403);
+        expect(response.body).toContain(GEO_REFUSAL_BODY);
+      });
+
+      await test.step('Whitelisted runner is admitted: 502 from the dead upstream', async () => {
+        const response = await fetchThroughProxy(proxyContext as APIRequestContext, domain, '/');
+
+        expect(response.status()).toBe(502);
       });
 
       await test.step('Status reports geoip_unavailable exactly when the database is not loaded', async () => {
-        // The e2e image bundles the GeoLite2 database when its download succeeds at build time. The database state
-        // decides which path answers, so the check reads it from the API instead of assuming it.
+        // The database state decides which branch answers, so the check reads it from the API instead of assuming it.
+        // Both branches refuse the loopback client above: while the database is missing, the interim database-missing
+        // refusal still applies to non-admin clients (it is removed in the feature PR, C5). So reason geoip_unavailable
+        // means country lists refuse non-admin clients in this PR, not that they are unenforced.
         const geoipResponse = await requestContext.get('/api/v1/security/geoip/status');
         expect(geoipResponse.ok()).toBe(true);
         const { available } = (await geoipResponse.json()) as { available: boolean };
+        test.info().annotations.push({
+          type: 'geoip',
+          description: available ? 'database loaded: country rule answers' : 'database missing: interim refusal answers',
+        });
 
         const statusResponse = await requestContext.get('/api/v1/security/status');
         expect(statusResponse.ok()).toBe(true);
@@ -297,8 +343,8 @@ test.describe('ACL Enforcement', () => {
   test.describe('Route handling on proxy hosts', () => {
     // An IP allow-list cannot express a non-listed runner here: the runner is
     // admin-whitelisted, and the proxy ACL merges the admin whitelist into every
-    // IP allow-list. A geo allow-list with no country match for the runner's
-    // private address refuses it without that merge.
+    // IP allow-list. A geo allow-list with no country match for the loopback
+    // client refuses it, and the admin whitelist admits the runner.
     const ROUTE_PATHS = [
       '/',
       '/emergency/security-reset',
@@ -311,27 +357,31 @@ test.describe('ACL Enforcement', () => {
     const NON_RESET_PATHS = ROUTE_PATHS.filter(
       (path) => path !== '/emergency/security-reset' && path !== '/api/v1/emergency/security-reset'
     );
-    const APP_BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
     const RESET_API_PATH = '/api/v1/emergency/security-reset';
     const RESET_APP_PATH = '/emergency/security-reset';
 
-    let proxyContext: APIRequestContext;
-    let aclUuid: string;
-    let allowListedProxyUuid: string;
+    let snapshot: SecurityStateSnapshot | undefined;
+    let container: string;
+    let proxyContext: APIRequestContext | undefined;
+    let aclUuid: string | undefined;
+    let allowListedProxyUuid: string | undefined;
     let allowListedDomain: string;
-    let selfProxyUuid: string;
+    let selfProxyUuid: string | undefined;
     let selfProxyDomain: string;
 
-    /** Send a request through the proxy hop with the given Host header. */
+    /** Send a request through the proxy hop with the given Host header, as the runner. */
     function proxied(domain: string, path: string, method = 'GET') {
-      return fetchThroughProxy(proxyContext, domain, path, method);
+      return fetchThroughProxy(proxyContext as APIRequestContext, domain, path, method);
     }
 
     test.beforeAll(async () => {
+      container = findE2EContainer();
       proxyContext = await request.newContext();
+      snapshot = await captureSecurityState(requestContext);
+      await narrowAdminWhitelistForLoopbackClient(requestContext);
 
-      // Allow-list that only admits one country; the runner has no country, so it is
-      // not on the list. Attached to both hosts.
+      // Allow-list that only admits one country; the loopback client has no country, so it is refused. Attached to
+      // both hosts.
       aclUuid = await createCountryAllowList(requestContext, `Route Handling Allow List ${Date.now()}`);
 
       // Plain allow-listed host: upstream is a port nothing listens on, so any
@@ -339,7 +389,7 @@ test.describe('ACL Enforcement', () => {
       allowListedDomain = `route-allow-${Date.now()}.example.test`;
       allowListedProxyUuid = await createProxyHost(requestContext, {
         domain: allowListedDomain,
-        forwardPort: 3001,
+        forwardPort: DEAD_UPSTREAM_PORT,
         name: 'Allow-listed host',
         accessListUuid: aclUuid,
       });
@@ -353,10 +403,10 @@ test.describe('ACL Enforcement', () => {
         accessListUuid: aclUuid,
       });
 
-      // Wait for both routes to be loaded by the proxy. The ACL answers 403 on '/'.
+      // Wait for both routes to be loaded by the proxy. The ACL answers 403 to the loopback client on '/'.
       for (const domain of [allowListedDomain, selfProxyDomain]) {
         await expect
-          .poll(async () => (await proxied(domain, '/')).status(), {
+          .poll(async () => (await fromLoopback(container, domain)).status, {
             timeout: 30_000,
             message: `route for ${domain} should be loaded`,
           })
@@ -365,65 +415,181 @@ test.describe('ACL Enforcement', () => {
     });
 
     test.afterAll(async () => {
-      for (const uuid of [selfProxyUuid, allowListedProxyUuid]) {
-        if (uuid) {
-          await deleteProxyHost(requestContext, uuid);
-        }
-      }
-      if (aclUuid) {
-        await deleteAccessList(requestContext, aclUuid);
-      }
-      await proxyContext.dispose();
+      await runCleanupSteps([
+        ...(selfProxyUuid ? [() => deleteProxyHost(requestContext, selfProxyUuid as string)] : []),
+        ...(allowListedProxyUuid ? [() => deleteProxyHost(requestContext, allowListedProxyUuid as string)] : []),
+        ...(aclUuid ? [() => deleteAccessList(requestContext, aclUuid as string)] : []),
+        ...(snapshot ? [() => restoreSecurityState(requestContext, snapshot as SecurityStateSnapshot)] : []),
+        ...(proxyContext ? [() => (proxyContext as APIRequestContext).dispose()] : []),
+      ]);
     });
 
     test('refuses a non-listed client on every route handling path of an allow-listed host', async () => {
-      const results = await Promise.all(
-        ROUTE_PATHS.map(async (path) => {
-          const response = await proxied(allowListedDomain, path);
-          return { path, status: response.status() };
-        })
-      );
+      await test.step('Loopback client is refused on every path with the geographic body', async () => {
+        const results = await Promise.all(
+          ROUTE_PATHS.map(async (path) => {
+            const response = await fromLoopback(container, allowListedDomain, path);
+            return { path, status: response.status, refused: response.body.includes(GEO_REFUSAL_BODY) };
+          })
+        );
 
-      expect(results).toEqual(ROUTE_PATHS.map((path) => ({ path, status: 403 })));
+        expect(results).toEqual(ROUTE_PATHS.map((path) => ({ path, status: 403, refused: true })));
+      });
+
+      await test.step('Whitelisted runner is admitted on /: 502 from the dead upstream', async () => {
+        const response = await proxied(allowListedDomain, '/');
+
+        expect(response.status()).toBe(502);
+      });
     });
 
     test('keeps the reset endpoint reachable on a self-proxy host while other paths stay under the ACL', async () => {
-      await test.step('Non-reset paths under the prefix are refused by the ACL', async () => {
+      await test.step('Non-reset paths under the prefix are refused by the ACL for the loopback client', async () => {
         const results = await Promise.all(
           NON_RESET_PATHS.map(async (path) => {
-            const response = await proxied(selfProxyDomain, path);
-            return { path, status: response.status() };
+            const response = await fromLoopback(container, selfProxyDomain, path);
+            return { path, status: response.status };
           })
         );
 
         expect(results).toEqual(NON_RESET_PATHS.map((path) => ({ path, status: 403 })));
       });
 
-      await test.step('API reset path is reached through the proxy, not refused by the ACL', async () => {
-        // A GET is used on purpose: the reset throttle guards only the POST route, so
-        // a tokenless POST would spend the shared per-address failed-attempt budget.
-        // The proxied answer must match the direct answer and must not be the ACL refusal.
-        const response = await proxied(selfProxyDomain, RESET_API_PATH, 'GET');
-        const direct = await proxyContext.get(`${APP_BASE_URL}${RESET_API_PATH}`, {
-          failOnStatusCode: false,
-        });
+      await test.step('Whitelisted runner is admitted on a non-reset path: not refused, answered by the app', async () => {
+        // The self-proxy upstream is Charon itself, so the app answers. Anything below 500 that is not a refusal
+        // proves the runner passed the ACL.
+        const response = await proxied(selfProxyDomain, '/');
 
         expect(response.status()).not.toBe(403);
-        expect(response.status()).toBe(direct.status());
+        expect(response.status()).toBeLessThan(500);
       });
 
-      await test.step('Exact app-level reset path is answered by the app, not the ACL', async () => {
-        // The app has no API route at this path; its own router answers it. The
-        // proxied answer must match the direct answer and must not be the ACL refusal.
-        const response = await proxied(selfProxyDomain, RESET_APP_PATH, 'POST');
-        const direct = await proxyContext.fetch(`${APP_BASE_URL}${RESET_APP_PATH}`, {
+      await test.step('API reset path answers from the reset handler without a token', async () => {
+        // The reset endpoint's own token check answers (401), the same as the app directly. The loopback client
+        // goes through the proxy; the direct comparison stays on the runner so the emergency throttle counts the two
+        // calls against different client addresses.
+        const response = await fromLoopback(container, selfProxyDomain, RESET_API_PATH, 'POST');
+        const direct = await proxyContext!.fetch(`${APP_BASE_URL}${RESET_API_PATH}`, {
           method: 'POST',
           data: {},
           failOnStatusCode: false,
         });
 
-        expect(response.status()).not.toBe(403);
-        expect(response.status()).toBe(direct.status());
+        expect(response.status).toBe(401);
+        expect(response.status).toBe(direct.status());
+        expect(JSON.parse(response.body)).toMatchObject({ error: 'unauthorized' });
+      });
+
+      await test.step('Exact app-level reset path is answered by the app, not the ACL', async () => {
+        // The app has no API route at this path; its own router answers it. The
+        // proxied answer must match the direct answer and must not be the ACL refusal.
+        const response = await fromLoopback(container, selfProxyDomain, RESET_APP_PATH, 'POST');
+        const direct = await proxyContext!.fetch(`${APP_BASE_URL}${RESET_APP_PATH}`, {
+          method: 'POST',
+          data: {},
+          failOnStatusCode: false,
+        });
+
+        expect(response.status).not.toBe(403);
+        expect(response.status).toBe(direct.status());
+      });
+    });
+  });
+
+  test.describe('IP block-lists with an admin whitelist', () => {
+    // Two-sided cases: the in-container client (loopback, 127.0.0.1) must be refused only when a list names it, and
+    // the whitelisted runner must never be refused by these lists. The dead upstream (port 3001) makes a loaded,
+    // non-refusing route answer 502, so a refusal (403) and a missing route (catch-all 200) are told apart.
+    const CIDR_NOT_THE_CLIENT = '203.0.113.77/32';
+    const CIDR_LOOPBACK = '127.0.0.1/32';
+    const IP_BLOCK_LIST_BODY = 'Access denied: IP blacklisted';
+
+    test.describe.configure({ mode: 'serial' });
+
+    let container: string;
+    let proxyContext: APIRequestContext | undefined;
+    let snapshot: SecurityStateSnapshot | undefined;
+
+    let notClientDomain = '';
+    let notClientListUuid = '';
+    let notClientHostUuid = '';
+    let loopbackDomain = '';
+    let loopbackListUuid = '';
+    let loopbackHostUuid = '';
+
+    test.beforeAll(async () => {
+      container = findE2EContainer();
+      proxyContext = await request.newContext();
+      snapshot = await captureSecurityState(requestContext);
+
+      // Narrow the whitelist before any list or host exists, so the first apply that holds a list already has it.
+      await narrowAdminWhitelistForLoopbackClient(requestContext);
+
+      // Case 1 is created first. Case 2 is created second, and the poll on its 403 proves the applied config was
+      // generated after both lists were saved, so case 1 is never checked against a config that lacks its list.
+      const suffix = Date.now();
+      notClientDomain = `ip-block-elsewhere-${suffix}.example.test`;
+      notClientListUuid = await createIpBlockList(requestContext, `Block elsewhere ${suffix}`, CIDR_NOT_THE_CLIENT);
+      notClientHostUuid = await createProxyHost(requestContext, {
+        domain: notClientDomain,
+        forwardPort: DEAD_UPSTREAM_PORT,
+        name: 'IP block-list elsewhere host',
+        accessListUuid: notClientListUuid,
+      });
+
+      loopbackDomain = `ip-block-loopback-${suffix}.example.test`;
+      loopbackListUuid = await createIpBlockList(requestContext, `Block loopback ${suffix}`, CIDR_LOOPBACK);
+      loopbackHostUuid = await createProxyHost(requestContext, {
+        domain: loopbackDomain,
+        forwardPort: DEAD_UPSTREAM_PORT,
+        name: 'IP block-list loopback host',
+        accessListUuid: loopbackListUuid,
+      });
+
+      await expect
+        .poll(async () => (await fromLoopback(container, loopbackDomain)).status, {
+          timeout: 30_000,
+          message: 'loopback block-list route should be loaded and refuse the loopback client',
+        })
+        .toBe(403);
+    });
+
+    test.afterAll(async () => {
+      await runCleanupSteps([
+        ...[notClientHostUuid, loopbackHostUuid]
+          .filter((uuid) => uuid !== '')
+          .map((uuid) => () => deleteProxyHost(requestContext, uuid)),
+        ...[notClientListUuid, loopbackListUuid]
+          .filter((uuid) => uuid !== '')
+          .map((uuid) => () => deleteAccessList(requestContext, uuid)),
+        ...(snapshot ? [() => restoreSecurityState(requestContext, snapshot as SecurityStateSnapshot)] : []),
+        ...(proxyContext ? [() => (proxyContext as APIRequestContext).dispose()] : []),
+      ]);
+    });
+
+    test('does not refuse a loopback client for a block-list on another address', async () => {
+      await test.step('In-container client reaches the route: not refused, the dead upstream answers 502', async () => {
+        // Before the A0 fix every non-admin address was refused here (403), the #1891 regression.
+        const response = await fromLoopback(container, notClientDomain);
+        expect(response.status).toBe(502);
+      });
+
+      await test.step('Whitelisted runner reaches the same route: 502', async () => {
+        const response = await fetchThroughProxy(proxyContext as APIRequestContext, notClientDomain, '/');
+        expect(response.status()).toBe(502);
+      });
+    });
+
+    test('refuses a listed loopback client with the block-list body and does not refuse the runner', async () => {
+      await test.step('In-container client is refused with the block-list body', async () => {
+        const response = await fromLoopback(container, loopbackDomain);
+        expect(response.status).toBe(403);
+        expect(response.body).toContain(IP_BLOCK_LIST_BODY);
+      });
+
+      await test.step('Whitelisted runner reaches the same route: 502', async () => {
+        const response = await fetchThroughProxy(proxyContext as APIRequestContext, loopbackDomain, '/');
+        expect(response.status()).toBe(502);
       });
     });
   });

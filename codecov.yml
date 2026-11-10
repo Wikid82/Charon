@@ -103,6 +103,7 @@ ignore:
   # Backend non-source files
   - "backend/cmd/seed/**"
   - "backend/internal/crowdsec/hubcachetest/**"
+  - "backend/internal/caddy/caddymatchtest/**"
   - "backend/data/**"
   - "backend/coverage/**"
   - "backend/bin/**"

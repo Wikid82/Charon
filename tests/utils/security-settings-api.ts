@@ -23,6 +23,12 @@ export const RATE_LIMIT_ENABLE_PATH = '/api/v1/security/rate-limit/enable';
 /** Whitelist that keeps the test runner reachable while Cerberus is on. */
 export const RUNNER_WHITELIST = '127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16';
 
+/**
+ * Whitelist for cases that need a client which is not admin-whitelisted: the container's own loopback address
+ * (127.0.0.1) is left out, while the Docker bridge ranges the runner connects from stay listed.
+ */
+export const RUNNER_WHITELIST_NO_LOOPBACK = '10.0.0.0/8,172.16.0.0/12,192.168.0.0/16';
+
 /** Settings keys that hold the security module switches. The settings API accepts only true or false for them. */
 export const SECURITY_MODULE_SWITCH_KEYS = [
   'security.waf.enabled',

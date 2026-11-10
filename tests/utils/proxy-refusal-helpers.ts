@@ -74,6 +74,22 @@ export async function createCountryAllowList(
   return (await response.json()).uuid;
 }
 
+/** Creates an IP block-list that refuses the single CIDR given. Returns its uuid. */
+export async function createIpBlockList(request: APIRequestContext, name: string, cidr: string): Promise<string> {
+  const response = await withRateLimitRetry(() =>
+    request.post(ACCESS_LISTS_PATH, {
+      data: {
+        name,
+        type: 'blacklist',
+        ip_rules: JSON.stringify([{ cidr, description: name }]),
+        enabled: true,
+      },
+    }),
+  );
+  expect(response.ok(), `create IP block-list ${name}: ${response.status()}`).toBe(true);
+  return (await response.json()).uuid;
+}
+
 export async function deleteAccessList(request: APIRequestContext, uuid: string): Promise<void> {
   await withRateLimitRetry(() => request.delete(`${ACCESS_LISTS_PATH}/${uuid}`));
 }

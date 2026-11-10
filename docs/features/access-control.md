@@ -62,7 +62,7 @@ Common configurations:
 - **Block high-risk regions** — Deny specific countries, allow rest
 - **Compliance zones** — Allow only EU countries for GDPR compliance
 
-**Country lists need a GeoIP database.** Charon uses a MaxMind country database to find where each visitor is from. The Docker image tries to include it, but the download can fail. If the database is missing, country lists refuse every request until one is provided. To use a newer copy:
+**Country lists need a GeoIP database.** Charon uses a MaxMind country database to find where each visitor is from. The Docker image tries to include it, but the download can fail. If the database is missing, country lists refuse every request until one is provided, except requests from addresses on your admin whitelist. To use a newer copy:
 
 1. Get the MaxMind GeoLite2-Country database file (it ends in `.mmdb`) and name it `GeoLite2-Country.mmdb`.
 2. Put it in the `geoip` folder inside your data folder. In the container that is `/app/data/geoip/`, so on the host it is the `geoip` folder inside the directory you mount as `/app/data`. When the image also has a copy, Charon uses whichever has the newer MaxMind build date. Alternatively, set the `CHARON_GEOIP_DB_PATH` environment variable to its full path, which takes precedence over both locations.
@@ -74,6 +74,23 @@ The Security page shows a note while the database is missing. Your IP lists and 
 
 - An **enabled allow list** needs at least one entry, such as an IP address, an IP range or a country. Charon will not save an enabled allow list that is empty.
 - A **block list** can be empty. An empty block list blocks nobody.
+
+### Admin Whitelist: Your Addresses Always Get In
+
+The admin whitelist is a list of addresses you set in **Security** settings, such as your home IP, your office IP, or a VPN or Tailscale address. Requests from these addresses are always let through, whichever access list a site uses. This is what keeps you from locking yourself out.
+
+The admin whitelist works the same way for every list type:
+
+- **IP allow lists** — Admin addresses get in, even if they are not on the list.
+- **IP block lists** — Admin addresses are never refused, even if their address falls inside a blocked range.
+- **Country lists** (allow or block) — Admin addresses get in, whatever country they are in.
+- **Local network only** — Admin addresses get in, even when they are outside your local network.
+
+A block list refuses only the addresses it lists. Everyone else gets through as usual.
+
+**Manual blocks:** If you add a manual block for an address that is also on the admin whitelist, the block does nothing. To block that address, remove it from the admin whitelist first.
+
+**Checking an address:** The **Test IP** tool on the Access Lists page gives the same answer the proxy gives. If it says an address is allowed, a visitor from that address is allowed too.
 
 ### Applying to Proxy Hosts
 
@@ -87,6 +104,7 @@ Each proxy host can have one Access List assigned. Create multiple lists for dif
 ## Rule Evaluation Order
 
 ```text
+0. Check admin whitelist → Allow if matched (skips the steps below)
 1. Check IP allowlist → Allow if matched
 2. Check IP blocklist → Deny if matched
 3. Check country rules → Allow/Deny based on geo
