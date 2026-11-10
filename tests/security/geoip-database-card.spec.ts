@@ -5,14 +5,12 @@
  * copy from a browser upload, refuses a text file, and removes the data-folder copy again. The upload and removal routes
  * refuse cross-origin requests (403 `cross_origin_refused`) before the handler runs.
  *
- * Every test is `test.fixme` until C12 (after the card and its API land in C6-C11) enables them.
- *
  * Serial: each test builds on the database state the previous one leaves. The bundled copy is never hidden here; the
  * data-folder copy is created by the replace test and removed by the last one.
  *
- * Labels such as "Reload", "Replace database…", "Use the included copy" and "Your data folder" come from the spec
- * (A.4 and A.6). Where the spec gives no English text (lookup field and button, lookup result, status badge), the
- * locator uses a placeholder name and is marked in the test where it is assumed.
+ * Labels come from the en locale (`security.geoip` in frontend/src/locales/en). The lookup lives in GeoIPLookupForm and
+ * its result paragraph carries `data-testid="geoip-lookup-result"` with no role, so the card's own `role="status"`
+ * region stays the only status region in the card.
  */
 
 import { request } from '@playwright/test';
@@ -40,9 +38,11 @@ const USE_INCLUDED_NAME = 'Use the included copy';
 const DATA_SOURCE_TEXT = 'Your data folder';
 /** Text of the refusal for a file that is not a GeoIP database (A.6, en). */
 const NOT_A_DATABASE_TEXT = /not a GeoIP database/i;
-/** Assumed English labels for the lookup form (no English text in the spec). */
+/** Lookup form labels (security.geoip.lookup.label and .submit, en). */
 const LOOKUP_FIELD_NAME = 'IP address';
 const LOOKUP_SUBMIT_NAME = 'Look up';
+/** Lookup result paragraph (GeoIPLookupForm). It has no role, so it is located by test id. */
+const LOOKUP_RESULT_TEST_ID = 'geoip-lookup-result';
 
 type GeoIPSource = 'bundled' | 'data' | 'custom' | 'none';
 
@@ -85,7 +85,7 @@ test.describe('GeoIP database card', () => {
     await requestContext.dispose();
   });
 
-  test.fixme('Admin sees the card with the bundled source and path, and no removal action', async ({ page }) => {
+  test('Admin sees the card with the bundled source and path, and no removal action', async ({ page }) => {
     await page.goto('/security');
     const card = page.getByRole('region', { name: CARD_NAME });
 
@@ -101,7 +101,7 @@ test.describe('GeoIP database card', () => {
     });
   });
 
-  test.fixme('Reload reports its result inline in a polite status region', async ({ page }) => {
+  test('Reload reports its result inline in a polite status region', async ({ page }) => {
     await page.goto('/security');
     const card = page.getByRole('region', { name: CARD_NAME });
 
@@ -112,17 +112,17 @@ test.describe('GeoIP database card', () => {
     await expect(result).not.toBeEmpty();
   });
 
-  test.fixme('Lookup of 127.0.0.1 reports that no country is found', async ({ page }) => {
+  test('Lookup of 127.0.0.1 reports that no country is found', async ({ page }) => {
     await page.goto('/security');
 
     await page.getByRole('textbox', { name: LOOKUP_FIELD_NAME }).fill('127.0.0.1');
     await page.getByRole('button', { name: LOOKUP_SUBMIT_NAME }).click();
 
-    // Assumed English result text: the spec names the lookup.notFound key but gives no wording.
-    await expect(page.getByRole('status').filter({ hasText: /no country|not found/i })).toBeVisible();
+    // security.geoip.lookup.notFound (en): "No country found for {{ip}}."
+    await expect(page.getByTestId(LOOKUP_RESULT_TEST_ID)).toHaveText('No country found for 127.0.0.1.');
   });
 
-  test.fixme('Replacing with a generated database uses the data folder and offers the included copy', async ({ page }) => {
+  test('Replacing with a generated database uses the data folder and offers the included copy', async ({ page }) => {
     await page.goto('/security');
     const card = page.getByRole('region', { name: CARD_NAME });
 
@@ -144,7 +144,7 @@ test.describe('GeoIP database card', () => {
     });
   });
 
-  test.fixme('Replacing with a text file is refused and the data-folder copy stays', async ({ page }) => {
+  test('Replacing with a text file is refused and the data-folder copy stays', async ({ page }) => {
     await page.goto('/security');
     const card = page.getByRole('region', { name: CARD_NAME });
 
@@ -154,7 +154,7 @@ test.describe('GeoIP database card', () => {
     expect((await readStatus(requestContext)).source).toBe('data');
   });
 
-  test.fixme('Cross-origin upload and removal are refused with 403 before the handler runs, and the data-folder copy stays', async () => {
+  test('Cross-origin upload and removal are refused with 403 before the handler runs, and the data-folder copy stays', async () => {
     await test.step('POST from a sibling origin with Sec-Fetch-Site same-site is refused', async () => {
       const response = await requestContext.post(DATABASE_PATH, {
         headers: { 'Sec-Fetch-Site': 'same-site', Origin: `https://other.${baseHostname}` },
@@ -181,7 +181,7 @@ test.describe('GeoIP database card', () => {
     });
   });
 
-  test.fixme('Use the included copy asks for confirmation, removes the data-folder copy, and raises no alert', async ({ page }) => {
+  test('Use the included copy asks for confirmation, removes the data-folder copy, and raises no alert', async ({ page }) => {
     await page.goto('/security');
     const card = page.getByRole('region', { name: CARD_NAME });
 
