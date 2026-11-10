@@ -630,7 +630,7 @@
       },
       "unknown": "Noch nicht auf alle Hosts angewendet. Prüfe die Einstellungen dieses Moduls.",
       "acl": {
-        "geoip_unavailable": "Länderlisten benötigen die GeoIP-Datenbank, die in dieser Installation fehlt, und lehnen Anfragen so lange ab, bis sie bereitgestellt wird. Siehe Dokumentation."
+        "geoip_unavailable": "Länderlisten werden nicht durchgesetzt: Die GeoIP-Datenbank fehlt in dieser Installation. Alle können diese Hosts erreichen, bis sie bereitgestellt wird. Siehe Dokumentation."
       }
     }
   },

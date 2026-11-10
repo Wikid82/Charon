@@ -605,7 +605,7 @@
     "settingUpdateFailed": "Failed to update setting: {{error}}",
     "enforcement": {
       "acl": {
-        "geoip_unavailable": "Seznamy zemí potřebují databázi GeoIP, která v této instalaci chybí, takže požadavky odmítají, dokud nebude k dispozici. Viz dokumentace."
+        "geoip_unavailable": "Seznamy zemí nejsou vynucovány: databáze GeoIP v této instalaci chybí. Ke všem těmto hostitelům se mohou dostat všichni, dokud nebude databáze k dispozici. Viz dokumentace."
       }
     }
   },

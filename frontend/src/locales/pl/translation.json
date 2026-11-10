@@ -605,7 +605,7 @@
     "settingUpdateFailed": "Failed to update setting: {{error}}",
     "enforcement": {
       "acl": {
-        "geoip_unavailable": "Listy krajów wymagają bazy danych GeoIP, której brak w tej instalacji, dlatego odrzucają żądania, dopóki nie zostanie ona dostarczona. Zobacz dokumentację."
+        "geoip_unavailable": "Listy krajów nie są egzekwowane: w tej instalacji brakuje bazy danych GeoIP. Każdy może połączyć się z tymi hostami, dopóki baza nie zostanie dostarczona. Zobacz dokumentację."
       }
     }
   },

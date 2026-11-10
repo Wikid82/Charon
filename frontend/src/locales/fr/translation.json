@@ -630,7 +630,7 @@
       },
       "unknown": "Pas encore appliqué à tous les hôtes. Consultez la page des paramètres de ce module.",
       "acl": {
-        "geoip_unavailable": "Les listes de pays nécessitent la base de données GeoIP, absente de cette installation : elles refusent les requêtes tant qu'elle n'est pas fournie. Voir la documentation."
+        "geoip_unavailable": "Les listes de pays ne sont pas appliquées : la base de données GeoIP est absente de cette installation. Tout le monde peut accéder à ces hôtes tant qu'elle n'est pas fournie. Voir la documentation."
       }
     }
   },

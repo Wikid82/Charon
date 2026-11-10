@@ -605,7 +605,7 @@
     "settingUpdateFailed": "Failed to update setting: {{error}}",
     "enforcement": {
       "acl": {
-        "geoip_unavailable": "Landlyste benodig die GeoIP-databasis, wat nie in hierdie installasie is nie, en hulle weier versoeke totdat dit verskaf word. Sien die dokumentasie."
+        "geoip_unavailable": "Landlyste word nie afgedwing nie: die GeoIP-databasis ontbreek in hierdie installasie. Almal kan by daardie gashere uitkom totdat dit verskaf word. Sien die dokumentasie."
       }
     }
   },

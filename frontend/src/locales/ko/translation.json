@@ -605,7 +605,7 @@
     "settingUpdateFailed": "Failed to update setting: {{error}}",
     "enforcement": {
       "acl": {
-        "geoip_unavailable": "국가 목록에는 이 설치에 없는 GeoIP 데이터베이스가 필요하므로, 제공될 때까지 일치하는 요청을 거부합니다. 문서를 참조하세요."
+        "geoip_unavailable": "국가 목록이 적용되지 않습니다: 이 설치에 GeoIP 데이터베이스가 없습니다. 데이터베이스가 제공될 때까지 모든 사용자가 해당 호스트에 접근할 수 있습니다. 문서를 참조하세요."
       }
     }
   },

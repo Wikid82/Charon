@@ -260,7 +260,7 @@ func accessListDecisionText(reason string) string {
 	case services.ReasonAllowed:
 		return "Allowed by access list"
 	case services.ReasonGeoIPUnavailable:
-		return "GeoIP database not available - country lists refuse every address except admin addresses"
+		return "GeoIP database not available - country lists are not enforced"
 	case services.ReasonCountryNotAllowed:
 		return "Blocked by geo whitelist: country is not in the allowed countries"
 	case services.ReasonCountryBlocked:

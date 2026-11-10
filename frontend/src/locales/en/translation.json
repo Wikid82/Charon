@@ -630,7 +630,7 @@
       },
       "unknown": "Not applied to every host yet. Check this module's settings page.",
       "acl": {
-        "geoip_unavailable": "Country lists need the GeoIP database, which is missing from this install, so they refuse requests until it is provided. See the documentation."
+        "geoip_unavailable": "Country lists are not enforced: the GeoIP database is missing from this install. Everyone can reach those hosts until it is provided. See the documentation."
       }
     }
   },

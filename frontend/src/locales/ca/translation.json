@@ -605,7 +605,7 @@
     "settingUpdateFailed": "Failed to update setting: {{error}}",
     "enforcement": {
       "acl": {
-        "geoip_unavailable": "Les llistes de països necessiten la base de dades GeoIP, que falta en aquesta instal·lació, així que rebutgen les sol·licituds fins que se n'proporcioni. Consulta la documentació."
+        "geoip_unavailable": "Les llistes de països no s'apliquen: la base de dades GeoIP no hi és en aquesta instal·lació. Tothom pot accedir a aquests hosts fins que se n'proporcioni una. Consulta la documentació."
       }
     }
   },

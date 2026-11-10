@@ -605,7 +605,7 @@
     "settingUpdateFailed": "Failed to update setting: {{error}}",
     "enforcement": {
       "acl": {
-        "geoip_unavailable": "Ülke listeleri, bu kurulumda eksik olan GeoIP veritabanını gerektirir; veritabanı sağlanana kadar istekleri reddederler. Belgelere bakın."
+        "geoip_unavailable": "Ülke listeleri uygulanmıyor: GeoIP veritabanı bu kurulumda eksik. Veritabanı sağlanana kadar herkes bu sunuculara erişebilir. Belgelere bakın."
       }
     }
   },

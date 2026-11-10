@@ -605,7 +605,7 @@
     "settingUpdateFailed": "Failed to update setting: {{error}}",
     "enforcement": {
       "acl": {
-        "geoip_unavailable": "Landenlijsten hebben de GeoIP-database nodig, die in deze installatie ontbreekt, dus ze weigeren verzoeken totdat die beschikbaar is. Zie de documentatie."
+        "geoip_unavailable": "Landenlijsten worden niet afgedwongen: de GeoIP-database ontbreekt in deze installatie. Iedereen kan die hosts bereiken totdat deze beschikbaar is. Zie de documentatie."
       }
     }
   },

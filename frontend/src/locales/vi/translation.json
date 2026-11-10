@@ -605,7 +605,7 @@
     "settingUpdateFailed": "Failed to update setting: {{error}}",
     "enforcement": {
       "acl": {
-        "geoip_unavailable": "Danh sách quốc gia cần cơ sở dữ liệu GeoIP, hiện không có trong bản cài đặt này, nên các yêu cầu sẽ bị từ chối cho đến khi được cung cấp. Xem tài liệu."
+        "geoip_unavailable": "Danh sách quốc gia không được áp dụng: cơ sở dữ liệu GeoIP không có trong bản cài đặt này. Mọi người đều có thể truy cập các máy chủ đó cho đến khi cơ sở dữ liệu được cung cấp. Xem tài liệu."
       }
     }
   },

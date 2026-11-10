@@ -316,6 +316,8 @@ When the WAF or the rate limit is on but does not apply to every site, the Secur
 
 Access lists let you block or allow specific countries, IP addresses, or networks.
 
+**Country lists need a map file (the GeoIP database).** Charon includes it in the Docker image. If that file is ever missing, country lists are not enforced: an allow-list lets everyone in and a block-list blocks no one. Charon chooses this on purpose so that a missing file never locks you out of your own sites. A red alert in the notification bell tells you when this is happening. See [Country Access Lists Are Not Being Enforced](troubleshooting/geoip-database.md).
+
 ### Example 1: Block a Country
 
 **Scenario:** You only need access from the US, so block everyone else.

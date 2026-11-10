@@ -43,13 +43,13 @@ func TestGeoIPServiceAvailable(t *testing.T) {
 	})
 }
 
-func TestEvaluateWithoutGeoIPServiceRefusesCountryList(t *testing.T) {
+func TestEvaluateWithoutGeoIPServiceLeavesCountryListUnenforced(t *testing.T) {
 	svc := NewAccessListService(nil)
 	svc.SetGeoIPService(nil)
 
 	d, err := svc.Evaluate(&models.AccessList{Type: "geo_blacklist", CountryCodes: "RU", Enabled: true}, netip.MustParseAddr(testVisitor), nil)
 	require.NoError(t, err)
-	assert.False(t, d.Allowed)
+	assert.True(t, d.Allowed)
 	assert.Equal(t, ReasonGeoIPUnavailable, d.Reason)
 	assert.False(t, d.GeoIPAvailable)
 }

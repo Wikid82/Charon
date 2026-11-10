@@ -1,8 +1,11 @@
 package handlers
 
 import (
+	"context"
+
 	"github.com/gin-gonic/gin"
 
+	"github.com/Wikid82/charon/backend/internal/alerts"
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -99,5 +102,34 @@ func (h *SecurityHandler) pendingCountryLists(aclEnabled bool) []string {
 func (h *SecurityHandler) addACLGeoIPReason(aclStatus gin.H, aclEnabled bool) {
 	if len(h.countryListsNotEnforced(aclEnabled)) > 0 {
 		aclStatus["reason"] = caddy.ReasonGeoIPUnavailable
+	}
+}
+
+// aclEnabledForAlerts reports whether access control is switched on now, from the settings key and the static
+// configuration. It is the fallback input of countryListsNotEnforced before any apply has succeeded.
+func (h *SecurityHandler) aclEnabledForAlerts() bool {
+	res, err := models.ResolveACL(h.db, h.cfg.ACLMode == "enabled")
+	logStatusReadError("acl", err)
+	return res.Enabled
+}
+
+// GeoIPAlertSource returns the notification bell alert for country lists that are not enforced because no GeoIP
+// database is usable. It is active while countryListsNotEnforced names a list, so it follows the last applied config
+// and goes away once a later apply succeeds with a usable database. DatabaseAvailable tells the bell whether a reload
+// can help.
+func (h *SecurityHandler) GeoIPAlertSource() alerts.Source {
+	return func(context.Context) (alerts.Alert, bool, error) {
+		lists := h.countryListsNotEnforced(h.aclEnabledForAlerts())
+		if len(lists) == 0 {
+			return alerts.Alert{}, false, nil
+		}
+		available := h.geoipSvc.Available()
+		return alerts.Alert{
+			Key:                alerts.KeyGeoIPUnavailable,
+			Severity:           models.NotificationTypeError,
+			AffectedLists:      lists[:min(len(lists), alerts.MaxAffectedLists)],
+			AffectedListsTotal: len(lists),
+			DatabaseAvailable:  &available,
+		}, true, nil
 	}
 }

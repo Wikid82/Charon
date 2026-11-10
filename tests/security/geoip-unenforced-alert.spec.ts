@@ -5,7 +5,7 @@
  * endpoint answers 500 without a path, the loopback client is no longer refused, the notification bell shows one
  * red error alert, and the access list status reports `geoip_unavailable`. Restoring the database clears the alert.
  *
- * Every test is `test.fixme` until C5 (the unenforced behaviour and the alert) lands; C5 enables them.
+ * Not enforced means the proxy applies the country list as a no-op, so the loopback client is admitted, not refused.
  *
  * The runner is admin-whitelisted, so the refusal side uses the in-container loopback client with a narrowed admin
  * whitelist (see utils/loopback-client-case.ts). Each assertion checks both the loopback client and the runner.
@@ -34,8 +34,11 @@ const ALERT_KEY = 'geoip_unavailable';
 const ALERT_TITLE = 'Country access lists are not being enforced';
 /** Section that holds the bell's alerts (notificationCenter.alerts.label, en). Assumed to be a labelled region. */
 const ALERTS_SECTION_NAME = 'Needs attention';
-/** Bell accessible name with one unread item (notificationCenter.bellLabel, en). */
-const BELL_NAME_ONE_NEW = 'Notifications, 1 new';
+/**
+ * Bell accessible name while it has any unread count (notificationCenter.bellLabel, en). The count also includes
+ * regular notifications, so the pattern does not pin it to one.
+ */
+const BELL_NAME_WITH_COUNT = /^Notifications, \d+ new$/;
 /** Docs and issue link labels (notificationCenter.alerts.geoip_unavailable.*, en). */
 const DOCS_LINK_NAME = 'How to provide the database';
 const ISSUE_LINK_NAME = 'Open an issue';
@@ -131,7 +134,7 @@ test.describe('GeoIP unenforced alert', () => {
     ]);
   });
 
-  test.fixme('Hidden database: reload answers 500 without a path, the list is not enforced, and the bell shows the red alert', async ({ page }) => {
+  test('Hidden database: reload answers 500 without a path, the list is not enforced, and the bell shows the red alert', async ({ page }) => {
     await test.step('Hide the database and reload: 500 geoip_reload_failed with no path in the body', async () => {
       expect(hideGeoIPDatabases()).toBe(true);
 
@@ -173,7 +176,7 @@ test.describe('GeoIP unenforced alert', () => {
     await test.step('The bell is red, counts the alert, and lists it with its links and no dismiss control', async () => {
       await page.goto('/security');
 
-      const bell = page.getByRole('button', { name: BELL_NAME_ONE_NEW });
+      const bell = page.getByRole('button', { name: BELL_NAME_WITH_COUNT });
       await expect(bell).toHaveClass(/red/, { timeout: ALERT_POLL_TIMEOUT_MS });
 
       await bell.click();
@@ -193,10 +196,14 @@ test.describe('GeoIP unenforced alert', () => {
     });
 
     await test.step('Mark all read does not clear the alert', async () => {
-      await page.getByRole('button', { name: MARK_ALL_READ_NAME }).click();
+      // The button renders only while regular notifications exist, so it is clicked only when present.
+      const markAllRead = page.getByRole('button', { name: MARK_ALL_READ_NAME });
+      if (await markAllRead.isVisible()) {
+        await markAllRead.click();
+      }
 
       await expect(page.getByRole('region', { name: ALERTS_SECTION_NAME })).toContainText(ALERT_TITLE);
-      await expect(page.getByRole('button', { name: BELL_NAME_ONE_NEW })).toBeVisible();
+      await expect(page.getByRole('button', { name: BELL_NAME_WITH_COUNT })).toBeVisible();
     });
 
     await test.step('The Security page shows the not-enforced note on the access list card', async () => {
@@ -204,13 +211,13 @@ test.describe('GeoIP unenforced alert', () => {
     });
   });
 
-  test.fixme('Restored database: reload succeeds, the alert disappears, and the loopback client is refused again', async ({ page }) => {
-    await test.step('Restore the database and reload: 200 with the status', async () => {
+  test('Restored database: reload succeeds, the alert disappears, and the loopback client is refused again', async ({ page }) => {
+    await test.step('Restore the database and reload: 200 with the database loaded', async () => {
       expect(restoreGeoIPDatabases()).toBe(true);
 
       const response = await reloadGeoIPDatabase(requestContext);
       expect(response.status()).toBe(200);
-      expect(await response.json()).toHaveProperty('status');
+      expect(await response.json()).toMatchObject({ loaded: true });
     });
 
     await test.step('The loopback client is refused again', async () => {
@@ -232,7 +239,9 @@ test.describe('GeoIP unenforced alert', () => {
 
     await test.step('The bell has no alert after a page reload', async () => {
       await page.goto('/security');
-      await expect(page.getByRole('button', { name: BELL_NAME_ONE_NEW })).toHaveCount(0, {
+      await page.getByRole('button', { name: /^Notifications/ }).click();
+
+      await expect(page.getByRole('region', { name: ALERTS_SECTION_NAME })).toHaveCount(0, {
         timeout: ALERT_POLL_TIMEOUT_MS,
       });
     });

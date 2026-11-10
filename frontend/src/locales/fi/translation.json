@@ -605,7 +605,7 @@
     "settingUpdateFailed": "Failed to update setting: {{error}}",
     "enforcement": {
       "acl": {
-        "geoip_unavailable": "Maaluettelot tarvitsevat GeoIP-tietokannan, joka puuttuu tästä asennuksesta, joten ne hylkäävät pyynnöt, kunnes tietokanta on toimitettu. Katso dokumentaatio."
+        "geoip_unavailable": "Maaluetteloita ei noudateta: GeoIP-tietokanta puuttuu tästä asennuksesta. Kaikki pääsevät näihin isäntiin, kunnes tietokanta on toimitettu. Katso dokumentaatio."
       }
     }
   },

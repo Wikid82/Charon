@@ -605,7 +605,7 @@
     "settingUpdateFailed": "Failed to update setting: {{error}}",
     "enforcement": {
       "acl": {
-        "geoip_unavailable": "Landelister kræver GeoIP-databasen, som mangler i denne installation, så de afviser anmodninger, indtil den er tilgængelig. Se dokumentationen."
+        "geoip_unavailable": "Landelister håndhæves ikke: GeoIP-databasen mangler i denne installation. Alle kan nå disse værterne, indtil den er tilgængelig. Se dokumentationen."
       }
     }
   },

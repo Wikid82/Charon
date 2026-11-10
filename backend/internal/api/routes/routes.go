@@ -952,8 +952,8 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		securityHandler := handlers.NewSecurityHandlerWithDeps(cfg.Security, db, caddyManager, cerb).WithCrowdsecLifecycle(crowdsecHandler)
 		securityHandler.SetGeoIPService(geoipSvc)
 
-		// Notification bell alerts. No sources are registered yet, so the list is always empty.
-		alertsSvc := alerts.NewService()
+		// Notification bell alerts: country lists not enforced because no GeoIP database is usable.
+		alertsSvc := alerts.NewService(securityHandler.GeoIPAlertSource())
 		management.GET("/notifications/alerts", handlers.NewAlertsHandler(alertsSvc).List)
 
 		management.GET("/security/status", securityHandler.GetStatus)

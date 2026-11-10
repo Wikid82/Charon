@@ -73,7 +73,8 @@ func TestAccessListTester_AdminWhitelistExemptsListedAddress(t *testing.T) {
 	assert.Equal(t, "Address is in the admin whitelist", body["reason"])
 }
 
-func TestAccessListTester_CountryListRefusesWithoutDatabase(t *testing.T) {
+// With no database the country list is not enforced, so the tester allows the address, as the proxy does.
+func TestAccessListTester_CountryListAllowsWithoutDatabase(t *testing.T) {
 	router, db := setupTesterDB(t, true)
 	require.NoError(t, db.Create(&models.AccessList{
 		Name:         "de only",
@@ -84,8 +85,8 @@ func TestAccessListTester_CountryListRefusesWithoutDatabase(t *testing.T) {
 
 	status, body := postAccessListTest(t, router, "203.0.113.9")
 	assert.Equal(t, http.StatusOK, status)
-	assert.Equal(t, false, body["allowed"])
-	assert.Contains(t, body["reason"], "GeoIP database not available")
+	assert.Equal(t, true, body["allowed"])
+	assert.Contains(t, body["reason"], "country lists are not enforced")
 }
 
 func TestAccessListTester_InvalidAddress(t *testing.T) {
@@ -136,7 +137,7 @@ func TestAccessListDecisionText(t *testing.T) {
 		services.ReasonListDisabled:      "Access list is disabled - all traffic allowed",
 		services.ReasonAdminWhitelisted:  "Address is in the admin whitelist",
 		services.ReasonAllowed:           "Allowed by access list",
-		services.ReasonGeoIPUnavailable:  "GeoIP database not available - country lists refuse every address except admin addresses",
+		services.ReasonGeoIPUnavailable:  "GeoIP database not available - country lists are not enforced",
 		services.ReasonCountryNotAllowed: "Blocked by geo whitelist: country is not in the allowed countries",
 		services.ReasonCountryBlocked:    "Blocked by geo blacklist: country is in the blocked countries",
 		services.ReasonNoCountry:         "No country found for IP",

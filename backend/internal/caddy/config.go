@@ -594,8 +594,8 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		// Add Access Control List (ACL) handler if configured and global ACL is enabled
 		if aclEnabled && host.AccessListID != nil && host.AccessList != nil && host.AccessList.Enabled {
 			if isCountryList(host.AccessList) && !geoIPAvailable {
-				// A country list cannot match without the database, so the host refuses every request instead.
-				securityHandlers = append(securityHandlers, geoUnavailableDenyHandler(adminRanges))
+				// Without a usable database the country list is not enforced: no country matcher and no ACL handler,
+				// so the host stays reachable. The report names the list for the status and the alert.
 				report.CountryListsWithoutDatabase = withSortedName(report.CountryListsWithoutDatabase, host.AccessList.Name)
 			} else {
 				if isCountryList(host.AccessList) {
@@ -770,11 +770,11 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			"Access list is enabled but has no usable IP rules; requests to those hosts are refused")
 	}
 
-	// A country list is enabled but no GeoIP database is usable, so its hosts refuse every request. One line per apply
-	// names the lists.
+	// A country list is enabled but no GeoIP database is usable, so the list is not enforced and its hosts are reachable.
+	// One line per apply names the lists.
 	if len(report.CountryListsWithoutDatabase) > 0 {
 		logger.Log().WithField("lists", report.CountryListsWithoutDatabase).Warn(
-			"Country access list needs the GeoIP database, which is unavailable; requests to its hosts are refused")
+			"Country access list is not enforced because the GeoIP database is unavailable; see the notification in the app")
 	}
 
 	// The rate limit is enabled but its request count or window is not set, so the hosts get no rate limit handler.
@@ -973,12 +973,6 @@ func geoIP2AppFor(path, storageDir string) *GeoIP2App {
 // proxy setting would let a forwarded header decide the country until the trust model is narrowed.
 func geoIP2Handler() Handler {
 	return Handler{"handler": "geoip2", "enable": "strict"}
-}
-
-// geoUnavailableDenyHandler refuses every request except admin whitelist addresses. It replaces a country list while
-// no GeoIP database is usable. With no admin whitelist it refuses every request.
-func geoUnavailableDenyHandler(adminRanges []string) Handler {
-	return denyRoute(denyMatcherSet(nil, nil, adminRanges), geoAccessDeniedBody)
 }
 
 // denyRoute returns a subroute with one terminal route that answers 403 with body when the matcher set matches.

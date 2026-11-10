@@ -605,7 +605,7 @@
     "settingUpdateFailed": "Failed to update setting: {{error}}",
     "enforcement": {
       "acl": {
-        "geoip_unavailable": "רשימות מדינות דורשות את מסד הנתונים של GeoIP, שחסר בהתקנה זו, ולכן הן דוחות בקשות עד שיסופק. ראו את התיעוד."
+        "geoip_unavailable": "רשימות מדינות אינן נאכפות: מסד הנתונים של GeoIP חסר בהתקנה זו. כל אחד יכול להגיע למארחים אלה עד שיסופק. ראו את התיעוד."
       }
     }
   },

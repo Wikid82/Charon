@@ -605,7 +605,7 @@
     "settingUpdateFailed": "Failed to update setting: {{error}}",
     "enforcement": {
       "acl": {
-        "geoip_unavailable": "Az országlistákhoz a GeoIP-adatbázis szükséges, amely hiányzik ebből a telepítésből, ezért addig elutasítják a kéréseket, amíg nincs biztosítva. Lásd a dokumentációt."
+        "geoip_unavailable": "Az országlisták nem érvényesülnek: a GeoIP-adatbázis hiányzik ebből a telepítésből. Mindenki elérheti ezeket a gépeket, amíg az adatbázis nincs biztosítva. Lásd a dokumentációt."
       }
     }
   },

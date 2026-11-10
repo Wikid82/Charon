@@ -59,26 +59,33 @@ func (h *SecurityHandler) ReloadGeoIP(c *gin.Context) {
 		return
 	}
 
-	if err := h.geoipSvc.Load(); err != nil {
-		log.WithField("detail", util.SanitizeForLog(err.Error())).Error("Failed to reload GeoIP database")
+	loadErr := h.geoipSvc.Load()
+	if loadErr != nil {
+		log.WithField("detail", util.SanitizeForLog(loadErr.Error())).Error("Failed to reload GeoIP database")
+	}
+
+	// The proxy reads the database only when its config is generated, so apply now and country lists follow the reload
+	// at once. The apply runs even when the load failed: the proxy then converges on the database state it can see
+	// (country lists are not enforced without a usable database) instead of keeping a config that no longer matches.
+	if h.caddyManager != nil {
+		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
+			log.WithField("detail", util.SanitizeForLog(err.Error())).Warn("failed to apply proxy config after GeoIP reload")
+			if loadErr == nil {
+				c.JSON(http.StatusInternalServerError, gin.H{
+					"error":      msgModuleApplyFailed,
+					"error_code": codeProxyApplyFailed,
+				})
+				return
+			}
+		}
+	}
+
+	if loadErr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{
 			"error":      msgGeoIPReloadFailed,
 			"error_code": codeGeoIPReloadFailed,
 		})
 		return
-	}
-
-	// The proxy reads the database only when its config is generated, so a reloaded database reaches traffic on the
-	// next apply. Apply now, so country lists follow the reload at once.
-	if h.caddyManager != nil {
-		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
-			log.WithField("detail", util.SanitizeForLog(err.Error())).Warn("failed to apply proxy config after GeoIP reload")
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":      msgModuleApplyFailed,
-				"error_code": codeProxyApplyFailed,
-			})
-			return
-		}
 	}
 
 	// Log audit event

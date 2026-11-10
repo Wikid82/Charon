@@ -17,6 +17,7 @@ No line means the module is on and working on every site, or the module is off.
 | No rule set is chosen | You have rule sets, but none is picked for the WAF. | Open the **WAF** page and pick a rule set from the list, or choose automatic selection. |
 | The chosen rule set cannot be loaded | The rule set the WAF uses has no rule file ready. | Open the **WAF** page, check the rule set, or choose a different one. |
 | No request count or time window is set | The rate limit is on, but its numbers are empty or zero. | Open the Rate Limiting card, enter the numbers, and save. |
+| Country lists are not enforced | The GeoIP database is missing, so country lists do not block or allow anything. | See [Country Access Lists Are Not Being Enforced](geoip-database.md). |
 
 ### Steps
 
