@@ -30,8 +30,16 @@ type BackupServiceInterface interface {
 	GetAvailableSpace() (int64, error)
 }
 
+// certificateExporter is the export step of the certificate service. The export
+// endpoint depends on this narrow interface so tests can stand in for failures the
+// service does not produce on the normal path.
+type certificateExporter interface {
+	ExportCertificate(certUUID, format string, opts services.ExportOptions) ([]byte, string, error)
+}
+
 type CertificateHandler struct {
 	service             *services.CertificateService
+	exporter            certificateExporter
 	backupService       BackupServiceInterface
 	notificationService *services.NotificationService
 	db                  *gorm.DB
@@ -45,6 +53,7 @@ type CertificateHandler struct {
 func NewCertificateHandler(service *services.CertificateService, backupService BackupServiceInterface, ns *services.NotificationService) *CertificateHandler {
 	return &CertificateHandler{
 		service:              service,
+		exporter:             service,
 		backupService:        backupService,
 		notificationService:  ns,
 		lastNotificationTime: make(map[string]time.Time),
@@ -395,7 +404,7 @@ func (h *CertificateHandler) Export(c *gin.Context) {
 	}
 
 	// KeyAuthorized is set only here, after re-authentication has succeeded.
-	data, filename, err := h.service.ExportCertificate(certUUID, req.Format, services.ExportOptions{
+	data, filename, err := h.exporter.ExportCertificate(certUUID, req.Format, services.ExportOptions{
 		IncludeKey:    req.IncludeKey,
 		PFXPassword:   req.PFXPassword,
 		KeyAuthorized: keyRequested,

@@ -1,7 +1,6 @@
 package handlers
 
 import (
-	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -71,20 +70,22 @@ func configureLogSocket(conn *websocket.Conn) {
 	})
 }
 
-// writeLogSocketJSON sends v as a JSON text message. The write deadline is
-// refreshed before every write, so a stalled client cannot block the handler.
+// armLogSocketWriteDeadline refreshes the write deadline before every write, so a
+// stalled client cannot block the handler. gorilla's SetWriteDeadline only records
+// the time and never fails, so there is no error to report here.
+func armLogSocketWriteDeadline(conn *websocket.Conn) {
+	_ = conn.SetWriteDeadline(time.Now().Add(logSocketWriteWait))
+}
+
+// writeLogSocketJSON sends v as a JSON text message under the write deadline.
 func writeLogSocketJSON(conn *websocket.Conn, v any) error {
-	if err := conn.SetWriteDeadline(time.Now().Add(logSocketWriteWait)); err != nil {
-		return fmt.Errorf("set log socket write deadline: %w", err)
-	}
+	armLogSocketWriteDeadline(conn)
 	return conn.WriteJSON(v)
 }
 
 // writeLogSocketPing sends a ping frame under the same write deadline as data writes.
 func writeLogSocketPing(conn *websocket.Conn) error {
-	if err := conn.SetWriteDeadline(time.Now().Add(logSocketWriteWait)); err != nil {
-		return fmt.Errorf("set log socket write deadline: %w", err)
-	}
+	armLogSocketWriteDeadline(conn)
 	return conn.WriteMessage(websocket.PingMessage, []byte{})
 }
 

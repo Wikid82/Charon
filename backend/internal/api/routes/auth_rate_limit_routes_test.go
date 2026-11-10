@@ -64,13 +64,18 @@ func (a *throttledApp) createUser(role models.UserRole) (user *models.User, toke
 	return u, token
 }
 
+// do sends a request from a client address outside the management networks.
 func (a *throttledApp) do(method, path, token, body string, headers map[string]string) *httptest.ResponseRecorder {
+	return a.doFrom("198.51.100.7:4000", method, path, token, body, headers)
+}
+
+func (a *throttledApp) doFrom(remoteAddr, method, path, token, body string, headers map[string]string) *httptest.ResponseRecorder {
 	var r io.Reader = http.NoBody
 	if body != "" {
 		r = strings.NewReader(body)
 	}
 	req := httptest.NewRequest(method, path, r)
-	req.RemoteAddr = "198.51.100.7:4000"
+	req.RemoteAddr = remoteAddr
 	req.Header.Set("Content-Type", "application/json")
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
@@ -244,11 +249,18 @@ func TestRegister_EmergencyEndpointsNotThrottledByAuthBudget(t *testing.T) {
 		assert.NotEqual(t, http.StatusTooManyRequests, app.do(http.MethodGet, "/api/v1/emergency/token/status", "", "", nil).Code)
 	}
 
-	// The reset route has its own per-address budget, independent of the sign-in budget.
-	for i := 0; i < middleware.EmergencyResetAttemptsPerWindow; i++ {
-		assert.NotEqual(t, http.StatusTooManyRequests, app.do(http.MethodPost, "/api/v1/emergency/security-reset", "", "", nil).Code)
+	// The reset route has its own per-address budget, independent of the sign-in budget. Only
+	// unauthorized attempts spend it, so the attempts come from a management address with a wrong token.
+	const configuredToken = "test-token-that-meets-minimum-length-requirement-32-chars"
+	t.Setenv("CHARON_EMERGENCY_TOKEN", configuredToken)
+	wrongToken := map[string]string{"X-Emergency-Token": "wrong-token-value-that-is-not-configured"}
+	reset := func() *httptest.ResponseRecorder {
+		return app.doFrom("127.0.0.1:4000", http.MethodPost, "/api/v1/emergency/security-reset", "", "", wrongToken)
 	}
-	assertGeneric429(t, app.do(http.MethodPost, "/api/v1/emergency/security-reset", "", "", nil))
+	for i := 0; i < middleware.EmergencyResetAttemptsPerWindow; i++ {
+		assert.Equal(t, http.StatusUnauthorized, reset().Code)
+	}
+	assertGeneric429(t, reset())
 }
 
 func TestRegister_EmergencyBypassSkipsAuthThrottle(t *testing.T) {

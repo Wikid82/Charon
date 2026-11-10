@@ -74,7 +74,7 @@ type EmergencyResetThrottle struct {
 
 // NewEmergencyResetThrottle builds a throttle for the named listener. listener
 // labels audit rows; auditor may be nil to skip audit writes.
-func NewEmergencyResetThrottle(listener string, auditor EmergencyThrottleAuditor, opts ...EmergencyResetThrottleOption) (*EmergencyResetThrottle, error) {
+func NewEmergencyResetThrottle(listener string, auditor EmergencyThrottleAuditor, opts ...EmergencyResetThrottleOption) *EmergencyResetThrottle {
 	t := &EmergencyResetThrottle{
 		listener:   listener,
 		auditor:    auditor,
@@ -88,12 +88,20 @@ func NewEmergencyResetThrottle(listener string, auditor EmergencyThrottleAuditor
 	}
 
 	rate, burst := ratelimit.PerWindow(EmergencyResetAttemptsPerWindow, EmergencyResetWindow)
-	budget, err := ratelimit.NewKeyedLimiter(ratelimit.Config{Rate: rate, Burst: burst, Now: t.clock})
+	t.budget = mustNewKeyedLimiter(ratelimit.Config{Rate: rate, Burst: burst, Now: t.clock})
+	return t
+}
+
+// mustNewKeyedLimiter builds the per-address budget from the constant settings
+// above. An error here means a constant is invalid, a programming error caught
+// at startup, so it panics instead of threading an unreachable error through
+// every caller.
+func mustNewKeyedLimiter(cfg ratelimit.Config) *ratelimit.KeyedLimiter {
+	budget, err := ratelimit.NewKeyedLimiter(cfg)
 	if err != nil {
-		return nil, fmt.Errorf("create emergency reset budget: %w", err)
+		panic(fmt.Errorf("create emergency reset budget: %w", err))
 	}
-	t.budget = budget
-	return t, nil
+	return budget
 }
 
 // Middleware runs before any token comparison or database read in the reset
@@ -101,10 +109,11 @@ func NewEmergencyResetThrottle(listener string, auditor EmergencyThrottleAuditor
 // 429 at once), then takes a check slot, waiting up to the slot wait before
 // answering 429. Under the slot it peeks again, because requests queued behind
 // the semaphore may have been overtaken by failures in the meantime. The handler
-// runs only when the budget admits the request. A failed attempt, meaning the
-// handler answered with a 4xx other than 429, then consumes one token; a
-// successful reset consumes nothing. A refused request is audited and never
-// reaches the handler.
+// runs only when the budget admits the request. An attempt the handler refuses
+// as unauthorized (401, wrong or missing token) then consumes one token; every
+// other response, including other 4xx statuses such as 400 or 403 and any
+// success, consumes nothing. A refused request is audited and never reaches the
+// handler.
 func (t *EmergencyResetThrottle) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		key := ratelimit.ClientKey(c.ClientIP())
@@ -143,10 +152,12 @@ func (t *EmergencyResetThrottle) budgetAdmits(c *gin.Context, key string) bool {
 	return false
 }
 
-// isFailedAttempt reports whether a handler status counts against the budget:
-// any error status except 429, which only the throttle itself answers.
+// isFailedAttempt reports whether a handler status counts against the budget.
+// Only 401 does: it means the token was wrong or missing. Other error statuses
+// (for example 403 from a management network check or 400 for a malformed body)
+// say nothing about the token, so they do not spend the budget.
 func isFailedAttempt(status int) bool {
-	return status >= http.StatusBadRequest && status != http.StatusTooManyRequests
+	return status == http.StatusUnauthorized
 }
 
 // acquireSlot takes a check slot, waiting up to t.wait. It returns false when

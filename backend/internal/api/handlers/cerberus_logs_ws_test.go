@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -507,7 +508,8 @@ func TestCerberusLogsHandler_UpgradeFailure(t *testing.T) {
 }
 
 // wsTestToken is a credential-like value used to check that it never reaches connection info or streamed entries.
-const wsTestToken = "tkn-test-value-7f3a"
+// It is generated per run so no credential-shaped literal lives in the source.
+var wsTestToken = "tok-" + uuid.NewString()
 
 // TestCerberusLogsHandler_ConnectionListOmitsToken verifies the connection list does not expose the query token.
 func TestCerberusLogsHandler_ConnectionListOmitsToken(t *testing.T) {

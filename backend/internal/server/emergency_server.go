@@ -173,10 +173,7 @@ func (s *EmergencyServer) Start() error {
 
 	// POST /emergency/security-reset - Disable all security modules. The loopback listener has its
 	// own throttle, separate from the main router's, so its recovery budget is never shared.
-	resetThrottle, err := middleware.NewEmergencyResetThrottle("loopback", services.NewSecurityService(s.db))
-	if err != nil {
-		return fmt.Errorf("create emergency reset throttle: %w", err)
-	}
+	resetThrottle := middleware.NewEmergencyResetThrottle("loopback", services.NewSecurityService(s.db))
 	router.POST("/emergency/security-reset", resetThrottle.Middleware(), emergencyHandler.SecurityReset)
 
 	// Create HTTP server with sensible timeouts

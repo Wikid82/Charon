@@ -82,8 +82,7 @@ func failHandler(c *gin.Context) { c.Status(http.StatusUnauthorized) }
 func TestEmergencyResetThrottle_BudgetExhaustionAnswers429AndAudits(t *testing.T) {
 	clock := newFakeThrottleClock()
 	auditor := &recordingAuditor{}
-	th, err := NewEmergencyResetThrottle("main", auditor, WithEmergencyResetClock(clock.now))
-	require.NoError(t, err)
+	th := NewEmergencyResetThrottle("main", auditor, WithEmergencyResetClock(clock.now))
 
 	calls := 0
 	r := throttleRouter(th, func(c *gin.Context) {
@@ -112,8 +111,7 @@ func TestEmergencyResetThrottle_BudgetExhaustionAnswers429AndAudits(t *testing.T
 }
 
 func TestEmergencyResetThrottle_SuccessesNeverExhaustBudget(t *testing.T) {
-	th, err := NewEmergencyResetThrottle("main", nil, WithEmergencyResetClock(newFakeThrottleClock().now))
-	require.NoError(t, err)
+	th := NewEmergencyResetThrottle("main", nil, WithEmergencyResetClock(newFakeThrottleClock().now))
 
 	calls := 0
 	r := throttleRouter(th, func(c *gin.Context) {
@@ -129,8 +127,7 @@ func TestEmergencyResetThrottle_SuccessesNeverExhaustBudget(t *testing.T) {
 }
 
 func TestEmergencyResetThrottle_InterleavedSuccessesDoNotCountAsFailures(t *testing.T) {
-	th, err := NewEmergencyResetThrottle("main", nil, WithEmergencyResetClock(newFakeThrottleClock().now))
-	require.NoError(t, err)
+	th := NewEmergencyResetThrottle("main", nil, WithEmergencyResetClock(newFakeThrottleClock().now))
 
 	// Five failures spread among successes: the budget is spent on the failures only.
 	outcomes := []int{
@@ -151,7 +148,7 @@ func TestEmergencyResetThrottle_InterleavedSuccessesDoNotCountAsFailures(t *test
 	assert.Equal(t, http.StatusTooManyRequests, doReset(r, "192.0.2.13:1000").Code, "the sixth failure is refused")
 }
 
-func TestEmergencyResetThrottle_OnlyErrorStatusesCharge(t *testing.T) {
+func TestEmergencyResetThrottle_OnlyUnauthorizedChargesBudget(t *testing.T) {
 	cases := []struct {
 		name    string
 		status  int
@@ -160,14 +157,14 @@ func TestEmergencyResetThrottle_OnlyErrorStatusesCharge(t *testing.T) {
 		{"ok", http.StatusOK, false},
 		{"no content", http.StatusNoContent, false},
 		{"throttle status from handler", http.StatusTooManyRequests, false},
-		{"bad request", http.StatusBadRequest, true},
-		{"forbidden", http.StatusForbidden, true},
-		{"server error", http.StatusInternalServerError, true},
+		{"unauthorized", http.StatusUnauthorized, true},
+		{"bad request", http.StatusBadRequest, false},
+		{"forbidden", http.StatusForbidden, false},
+		{"server error", http.StatusInternalServerError, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			th, err := NewEmergencyResetThrottle("main", nil, WithEmergencyResetClock(newFakeThrottleClock().now))
-			require.NoError(t, err)
+			th := NewEmergencyResetThrottle("main", nil, WithEmergencyResetClock(newFakeThrottleClock().now))
 			calls := 0
 			r := throttleRouter(th, func(c *gin.Context) {
 				calls++
@@ -190,8 +187,7 @@ func TestEmergencyResetThrottle_OnlyErrorStatusesCharge(t *testing.T) {
 
 func TestEmergencyResetThrottle_PerAddressIsolation(t *testing.T) {
 	clock := newFakeThrottleClock()
-	th, err := NewEmergencyResetThrottle("main", nil, WithEmergencyResetClock(clock.now))
-	require.NoError(t, err)
+	th := NewEmergencyResetThrottle("main", nil, WithEmergencyResetClock(clock.now))
 	r := throttleRouter(th, failHandler)
 
 	for i := 0; i < EmergencyResetAttemptsPerWindow; i++ {
@@ -203,8 +199,7 @@ func TestEmergencyResetThrottle_PerAddressIsolation(t *testing.T) {
 
 func TestEmergencyResetThrottle_QueuedRequestRechecksBudgetUnderSlot(t *testing.T) {
 	clock := newFakeThrottleClock()
-	th, err := NewEmergencyResetThrottle("main", nil, WithEmergencyResetClock(clock.now), WithEmergencyResetWait(5*time.Second))
-	require.NoError(t, err)
+	th := NewEmergencyResetThrottle("main", nil, WithEmergencyResetClock(clock.now), WithEmergencyResetWait(5*time.Second))
 
 	// Holding requests (header X-Gate) block in the handler until gate closes.
 	entered := make(chan struct{}, EmergencyResetConcurrency)
@@ -261,8 +256,7 @@ func TestEmergencyResetThrottle_QueuedRequestRechecksBudgetUnderSlot(t *testing.
 }
 
 func TestEmergencyResetThrottle_SemaphoreWaitsForFreeSlot(t *testing.T) {
-	th, err := NewEmergencyResetThrottle("main", nil, WithEmergencyResetWait(5*time.Second))
-	require.NoError(t, err)
+	th := NewEmergencyResetThrottle("main", nil, WithEmergencyResetWait(5*time.Second))
 
 	entered := make(chan struct{}, EmergencyResetConcurrency+1)
 	gate := make(chan struct{})
@@ -306,8 +300,7 @@ func TestEmergencyResetThrottle_SemaphoreWaitsForFreeSlot(t *testing.T) {
 func TestEmergencyResetThrottle_SemaphoreWaitTimesOutWith429(t *testing.T) {
 	auditor := &recordingAuditor{}
 	const wait = 50 * time.Millisecond
-	th, err := NewEmergencyResetThrottle("loopback", auditor, WithEmergencyResetWait(wait))
-	require.NoError(t, err)
+	th := NewEmergencyResetThrottle("loopback", auditor, WithEmergencyResetWait(wait))
 
 	entered := make(chan struct{}, EmergencyResetConcurrency)
 	gate := make(chan struct{})
@@ -349,10 +342,8 @@ func TestEmergencyResetThrottle_SemaphoreWaitTimesOutWith429(t *testing.T) {
 
 func TestEmergencyResetThrottle_SeparateInstancesDoNotShareBudgetOrSlots(t *testing.T) {
 	clock := newFakeThrottleClock()
-	mainTh, err := NewEmergencyResetThrottle("main", nil, WithEmergencyResetClock(clock.now), WithEmergencyResetWait(50*time.Millisecond))
-	require.NoError(t, err)
-	loopbackTh, err := NewEmergencyResetThrottle("loopback", nil, WithEmergencyResetClock(clock.now), WithEmergencyResetWait(50*time.Millisecond))
-	require.NoError(t, err)
+	mainTh := NewEmergencyResetThrottle("main", nil, WithEmergencyResetClock(clock.now), WithEmergencyResetWait(50*time.Millisecond))
+	loopbackTh := NewEmergencyResetThrottle("loopback", nil, WithEmergencyResetClock(clock.now), WithEmergencyResetWait(50*time.Millisecond))
 
 	// Exhaust the main instance's budget for one address.
 	mainRouter := throttleRouter(mainTh, failHandler)
@@ -393,8 +384,7 @@ func TestEmergencyResetThrottle_SeparateInstancesDoNotShareBudgetOrSlots(t *test
 func TestEmergencyResetThrottle_NilAuditorAndFailingAuditorStillAnswer429(t *testing.T) {
 	failing := &recordingAuditor{err: errors.New("db down")}
 	for _, auditor := range []EmergencyThrottleAuditor{nil, failing} {
-		th, err := NewEmergencyResetThrottle("main", auditor)
-		require.NoError(t, err)
+		th := NewEmergencyResetThrottle("main", auditor)
 		r := throttleRouter(th, failHandler)
 		for i := 0; i < EmergencyResetAttemptsPerWindow; i++ {
 			doReset(r, "192.0.2.20:1")
@@ -405,8 +395,7 @@ func TestEmergencyResetThrottle_NilAuditorAndFailingAuditorStillAnswer429(t *tes
 }
 
 func TestNewEmergencyResetThrottle_DefaultsMatchSpec(t *testing.T) {
-	th, err := NewEmergencyResetThrottle("main", nil)
-	require.NoError(t, err)
+	th := NewEmergencyResetThrottle("main", nil)
 	assert.Equal(t, EmergencyResetConcurrency, cap(th.slots))
 	assert.Equal(t, EmergencyResetSlotWait, th.wait)
 }

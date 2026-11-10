@@ -127,13 +127,20 @@ func TestConfigureLogSocket_PongRefreshesReadDeadline(t *testing.T) {
 	const pongWait = 300 * time.Millisecond
 	withLogSocketTimings(t, pongWait, 10*time.Second, 50*time.Millisecond)
 
+	// The pinger reads the package timers, so the cleanup must wait for it to
+	// exit before withLogSocketTimings restores the production values.
 	stop := make(chan struct{})
-	t.Cleanup(func() { close(stop) })
+	pingerDone := make(chan struct{})
+	t.Cleanup(func() {
+		close(stop)
+		<-pingerDone
+	})
 
 	serverErr := make(chan error, 1)
 	srv := newLogSocketTestServer(t, func(conn *websocket.Conn) {
 		// Keep pinging for longer than one pong wait. Each pong must extend the deadline.
 		go func() {
+			defer close(pingerDone)
 			ticker := time.NewTicker(logSocketPingPeriod)
 			defer ticker.Stop()
 			for {
@@ -168,7 +175,8 @@ func TestConfigureLogSocket_PongRefreshesReadDeadline(t *testing.T) {
 	}
 	require.NoError(t, client.Close())
 	select {
-	case <-serverErr:
+	case err := <-serverErr:
+		require.Error(t, err, "server read must fail once the client closes")
 	case <-time.After(5 * time.Second):
 		t.Fatal("server read did not end after the client closed")
 	}

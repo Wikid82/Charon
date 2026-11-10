@@ -312,10 +312,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	emergencyHandler := handlers.NewEmergencyHandlerWithDeps(db, caddyManager, cerb).
 		WithManagementCIDRs(cfg.Security.ManagementCIDRs).
 		WithCrowdsecLifecycle(crowdsecHandler)
-	emergencyResetThrottle, throttleErr := middleware.NewEmergencyResetThrottle("main", securityService)
-	if throttleErr != nil {
-		return Registered{UptimeShutdown: uptimeShutdown}, fmt.Errorf("create emergency reset throttle: %w", throttleErr)
-	}
+	emergencyResetThrottle := middleware.NewEmergencyResetThrottle("main", securityService)
 	emergency := router.Group("/api/v1/emergency")
 	// Emergency endpoints must stay responsive; the reset route is throttled by its own middleware.
 	emergency.POST("/security-reset", emergencyResetThrottle.Middleware(), emergencyHandler.SecurityReset)

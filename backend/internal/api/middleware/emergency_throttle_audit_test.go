@@ -22,8 +22,7 @@ func floodRefusals(t *testing.T, r http.Handler, addr string, n int) {
 func TestEmergencyResetThrottle_FloodAuditsOncePerWindowPerAddress(t *testing.T) {
 	clock := newFakeThrottleClock()
 	auditor := &recordingAuditor{}
-	th, err := NewEmergencyResetThrottle("main", auditor, WithEmergencyResetClock(clock.now))
-	require.NoError(t, err)
+	th := NewEmergencyResetThrottle("main", auditor, WithEmergencyResetClock(clock.now))
 	r := throttleRouter(th, failHandler)
 
 	const flood = 200
@@ -50,8 +49,7 @@ func TestEmergencyResetThrottle_FloodAuditsOncePerWindowPerAddress(t *testing.T)
 func TestEmergencyResetThrottle_SeparateAddressesAuditedSeparately(t *testing.T) {
 	clock := newFakeThrottleClock()
 	auditor := &recordingAuditor{}
-	th, err := NewEmergencyResetThrottle("main", auditor, WithEmergencyResetClock(clock.now))
-	require.NoError(t, err)
+	th := NewEmergencyResetThrottle("main", auditor, WithEmergencyResetClock(clock.now))
 	r := throttleRouter(th, failHandler)
 
 	floodRefusals(t, r, "192.0.2.60:1", EmergencyResetAttemptsPerWindow+10)
@@ -67,8 +65,7 @@ func TestEmergencyResetThrottle_SeparateAddressesAuditedSeparately(t *testing.T)
 func TestEmergencyResetThrottle_ConcurrentFloodAuditsOnce(t *testing.T) {
 	clock := newFakeThrottleClock()
 	auditor := &recordingAuditor{}
-	th, err := NewEmergencyResetThrottle("main", auditor, WithEmergencyResetClock(clock.now))
-	require.NoError(t, err)
+	th := NewEmergencyResetThrottle("main", auditor, WithEmergencyResetClock(clock.now))
 	r := throttleRouter(th, failHandler)
 
 	const workers, perWorker = 20, 25
@@ -98,8 +95,7 @@ func TestEmergencyResetThrottle_ConcurrentFloodAuditsOnce(t *testing.T) {
 
 func TestEmergencyResetThrottle_ExpiredAuditStateIsPruned(t *testing.T) {
 	clock := newFakeThrottleClock()
-	th, err := NewEmergencyResetThrottle("main", nil, WithEmergencyResetClock(clock.now))
-	require.NoError(t, err)
+	th := NewEmergencyResetThrottle("main", nil, WithEmergencyResetClock(clock.now))
 	r := throttleRouter(th, failHandler)
 
 	for i := 0; i < 50; i++ {
@@ -113,8 +109,7 @@ func TestEmergencyResetThrottle_ExpiredAuditStateIsPruned(t *testing.T) {
 }
 
 func TestEmergencyResetThrottle_NilAuditorStillTracksWindows(t *testing.T) {
-	th, err := NewEmergencyResetThrottle("main", nil)
-	require.NoError(t, err)
+	th := NewEmergencyResetThrottle("main", nil)
 	r := throttleRouter(th, failHandler)
 	floodRefusals(t, r, "192.0.2.80:1", EmergencyResetAttemptsPerWindow+5)
 	assert.Len(t, th.auditState, 1)
