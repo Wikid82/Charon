@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"context"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -45,7 +47,12 @@ func newLogSocketTestServer(t *testing.T, handle func(conn *websocket.Conn)) *ht
 
 func dialLogSocketTestServer(t *testing.T, srv *httptest.Server) *websocket.Conn {
 	t.Helper()
-	conn, resp, err := websocket.DefaultDialer.Dial(toWebSocketURL(srv.URL), nil)
+	return dialWithDialer(t, srv, websocket.DefaultDialer)
+}
+
+func dialWithDialer(t *testing.T, srv *httptest.Server, dialer *websocket.Dialer) *websocket.Conn {
+	t.Helper()
+	conn, resp, err := dialer.Dial(toWebSocketURL(srv.URL), nil)
 	if resp != nil && resp.Body != nil {
 		_ = resp.Body.Close()
 	}
@@ -182,48 +189,120 @@ func TestConfigureLogSocket_PongRefreshesReadDeadline(t *testing.T) {
 	}
 }
 
+// stalledSocketBufferBytes is the send buffer on the server and the receive buffer
+// on the client of a stalled-write test. Setting SO_SNDBUF and SO_RCVBUF locks both
+// sizes, so the kernel cannot autotune them upward and the queued bytes stay bounded.
+const stalledSocketBufferBytes = 4096
+
+// stalledWriteBudget caps how long a stalled-write test keeps writing before it
+// gives up. A write that hits its deadline ends the loop well before this budget.
+const stalledWriteBudget = 10 * time.Second
+
+// shrinkServerSendBuffer bounds the server-side send buffer of conn.
+func shrinkServerSendBuffer(conn *websocket.Conn) error {
+	tcpConn, ok := conn.NetConn().(*net.TCPConn)
+	if !ok {
+		return fmt.Errorf("log socket test connection is %T, want *net.TCPConn", conn.NetConn())
+	}
+	if err := tcpConn.SetWriteBuffer(stalledSocketBufferBytes); err != nil {
+		return fmt.Errorf("shrink server send buffer: %w", err)
+	}
+	return nil
+}
+
+// dialStalledReaderClient dials srv with a small receive buffer on the client side.
+// The buffer is set inside NetDialContext, before the HTTP upgrade request is sent.
+func dialStalledReaderClient(t *testing.T, srv *httptest.Server) *websocket.Conn {
+	t.Helper()
+	dialer := &websocket.Dialer{
+		NetDialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			var d net.Dialer
+			conn, err := d.DialContext(ctx, network, addr)
+			if err != nil {
+				return nil, fmt.Errorf("dial stalled reader client: %w", err)
+			}
+			tcpConn, ok := conn.(*net.TCPConn)
+			if !ok {
+				_ = conn.Close()
+				return nil, fmt.Errorf("stalled reader connection is %T, want *net.TCPConn", conn)
+			}
+			if err := tcpConn.SetReadBuffer(stalledSocketBufferBytes); err != nil {
+				_ = conn.Close()
+				return nil, fmt.Errorf("shrink client receive buffer: %w", err)
+			}
+			return conn, nil
+		},
+	}
+	return dialWithDialer(t, srv, dialer)
+}
+
+// fillSocketUntilWriteError calls write until it fails. The client never reads,
+// so the bounded buffers fill and a write fails on its deadline.
+func fillSocketUntilWriteError(write func() error) error {
+	deadline := time.Now().Add(stalledWriteBudget)
+	for time.Now().Before(deadline) {
+		if err := write(); err != nil {
+			return err
+		}
+	}
+	return fmt.Errorf("writes never failed within %s", stalledWriteBudget)
+}
+
+// runStalledWriteTest runs write on the server side of a connection whose client
+// never reads, and returns the first write error. The caller must have applied
+// withLogSocketTimings first: the cleanup registered here runs before that restore,
+// so the handler goroutine has finished reading the timers.
+func runStalledWriteTest(t *testing.T, write func(conn *websocket.Conn) error) error {
+	t.Helper()
+	var writeErr error
+	resultReady := make(chan struct{})
+	t.Cleanup(func() {
+		select {
+		case <-resultReady:
+		case <-time.After(stalledWriteBudget + 5*time.Second):
+		}
+	})
+
+	srv := newLogSocketTestServer(t, func(conn *websocket.Conn) {
+		defer close(resultReady)
+		if err := shrinkServerSendBuffer(conn); err != nil {
+			writeErr = err
+			return
+		}
+		writeErr = fillSocketUntilWriteError(func() error { return write(conn) })
+	})
+	// Registered after the wait cleanup, so the client closes before the handler is awaited.
+	_ = dialStalledReaderClient(t, srv)
+
+	select {
+	case <-resultReady:
+		return writeErr
+	case <-time.After(stalledWriteBudget + 5*time.Second):
+		t.Fatal("stalled write handler did not finish")
+		return nil
+	}
+}
+
+// requireWriteTimeout asserts err is a network timeout from a write deadline.
+func requireWriteTimeout(t *testing.T, err error) {
+	t.Helper()
+	var netErr net.Error
+	require.True(t, errors.As(err, &netErr) && netErr.Timeout(), "expected write timeout, got %v", err)
+}
+
 func TestWriteLogSocketJSON_SetsWriteDeadline(t *testing.T) {
 	withLogSocketTimings(t, 60*time.Second, 100*time.Millisecond, 30*time.Second)
 
-	writeErr := make(chan error, 1)
-	srv := newLogSocketTestServer(t, func(conn *websocket.Conn) {
-		// The client never reads, so socket buffers fill and the write must hit its deadline.
-		payload := map[string]string{"data": strings.Repeat("c", 64*1024)}
-		var err error
-		for i := 0; i < 10000 && err == nil; i++ {
-			err = writeLogSocketJSON(conn, payload)
-		}
-		writeErr <- err
+	payload := map[string]string{"data": strings.Repeat("c", 64*1024)}
+	err := runStalledWriteTest(t, func(conn *websocket.Conn) error {
+		return writeLogSocketJSON(conn, payload)
 	})
-	_ = dialLogSocketTestServer(t, srv)
-
-	select {
-	case err := <-writeErr:
-		var netErr net.Error
-		require.True(t, errors.As(err, &netErr) && netErr.Timeout(), "expected write timeout, got %v", err)
-	case <-time.After(20 * time.Second):
-		t.Fatal("writes never hit the write deadline")
-	}
+	requireWriteTimeout(t, err)
 }
 
 func TestWriteLogSocketPing_SetsWriteDeadline(t *testing.T) {
 	withLogSocketTimings(t, 60*time.Second, 100*time.Millisecond, 30*time.Second)
 
-	writeErr := make(chan error, 1)
-	srv := newLogSocketTestServer(t, func(conn *websocket.Conn) {
-		var err error
-		for i := 0; i < 2000000 && err == nil; i++ {
-			err = writeLogSocketPing(conn)
-		}
-		writeErr <- err
-	})
-	_ = dialLogSocketTestServer(t, srv)
-
-	select {
-	case err := <-writeErr:
-		var netErr net.Error
-		require.True(t, errors.As(err, &netErr) && netErr.Timeout(), "expected write timeout, got %v", err)
-	case <-time.After(30 * time.Second):
-		t.Fatal("ping writes never hit the write deadline")
-	}
+	err := runStalledWriteTest(t, writeLogSocketPing)
+	requireWriteTimeout(t, err)
 }
