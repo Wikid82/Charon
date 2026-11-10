@@ -31,6 +31,7 @@ const HUB_UNREACHABLE_MESSAGE = 'the CrowdSec hub could not be reached; nothing 
 /** Anchored matchers: a loose glob would also match sibling endpoints. */
 const IMPORT_ROUTE = /\/api\/v1\/admin\/crowdsec\/import(?:\?.*)?$/;
 const RESTORE_ROUTE = /\/api\/v1\/admin\/crowdsec\/hub-items\/restore(?:\?.*)?$/;
+const BACKUPS_ROUTE = /\/api\/v1\/backups(?:\?.*)?$/;
 
 interface HubItem {
   type: string;
@@ -162,6 +163,19 @@ test.describe('CrowdSec Hub Item Restore @security', () => {
     ];
 
     test.beforeEach(async ({ page, adminUser }) => {
+      // The import UI awaits a backup start before it posts the import. Backup jobs are single-flight on the
+      // server, so a real backup from the previous case can still be running when this one starts, and the start
+      // answers 409 ("another backup or restore is in progress"). The import is then never sent, the panel never
+      // renders, and the case times out. These cases test the panel, so the backup start is answered here.
+      await page.route(BACKUPS_ROUTE, (route) =>
+        route.request().method() === 'POST'
+          ? route.fulfill({
+              status: 202,
+              contentType: 'application/json',
+              json: { job_id: 'hub-items-panel-backup', type: 'create', status: 'pending' },
+            })
+          : route.fallback(),
+      );
       await loginUser(page, adminUser);
       await waitForLoadingComplete(page);
     });

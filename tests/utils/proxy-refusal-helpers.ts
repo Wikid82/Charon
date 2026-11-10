@@ -8,7 +8,7 @@
  */
 
 import { expect, type APIRequestContext, type APIResponse } from '@playwright/test';
-import { PROXY_HOSTS_PATH } from './security-settings-api';
+import { PROXY_HOSTS_PATH, withRateLimitRetry } from './security-settings-api';
 
 const APP_BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
 const ACCESS_LISTS_PATH = '/api/v1/access-lists';
@@ -65,60 +65,66 @@ export async function createCountryAllowList(
   name: string,
   countryCodes = 'US'
 ): Promise<string> {
-  const response = await request.post(ACCESS_LISTS_PATH, {
-    data: { name, type: 'geo_whitelist', country_codes: countryCodes, enabled: true },
-  });
+  const response = await withRateLimitRetry(() =>
+    request.post(ACCESS_LISTS_PATH, {
+      data: { name, type: 'geo_whitelist', country_codes: countryCodes, enabled: true },
+    }),
+  );
   expect(response.ok(), `create country allow list: ${response.status()}`).toBe(true);
   return (await response.json()).uuid;
 }
 
 export async function deleteAccessList(request: APIRequestContext, uuid: string): Promise<void> {
-  await request.delete(`${ACCESS_LISTS_PATH}/${uuid}`);
+  await withRateLimitRetry(() => request.delete(`${ACCESS_LISTS_PATH}/${uuid}`));
 }
 
 /** Creates a security header profile whose values match PROFILE_HEADER_EXPECTATIONS. */
 export async function createHeaderProfile(request: APIRequestContext, name: string): Promise<HeaderProfile> {
-  const response = await request.post(SECURITY_HEADER_PROFILES_PATH, {
-    data: {
-      name,
-      hsts_enabled: false,
-      csp_enabled: false,
-      x_frame_options: 'DENY',
-      x_content_type_options: true,
-      referrer_policy: 'no-referrer',
-      xss_protection: false,
-      cache_control_no_store: false,
-    },
-  });
+  const response = await withRateLimitRetry(() =>
+    request.post(SECURITY_HEADER_PROFILES_PATH, {
+      data: {
+        name,
+        hsts_enabled: false,
+        csp_enabled: false,
+        x_frame_options: 'DENY',
+        x_content_type_options: true,
+        referrer_policy: 'no-referrer',
+        xss_protection: false,
+        cache_control_no_store: false,
+      },
+    }),
+  );
   expect(response.ok(), `create header profile: ${response.status()}`).toBe(true);
   const { profile } = (await response.json()) as { profile: HeaderProfile };
   return { id: profile.id, uuid: profile.uuid };
 }
 
 export async function deleteHeaderProfile(request: APIRequestContext, profile: HeaderProfile): Promise<void> {
-  await request.delete(`${SECURITY_HEADER_PROFILES_PATH}/${profile.id}`);
+  await withRateLimitRetry(() => request.delete(`${SECURITY_HEADER_PROFILES_PATH}/${profile.id}`));
 }
 
 /** Creates an enabled proxy host that forwards to a local port, optionally with an access list and header profile. */
 export async function createProxyHost(request: APIRequestContext, options: ProxyHostOptions): Promise<string> {
-  const response = await request.post(PROXY_HOSTS_PATH, {
-    data: {
-      domain_names: options.domain,
-      forward_host: '127.0.0.1',
-      forward_port: options.forwardPort,
-      forward_scheme: 'http',
-      websocket_support: false,
-      enabled: true,
-      name: options.name,
-      access_list_id: options.accessListUuid,
-      security_header_profile_id: options.headerProfileUuid,
-    },
-  });
+  const response = await withRateLimitRetry(() =>
+    request.post(PROXY_HOSTS_PATH, {
+      data: {
+        domain_names: options.domain,
+        forward_host: '127.0.0.1',
+        forward_port: options.forwardPort,
+        forward_scheme: 'http',
+        websocket_support: false,
+        enabled: true,
+        name: options.name,
+        access_list_id: options.accessListUuid,
+        security_header_profile_id: options.headerProfileUuid,
+      },
+    }),
+  );
   expect(response.ok(), `create proxy host ${options.domain}: ${response.status()}`).toBe(true);
   const body = await response.json();
   return body.uuid ?? body.id;
 }
 
 export async function deleteProxyHost(request: APIRequestContext, uuid: string): Promise<void> {
-  await request.delete(`${PROXY_HOSTS_PATH}/${uuid}`);
+  await withRateLimitRetry(() => request.delete(`${PROXY_HOSTS_PATH}/${uuid}`));
 }

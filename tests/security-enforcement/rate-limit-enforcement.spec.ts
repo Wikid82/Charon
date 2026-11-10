@@ -22,7 +22,16 @@ import {
   restoreSecurityState,
   SecurityStateSnapshot,
 } from '../utils/security-helpers';
-import { saveConfig } from '../utils/security-settings-api';
+import {
+  STANDARD_API_RATE_LIMIT_BUDGET,
+  getConfigRow,
+  readApiRateLimitBudget,
+  restoreApiRateLimitBudget,
+  saveConfig,
+  writeApiRateLimitBudget,
+  type ApiRateLimitBudget,
+  type SecurityConfigRow,
+} from '../utils/security-settings-api';
 import {
   PROFILE_HEADER_EXPECTATIONS,
   createHeaderProfile,
@@ -72,8 +81,12 @@ async function configureAdminWhitelist(requestContext: APIRequestContext) {
 }
 
 test.describe('Rate Limit Enforcement', () => {
+  // Shared security state and the API rate limit budget are changed here, so the cases must not interleave.
+  test.describe.configure({ mode: 'serial' });
+
   let requestContext: APIRequestContext;
   let originalState: SecurityStateSnapshot;
+  let originalApiBudget: ApiRateLimitBudget | undefined;
 
   test.beforeAll(async () => {
     requestContext = await request.newContext({
@@ -93,6 +106,15 @@ test.describe('Rate Limit Enforcement', () => {
       originalState = await captureSecurityState(requestContext);
     } catch (error) {
       console.error('Failed to capture original security state:', error);
+    }
+
+    // The API limiter reads its budget from these settings. Earlier cases can leave a tight budget behind, and that
+    // would refuse this case's own API calls, so the standard budget is set here and the captured one is restored.
+    try {
+      originalApiBudget = await readApiRateLimitBudget(requestContext);
+      await writeApiRateLimitBudget(requestContext, STANDARD_API_RATE_LIMIT_BUDGET);
+    } catch (error) {
+      console.error('Failed to set the standard API rate limit budget:', error);
     }
 
     // Enable Cerberus (master toggle) first
@@ -129,6 +151,13 @@ test.describe('Rate Limit Enforcement', () => {
         } catch {
           console.error('Emergency Rate Limit disable also failed');
         }
+      }
+    }
+    if (originalApiBudget) {
+      try {
+        await restoreApiRateLimitBudget(requestContext, originalApiBudget);
+      } catch (error) {
+        console.error('Failed to restore the API rate limit budget:', error);
       }
     }
     await requestContext.dispose();
@@ -224,15 +253,29 @@ test.describe('Rate Limit Enforcement', () => {
   });
 
   test.describe('Headers on rate limited responses', () => {
-    // Small enough that a few proxied requests from the runner exhaust it within the window.
+    test.describe.configure({ mode: 'serial' });
+
+    // Small enough that a few proxied requests from the runner exhaust it within the window. This is the proxy
+    // limit stored in the security config. It does not reach the API limiter, which reads its own budget.
     const RATE_LIMIT_REQUESTS = 2;
-    const domain = `refusal-headers-429-${Date.now()}.example.test`;
-    let proxyContext: APIRequestContext;
-    let profile: HeaderProfile;
-    let proxyUuid: string;
+    const RATE_LIMIT_WINDOW_SEC = 60;
+    let domain = '';
+    let proxyContext: APIRequestContext | undefined;
+    let profile: HeaderProfile | undefined;
+    let proxyUuid: string | undefined;
+    let previousConfig: SecurityConfigRow | null = null;
 
     test.beforeAll(async () => {
+      // Retry-safe: a retried attempt starts from empty handles and a fresh domain, so it never collides with a
+      // host left by the attempt before it.
+      domain = `refusal-headers-429-${Date.now()}.example.test`;
+      profile = undefined;
+      proxyUuid = undefined;
+      previousConfig = null;
       proxyContext = await request.newContext();
+
+      // Fixtures and the captured thresholds come first, while the stored limit is still the original one.
+      previousConfig = await getConfigRow(requestContext);
       profile = await createHeaderProfile(requestContext, `Rate Limit Headers ${Date.now()}`);
       proxyUuid = await createProxyHost(requestContext, {
         domain,
@@ -244,29 +287,60 @@ test.describe('Rate Limit Enforcement', () => {
       await saveConfig(requestContext, {
         name: 'default',
         rate_limit_requests: RATE_LIMIT_REQUESTS,
-        rate_limit_window_sec: 60,
+        rate_limit_window_sec: RATE_LIMIT_WINDOW_SEC,
       });
     });
 
     test.afterAll(async () => {
-      if (proxyUuid) {
-        await deleteProxyHost(requestContext, proxyUuid);
+      // Every step runs even when an earlier one fails, so the stored thresholds and fixtures never leak into the
+      // cases that run after this one. The first failure is re-thrown once all steps have run.
+      const failures: unknown[] = [];
+      const cleanup = async (step: () => Promise<void>) => {
+        try {
+          await step();
+        } catch (error) {
+          failures.push(error);
+        }
+      };
+
+      const original = previousConfig as SecurityConfigRow | null;
+      if (original) {
+        await cleanup(() =>
+          saveConfig(requestContext, {
+            name: 'default',
+            rate_limit_requests: original.rate_limit_requests,
+            rate_limit_window_sec: original.rate_limit_window_sec,
+          }),
+        );
       }
-      if (profile) {
-        await deleteHeaderProfile(requestContext, profile);
+      const uuid = proxyUuid;
+      if (uuid) {
+        await cleanup(() => deleteProxyHost(requestContext, uuid));
       }
-      await proxyContext.dispose();
+      const createdProfile = profile;
+      if (createdProfile) {
+        await cleanup(() => deleteHeaderProfile(requestContext, createdProfile));
+      }
+      await proxyContext?.dispose();
+
+      if (failures.length > 0) {
+        throw failures[0];
+      }
     });
 
     test('should send the profile security headers with a rate limit refusal', async () => {
       let refusedHeaders: Record<string, string> | undefined;
+      const context = proxyContext;
+      if (!context) {
+        throw new Error('proxy request context was not created in beforeAll');
+      }
 
       // Requests are sent until the limit is exceeded once the route is loaded. The rate limit answers 429 on the
       // first request past the limit, so this polls rather than assuming a fixed number of requests.
       await expect
         .poll(
           async () => {
-            const response = await fetchThroughProxy(proxyContext, domain, '/');
+            const response = await fetchThroughProxy(context, domain, '/');
             if (response.status() === 429) {
               refusedHeaders = response.headers();
             }
