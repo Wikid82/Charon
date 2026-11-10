@@ -261,6 +261,7 @@ test.describe('ACL Enforcement', () => {
 
   test.describe('Country lists', () => {
     const domain = `country-list-${Date.now()}.example.test`;
+    const listName = `Country Allow List ${Date.now()}`;
     let snapshot: SecurityStateSnapshot | undefined;
     let container: string;
     let proxyContext: APIRequestContext | undefined;
@@ -273,7 +274,7 @@ test.describe('ACL Enforcement', () => {
       snapshot = await captureSecurityState(requestContext);
       await narrowAdminWhitelistForLoopbackClient(requestContext);
 
-      aclUuid = await createCountryAllowList(requestContext, `Country Allow List ${Date.now()}`);
+      aclUuid = await createCountryAllowList(requestContext, listName);
       proxyUuid = await createProxyHost(requestContext, {
         domain,
         forwardPort: DEAD_UPSTREAM_PORT,
@@ -281,14 +282,14 @@ test.describe('ACL Enforcement', () => {
         accessListUuid: aclUuid,
       });
 
-      // Wait for the route to be loaded: the loopback client is refused. A missing route would answer the catch-all
-      // page (200), so only a refusal ends the poll.
+      // Wait for the route to be loaded. A missing route answers the catch-all page (200). A loaded route answers 403
+      // when the list is enforced (database loaded) or 502 from the dead upstream when it is not (database missing).
       await expect
         .poll(async () => (await fromLoopback(container, domain)).status, {
           timeout: 30_000,
-          message: 'country list route should be loaded and refuse the loopback client',
+          message: 'country list route should be loaded (refusal or dead-upstream 502, not the catch-all page)',
         })
-        .toBe(403);
+        .toBeGreaterThanOrEqual(400);
     });
 
     test.afterAll(async () => {
@@ -300,42 +301,57 @@ test.describe('ACL Enforcement', () => {
       ]);
     });
 
-    test('should refuse a client outside the listed countries and report the GeoIP database state', async () => {
-      await test.step('Loopback client is refused with the geographic body', async () => {
-        const response = await fromLoopback(container, domain);
+    test('should enforce a country list only while the running config has the GeoIP database', async () => {
+      // The status reason is the source of truth for the running config: geoip_unavailable means country lists are
+      // not enforced (no country matching, every client admitted), and then the alert names the list.
+      let notEnforced = false;
 
-        expect(response.status).toBe(403);
-        expect(response.body).toContain(GEO_REFUSAL_BODY);
+      await test.step('Status reports geoip_unavailable exactly when the running config does not enforce country lists', async () => {
+        const statusResponse = await requestContext.get('/api/v1/security/status');
+        expect(statusResponse.ok()).toBe(true);
+        const status = (await statusResponse.json()) as { acl: { reason?: string } };
+
+        notEnforced = status.acl.reason !== undefined;
+        if (notEnforced) {
+          expect(status.acl.reason).toBe('geoip_unavailable');
+        }
+        test.info().annotations.push({
+          type: 'geoip',
+          description: notEnforced
+            ? 'database missing: country list not enforced, alert raised'
+            : 'database loaded: country list enforced',
+        });
       });
+
+      if (notEnforced) {
+        await test.step('Not enforced: loopback client is admitted, the dead upstream answers 502', async () => {
+          const response = await fromLoopback(container, domain);
+
+          expect(response.status).not.toBe(403);
+          expect(response.body).not.toContain(GEO_REFUSAL_BODY);
+        });
+
+        await test.step('Not enforced: the alert endpoint lists the test list', async () => {
+          const alertsResponse = await requestContext.get('/api/v1/notifications/alerts');
+          expect(alertsResponse.ok()).toBe(true);
+          const { alerts } = (await alertsResponse.json()) as { alerts: Array<{ key: string; affected_lists?: string[] }> };
+          const alert = alerts.find((candidate) => candidate.key === 'geoip_unavailable');
+
+          expect(alert?.affected_lists).toContain(listName);
+        });
+      } else {
+        await test.step('Enforced: loopback client is refused with the geographic body', async () => {
+          const response = await fromLoopback(container, domain);
+
+          expect(response.status).toBe(403);
+          expect(response.body).toContain(GEO_REFUSAL_BODY);
+        });
+      }
 
       await test.step('Whitelisted runner is admitted: 502 from the dead upstream', async () => {
         const response = await fetchThroughProxy(proxyContext as APIRequestContext, domain, '/');
 
         expect(response.status()).toBe(502);
-      });
-
-      await test.step('Status reports geoip_unavailable exactly when the database is not loaded', async () => {
-        // The database state decides which branch answers, so the check reads it from the API instead of assuming it.
-        // Both branches refuse the loopback client above: while the database is missing, the interim database-missing
-        // refusal still applies to non-admin clients (it is removed in the feature PR, C5). So reason geoip_unavailable
-        // means country lists refuse non-admin clients in this PR, not that they are unenforced.
-        const geoipResponse = await requestContext.get('/api/v1/security/geoip/status');
-        expect(geoipResponse.ok()).toBe(true);
-        const { available } = (await geoipResponse.json()) as { available: boolean };
-        test.info().annotations.push({
-          type: 'geoip',
-          description: available ? 'database loaded: country rule answers' : 'database missing: interim refusal answers',
-        });
-
-        const statusResponse = await requestContext.get('/api/v1/security/status');
-        expect(statusResponse.ok()).toBe(true);
-        const status = (await statusResponse.json()) as { acl: { reason?: string } };
-
-        if (available) {
-          expect(status.acl).not.toHaveProperty('reason');
-        } else {
-          expect(status.acl.reason).toBe('geoip_unavailable');
-        }
       });
     });
   });
@@ -403,12 +419,13 @@ test.describe('ACL Enforcement', () => {
         accessListUuid: aclUuid,
       });
 
-      // Wait for both routes to be loaded by the proxy. The ACL answers 403 to the loopback client on '/'.
+      // Wait for both routes to be loaded by the proxy. The country list answers 403 to the loopback client on '/', which
+      // needs the GeoIP database loaded: without it the list is not enforced and the loopback client is admitted.
       for (const domain of [allowListedDomain, selfProxyDomain]) {
         await expect
           .poll(async () => (await fromLoopback(container, domain)).status, {
             timeout: 30_000,
-            message: `route for ${domain} should be loaded`,
+            message: `route for ${domain} should be loaded and refuse the loopback client (GeoIP database must be loaded)`,
           })
           .toBe(403);
       }

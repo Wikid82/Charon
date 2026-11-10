@@ -2,12 +2,9 @@ import { MessageSquarePlus, Bug, Sparkles, BookOpen } from 'lucide-react'
 import { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { GITHUB_BUG_REPORT_URL, GITHUB_FEATURE_REQUEST_URL } from '../constants/links'
 import { cn } from '../utils/cn'
 
-const GITHUB_BUG_URL =
-  'https://github.com/Wikid82/Charon/issues/new?template=bug_report.md'
-const GITHUB_FEATURE_URL =
-  'https://github.com/Wikid82/Charon/issues/new?template=feature_request.md'
 const DOCS_URL = 'https://wikid82.github.io/Charon/'
 
 export default function FeedbackWidget() {
@@ -60,7 +57,7 @@ export default function FeedbackWidget() {
             >
               <a
                 ref={firstLinkRef}
-                href={GITHUB_BUG_URL}
+                href={GITHUB_BUG_REPORT_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label={t('feedback.reportBugAriaLabel')}
@@ -82,7 +79,7 @@ export default function FeedbackWidget() {
               </a>
 
               <a
-                href={GITHUB_FEATURE_URL}
+                href={GITHUB_FEATURE_REQUEST_URL}
                 target="_blank"
                 rel="noopener noreferrer"
                 aria-label={t('feedback.requestFeatureAriaLabel')}

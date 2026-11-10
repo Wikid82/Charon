@@ -169,7 +169,7 @@ test.describe('Security Headers Enforcement', () => {
       await expect
         .poll(async () => (await fetchFromContainer(container, { host: domain, path: '/' })).status, {
           timeout: 30_000,
-          message: 'refusal headers route should be loaded and refuse the loopback client',
+          message: 'refusal headers route should be loaded and refuse the loopback client (GeoIP database must be loaded)',
         })
         .toBe(403);
     });

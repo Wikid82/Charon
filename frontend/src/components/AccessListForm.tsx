@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 
 import { getMyIP } from '../api/system';
 import { SECURITY_PRESETS, calculateTotalIPs, formatIPCount, type SecurityPreset } from '../data/securityPresets';
+import { AccessListGeoNote } from './AccessListGeoNote';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Switch } from './ui/Switch';
@@ -537,6 +538,16 @@ export function AccessListForm({
               })}
             </div>
           )}
+
+          <AccessListGeoNote
+            draft={{
+              type: formData.type,
+              country_codes: selectedCountries.join(','),
+              ip_rules: '',
+              local_network_only: formData.local_network_only,
+              enabled: formData.enabled,
+            }}
+          />
         </div>
       )}
 

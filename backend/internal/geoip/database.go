@@ -3,13 +3,10 @@
 package geoip
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
-
-	"github.com/oschwald/geoip2-golang/v2"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 )
@@ -70,9 +67,59 @@ var (
 // in favour of the readable one, and the data-folder copy otherwise. Without either, the bundled path is returned, and
 // it reports as missing until a database is provided there.
 func ResolveDatabasePath() string {
-	r := resolveDatabasePath(os.Getenv(EnvDBPath), isRegularFile, readBuildEpoch)
+	r := resolveDatabasePath(os.Getenv(EnvDBPath), isRegularFile, Inspect)
 	reportResolution(r)
 	return r.path
+}
+
+// Source names where the database in use came from. SourceNone covers a path that is not one of the known locations.
+type Source string
+
+const (
+	// SourceBundled is the copy the image ships.
+	SourceBundled Source = "bundled"
+	// SourceData is the copy in the data folder, placed by an operator or an upload.
+	SourceData Source = "data"
+	// SourceCustom is the database that CHARON_GEOIP_DB_PATH names.
+	SourceCustom Source = "custom"
+	// SourceNone means no database is in use, or the path is not a known location.
+	SourceNone Source = "none"
+)
+
+// SourceOf names the location of the database at path. When CHARON_GEOIP_DB_PATH is in effect (envInEffect) every
+// database is custom. Otherwise the data-folder and bundled paths are recognised, and any other path is none.
+func SourceOf(path string, envInEffect bool) Source {
+	switch {
+	case envInEffect:
+		return SourceCustom
+	case path == DataDatabasePath():
+		return SourceData
+	case path == BundledDatabasePath():
+		return SourceBundled
+	default:
+		return SourceNone
+	}
+}
+
+// EnvPathInEffect reports whether CHARON_GEOIP_DB_PATH selects the database: it is set, and it is not the former image
+// default without a file there.
+func EnvPathInEffect() bool {
+	return envPathInEffect(os.Getenv(EnvDBPath), isRegularFile)
+}
+
+// envPathInEffect implements EnvPathInEffect with the environment value and the file check injected.
+func envPathInEffect(envPath string, isFile func(string) bool) bool {
+	effective, _ := effectiveEnvPath(envPath, isFile)
+	return effective != ""
+}
+
+// effectiveEnvPath returns the path the environment value selects, or "" when it selects none. The second result is
+// true when the former image default was named, no file was there, and the value was treated as unset.
+func effectiveEnvPath(envPath string, isFile func(string) bool) (string, bool) {
+	if envPath == FormerImageDefaultDBPath && !isFile(envPath) {
+		return "", true
+	}
+	return envPath, false
 }
 
 // reportResolution logs the resolution notes that need the operator's attention. Each note is logged at most once per
@@ -92,12 +139,9 @@ func reportResolution(r resolution) {
 
 // resolveDatabasePath implements ResolveDatabasePath with the environment value, the file check and the build-time
 // reader injected.
-func resolveDatabasePath(envPath string, isFile func(string) bool, buildEpoch func(string) (uint, error)) resolution {
+func resolveDatabasePath(envPath string, isFile func(string) bool, inspect func(string) (DatabaseInfo, error)) resolution {
 	var r resolution
-	if envPath == FormerImageDefaultDBPath && !isFile(envPath) {
-		envPath = ""
-		r.ignoredFormerDefault = true
-	}
+	envPath, r.ignoredFormerDefault = effectiveEnvPath(envPath, isFile)
 	if envPath != "" {
 		r.path = envPath
 		return r
@@ -114,8 +158,8 @@ func resolveDatabasePath(envPath string, isFile func(string) bool, buildEpoch fu
 		return r
 	}
 
-	dataEpoch, dataErr := buildEpoch(dataPath)
-	bundledEpoch, bundledErr := buildEpoch(bundledPath)
+	dataInfo, dataErr := inspect(dataPath)
+	bundledInfo, bundledErr := inspect(bundledPath)
 	switch {
 	case dataErr != nil && bundledErr == nil:
 		r.path = bundledPath
@@ -125,23 +169,12 @@ func resolveDatabasePath(envPath string, isFile func(string) bool, buildEpoch fu
 	case dataErr != nil && bundledErr != nil:
 		// Neither copy can be read; the data-folder copy keeps its place so the failure is reported against it.
 		r.path = dataPath
-	case bundledEpoch > dataEpoch:
+	case bundledInfo.BuildEpoch > dataInfo.BuildEpoch:
 		r.path = bundledPath
 	default:
 		r.path = dataPath
 	}
 	return r
-}
-
-// readBuildEpoch returns the MaxMind build time, in Unix seconds, of the database at path. Opening the file reads its
-// metadata; the database is closed again straight away.
-func readBuildEpoch(path string) (uint, error) {
-	db, err := geoip2.Open(filepath.Clean(path)) //nolint:gosec // G703: database path, read-only open
-	if err != nil {
-		return 0, fmt.Errorf("open geoip database %s: %w", path, err)
-	}
-	defer func() { _ = db.Close() }()
-	return db.Metadata().BuildEpoch, nil
 }
 
 // isRegularFile reports whether path names an existing regular file. The path is cleaned first; it is either a fixed

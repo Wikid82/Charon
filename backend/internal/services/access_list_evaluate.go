@@ -49,7 +49,7 @@ type countryLookup interface {
 // Evaluate returns the decision the proxy makes for a request from ip under the access list acl, given the admin
 // whitelist entries. It mirrors the proxy configuration built for the list: the admin whitelist is checked first for
 // every list type, country lists are decided before local-network-only (which they ignore), and an unusable GeoIP
-// database refuses country lists except for admin addresses.
+// database leaves country lists unenforced, so they allow the address with reason ReasonGeoIPUnavailable.
 //
 // An error means the stored list or admin whitelist holds an entry the proxy configuration cannot use.
 func (s *AccessListService) Evaluate(acl *models.AccessList, ip netip.Addr, adminRanges []string) (Decision, error) {
@@ -110,8 +110,8 @@ func (s *AccessListService) countryAvailable() bool {
 // when the lookup fails, so both reach here as no country: an allow-list refuses that, a block-list admits it.
 func (s *AccessListService) evaluateCountry(acl *models.AccessList, ip netip.Addr, d Decision) Decision {
 	if !d.GeoIPAvailable {
-		// Interim posture: with no usable database a country list refuses every address that is not an admin address.
-		d.Reason = ReasonGeoIPUnavailable
+		// Fail open: with no usable database the proxy builds no country matcher for the list, so the address is allowed.
+		d.Allowed, d.Reason = true, ReasonGeoIPUnavailable
 		return d
 	}
 

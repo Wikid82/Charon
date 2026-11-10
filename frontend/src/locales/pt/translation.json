@@ -377,6 +377,27 @@
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
   },
+  "notificationCenter": {
+    "title": "Notificações",
+    "bellLabel": "Notificações, {{count}} novas",
+    "markAllRead": "Marcar todas como lidas",
+    "empty": "Nenhuma notificação nova",
+    "close": "Dispensar",
+    "updateAvailable": "Atualização disponível: {{version}}",
+    "viewChangelog": "Ver changelog",
+    "alerts": {
+      "label": "Requer atenção",
+      "clearsItself": "Isso é resolvido automaticamente quando o problema for corrigido.",
+      "geoip_unavailable": {
+        "title": "As listas de acesso por país não estão sendo aplicadas",
+        "message": "O banco de dados GeoIP de países está ausente ou não pode ser usado, então {{count}} lista(s) de países ({{lists}}) deixam passar todos os visitantes até que ele esteja disponível novamente.",
+        "messagePendingApply": "O banco de dados do GeoIP está disponível novamente, mas {{count}} lista(s) de países ({{lists}}) ainda não são aplicadas. Pressione Recarregar no cartão Banco de dados de países.",
+        "docsLink": "Como fornecer o banco de dados",
+        "issueHint": "O Charon normalmente inclui este banco de dados. Abra uma issue no GitHub para que possamos corrigir isso.",
+        "issueLink": "Abrir uma issue"
+      }
+    }
+  },
   "security": {
     "title": "Security",
     "description": "Configure security layers for your reverse proxy",
@@ -584,7 +605,80 @@
     "settingUpdateFailed": "Failed to update setting: {{error}}",
     "enforcement": {
       "acl": {
-        "geoip_unavailable": "As listas de países precisam da base de dados GeoIP, que não está nesta instalação, por isso recusam pedidos até que seja fornecida. Consulte a documentação."
+        "geoip_unavailable": "As listas de países não são aplicadas: a base de dados GeoIP não está nesta instalação. Todos conseguem aceder a esses hosts até que seja fornecida. Consulte a documentação."
+      }
+    },
+    "geoip": {
+      "title": "Banco de dados de países (GeoIP)",
+      "description": "As listas de acesso por país precisam de um banco de dados de países do GeoIP. O Charon usa a cópia incluída, a menos que você forneça a sua.",
+      "loadError": "Não foi possível carregar o status do banco de dados.",
+      "unknownValue": "Desconhecido",
+      "status": {
+        "ready": "Pronto",
+        "unavailable": "Não disponível"
+      },
+      "source": {
+        "label": "Origem",
+        "bundled": "Incluído com o Charon",
+        "data": "Sua pasta de dados",
+        "custom": "Caminho personalizado definido no servidor",
+        "none": "Nenhum banco de dados"
+      },
+      "buildDate": "Data de compilação",
+      "size": "Tamanho",
+      "path": "Arquivo",
+      "releaseNote": "A cópia incluída é atualizada a cada versão do Charon.",
+      "customPathNote": "O caminho do banco de dados é definido pelo servidor (CHARON_GEOIP_DB_PATH), então a cópia não pode ser substituída aqui.",
+      "readOnlyNote": "A pasta de dados é somente leitura, então o banco de dados não pode ser substituído aqui.",
+      "unavailableReason": "Não disponível. As listas de países não são aplicadas até que um banco de dados seja carregado.",
+      "docsLink": "Como fornecer um banco de dados",
+      "unenforcedLists": "{{count}} lista(s) de países não aplicada(s)",
+      "formNote": {
+        "unavailable": "Esta lista não será aplicada até que o banco de dados do GeoIP esteja disponível.",
+        "wouldRefuseYou": "Com base no endereço que você está usando agora, esta lista bloquearia você. Salvar continua permitido."
+      },
+      "actions": {
+        "reload": "Recarregar",
+        "replace": "Substituir banco de dados…",
+        "replaceHint": "Envie um banco de dados de países do GeoIP (.mmdb), de até {{max}} MiB.",
+        "useIncluded": "Usar a cópia incluída",
+        "useIncludedConfirmTitle": "Usar a cópia incluída?",
+        "useIncludedConfirmBody": "Sua cópia na pasta de dados será removida e o Charon usará o banco de dados incluído.",
+        "useIncludedConfirmBodyNoBundled": "Sua cópia na pasta de dados será removida. As listas de países não serão aplicadas até que você forneça um banco de dados."
+      },
+      "result": {
+        "reloaded": "Banco de dados recarregado.",
+        "replaced": "Banco de dados substituído. O Charon agora está usando sua cópia.",
+        "removed": "O Charon voltou a usar a cópia incluída."
+      },
+      "lookup": {
+        "label": "Endereço IP",
+        "placeholder": "Por exemplo 203.0.113.7",
+        "useMyAddress": "Usar meu endereço",
+        "submit": "Pesquisar",
+        "found": "{{ip}} está em {{country}}.",
+        "notFound": "Nenhum país encontrado para {{ip}}.",
+        "disabled": "A pesquisa fica disponível quando um banco de dados é carregado.",
+        "invalid": "Insira um endereço IP válido.",
+        "notLoaded": "Nenhum banco de dados está carregado, então não é possível pesquisar endereços.",
+        "myAddressFailed": "O Charon não conseguiu ler seu endereço."
+      },
+      "errors": {
+        "geoip_file_required": "Escolha um arquivo de banco de dados para enviar.",
+        "geoip_too_large": "Esse arquivo tem mais de 32 MiB.",
+        "geoip_not_mmdb": "Esse arquivo não é um banco de dados do GeoIP.",
+        "geoip_corrupt": "Esse arquivo de banco de dados está danificado e não pode ser lido.",
+        "geoip_wrong_type": "Esse é um banco de dados do GeoIP, mas não de países.",
+        "geoip_older_than_current": "Esse banco de dados é mais antigo que o que está em uso. Envie um mais recente.",
+        "geoip_build_date_in_future": "Esse banco de dados tem data de compilação no futuro.",
+        "geoip_custom_path_set": "Há um caminho personalizado de banco de dados definido no servidor, então a cópia não pode ser alterada aqui.",
+        "geoip_busy": "Outra alteração no banco de dados está em andamento. Tente novamente em instantes.",
+        "geoip_write_failed": "O Charon não conseguiu salvar o arquivo do banco de dados.",
+        "geoip_reload_failed": "O Charon não conseguiu carregar o arquivo do banco de dados.",
+        "geoip_no_data_copy": "Não há nenhuma cópia na pasta de dados para remover.",
+        "geoip_service_unavailable": "O serviço GeoIP não está em execução.",
+        "proxy_apply_failed": "O Charon não conseguiu aplicar a configuração do proxy.",
+        "generic": "Algo deu errado. Tente novamente."
       }
     }
   },

@@ -377,6 +377,27 @@
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
   },
+  "notificationCenter": {
+    "title": "Thông báo",
+    "bellLabel": "Thông báo, {{count}} mới",
+    "markAllRead": "Đánh dấu tất cả là đã đọc",
+    "empty": "Không có thông báo mới",
+    "close": "Bỏ qua",
+    "updateAvailable": "Có bản cập nhật: {{version}}",
+    "viewChangelog": "Xem nhật ký thay đổi",
+    "alerts": {
+      "label": "Cần chú ý",
+      "clearsItself": "Mục này sẽ tự biến mất khi sự cố được khắc phục.",
+      "geoip_unavailable": {
+        "title": "Danh sách truy cập theo quốc gia chưa được áp dụng",
+        "message": "Cơ sở dữ liệu GeoIP quốc gia bị thiếu hoặc không dùng được, nên {{count}} danh sách quốc gia ({{lists}}) đang cho mọi khách truy cập đi qua cho đến khi cơ sở dữ liệu khả dụng trở lại.",
+        "messagePendingApply": "Cơ sở dữ liệu GeoIP đã khả dụng trở lại, nhưng {{count}} danh sách quốc gia ({{lists}}) chưa được áp dụng. Nhấn Tải lại trên thẻ Cơ sở dữ liệu quốc gia.",
+        "docsLink": "Cách cung cấp cơ sở dữ liệu",
+        "issueHint": "Charon thường đã bao gồm cơ sở dữ liệu này. Vui lòng mở issue trên GitHub để chúng tôi khắc phục.",
+        "issueLink": "Mở issue"
+      }
+    }
+  },
   "security": {
     "title": "Security",
     "description": "Configure security layers for your reverse proxy",
@@ -584,7 +605,80 @@
     "settingUpdateFailed": "Failed to update setting: {{error}}",
     "enforcement": {
       "acl": {
-        "geoip_unavailable": "Danh sách quốc gia cần cơ sở dữ liệu GeoIP, hiện không có trong bản cài đặt này, nên các yêu cầu sẽ bị từ chối cho đến khi được cung cấp. Xem tài liệu."
+        "geoip_unavailable": "Danh sách quốc gia không được áp dụng: cơ sở dữ liệu GeoIP không có trong bản cài đặt này. Mọi người đều có thể truy cập các máy chủ đó cho đến khi cơ sở dữ liệu được cung cấp. Xem tài liệu."
+      }
+    },
+    "geoip": {
+      "title": "Cơ sở dữ liệu quốc gia (GeoIP)",
+      "description": "Danh sách truy cập theo quốc gia cần cơ sở dữ liệu quốc gia GeoIP. Charon dùng bản đi kèm, trừ khi bạn cung cấp bản riêng.",
+      "loadError": "Không thể tải trạng thái cơ sở dữ liệu.",
+      "unknownValue": "Không xác định",
+      "status": {
+        "ready": "Sẵn sàng",
+        "unavailable": "Không khả dụng"
+      },
+      "source": {
+        "label": "Nguồn",
+        "bundled": "Đi kèm Charon",
+        "data": "Thư mục dữ liệu của bạn",
+        "custom": "Đường dẫn tùy chỉnh được đặt trên máy chủ",
+        "none": "Không có cơ sở dữ liệu"
+      },
+      "buildDate": "Ngày build",
+      "size": "Kích thước",
+      "path": "Tệp",
+      "releaseNote": "Bản đi kèm được cập nhật cùng mỗi bản phát hành Charon.",
+      "customPathNote": "Đường dẫn cơ sở dữ liệu do máy chủ đặt (CHARON_GEOIP_DB_PATH), nên không thể thay bản sao tại đây.",
+      "readOnlyNote": "Thư mục dữ liệu chỉ đọc, nên không thể thay cơ sở dữ liệu tại đây.",
+      "unavailableReason": "Không khả dụng. Danh sách quốc gia chưa được áp dụng cho đến khi có cơ sở dữ liệu.",
+      "docsLink": "Cách cung cấp cơ sở dữ liệu",
+      "unenforcedLists": "{{count}} danh sách quốc gia chưa được áp dụng",
+      "formNote": {
+        "unavailable": "Danh sách này sẽ không được áp dụng cho đến khi cơ sở dữ liệu GeoIP khả dụng.",
+        "wouldRefuseYou": "Dựa trên địa chỉ bạn đang dùng, danh sách này sẽ chặn bạn. Vẫn có thể lưu."
+      },
+      "actions": {
+        "reload": "Tải lại",
+        "replace": "Thay cơ sở dữ liệu…",
+        "replaceHint": "Tải lên cơ sở dữ liệu quốc gia GeoIP (.mmdb), tối đa {{max}} MiB.",
+        "useIncluded": "Dùng bản đi kèm",
+        "useIncludedConfirmTitle": "Dùng bản đi kèm?",
+        "useIncludedConfirmBody": "Bản trong thư mục dữ liệu sẽ bị xóa và Charon sẽ dùng cơ sở dữ liệu đi kèm.",
+        "useIncludedConfirmBodyNoBundled": "Bản trong thư mục dữ liệu sẽ bị xóa. Danh sách quốc gia sẽ không được áp dụng cho đến khi bạn cung cấp cơ sở dữ liệu."
+      },
+      "result": {
+        "reloaded": "Đã tải lại cơ sở dữ liệu.",
+        "replaced": "Đã thay cơ sở dữ liệu. Charon hiện dùng bản của bạn.",
+        "removed": "Charon đã dùng lại bản đi kèm."
+      },
+      "lookup": {
+        "label": "Địa chỉ IP",
+        "placeholder": "Ví dụ 203.0.113.7",
+        "useMyAddress": "Dùng địa chỉ của tôi",
+        "submit": "Tra cứu",
+        "found": "{{ip}} thuộc {{country}}.",
+        "notFound": "Không tìm thấy quốc gia cho {{ip}}.",
+        "disabled": "Tra cứu khả dụng sau khi cơ sở dữ liệu được tải.",
+        "invalid": "Nhập địa chỉ IP hợp lệ.",
+        "notLoaded": "Chưa tải cơ sở dữ liệu nên không thể tra cứu địa chỉ.",
+        "myAddressFailed": "Charon không thể đọc địa chỉ của bạn."
+      },
+      "errors": {
+        "geoip_file_required": "Chọn tệp cơ sở dữ liệu để tải lên.",
+        "geoip_too_large": "Tệp lớn hơn 32 MiB.",
+        "geoip_not_mmdb": "Tệp này không phải cơ sở dữ liệu GeoIP.",
+        "geoip_corrupt": "Tệp cơ sở dữ liệu bị hỏng và không thể đọc.",
+        "geoip_wrong_type": "Đây là cơ sở dữ liệu GeoIP nhưng không phải cơ sở dữ liệu quốc gia.",
+        "geoip_older_than_current": "Cơ sở dữ liệu này cũ hơn bản đang dùng. Hãy tải lên bản mới hơn.",
+        "geoip_build_date_in_future": "Cơ sở dữ liệu này có ngày build ở tương lai.",
+        "geoip_custom_path_set": "Đường dẫn cơ sở dữ liệu tùy chỉnh được đặt trên máy chủ, nên không thể thay đổi bản sao tại đây.",
+        "geoip_busy": "Đang có một thay đổi cơ sở dữ liệu khác. Thử lại sau ít phút.",
+        "geoip_write_failed": "Charon không thể lưu tệp cơ sở dữ liệu.",
+        "geoip_reload_failed": "Charon không thể tải tệp cơ sở dữ liệu.",
+        "geoip_no_data_copy": "Không có bản sao nào trong thư mục dữ liệu để xóa.",
+        "geoip_service_unavailable": "Dịch vụ GeoIP không chạy.",
+        "proxy_apply_failed": "Charon không thể áp dụng cấu hình proxy.",
+        "generic": "Đã xảy ra lỗi. Vui lòng thử lại."
       }
     }
   },

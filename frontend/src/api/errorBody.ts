@@ -121,3 +121,34 @@ export function accessListErrorMessage(err: unknown, t: TFunction): string | nul
   const code = getApiErrorCode(err, ACCESS_LIST_CODED_MESSAGES)
   return code ? t(ACCESS_LIST_CODE_MESSAGE_KEYS[code]) : null
 }
+
+/**
+ * Error codes of the GeoIP database routes (reload, lookup, replace, remove) that have a translated text. Keep in step
+ * with the backend's error_code values and the `security.geoip.errors.*` locale keys.
+ */
+export const GEOIP_ERROR_CODES = [
+  'geoip_file_required',
+  'geoip_too_large',
+  'geoip_not_mmdb',
+  'geoip_corrupt',
+  'geoip_wrong_type',
+  'geoip_older_than_current',
+  'geoip_build_date_in_future',
+  'geoip_custom_path_set',
+  'geoip_busy',
+  'geoip_write_failed',
+  'geoip_reload_failed',
+  'geoip_no_data_copy',
+  'geoip_service_unavailable',
+  'proxy_apply_failed',
+] as const
+
+/**
+ * Locale key of the text for a GeoIP error code. An unknown or missing code uses the generic text.
+ * @param code - The `error_code` of the refusal, if any
+ * @returns The translation key under `security.geoip.errors`
+ */
+export function geoipErrorKey(code: string | undefined): string {
+  const known = (GEOIP_ERROR_CODES as readonly string[]).includes(code ?? '')
+  return known ? `security.geoip.errors.${code}` : 'security.geoip.errors.generic'
+}

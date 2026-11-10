@@ -368,7 +368,7 @@ describe('Security Dashboard - Card Status Tests', () => {
       await renderSecurityPage()
 
       const note = await screen.findByTestId('acl-enforcement-note')
-      expect(note).toHaveTextContent('Country lists need the GeoIP database')
+      expect(note).toHaveTextContent('Country lists are not enforced: the GeoIP database is missing')
     })
 
     it('shows no ACL note when the ACL reports no reason', async () => {

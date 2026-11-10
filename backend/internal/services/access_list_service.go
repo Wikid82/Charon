@@ -302,11 +302,15 @@ func parseCountryCodes(codes string) []string {
 
 // validateAccessList validates access list fields
 func (s *AccessListService) validateAccessList(acl *models.AccessList) error {
-	// Validate name
 	if strings.TrimSpace(acl.Name) == "" {
 		return errors.New("name is required")
 	}
+	return s.ValidateDraft(acl)
+}
 
+// ValidateDraft checks an access list's type, IP rules and country codes exactly as Create does, without the name.
+// An unsaved draft, such as one sent to the self-check, carries no name, so it is checked with this.
+func (s *AccessListService) ValidateDraft(acl *models.AccessList) error {
 	// Validate type
 	if !s.isValidType(acl.Type) {
 		return ErrInvalidAccessListType

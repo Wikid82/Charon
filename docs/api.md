@@ -319,6 +319,22 @@ Response 200: `{ "deleted": true }`
 
 ---
 
+#### GeoIP Database (Country Lists)
+
+Used by the Security page's Country database (GeoIP) card. All paths are under `/api/v1`.
+
+| Method and path | Who | What it does |
+| --- | --- | --- |
+| `GET /security/geoip/status` | Management users | Source, status, build date, size, and whether the database can be replaced. |
+| `POST /security/geoip/reload` | Admin | Reloads the database file and applies the proxy configuration. |
+| `POST /security/geoip/lookup` | Admin | Body `{"ip_address": "..."}`. Returns the country for an address. |
+| `POST /security/geoip/database` | Admin | Replaces the uploaded copy. Multipart form with one part named `file` (a `.mmdb` file, 32 MiB at most). |
+| `DELETE /security/geoip/database` | Admin | Removes the uploaded copy and goes back to the included copy. |
+| `POST /access-lists/self-check` | Admin | Checks an unsaved country list draft against the address you are using now. Nothing is saved. |
+| `GET /notifications/alerts` | Management users | Lists active alerts, such as country lists that are not enforced. |
+
+Errors carry a fixed `error` message and an `error_code`, such as `geoip_too_large`, `geoip_wrong_type` or `geoip_busy`. Replacing or removing the database from a browser session is refused with `cross_origin_refused` unless the request comes from Charon's own page. Every change is written to the audit log.
+
 ### Application URL Endpoints
 
 #### Validate Application URL

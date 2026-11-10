@@ -3,6 +3,7 @@ package testutil
 import (
 	"fmt"
 	"math"
+	"net/netip"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -100,4 +101,43 @@ func TestMMDBUintEncodesFewestBytes(t *testing.T) {
 			assert.Equal(t, tc.want, mmdbUint(tc.typeCode, tc.value))
 		})
 	}
+}
+
+func TestWriteGeoIPCountryDBDatabaseTypeOption(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "GeoLite2-ASN.mmdb")
+	WriteGeoIPCountryDB(t, path, 1, WithGeoIPDatabaseType("GeoLite2-ASN"))
+
+	db, err := geoip2.Open(path)
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	assert.Equal(t, "GeoLite2-ASN", db.Metadata().DatabaseType)
+}
+
+func TestWriteGeoIPCountryDBRecordOptionResolvesCountry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "GeoLite2-Country.mmdb")
+	WriteGeoIPCountryDB(t, path, 1, WithGeoIPRecordISOCode("DE"))
+
+	db, err := geoip2.Open(path)
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	record, err := db.Country(netip.MustParseAddr("192.0.2.1"))
+	require.NoError(t, err)
+	assert.Equal(t, "DE", record.Country.ISOCode)
+}
+
+func TestWriteGeoIPCountryDB_RefusesRecordsTheEncoderCannotWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "GeoLite2-Country.mmdb")
+	tooLarge := make(map[string]any, 29)
+	for i := range 29 {
+		tooLarge[fmt.Sprintf("k%02d", i)] = "v"
+	}
+
+	assert.PanicsWithValue(t, "testutil: MMDB map too large for the fixture encoder", func() {
+		WriteGeoIPCountryDB(t, path, 1_700_000_000, WithGeoIPRecord(tooLarge))
+	})
+	assert.PanicsWithValue(t, "testutil: unsupported MMDB value for the fixture encoder", func() {
+		WriteGeoIPCountryDB(t, path, 1_700_000_000, WithGeoIPRecord(map[string]any{"count": 1}))
+	})
 }

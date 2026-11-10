@@ -50,7 +50,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	redirectHosts := resolvedOpts.redirectHosts
 
 	// The enforcement report is filled while hosts are built and handed to the sink on every return path.
-	report := EnforcementReport{WAFOn: wafEnabled, RateLimitOn: rateLimitEnabled}
+	report := EnforcementReport{WAFOn: wafEnabled, RateLimitOn: rateLimitEnabled, ACLOn: aclEnabled}
 	if resolvedOpts.enforcement != nil {
 		defer func() { resolvedOpts.enforcement(report) }()
 	}
@@ -58,7 +58,6 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	// The module opens only <dir>/<edition>.mmdb, so a database path that does not name such a file cannot be used by
 	// the proxy, whatever the caller said. Country lists are refused while it is unavailable.
 	geoIPAvailable := resolvedOpts.geoIPAvailable && strings.HasSuffix(filepath.Base(resolvedOpts.geoIPPath), ".mmdb")
-	var geoRefusedLists []string
 
 	// Define log file paths for Caddy access logs.
 	// When CrowdSec is enabled, we use /var/log/caddy/access.log which is the standard
@@ -595,11 +594,9 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		// Add Access Control List (ACL) handler if configured and global ACL is enabled
 		if aclEnabled && host.AccessListID != nil && host.AccessList != nil && host.AccessList.Enabled {
 			if isCountryList(host.AccessList) && !geoIPAvailable {
-				// A country list cannot match without the database, so the host refuses every request instead.
-				securityHandlers = append(securityHandlers, geoUnavailableDenyHandler(adminRanges))
-				if !slices.Contains(geoRefusedLists, host.AccessList.Name) {
-					geoRefusedLists = append(geoRefusedLists, host.AccessList.Name)
-				}
+				// Without a usable database the country list is not enforced: no country matcher and no ACL handler,
+				// so the host stays reachable. The report names the list for the status and the alert.
+				report.CountryListsWithoutDatabase = withSortedName(report.CountryListsWithoutDatabase, host.AccessList.Name)
 			} else {
 				if isCountryList(host.AccessList) {
 					// The geoip2 handler sits directly before the country subroute and reads the database the app opens.
@@ -773,11 +770,11 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			"Access list is enabled but has no usable IP rules; requests to those hosts are refused")
 	}
 
-	// A country list is enabled but no GeoIP database is usable, so its hosts refuse every request. One line per apply
-	// names the lists.
-	if len(geoRefusedLists) > 0 {
-		logger.Log().WithField("lists", geoRefusedLists).Warn(
-			"Country access list needs the GeoIP database, which is unavailable; requests to its hosts are refused")
+	// A country list is enabled but no GeoIP database is usable, so the list is not enforced and its hosts are reachable.
+	// One line per apply names the lists.
+	if len(report.CountryListsWithoutDatabase) > 0 {
+		logger.Log().WithField("lists", report.CountryListsWithoutDatabase).Warn(
+			"Country access list is not enforced because the GeoIP database is unavailable; see the notification in the app")
 	}
 
 	// The rate limit is enabled but its request count or window is not set, so the hosts get no rate limit handler.
@@ -976,12 +973,6 @@ func geoIP2AppFor(path, storageDir string) *GeoIP2App {
 // proxy setting would let a forwarded header decide the country until the trust model is narrowed.
 func geoIP2Handler() Handler {
 	return Handler{"handler": "geoip2", "enable": "strict"}
-}
-
-// geoUnavailableDenyHandler refuses every request except admin whitelist addresses. It replaces a country list while
-// no GeoIP database is usable. With no admin whitelist it refuses every request.
-func geoUnavailableDenyHandler(adminRanges []string) Handler {
-	return denyRoute(denyMatcherSet(nil, nil, adminRanges), geoAccessDeniedBody)
 }
 
 // denyRoute returns a subroute with one terminal route that answers 403 with body when the matcher set matches.

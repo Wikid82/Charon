@@ -113,7 +113,9 @@ func TestSecurityHandler_ReloadGeoIP_ApplyFailureIsReported(t *testing.T) {
 	assert.Equal(t, 1, mgr.calls)
 }
 
-func TestSecurityHandler_ReloadGeoIP_LoadFailureSkipsApply(t *testing.T) {
+// A failed load still applies the proxy config once, so the proxy converges on the database state it can see, and the
+// response is 500 with the reload code.
+func TestSecurityHandler_ReloadGeoIP_LoadFailureStillAppliesOnce(t *testing.T) {
 	mgr := &countingCaddyManager{}
 	h := NewSecurityHandler(config.SecurityConfig{}, openGeoIPReasonTestDB(t), mgr)
 	h.SetGeoIPService(&services.GeoIPService{}) // no database path, so the load fails
@@ -122,7 +124,25 @@ func TestSecurityHandler_ReloadGeoIP_LoadFailureSkipsApply(t *testing.T) {
 	reloadGeoIPRouter(h).ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/security/geoip/reload", bytes.NewReader(nil)))
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Equal(t, 0, mgr.calls, "a failed reload does not apply")
+	assert.Equal(t, 1, mgr.calls, "a failed load applies the proxy config exactly once")
+	message, code := decodeReloadErrorBody(t, w.Body.String())
+	assert.Equal(t, msgGeoIPReloadFailed, message)
+	assert.Equal(t, codeGeoIPReloadFailed, code)
+}
+
+func TestSecurityHandler_ReloadGeoIP_LoadFailureWithApplyFailureKeepsReloadCode(t *testing.T) {
+	mgr := &countingCaddyManager{applyErr: errors.New("caddy refused the config at /secret/location")}
+	h := NewSecurityHandler(config.SecurityConfig{}, openGeoIPReasonTestDB(t), mgr)
+	h.SetGeoIPService(&services.GeoIPService{})
+
+	w := httptest.NewRecorder()
+	reloadGeoIPRouter(h).ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/security/geoip/reload", bytes.NewReader(nil)))
+
+	assert.Equal(t, http.StatusInternalServerError, w.Code)
+	assert.Equal(t, 1, mgr.calls)
+	_, code := decodeReloadErrorBody(t, w.Body.String())
+	assert.Equal(t, codeGeoIPReloadFailed, code, "the reload failure is reported, not the apply failure")
+	assert.NotContains(t, w.Body.String(), "/secret/location", "no apply detail in the body")
 }
 
 func TestSecurityHandler_ReloadGeoIP_InitialisesServiceAddedAfterStartup(t *testing.T) {
@@ -136,7 +156,7 @@ func TestSecurityHandler_ReloadGeoIP_InitialisesServiceAddedAfterStartup(t *test
 	w := httptest.NewRecorder()
 	reloadGeoIPRouter(h).ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/security/geoip/reload", bytes.NewReader(nil)))
 	require.Equal(t, http.StatusInternalServerError, w.Code, "reload fails while the file is missing")
-	require.Equal(t, 0, mgr.calls)
+	require.Equal(t, 1, mgr.calls, "the failed reload still applies the proxy config once")
 
 	// The operator adds the database; the reload loads it and applies the proxy config.
 	require.NoError(t, os.WriteFile(path, minimalCountryMMDB(), 0o600))
@@ -145,7 +165,7 @@ func TestSecurityHandler_ReloadGeoIP_InitialisesServiceAddedAfterStartup(t *test
 	w = httptest.NewRecorder()
 	reloadGeoIPRouter(h).ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/security/geoip/reload", bytes.NewReader(nil)))
 	require.Equal(t, http.StatusOK, w.Code)
-	require.Equal(t, 1, mgr.calls)
+	require.Equal(t, 2, mgr.calls, "the successful reload adds one apply")
 	require.True(t, svc.IsLoaded())
 
 	statusW := httptest.NewRecorder()

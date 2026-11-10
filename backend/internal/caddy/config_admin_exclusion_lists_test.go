@@ -165,28 +165,10 @@ func TestCountryListMatcherSetShape(t *testing.T) {
 	})
 }
 
-func TestUnavailableDatabaseDenyAdminExclusion(t *testing.T) {
-	cases := []refusalCase{
-		{addr: "198.51.100.7", country: "DE", refused: true},
-		{addr: "10.1.1.1", country: "DE"},
-	}
-
-	t.Run("handler exempts admin addresses", func(t *testing.T) {
-		assertHandlerRefusals(t, geoUnavailableDenyHandler(network.SplitAddressList("10.0.0.0/8")), []refusalCase{
-			{addr: "198.51.100.7", refused: true},
-			{addr: "10.1.1.1"},
-		})
-	})
-
-	t.Run("handler refuses everyone without admin and has no match", func(t *testing.T) {
-		h := geoUnavailableDenyHandler(nil)
-		b, err := json.Marshal(h)
-		require.NoError(t, err)
-		require.NotContains(t, string(b), `"match"`)
-		assertHandlerRefusals(t, h, []refusalCase{{addr: "10.1.1.1", refused: true}})
-	})
-
-	t.Run("host with unavailable database, admin address passes", func(t *testing.T) {
+// A country list with no usable database is not enforced: its host is built without a country matcher, so no visitor
+// is refused by it, with or without an admin whitelist.
+func TestUnavailableDatabaseCountryListIsNotEnforced(t *testing.T) {
+	t.Run("allow-list with admin whitelist lets every visitor through", func(t *testing.T) {
 		hostACL := models.AccessList{ID: 12, Name: "countries", Type: "geo_whitelist", CountryCodes: "DE", Enabled: true}
 		host := models.ProxyHost{
 			UUID:         "unavail-host",
@@ -199,10 +181,15 @@ func TestUnavailableDatabaseDenyAdminExclusion(t *testing.T) {
 		}
 		cfg, err := GenerateConfig([]models.ProxyHost{host}, t.TempDir(), "", "", "", false, false, false, false, true, "10.0.0.0/8", nil, nil, nil, nil, nil, WithGeoIPDatabase(testGeoIPDBPath, false))
 		require.NoError(t, err)
-		assertHostRefusals(t, cfg, "unavail.example.com", cases)
+		assertHostRefusals(t, cfg, "unavail.example.com", []refusalCase{
+			{addr: "198.51.100.7", country: "DE"},
+			{addr: "198.51.100.7", country: "US"},
+			{addr: "10.1.1.1", country: "US"},
+			{addr: "198.51.100.7", country: ""},
+		})
 	})
 
-	t.Run("host with unavailable database and no admin refuses every visitor", func(t *testing.T) {
+	t.Run("block-list without admin whitelist blocks no one", func(t *testing.T) {
 		hostACL := models.AccessList{ID: 13, Name: "countries", Type: "geo_blacklist", CountryCodes: "RU", Enabled: true}
 		host := models.ProxyHost{
 			UUID:         "unavail-none-host",
@@ -215,7 +202,10 @@ func TestUnavailableDatabaseDenyAdminExclusion(t *testing.T) {
 		}
 		cfg, err := GenerateConfig([]models.ProxyHost{host}, t.TempDir(), "", "", "", false, false, false, false, true, "", nil, nil, nil, nil, nil, WithGeoIPDatabase(testGeoIPDBPath, false))
 		require.NoError(t, err)
-		assertHostRefusals(t, cfg, "unavail-none.example.com", []refusalCase{{addr: "10.1.1.1", refused: true}})
+		assertHostRefusals(t, cfg, "unavail-none.example.com", []refusalCase{
+			{addr: "10.1.1.1", country: "RU"},
+			{addr: "198.51.100.7", country: "RU"},
+		})
 	})
 }
 

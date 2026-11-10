@@ -86,12 +86,26 @@ type Manager struct {
 	geoIPState func() (path string, available bool)
 	// enforcement is the report of the last successful apply. It is nil while an apply runs and after any failed one.
 	enforcement atomic.Pointer[EnforcementReport]
+	// lastApplied is the report of the last successful apply. Unlike enforcement it is not cleared when an apply starts
+	// or fails, because on every failure Caddy keeps running that configuration.
+	lastApplied atomic.Pointer[EnforcementReport]
 }
 
 // EnforcementReport returns the enforcement report of the last successful apply. ok is false when no successful apply
 // has completed since the last apply attempt started. It reads memory only, so status requests do not wait for an apply.
 func (m *Manager) EnforcementReport() (report EnforcementReport, ok bool) {
-	stored := m.enforcement.Load()
+	return loadReport(&m.enforcement)
+}
+
+// LastAppliedReport returns the report of the last successful apply. Unlike EnforcementReport it stays set while a
+// later apply runs or fails, so it describes the configuration Caddy is running. It reads memory only.
+func (m *Manager) LastAppliedReport() (report EnforcementReport, ok bool) {
+	return loadReport(&m.lastApplied)
+}
+
+// loadReport copies the report held by ptr. ok is false when none is held.
+func loadReport(ptr *atomic.Pointer[EnforcementReport]) (report EnforcementReport, ok bool) {
+	stored := ptr.Load()
 	if stored == nil {
 		return EnforcementReport{}, false
 	}
@@ -571,6 +585,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	// Record successful application
 	m.recordConfigChange(configHash, true, "")
 	m.enforcement.Store(generatedReport)
+	m.lastApplied.Store(generatedReport)
 
 	// Cleanup old snapshots (keep last 10)
 	if err := m.rotateSnapshots(10); err != nil {

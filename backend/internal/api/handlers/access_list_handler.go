@@ -10,6 +10,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
@@ -250,6 +251,55 @@ func (h *AccessListHandler) TestIP(c *gin.Context) {
 	})
 }
 
+// AccessListSelfCheckResponse is the decision the proxy would make for the caller's current address under an unsaved
+// access list draft. reason is one of the services.Reason* identifiers.
+type AccessListSelfCheckResponse struct {
+	IPAddress      string `json:"ip_address"`
+	CountryCode    string `json:"country_code"`
+	Allowed        bool   `json:"allowed"`
+	AdminExempt    bool   `json:"admin_exempt"`
+	GeoIPAvailable bool   `json:"geoip_available"`
+	Reason         string `json:"reason"`
+}
+
+// SelfCheck handles POST /api/v1/access-lists/self-check. It evaluates the posted draft for the address the caller
+// connects from, using the same evaluation as the tester and the proxy. Nothing is saved. Admin only.
+func (h *AccessListHandler) SelfCheck(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
+	var draft models.AccessList
+	if err := c.ShouldBindJSON(&draft); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid access list draft"})
+		return
+	}
+	if err := h.service.ValidateDraft(&draft); err != nil {
+		respondAccessListSaveError(c, err)
+		return
+	}
+
+	ip, err := netip.ParseAddr(util.CanonicalizeIPForSecurity(c.ClientIP()))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+	decision, err := h.service.Evaluate(&draft, ip.Unmap(), h.service.AdminWhitelistRanges())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, AccessListSelfCheckResponse{
+		IPAddress:      ip.Unmap().String(),
+		CountryCode:    decision.CountryCode,
+		Allowed:        decision.Allowed,
+		AdminExempt:    decision.AdminExempt,
+		GeoIPAvailable: decision.GeoIPAvailable,
+		Reason:         decision.Reason,
+	})
+}
+
 // accessListDecisionText returns the sentence the tester shows for a decision reason.
 func accessListDecisionText(reason string) string {
 	switch reason {
@@ -260,7 +310,7 @@ func accessListDecisionText(reason string) string {
 	case services.ReasonAllowed:
 		return "Allowed by access list"
 	case services.ReasonGeoIPUnavailable:
-		return "GeoIP database not available - country lists refuse every address except admin addresses"
+		return "GeoIP database not available - country lists are not enforced"
 	case services.ReasonCountryNotAllowed:
 		return "Blocked by geo whitelist: country is not in the allowed countries"
 	case services.ReasonCountryBlocked:

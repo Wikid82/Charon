@@ -1,317 +1,141 @@
-# QA Report: Admin Whitelist and Access List Matching
-# QA Report: Admin Whitelist and Access List Matching
+# QA Report: GeoIP Database Card and Unenforced Country List Alert
 
-- Branch: `fix/admin-exclusion-matchers` (9 commits on `development`, `5e7fa0bc7`..`cd75c2e87`)
-- Scope: deny routes for blocked addresses, IP block-lists, country lists and local-network lists are built as one
-  matcher set that excludes the admin whitelist; country and local-network lists honour the admin whitelist (also
-  while no GeoIP database is available); the access list tester reports the proxy's decision; GeoIP reload errors
-  return a stable `error_code` and a fixed message; documentation for the admin whitelist.
-- Image under test: `charon:local` from `docker-rebuild-e2e` on the branch head.
-- Branch: `fix/admin-exclusion-matchers` (9 commits on `development`, `5e7fa0bc7`..`cd75c2e87`)
-- Scope: deny routes for blocked addresses, IP block-lists, country lists and local-network lists are built as one
-  matcher set that excludes the admin whitelist; country and local-network lists honour the admin whitelist (also
-  while no GeoIP database is available); the access list tester reports the proxy's decision; GeoIP reload errors
-  return a stable `error_code` and a fixed message; documentation for the admin whitelist.
-- Image under test: `charon:local` from `docker-rebuild-e2e` on the branch head.
+- Branch: `feature/geoip-database-card` (13 commits on `development`, up to `fae16ffec`, plus the uncommitted QA
+  changes listed below)
+- Spec: `docs/plans/geoip_database_card_spec.md` (feature PR, commit C14)
+- Scope: notification bell alerts (`GET /notifications/alerts`), country lists left unenforced (with an alert) while
+  no GeoIP database is usable, GeoIP database status with source, date and size, replacing and removing the
+  data-folder copy (`POST`/`DELETE /security/geoip/database`) behind `RequireSameOriginForBrowserAuth`, the access
+  list self-check (`POST /access-lists/self-check`), the Security page card, the access list form note, 28 locales,
+  and docs.
+- Image under test: `charon:local` from `docker-rebuild-e2e` on the working tree described above.
 - Date: 2026-11-10
 
 ## Verdict
 
-All gates pass. Local patch coverage is 100% (391 of 391 changed lines) after the coverage fixes made in response to the first QA pass.
+**Pass.** Every Definition of Done gate passes. Local patch coverage is 100% (983 of 983 changed lines). The QA pass
+added tests, two small test seams, and one small hardening of build-date handling; nothing else in the product was
+changed. No CRITICAL or HIGH findings in the code of this branch.
+
+## Changes made during QA
+
+| Area | Change |
+| --- | --- |
+| `services/geoip_database_upload.go`, `geoip_database_store.go` | File operations of an upload or removal (create temp file, rename, folder sync) go through a `geoipFileOps` value on the store, defaulting to the OS calls. Behaviour is unchanged; tests replace single operations to reach the write, sync, close, rename and folder-sync failure branches. |
+| `services/geoip_database_upload_fileops_test.go` (new) | Failure-branch tests for the seam above: each failure reports a write failure, leaves no temp file, restores the previous copy (or removes the new one), and applies nothing. |
+| `geoip/inspect.go` | New `BuildTime(epoch)` that clamps a build epoch to the end of year 9999 before converting it to a time. Used by the build-date check and both date formatters. See the finding below. |
+| `api/routes/geoip_marker.go`, `routes.go` | The startup sweep of the data folder moved into `sweepGeoIPDataFolder`, so its failure log is testable. Same behaviour. |
+| Tests | Lookup handler answers and admin checks (`security_geoip_lookup_test.go`), `EnvPathInEffect`, fixture encoder refusals, `BuildTime`, the sweep helper, the GeoIP API client functions, and the locale key helper. |
+| `pages/__tests__/Login.overlay.audit.test.tsx` | Made deterministic: the mocked login request now stays pending until the overlay has been asserted. It failed once under CPU load because a 100 ms timer finished the request before the click returned. Not related to this branch; fixed per the DoD. |
+| Lint | `make lint-backend` reported 45 gosec findings, all in files of this branch (44 in tests). Test fixtures now use `0o750` folders or carry the repo's usual justified `nolint` comments; the remaining production one (data folder `MkdirAll` at `0o755`) carries a justified `nolint`. |
 
 ## Static checks and build
 
 | Check | Result |
 | --- | --- |
-| `make lint-backend` (golangci-lint, full config) | 0 issues |
-| `make lint-fast` (backend + agent) | 0 issues |
-| `go build ./...` | pass |
-| `go list -deps ./cmd/api \| grep -c caddymatchtest` | `0` (test helper not linked into the binary) |
-| `lefthook run pre-commit` on the branch files (forced) | all hooks pass, including semgrep; `shellcheck` exits with "No files specified" because the branch changes no `.sh` files (artefact of forcing the hook, not a finding) |
-| Frontend | untouched (`git diff origin/development..HEAD -- frontend/` is empty) |
-| Models | untouched; GORM scan not required |
-| `npm run lint:e2e` | 0 errors, 124 warnings (limit 124) |
-| `npx tsc --noEmit -p tests/tsconfig.json` | pass |
-
-## Backend tests
-
-| Run | Result |
-| --- | --- |
-| `go test -race` scoped to access list, GeoIP, evaluate and reload tests in `services` and `handlers` | pass |
-| `go test -race` for `caddy`, `caddy/caddymatchtest`, `api/routes`, `cerberus` | pass |
-| Full backend with `-race` via `scripts/go-test-coverage.sh` (30 min per-package timeout) | pass, no failures |
-
-A plain `go test -race` of `services` and `handlers` with Go's default 10 minute timeout stops on the timeout
-(the slowest packages take 10-11 minutes under `-race`); the coverage script sets a 30 minute timeout for this reason.
-Not related to this branch.
+| `make lint-backend` (golangci-lint v2.15.0, full config) | 0 issues (after the fixes above) |
+| `lefthook run pre-commit --all-files` | all 20 hooks pass, including semgrep, golangci-lint-fast, frontend lint/type-check, locale lint, e2e lint (0 errors, 124 warnings at the limit) |
+| `cd frontend && npm run lint` | pass, 0 warnings |
+| `node node_modules/typescript/bin/tsc6 --noEmit` | pass |
+| `cd frontend && npm run build` | pass |
+| `cd backend && go build ./...`, `go vet` on touched packages | pass |
+| `./scripts/scan-gorm-security.sh --check` | 0 CRITICAL, 0 HIGH, 0 MEDIUM, 2 INFO (pre-existing index suggestions) |
 
 ## Coverage
 
-| Measure | Value |
+| Run | Result |
 | --- | --- |
-| Backend statement coverage (full run) | 93.4% |
-| Backend line coverage gate | 92.2% (minimum 87%) |
-| Local patch coverage (`scripts/local-patch-report.sh`, strict) | 100% (391 of 391 changed lines) |
+| `scripts/go-test-coverage.sh` (full) | all packages pass; statements 93.6%, lines 92.6% (gate 87%) |
+| `scripts/frontend-test-coverage.sh` (full) | 344 files, 4466 tests pass (2 todo); statements 91.76%, lines 92.65% |
+| `bash scripts/local-patch-report.sh` | overall 100.0% (983/983), backend 100.0% (794/794), frontend 100.0% (189/189) |
 
-Uncovered changed lines:
-
-| File | Lines | Code |
-| --- | --- | --- |
-| `backend/internal/caddy/config.go` | 1104-1107 | `denyMatcherSet`: merging an existing `"not"` list from `positive` (no caller passes one) |
-| `backend/internal/services/access_list_service.go` | 208-209 | `TestIP`: `netip.AddrFromSlice` failure after a successful `net.ParseIP` |
-| `backend/internal/services/access_list_evaluate.go` | 193 | `evaluateIPRules`: `default` branch for an unknown list type |
-| `backend/internal/caddy/caddymatchtest/caddymatchtest.go` | 252-253, 256-257, 271-272, 276-277, 282-283, 291-292, 300-301, 309-310, 317-318, 321-322 | guard and `t.Fatalf` branches of the test helper (`isHostCatchAll`, `parsePrefix`, `statusCode`, `decodeJSON`, `asMap`, `listOf`) |
-
-Remediation:
-
-- `config.go` 1104-1107: add a unit test calling `denyMatcherSet` with `positive` that already holds a `"not"` list
-  and assert the admin set comes first, followed by the existing sets, then `negated`.
-- `access_list_service.go` 208-209: `net.ParseIP` always returns a 4 or 16 byte slice, so this branch cannot run.
-  Replace the pair with `netip.ParseAddr` (keeping today's error) or drop the branch.
-- `access_list_evaluate.go` 193: add an `Evaluate` case with an unknown `Type` and no `LocalNetworkOnly`, asserting
-  allowed (matching `buildACLHandler`, which adds no handler for an unknown type).
-- `caddymatchtest.go`: either cover the guards with a `testing.TB` fake that records `Fatalf`, or add
-  `backend/internal/caddy/caddymatchtest/**` to the `ignore` list in `codecov.yml` (precedent:
-  `backend/internal/crowdsec/hubcachetest/**`). The package is test-only and is not linked into the binary.
+The patch report compares committed `HEAD` with `origin/development`. The uncommitted QA additions were checked
+separately: the backend coverage profile has no uncovered block in any Go file they touch.
 
 ## E2E (Playwright, `--project=security-tests`, after the image rebuild)
 
-`tests/security-enforcement/acl-enforcement.spec.ts`, `tests/security-enforcement/security-headers-enforcement.spec.ts`,
-`tests/security/self-proxy-requests.spec.ts`, run twice back-to-back against the same container:
+`npx playwright test tests/security/geoip-unenforced-alert.spec.ts tests/security/geoip-database-card.spec.ts
+tests/security-enforcement/acl-enforcement.spec.ts tests/security-enforcement/security-headers-enforcement.spec.ts
+tests/security/self-proxy-requests.spec.ts --project=security-tests`: **33 passed**, run twice (before and after the
+QA code changes, each after a fresh `docker-rebuild-e2e`).
 
-| Run | Result |
+## Security scans
+
+| Scan | Result |
 | --- | --- |
-| 1 | 24 passed (24.9 s) |
-| 2 | 24 passed (22.2 s) |
-
-No flaky or skipped tests.
-
-## Container gates
-
-Throwaway container from the rebuilt image, a control client on a private bridge network, and client containers
-on separate bridge networks whose subnets are public ranges, so the proxy sees public addresses with known
-countries (bundled GeoLite2 Country database):
-
-| Client | Address | Country | Admin whitelist |
-## Container gates
-
-Throwaway container from the rebuilt image, a control client on a private bridge network, and client containers
-on separate bridge networks whose subnets are public ranges, so the proxy sees public addresses with known
-countries (bundled GeoLite2 Country database):
-
-| Client | Address | Country | Admin whitelist |
-| --- | --- | --- | --- |
-| usa | 216.160.83.56 | US | yes (`/32`) |
-| usb | 50.114.0.10 | US | no |
-| gbc | 81.2.69.142 | GB | no |
-| sed | 89.160.20.112 | SE | no (added for the database-missing case) |
-
-Admin whitelist: the control client and `216.160.83.56/32`. Cerberus and ACL on. Hosts forward to the app, so a pass
-is 200 and a refusal is 403.
-
-| Host | List |
-| --- | --- |
-| plain.qa | none |
-| block.qa | IP block-list `50.114.0.0/24` |
-| geoallow.qa | country allow-list `GB` |
-| geoblock.qa | country block-list `US` |
-| local.qa | local network only |
-
-### Database available
-
-| Host | usa | usb | gbc |
-| usa | 216.160.83.56 | US | yes (`/32`) |
-| usb | 50.114.0.10 | US | no |
-| gbc | 81.2.69.142 | GB | no |
-| sed | 89.160.20.112 | SE | no (added for the database-missing case) |
-
-Admin whitelist: the control client and `216.160.83.56/32`. Cerberus and ACL on. Hosts forward to the app, so a pass
-is 200 and a refusal is 403.
-
-| Host | List |
-| --- | --- |
-| plain.qa | none |
-| block.qa | IP block-list `50.114.0.0/24` |
-| geoallow.qa | country allow-list `GB` |
-| geoblock.qa | country block-list `US` |
-| local.qa | local network only |
-
-### Database available
-
-| Host | usa | usb | gbc |
-| --- | --- | --- | --- |
-| plain.qa | 200 | 200 | 200 |
-| block.qa | 200 | 403 `Access denied: IP blacklisted` | 200 |
-| geoallow.qa | 200 | 403 `Access denied: Geographic restriction` | 200 |
-| geoblock.qa | 200 | 403 `Access denied: Geographic restriction` | 200 |
-| local.qa | 200 | 403 `Access denied: Not a local network IP` | 403 |
-
-- G-A0 IP block-list: only the listed subnet's client is refused; the other clients pass.
-- G-A1 country allow-list (GB): the whitelisted US client passes, the non-whitelisted US client is refused, GB passes.
-  Country block-list (US): the same pattern.
-- G-A1 local network only: the whitelisted public client passes; the other public clients are refused.
-- The live Caddy config shows one matcher set per deny route, with the admin ranges as the first entry of `not`.
-
-### Security decision
-
-A manual `block` decision for `81.2.69.142`, after the next config apply:
-| plain.qa | 200 | 200 | 200 |
-| block.qa | 200 | 403 `Access denied: IP blacklisted` | 200 |
-| geoallow.qa | 200 | 403 `Access denied: Geographic restriction` | 200 |
-| geoblock.qa | 200 | 403 `Access denied: Geographic restriction` | 200 |
-| local.qa | 200 | 403 `Access denied: Not a local network IP` | 403 |
-
-- G-A0 IP block-list: only the listed subnet's client is refused; the other clients pass.
-- G-A1 country allow-list (GB): the whitelisted US client passes, the non-whitelisted US client is refused, GB passes.
-  Country block-list (US): the same pattern.
-- G-A1 local network only: the whitelisted public client passes; the other public clients are refused.
-- The live Caddy config shows one matcher set per deny route, with the admin ranges as the first entry of `not`.
-
-### Security decision
-
-A manual `block` decision for `81.2.69.142`, after the next config apply:
-
-| Host | usa | usb | gbc |
-| Host | usa | usb | gbc |
-| --- | --- | --- | --- |
-| plain.qa | 200 | 200 | 403 `Access denied: Blocked by security decision` |
-| every listed host | as above | as above | 403 |
-
-Only the decided address is refused, on every host; the other clients keep their list outcomes. A `block` decision
-for the admin-whitelisted `216.160.83.56` has no effect (documented behaviour).
-
-### Database removed
-
-`/app/geoip/GeoLite2-Country.mmdb` removed (only the `.placeholder` left, `/app/data/geoip` empty), container
-restarted. `GET /security/geoip/status` reports `available: false`; `GET /security/status` reports
-`acl.reason: geoip_unavailable`.
-
-| Host | usa | usb | gbc (decided) | sed |
-| plain.qa | 200 | 200 | 403 `Access denied: Blocked by security decision` |
-| every listed host | as above | as above | 403 |
-
-Only the decided address is refused, on every host; the other clients keep their list outcomes. A `block` decision
-for the admin-whitelisted `216.160.83.56` has no effect (documented behaviour).
-
-### Database removed
-
-`/app/geoip/GeoLite2-Country.mmdb` removed (only the `.placeholder` left, `/app/data/geoip` empty), container
-restarted. `GET /security/geoip/status` reports `available: false`; `GET /security/status` reports
-`acl.reason: geoip_unavailable`.
-
-| Host | usa | usb | gbc (decided) | sed |
-| --- | --- | --- | --- | --- |
-| geoallow.qa | 200 | 403 | 403 | 403 |
-| geoblock.qa | 200 | 403 | 403 | 403 |
-| block.qa | 200 | 403 | 403 | 200 |
-| local.qa | 200 | 403 | 403 | 403 |
-
-The whitelisted client passes the country lists; non-whitelisted clients are refused by them, including the SE
-client that the US block-list admits while the database is present.
-
-### Tester parity (G-A2)
-
-`POST /access-lists/:id/test` for each client address and list, with and without the database:
-
-- Every answer equals the proxy's outcome for the access list. Reasons seen: "Address is in the admin whitelist",
-  "Blocked by geo whitelist: country is not in the allowed countries", "Not a private network IP (RFC1918)",
-  "GeoIP database not available - country lists refuse every address except admin addresses".
-- The tester evaluates the access list only. For the decided address `81.2.69.142` it reports the list's answer
-  (for example allowed on `block.qa`) while the proxy refuses it because of the decision.
-- A zoned address (`fe80::1%eth0`) returns 400 `invalid IP address`; an IPv4-mapped IPv6 address is evaluated as
-  the IPv4 address.
-
-### Reload errors (G-A3)
-
-| Case | Response |
-| --- | --- |
-| Database file removed | 500 `{"error":"Failed to reload the GeoIP database","error_code":"geoip_reload_failed"}` |
-| Corrupt file at `/app/data/geoip/GeoLite2-Country.mmdb` | same body |
-| Second container with `CHARON_GEOIP_DB_PATH` naming a missing file | same body |
-| Unauthenticated | 401 |
-
-No response body contains a file path. The path and OS error appear only in the server log (`detail` field).
-
-### Cerberus API middleware
-
-Unauthenticated `GET /api/v1/setup` from the public clients:
-
-| Enabled lists | usa | usb | gbc / sed |
-| --- | --- | --- | --- |
-| All four | 403 `Blocked by access control list` | 403 | 403 |
-| Country lists only (database present) | 200 | 200 | 200 |
-| Country lists only (database removed) | 200 | 200 | 200 |
-
-Country lists remain "allowed" on `/api`; the local-network list refuses public unauthenticated callers whether or
-not they are admin-whitelisted. These are the outcomes the branch keeps unchanged.
+| CodeQL Go + JS (`lefthook run codeql`, CLI 2.27.2) | 0 blocking. Go: 4 results, all pre-existing entries in `codeql-suppressions.yml`, none in files of this branch. JS: 0 results. Parity check passes. |
+| Trivy filesystem (`skill-runner.sh security-scan-trivy`) | No findings in the branch's dependency manifests. The skill exits non-zero on items outside the tracked tree: stale untracked `.claude/worktrees/*` copies of other branches, and an ignored, untracked CA key generated by an earlier test run under `backend/internal/api/routes/keys/` (not in git, not in the image). |
+| Trivy image (`charon:local`, HIGH/CRITICAL) | Alpine base and the Charon binary: 0. One HIGH each in the bundled Caddy and CrowdSec binaries; both CVEs are already accepted in `.trivyignore` and `.grype.yaml`. The branch does not change the Dockerfile. |
 
 ## Security review
 
-- No Gotify tokens in the diff, test helpers, logs or report.
-- Reload error bodies no longer carry OS error text; errors are logged through `util.SanitizeForLog`.
-- The admin exclusion uses the connection address (`remote_ip`), so forwarded headers cannot claim it.
-- Admin whitelist entries are validated on save (`invalid admin whitelist CIDR`), so the tester's admin range parse
-  does not see malformed input from the API.
-- Local CodeQL/Trivy not run (fix-scoped PR; CI runs both).
-
-## Cleanup
-
-All throwaway containers, networks and the data volume were removed. `charon-e2e` was rebuilt by the skill and left
-running.
-| geoallow.qa | 200 | 403 | 403 | 403 |
-| geoblock.qa | 200 | 403 | 403 | 403 |
-| block.qa | 200 | 403 | 403 | 200 |
-| local.qa | 200 | 403 | 403 | 403 |
-
-The whitelisted client passes the country lists; non-whitelisted clients are refused by them, including the SE
-client that the US block-list admits while the database is present.
-
-### Tester parity (G-A2)
-
-`POST /access-lists/:id/test` for each client address and list, with and without the database:
-
-- Every answer equals the proxy's outcome for the access list. Reasons seen: "Address is in the admin whitelist",
-  "Blocked by geo whitelist: country is not in the allowed countries", "Not a private network IP (RFC1918)",
-  "GeoIP database not available - country lists refuse every address except admin addresses".
-- The tester evaluates the access list only. For the decided address `81.2.69.142` it reports the list's answer
-  (for example allowed on `block.qa`) while the proxy refuses it because of the decision.
-- A zoned address (`fe80::1%eth0`) returns 400 `invalid IP address`; an IPv4-mapped IPv6 address is evaluated as
-  the IPv4 address.
-
-### Reload errors (G-A3)
-
-| Case | Response |
+| Area | Result |
 | --- | --- |
-| Database file removed | 500 `{"error":"Failed to reload the GeoIP database","error_code":"geoip_reload_failed"}` |
-| Corrupt file at `/app/data/geoip/GeoLite2-Country.mmdb` | same body |
-| Second container with `CHARON_GEOIP_DB_PATH` naming a missing file | same body |
-| Unauthenticated | 401 |
+| Upload route authorization | `POST`/`DELETE /security/geoip/database` sit in the admin-only security group and check the role again in the handler. A non-admin gets 403. |
+| `RequireSameOriginForBrowserAuth` | Applied only to the two new routes. Requests with an `Authorization` header pass (a foreign page cannot add it without a preflight, which is not granted); other unsafe requests go through the standard library's cross-origin check. Spot check: a cookie upload with a foreign `Origin` and `Sec-Fetch-Site: cross-site` got 403 `cross_origin_refused`; same-origin and non-browser requests succeed. |
+| Upload handling | Body capped by `http.MaxBytesReader` (32 MiB plus framing); exactly one multipart part named `file`; client file name and content type ignored; temp file named by `os.CreateTemp` in the data folder; symlinked targets refused; validation (MaxMind format, country edition, record decode, build date) runs before the rename; failures restore the previous copy; one change at a time (busy answers 409 at once). Installed file is `0600`, owned by the app user. |
+| Build-date check | Hardened during QA (see finding). |
+| Alerts endpoint | Management access (any role except pass-through). It returns only the alert key, severity, up to five access list names, a count, and whether a database is available. Access list names are already readable by the same roles. |
+| Self-check endpoint | Admin only; evaluates a draft against the caller's own address and the admin whitelist; no data is stored. |
+| Error bodies | Fixed messages plus `error_code`; no paths or OS text in any response (verified in handler tests and the spot check). |
+| Logs | Failure detail, which can include the data-folder path, is written to the server log only and sanitized, as the spec allows. Audit rows carry type, build date, size and digest, never a path or client file name. |
+| Backups | Backups are built from an allow-list (database and `caddy/`), so the GeoIP folder, its previous copy and upload temp files are never included. Pinned by `TestBackupService_ExcludesGeoIPFolder`. |
+| Gotify tokens | None in the diff, test artifacts or logs reviewed. |
 
-No response body contains a file path. The path and OS error appear only in the server log (`detail` field).
+### Finding (fixed in QA): out-of-range build dates
 
-### Cerberus API middleware
+Severity: low (admin-only upload). A database whose build epoch is outside the range Go's time conversion handles
+could pass the "not in the future" check by wrapping into the past, and would then always win over later bundled
+updates. `geoip.BuildTime` now clamps such an epoch to the end of year 9999, so the upload is refused as dated in the
+future. Covered by `TestBuildTime_ClampsEpochsPastTheTimeRange` and
+`TestGeoIPDatabaseStoreCheckBuildEpoch_RefusesEpochsPastTheTimeRange`.
 
-Unauthenticated `GET /api/v1/setup` from the public clients:
+## Spot check (throwaway container)
 
-| Enabled lists | usa | usb | gbc / sed |
-| --- | --- | --- | --- |
-| All four | 403 `Blocked by access control list` | 403 | 403 |
-| Country lists only (database present) | 200 | 200 | 200 |
-| Country lists only (database removed) | 200 | 200 | 200 |
+A separate `charon:local` container on a loopback-only port with a fresh data volume, removed afterwards. The dev
+containers were not touched.
 
-Country lists remain "allowed" on `/api`; the local-network list refuses public unauthenticated callers whether or
-not they are admin-whitelisted. These are the outcomes the branch keeps unchanged.
+| Step | Result |
+| --- | --- |
+| Remove the bundled copy, enable Cerberus and ACL, reload | 500 `geoip_reload_failed`, fixed message, no path |
+| Add a country allow-list on an enabled host | `GET /notifications/alerts` returns one `geoip_unavailable` error alert naming the list, `database_available: false`; status reports `unenforced_lists_total: 1` |
+| Cross-origin cookie upload | 403 `cross_origin_refused` |
+| Upload a file that is not a database | 400 `geoip_not_mmdb` |
+| Upload a valid country database | 200, source `data`, `unenforced_lists_total: 0`; alerts list empty |
+| Remove the data-folder copy (no bundled copy) | 200, source `none`; the alert returns |
 
-## Security review
+## Acceptance criteria (spec section 12, feature items)
 
-- No Gotify tokens in the diff, test helpers, logs or report.
-- Reload error bodies no longer carry OS error text; errors are logged through `util.SanitizeForLog`.
-- The admin exclusion uses the connection address (`remote_ip`), so forwarded headers cannot claim it.
-- Admin whitelist entries are validated on save (`invalid admin whitelist CIDR`), so the tester's admin range parse
-  does not see malformed input from the API.
-- Local CodeQL/Trivy not run (fix-scoped PR; CI runs both).
+| Criterion | Evidence |
+| --- | --- |
+| No usable database: country-list hosts reachable, no country 403 | `acl-enforcement.spec.ts` "Country lists", `geoip-unenforced-alert.spec.ts` |
+| Bell shows the alert first, with links, no dismiss; stays during and after a failed apply | `NotificationCenter.test.tsx`, `geoip-unenforced-alert.spec.ts`, `manager_last_applied_test.go` |
+| A successful apply with the database clears the alert | E2E "Restored database"; spot check |
+| A failed reload still applies; proxy, status and alert agree | `security_geoip_reload_apply_test.go`; spot check |
+| `acl.reason = geoip_unavailable` and tester say "not enforced" | `security_status_enforcement_test.go`, `access_list_evaluate_test.go` |
+| Card, replace/remove, lookup and form note; hidden for non-admins | `GeoIPDatabaseCard.test.tsx`, `AccessListGeoNote.test.tsx`, `Security.geoip.test.tsx`, `geoip-database-card.spec.ts` |
+| Cross-origin cookie requests refused; UI and header-authenticated clients succeed | `browser_origin_test.go`, `geoip_database_routes_test.go`, E2E cross-origin rows; spot check |
+| No toasts or banners; strings in 28 locales; parity tests | diff review (results are inline); `geoipLocales.test.ts`, `notificationCenterLocales.test.ts` |
+| Troubleshooting page exists, linked, in the nav | `docs/troubleshooting/geoip-database.md`, `security-module-applied.md`, `docs-site/zensical.toml` |
+| Full DoD | this report |
 
-## Cleanup
+## Deviations from the spec
 
-All throwaway containers, networks and the data volume were removed. `charon-e2e` was rebuilt by the skill and left
-running.
+- Two test seams were added that the spec does not describe: `geoipFileOps` on the store and the
+  `sweepGeoIPDataFolder` helper in `routes`. Neither changes behaviour.
+- `geoip.BuildTime` was added to harden build-date handling (see the finding).
+- The strict docs build (`zensical build --strict`) was not run locally because Zensical is not installed in this
+  environment; the docs workflow runs it in CI.
+- The spec's DoD floor for patch coverage is 85%; this branch reaches 100%.
+
+## Follow-ups (not blocking)
+
+- Low: `LookupGeoIP` (moved unchanged from the older handler) returns the lookup library's error text in its 500
+  body (`"GeoIP lookup failed: ..."`). The text carries no path, but a fixed message plus `error_code` would match
+  the other GeoIP endpoints.
+- Low, informational: when the database file disappears under a running instance and a reload fails, the service
+  keeps the database it already had open, so the status reports the previous source and build date with
+  `available: false` and a null size. The card and the alert use `available`, so users see the right state; the
+  extra fields may confuse someone reading the raw API.
+- Housekeeping: the local Trivy filesystem skill scans untracked `.claude/worktrees/` copies and git-ignored test
+  keys. Excluding those paths in the skill would make its exit code reflect the tracked tree only.

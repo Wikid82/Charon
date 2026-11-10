@@ -263,4 +263,50 @@ describe('security API', () => {
       expect(client.delete).toHaveBeenCalledWith('/security/rulesets/a%2Fb%20c')
     })
   })
+
+  describe('GeoIP database', () => {
+    it('getGeoIPStatus reads the card status', async () => {
+      const status = { source: 'bundled', can_replace: true }
+      vi.mocked(client.get).mockResolvedValue({ data: status })
+
+      await expect(security.getGeoIPStatus()).resolves.toEqual(status)
+      expect(client.get).toHaveBeenCalledWith('/security/geoip/status')
+    })
+
+    it('reloadGeoIP posts a reload', async () => {
+      vi.mocked(client.post).mockResolvedValue({ data: { message: 'ok' } })
+
+      await expect(security.reloadGeoIP()).resolves.toEqual({ message: 'ok' })
+      expect(client.post).toHaveBeenCalledWith('/security/geoip/reload')
+    })
+
+    it('lookupGeoIP sends the address as ip_address', async () => {
+      const answer = { ip_address: '8.8.8.8', country_code: 'US', found: true }
+      vi.mocked(client.post).mockResolvedValue({ data: answer })
+
+      await expect(security.lookupGeoIP('8.8.8.8')).resolves.toEqual(answer)
+      expect(client.post).toHaveBeenCalledWith('/security/geoip/lookup', { ip_address: '8.8.8.8' })
+    })
+
+    it('replaceGeoIPDatabase uploads the file as the single part named file', async () => {
+      const change = { status: { source: 'data' }, replaced_previous: false }
+      vi.mocked(client.post).mockResolvedValue({ data: change })
+      const file = new File(['mmdb'], 'GeoLite2-Country.mmdb')
+
+      await expect(security.replaceGeoIPDatabase(file)).resolves.toEqual(change)
+      const [url, body] = vi.mocked(client.post).mock.calls[0]
+      expect(url).toBe('/security/geoip/database')
+      expect(body).toBeInstanceOf(FormData)
+      expect([...(body as FormData).keys()]).toEqual(['file'])
+      expect((body as FormData).get('file')).toBeInstanceOf(File)
+    })
+
+    it('removeGeoIPDatabase deletes the data-folder copy', async () => {
+      const change = { status: { source: 'bundled' } }
+      vi.mocked(client.delete).mockResolvedValue({ data: change })
+
+      await expect(security.removeGeoIPDatabase()).resolves.toEqual(change)
+      expect(client.delete).toHaveBeenCalledWith('/security/geoip/database')
+    })
+  })
 })

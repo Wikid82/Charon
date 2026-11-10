@@ -14,6 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/alerts"
 	"github.com/Wikid82/charon/backend/internal/api/handlers"
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/caddy"
@@ -942,6 +943,10 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 		// caddyManager is already created early in Register() for use by settingsHandler
 
+		// An upload or removal interrupted by a crash leaves temp or previous files in the data folder. They are cleared
+		// before the database path is resolved, so the resolver sees the state the last completed change left.
+		sweepGeoIPDataFolder(geoip.DataDatabasePath())
+
 		// The GeoIP service always exists, even without a database file, so a database added later is loaded by
 		// POST /security/geoip/reload and every consumer (including the proxy state) sees the same live service.
 		geoipSvc := initGeoIPAtStartup(geoip.ResolveDatabasePath)
@@ -950,6 +955,10 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		// Security Status
 		securityHandler := handlers.NewSecurityHandlerWithDeps(cfg.Security, db, caddyManager, cerb).WithCrowdsecLifecycle(crowdsecHandler)
 		securityHandler.SetGeoIPService(geoipSvc)
+
+		// Notification bell alerts: country lists not enforced because no GeoIP database is usable.
+		alertsSvc := alerts.NewService(securityHandler.GeoIPAlertSource())
+		management.GET("/notifications/alerts", handlers.NewAlertsHandler(alertsSvc).List)
 
 		management.GET("/security/status", securityHandler.GetStatus)
 		// Security Config management
@@ -974,6 +983,9 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		securityAdmin.DELETE("/rulesets/:id", securityHandler.DeleteRuleSet)
 		securityAdmin.POST("/geoip/reload", securityHandler.ReloadGeoIP)
 		securityAdmin.POST("/geoip/lookup", securityHandler.LookupGeoIP)
+		// Cookie sessions reach these two routes only from the same origin; see middleware.RequireSameOriginForBrowserAuth.
+		securityAdmin.POST("/geoip/database", middleware.RequireSameOriginForBrowserAuth(), securityHandler.ReplaceGeoIPDatabase)
+		securityAdmin.DELETE("/geoip/database", middleware.RequireSameOriginForBrowserAuth(), securityHandler.RemoveGeoIPDatabase)
 		securityAdmin.POST("/waf/exclusions", securityHandler.AddWAFExclusion)
 		securityAdmin.DELETE("/waf/exclusions/:rule_id", securityHandler.DeleteWAFExclusion)
 
@@ -1083,6 +1095,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management.PUT("/access-lists/:id", middleware.RequireRole(models.RoleAdmin), accessListHandler.Update)
 		management.DELETE("/access-lists/:id", middleware.RequireRole(models.RoleAdmin), accessListHandler.Delete)
 		management.POST("/access-lists/:id/test", accessListHandler.TestIP)
+		management.POST("/access-lists/self-check", middleware.RequireRole(models.RoleAdmin), accessListHandler.SelfCheck)
 
 		// Security Headers. Reads + the three pure calculator POSTs (they do
 		// not persist) stay on management so the role=user-reachable

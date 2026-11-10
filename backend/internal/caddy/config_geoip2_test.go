@@ -18,6 +18,8 @@ const (
 	geoDeniedBody       = "Access denied: Geographic restriction"
 	geoIP2HandlerMarker = `"handler":"geoip2"`
 	geoCountryMatcher   = "{geoip2.country_code}"
+	// geoNotEnforcedWarning is the start of the one Warn line per apply that names the unenforced country lists.
+	geoNotEnforcedWarning = "Country access list is not enforced because the GeoIP database is unavailable"
 )
 
 // generateCountryListConfig builds one enabled host behind a country list of the given type and returns the config
@@ -65,7 +67,7 @@ func TestGenerateConfig_CountryListWithDatabase_AddsGeoIP2AppAndStrictHandler(t 
 			require.Positive(t, handlerAt, "the geoip2 handler is in the pipeline")
 			require.Greater(t, countryAt, handlerAt, "the geoip2 handler sits before the country subroute")
 			require.Contains(t, routes, `"enable":"strict"`)
-			require.NotContains(t, warnings, "needs the GeoIP database")
+			require.NotContains(t, warnings, geoNotEnforcedWarning)
 		})
 	}
 }
@@ -115,7 +117,7 @@ func TestGenerateConfig_CountryListWithoutACLEnabledNoGeoIP2App(t *testing.T) {
 	require.Nil(t, cfg.Apps.GeoIP2)
 }
 
-func TestGenerateConfig_CountryListDatabaseUnavailable_DeniesEveryHost(t *testing.T) {
+func TestGenerateConfig_CountryListDatabaseUnavailable_LeavesHostNotEnforced(t *testing.T) {
 	missingFile := filepath.Join(t.TempDir(), "GeoLite2-Country.mmdb")
 	cases := map[string]struct {
 		opts []GenerateConfigOption
@@ -135,10 +137,11 @@ func TestGenerateConfig_CountryListDatabaseUnavailable_DeniesEveryHost(t *testin
 
 				require.Nil(t, cfg.Apps.GeoIP2, "no geoip2 app without a usable database")
 				routes := routesJSON(t, cfg)
-				require.Contains(t, routes, geoDeniedBody, "the host is refused")
+				require.NotContains(t, routes, geoDeniedBody, "the host is not refused by the list")
 				require.NotContains(t, routes, geoCountryMatcher, "the country subroute is not emitted")
 				require.NotContains(t, routes, geoIP2HandlerMarker)
-				require.Equal(t, 1, strings.Count(warnings, "needs the GeoIP database"), "one Warn per apply")
+				require.Contains(t, routes, `"reverse_proxy"`, "the host keeps its proxy handler")
+				require.Equal(t, 1, strings.Count(warnings, geoNotEnforcedWarning), "one Warn per apply")
 				require.Contains(t, warnings, "Countries", "the Warn names the list")
 			}
 		})
@@ -156,8 +159,8 @@ func TestGenerateConfig_CountryListDatabaseUnavailable_WarnsOncePerApply(t *test
 	cfg, err := GenerateConfig([]models.ProxyHost{hostA, hostB}, t.TempDir(), "", "", "", false, false, false, false, true, "", nil, nil, nil, nil, nil)
 	require.NoError(t, err)
 
-	require.Equal(t, 2, strings.Count(routesJSON(t, cfg), geoDeniedBody), "each host gets a deny handler")
-	require.Equal(t, 1, strings.Count(buf.String(), "needs the GeoIP database"), "one Warn per apply")
+	require.Zero(t, strings.Count(routesJSON(t, cfg), geoDeniedBody), "no host gets a country deny handler")
+	require.Equal(t, 1, strings.Count(buf.String(), geoNotEnforcedWarning), "one Warn per apply")
 }
 
 func TestGeoIP2AppFor_SplitsDirectoryAndEdition(t *testing.T) {
