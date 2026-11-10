@@ -396,7 +396,7 @@
       "geoip_unavailable": {
         "title": "Les listes d'accès par pays ne sont pas appliquées",
         "message": "La base de données GeoIP des pays est absente ou inutilisable : {{count}} liste(s) de pays ({{lists}}) laissent passer tous les visiteurs tant qu'elle n'est pas disponible.",
-        "messagePendingApply": "La base de données GeoIP est de nouveau disponible, mais {{count}} liste(s) de pays ({{lists}}) ne sont pas encore appliquées. Rechargez la base de données GeoIP depuis la page Sécurité ou redémarrez Charon.",
+        "messagePendingApply": "La base de données GeoIP est de nouveau disponible, mais {{count}} liste(s) de pays ({{lists}}) ne sont pas encore appliquées. Appuyez sur Recharger sur la carte Base de données des pays.",
         "docsLink": "Comment fournir la base de données",
         "issueHint": "Charon inclut normalement cette base de données. Merci d'ouvrir un ticket GitHub afin que nous puissions corriger cela.",
         "issueLink": "Ouvrir un ticket"
@@ -631,6 +631,79 @@
       "unknown": "Pas encore appliqué à tous les hôtes. Consultez la page des paramètres de ce module.",
       "acl": {
         "geoip_unavailable": "Les listes de pays ne sont pas appliquées : la base de données GeoIP est absente de cette installation. Tout le monde peut accéder à ces hôtes tant qu'elle n'est pas fournie. Voir la documentation."
+      }
+    },
+    "geoip": {
+      "title": "Base de données de pays (GeoIP)",
+      "description": "Les listes d'accès par pays nécessitent une base de données GeoIP des pays. Charon utilise la copie incluse, sauf si vous en fournissez une.",
+      "loadError": "L'état de la base de données n'a pas pu être chargé.",
+      "unknownValue": "Inconnu",
+      "status": {
+        "ready": "Prêt",
+        "unavailable": "Non disponible"
+      },
+      "source": {
+        "label": "Source",
+        "bundled": "Incluse avec Charon",
+        "data": "Votre dossier de données",
+        "custom": "Chemin personnalisé défini sur le serveur",
+        "none": "Aucune base de données"
+      },
+      "buildDate": "Date de compilation",
+      "size": "Taille",
+      "path": "Fichier",
+      "releaseNote": "La copie incluse est mise à jour à chaque version de Charon.",
+      "customPathNote": "Le chemin de la base de données est défini par le serveur (CHARON_GEOIP_DB_PATH), la copie ne peut donc pas être remplacée ici.",
+      "readOnlyNote": "Le dossier de données est en lecture seule, la base de données ne peut donc pas être remplacée ici.",
+      "unavailableReason": "Non disponible. Les listes de pays ne sont pas appliquées tant qu'une base de données n'est pas chargée.",
+      "docsLink": "Comment fournir une base de données",
+      "unenforcedLists": "{{count}} liste(s) de pays non appliquée(s)",
+      "formNote": {
+        "unavailable": "Cette liste ne sera pas appliquée tant que la base de données GeoIP ne sera pas disponible.",
+        "wouldRefuseYou": "D'après l'adresse que vous utilisez actuellement, cette liste vous bloquerait. L'enregistrement reste autorisé."
+      },
+      "actions": {
+        "reload": "Recharger",
+        "replace": "Remplacer la base de données…",
+        "replaceHint": "Importez une base de données GeoIP des pays (.mmdb), jusqu'à {{max}} MiB.",
+        "useIncluded": "Utiliser la copie incluse",
+        "useIncludedConfirmTitle": "Utiliser la copie incluse ?",
+        "useIncludedConfirmBody": "Votre copie du dossier de données sera supprimée et Charon utilisera la base de données incluse.",
+        "useIncludedConfirmBodyNoBundled": "Votre copie du dossier de données sera supprimée. Les listes de pays ne seront pas appliquées tant que vous n'aurez pas fourni de base de données."
+      },
+      "result": {
+        "reloaded": "Base de données rechargée.",
+        "replaced": "Base de données remplacée. Charon utilise maintenant votre copie.",
+        "removed": "Charon utilise de nouveau la copie incluse."
+      },
+      "lookup": {
+        "label": "Adresse IP",
+        "placeholder": "Par exemple 203.0.113.7",
+        "useMyAddress": "Utiliser mon adresse",
+        "submit": "Rechercher",
+        "found": "{{ip}} se trouve en {{country}}.",
+        "notFound": "Aucun pays trouvé pour {{ip}}.",
+        "disabled": "La recherche est disponible une fois une base de données chargée.",
+        "invalid": "Saisissez une adresse IP valide.",
+        "notLoaded": "Aucune base de données n'est chargée, les adresses ne peuvent donc pas être recherchées.",
+        "myAddressFailed": "Charon n'a pas pu lire votre adresse."
+      },
+      "errors": {
+        "geoip_file_required": "Choisissez un fichier de base de données à importer.",
+        "geoip_too_large": "Ce fichier dépasse 32 MiB.",
+        "geoip_not_mmdb": "Ce fichier n'est pas une base de données GeoIP.",
+        "geoip_corrupt": "Ce fichier de base de données est endommagé et ne peut pas être lu.",
+        "geoip_wrong_type": "Il s'agit d'une base de données GeoIP, mais pas d'une base de données de pays.",
+        "geoip_older_than_current": "Cette base de données est plus ancienne que celle en cours d'utilisation. Importez une version plus récente.",
+        "geoip_build_date_in_future": "Cette base de données porte une date de compilation future.",
+        "geoip_custom_path_set": "Un chemin de base de données personnalisé est défini sur le serveur, la copie ne peut donc pas être modifiée ici.",
+        "geoip_busy": "Une autre modification de la base de données est en cours. Réessayez dans un instant.",
+        "geoip_write_failed": "Charon n'a pas pu enregistrer le fichier de la base de données.",
+        "geoip_reload_failed": "Charon n'a pas pu charger le fichier de la base de données.",
+        "geoip_no_data_copy": "Il n'y a aucune copie dans le dossier de données à supprimer.",
+        "geoip_service_unavailable": "Le service GeoIP n'est pas en cours d'exécution.",
+        "proxy_apply_failed": "Charon n'a pas pu appliquer la configuration du proxy.",
+        "generic": "Une erreur s'est produite. Réessayez."
       }
     }
   },

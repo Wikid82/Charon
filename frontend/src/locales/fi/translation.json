@@ -391,7 +391,7 @@
       "geoip_unavailable": {
         "title": "Maakohtaisia pääsylistoja ei noudateta",
         "message": "GeoIP-maatietokanta puuttuu tai ei ole käytettävissä, joten {{count}} maalista ({{lists}}) päästää jokaisen kävijän läpi, kunnes tietokanta on taas saatavilla.",
-        "messagePendingApply": "GeoIP-tietokanta on taas saatavilla, mutta {{count}} maalistaa ({{lists}}) ei vielä noudateta. Lataa GeoIP-tietokanta uudelleen Suojaus-sivulta tai käynnistä Charon uudelleen.",
+        "messagePendingApply": "GeoIP-tietokanta on taas saatavilla, mutta {{count}} maalistaa ({{lists}}) ei vielä noudateta. Paina Lataa uudelleen Maatietokanta-kortilla.",
         "docsLink": "Näin toimitat tietokannan",
         "issueHint": "Charon sisältää yleensä tämän tietokannan. Avaa GitHubiin issue, jotta voimme korjata asian.",
         "issueLink": "Avaa issue"
@@ -606,6 +606,79 @@
     "enforcement": {
       "acl": {
         "geoip_unavailable": "Maaluetteloita ei noudateta: GeoIP-tietokanta puuttuu tästä asennuksesta. Kaikki pääsevät näihin isäntiin, kunnes tietokanta on toimitettu. Katso dokumentaatio."
+      }
+    },
+    "geoip": {
+      "title": "Maatietokanta (GeoIP)",
+      "description": "Maakohtaiset pääsylistat tarvitsevat GeoIP-maatietokannan. Charon käyttää mukana tulevaa kopiota, ellet anna omaa.",
+      "loadError": "Tietokannan tilaa ei voitu ladata.",
+      "unknownValue": "Tuntematon",
+      "status": {
+        "ready": "Valmis",
+        "unavailable": "Ei saatavilla"
+      },
+      "source": {
+        "label": "Lähde",
+        "bundled": "Mukana Charonissa",
+        "data": "Datakansiosi",
+        "custom": "Palvelimelle on asetettu mukautettu polku",
+        "none": "Ei tietokantaa"
+      },
+      "buildDate": "Koontipäivämäärä",
+      "size": "Koko",
+      "path": "Tiedosto",
+      "releaseNote": "Mukana tuleva kopio päivittyy jokaisen Charon-julkaisun yhteydessä.",
+      "customPathNote": "Palvelin asettaa tietokannan polun (CHARON_GEOIP_DB_PATH), joten kopiota ei voi korvata täällä.",
+      "readOnlyNote": "Datakansio on vain luettavissa, joten tietokantaa ei voi korvata täällä.",
+      "unavailableReason": "Ei saatavilla. Maalistoja ei noudateta, ennen kuin tietokanta on ladattu.",
+      "docsLink": "Näin annat tietokannan",
+      "unenforcedLists": "{{count}} maalistaa ei noudateta",
+      "formNote": {
+        "unavailable": "Tätä listaa ei noudateta, ennen kuin GeoIP-tietokanta on saatavilla.",
+        "wouldRefuseYou": "Nykyisen osoitteesi perusteella tämä lista estäisi sinut. Tallentaminen on silti sallittua."
+      },
+      "actions": {
+        "reload": "Lataa uudelleen",
+        "replace": "Korvaa tietokanta…",
+        "replaceHint": "Lataa GeoIP-maatietokanta (.mmdb), enintään {{max}} MiB.",
+        "useIncluded": "Käytä mukana tulevaa kopiota",
+        "useIncludedConfirmTitle": "Käytetäänkö mukana tulevaa kopiota?",
+        "useIncludedConfirmBody": "Datakansiosi kopio poistetaan ja Charon käyttää mukana tulevaa tietokantaa.",
+        "useIncludedConfirmBodyNoBundled": "Datakansiosi kopio poistetaan. Maalistoja ei noudateta, ennen kuin annat tietokannan."
+      },
+      "result": {
+        "reloaded": "Tietokanta ladattiin uudelleen.",
+        "replaced": "Tietokanta korvattiin. Charon käyttää nyt kopiotasi.",
+        "removed": "Charon käyttää taas mukana tulevaa kopiota."
+      },
+      "lookup": {
+        "label": "IP-osoite",
+        "placeholder": "Esimerkiksi 203.0.113.7",
+        "useMyAddress": "Käytä omaa osoitettani",
+        "submit": "Hae",
+        "found": "{{ip}} on maassa {{country}}.",
+        "notFound": "Maata ei löytynyt osoitteelle {{ip}}.",
+        "disabled": "Haku on käytettävissä, kun tietokanta on ladattu.",
+        "invalid": "Anna kelvollinen IP-osoite.",
+        "notLoaded": "Tietokantaa ei ole ladattu, joten osoitteita ei voi hakea.",
+        "myAddressFailed": "Charon ei voinut lukea osoitettasi."
+      },
+      "errors": {
+        "geoip_file_required": "Valitse ladattava tietokantatiedosto.",
+        "geoip_too_large": "Tiedosto on suurempi kuin 32 MiB.",
+        "geoip_not_mmdb": "Tiedosto ei ole GeoIP-tietokanta.",
+        "geoip_corrupt": "Tietokantatiedosto on vioittunut eikä sitä voi lukea.",
+        "geoip_wrong_type": "Tämä on GeoIP-tietokanta, mutta ei maatietokanta.",
+        "geoip_older_than_current": "Tietokanta on vanhempi kuin käytössä oleva. Lataa uudempi.",
+        "geoip_build_date_in_future": "Tietokannan koontipäivämäärä on tulevaisuudessa.",
+        "geoip_custom_path_set": "Palvelimelle on asetettu mukautettu tietokantapolku, joten kopiota ei voi muuttaa täällä.",
+        "geoip_busy": "Toinen tietokantamuutos on käynnissä. Yritä hetken kuluttua uudelleen.",
+        "geoip_write_failed": "Charon ei voinut tallentaa tietokantatiedostoa.",
+        "geoip_reload_failed": "Charon ei voinut ladata tietokantatiedostoa.",
+        "geoip_no_data_copy": "Datakansiossa ei ole kopiota poistettavaksi.",
+        "geoip_service_unavailable": "GeoIP-palvelu ei ole käynnissä.",
+        "proxy_apply_failed": "Charon ei voinut ottaa välityspalvelimen asetuksia käyttöön.",
+        "generic": "Jotain meni pieleen. Yritä uudelleen."
       }
     }
   },

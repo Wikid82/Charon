@@ -391,7 +391,7 @@
       "geoip_unavailable": {
         "title": "Seznamy přístupu podle země se neuplatňují",
         "message": "Databáze zemí GeoIP chybí nebo je nepoužitelná, takže {{count}} seznam(ů) zemí ({{lists}}) pustí každého návštěvníka, dokud nebude znovu dostupná.",
-        "messagePendingApply": "Databáze GeoIP je opět dostupná, ale {{count}} seznam(ů) zemí ({{lists}}) se zatím neuplatňuje. Znovu načtěte databázi GeoIP na stránce Zabezpečení nebo restartujte Charon.",
+        "messagePendingApply": "Databáze GeoIP je znovu k dispozici, ale {{count}} seznam(ů) zemí ({{lists}}) se zatím neuplatňuje. Stiskněte Znovu načíst na kartě Databáze zemí.",
         "docsLink": "Jak databázi zpřístupnit",
         "issueHint": "Charon tuto databázi obvykle obsahuje. Otevřete prosím issue na GitHubu, abychom to mohli opravit.",
         "issueLink": "Otevřít issue"
@@ -606,6 +606,79 @@
     "enforcement": {
       "acl": {
         "geoip_unavailable": "Seznamy zemí nejsou vynucovány: databáze GeoIP v této instalaci chybí. Ke všem těmto hostitelům se mohou dostat všichni, dokud nebude databáze k dispozici. Viz dokumentace."
+      }
+    },
+    "geoip": {
+      "title": "Databáze zemí (GeoIP)",
+      "description": "Seznamy přístupu podle země potřebují databázi zemí GeoIP. Charon používá přiloženou kopii, pokud nezadáte vlastní.",
+      "loadError": "Stav databáze se nepodařilo načíst.",
+      "unknownValue": "Neznámé",
+      "status": {
+        "ready": "Připraveno",
+        "unavailable": "Není k dispozici"
+      },
+      "source": {
+        "label": "Zdroj",
+        "bundled": "Součástí Charonu",
+        "data": "Vaše datová složka",
+        "custom": "Na serveru je nastavena vlastní cesta",
+        "none": "Žádná databáze"
+      },
+      "buildDate": "Datum sestavení",
+      "size": "Velikost",
+      "path": "Soubor",
+      "releaseNote": "Přiložená kopie se aktualizuje s každou verzí Charonu.",
+      "customPathNote": "Cestu k databázi nastavuje server (CHARON_GEOIP_DB_PATH), takže kopii zde nelze nahradit.",
+      "readOnlyNote": "Datová složka je jen pro čtení, takže databázi zde nelze nahradit.",
+      "unavailableReason": "Není k dispozici. Seznamy zemí se neuplatňují, dokud není načtena databáze.",
+      "docsLink": "Jak zadat databázi",
+      "unenforcedLists": "{{count}} seznam(ů) zemí se neuplatňuje",
+      "formNote": {
+        "unavailable": "Tento seznam se neuplatní, dokud nebude databáze GeoIP k dispozici.",
+        "wouldRefuseYou": "Podle adresy, kterou právě používáte, by vás tento seznam zablokoval. Uložení je stále povoleno."
+      },
+      "actions": {
+        "reload": "Znovu načíst",
+        "replace": "Nahradit databázi…",
+        "replaceHint": "Nahrajte databázi zemí GeoIP (.mmdb), až do {{max}} MiB.",
+        "useIncluded": "Použít přiloženou kopii",
+        "useIncludedConfirmTitle": "Použít přiloženou kopii?",
+        "useIncludedConfirmBody": "Vaše kopie v datové složce bude odstraněna a Charon použije přiloženou databázi.",
+        "useIncludedConfirmBodyNoBundled": "Vaše kopie v datové složce bude odstraněna. Seznamy zemí se neuplatní, dokud nezadáte databázi."
+      },
+      "result": {
+        "reloaded": "Databáze byla znovu načtena.",
+        "replaced": "Databáze byla nahrazena. Charon nyní používá vaši kopii.",
+        "removed": "Charon znovu používá přiloženou kopii."
+      },
+      "lookup": {
+        "label": "IP adresa",
+        "placeholder": "Například 203.0.113.7",
+        "useMyAddress": "Použít mou adresu",
+        "submit": "Vyhledat",
+        "found": "{{ip}} je v zemi {{country}}.",
+        "notFound": "Pro {{ip}} nebyla nalezena žádná země.",
+        "disabled": "Vyhledávání je k dispozici po načtení databáze.",
+        "invalid": "Zadejte platnou IP adresu.",
+        "notLoaded": "Není načtena žádná databáze, takže adresy nelze vyhledávat.",
+        "myAddressFailed": "Charon nemohl přečíst vaši adresu."
+      },
+      "errors": {
+        "geoip_file_required": "Vyberte soubor databáze k nahrání.",
+        "geoip_too_large": "Tento soubor je větší než 32 MiB.",
+        "geoip_not_mmdb": "Tento soubor není databází GeoIP.",
+        "geoip_corrupt": "Tento soubor databáze je poškozen a nelze jej přečíst.",
+        "geoip_wrong_type": "Toto je databáze GeoIP, ale ne databáze zemí.",
+        "geoip_older_than_current": "Tato databáze je starší než databáze v použití. Nahrajte novější.",
+        "geoip_build_date_in_future": "Tato databáze má datum sestavení v budoucnosti.",
+        "geoip_custom_path_set": "Na serveru je nastavena vlastní cesta k databázi, takže kopii zde nelze změnit.",
+        "geoip_busy": "Probíhá jiná změna databáze. Zkuste to za chvíli znovu.",
+        "geoip_write_failed": "Charon nemohl soubor databáze uložit.",
+        "geoip_reload_failed": "Charon nemohl soubor databáze načíst.",
+        "geoip_no_data_copy": "V datové složce není žádná kopie k odstranění.",
+        "geoip_service_unavailable": "Služba GeoIP neběží.",
+        "proxy_apply_failed": "Charon nemohl použít konfiguraci proxy.",
+        "generic": "Něco se pokazilo. Zkuste to znovu."
       }
     }
   },

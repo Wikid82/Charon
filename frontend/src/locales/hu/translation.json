@@ -391,7 +391,7 @@
       "geoip_unavailable": {
         "title": "Az országlista-alapú hozzáférés nincs érvényesítve",
         "message": "A GeoIP országadatbázis hiányzik vagy nem használható, ezért {{count}} országlista ({{lists}}) minden látogatót átenged, amíg újra elérhetővé nem válik.",
-        "messagePendingApply": "A GeoIP-adatbázis ismét elérhető, de {{count}} országlista ({{lists}}) még nincs érvényesítve. Töltse újra a GeoIP-adatbázist a Biztonság oldalon, vagy indítsa újra a Charont.",
+        "messagePendingApply": "A GeoIP-adatbázis újra elérhető, de {{count}} országlista ({{lists}}) még nem érvényesül. Nyomja meg az Újratöltés gombot az Országadatbázis kártyán.",
         "docsLink": "Hogyan biztosítsa az adatbázist",
         "issueHint": "A Charon általában tartalmazza ezt az adatbázist. Kérjük, nyisson GitHub-hibajelentést (issue), hogy javíthassuk.",
         "issueLink": "Issue megnyitása"
@@ -606,6 +606,79 @@
     "enforcement": {
       "acl": {
         "geoip_unavailable": "Az országlisták nem érvényesülnek: a GeoIP-adatbázis hiányzik ebből a telepítésből. Mindenki elérheti ezeket a gépeket, amíg az adatbázis nincs biztosítva. Lásd a dokumentációt."
+      }
+    },
+    "geoip": {
+      "title": "Országadatbázis (GeoIP)",
+      "description": "Az országalapú hozzáférési listákhoz GeoIP országadatbázis szükséges. A Charon a mellékelt példányt használja, hacsak nem ad meg sajátot.",
+      "loadError": "Az adatbázis állapotát nem sikerült betölteni.",
+      "unknownValue": "Ismeretlen",
+      "status": {
+        "ready": "Kész",
+        "unavailable": "Nem elérhető"
+      },
+      "source": {
+        "label": "Forrás",
+        "bundled": "A Charon része",
+        "data": "Az adatmappa",
+        "custom": "Egyéni útvonal van beállítva a szerveren",
+        "none": "Nincs adatbázis"
+      },
+      "buildDate": "Létrehozás dátuma",
+      "size": "Méret",
+      "path": "Fájl",
+      "releaseNote": "A mellékelt példány minden Charon-kiadással frissül.",
+      "customPathNote": "Az adatbázis útvonalát a szerver állítja be (CHARON_GEOIP_DB_PATH), ezért a példány itt nem cserélhető.",
+      "readOnlyNote": "Az adatmappa csak olvasható, ezért az adatbázis itt nem cserélhető.",
+      "unavailableReason": "Nem elérhető. Az országlisták csak akkor érvényesülnek, ha adatbázis van betöltve.",
+      "docsLink": "Hogyan adjon meg adatbázist",
+      "unenforcedLists": "{{count}} országlista nem érvényesül",
+      "formNote": {
+        "unavailable": "Ez a lista nem érvényesül, amíg a GeoIP-adatbázis nem érhető el.",
+        "wouldRefuseYou": "A jelenleg használt cím alapján ez a lista megtiltaná Önnek a hozzáférést. A mentés továbbra is engedélyezett."
+      },
+      "actions": {
+        "reload": "Újratöltés",
+        "replace": "Adatbázis cseréje…",
+        "replaceHint": "Töltsön fel egy GeoIP országadatbázist (.mmdb), legfeljebb {{max}} MiB méretben.",
+        "useIncluded": "A mellékelt példány használata",
+        "useIncludedConfirmTitle": "Használja a mellékelt példányt?",
+        "useIncludedConfirmBody": "Az adatmappában lévő példánya törlődik, és a Charon a mellékelt adatbázist fogja használni.",
+        "useIncludedConfirmBodyNoBundled": "Az adatmappában lévő példánya törlődik. Az országlisták nem érvényesülnek, amíg nem ad meg adatbázist."
+      },
+      "result": {
+        "reloaded": "Az adatbázis újratöltve.",
+        "replaced": "Az adatbázis lecserélve. A Charon most az Ön példányát használja.",
+        "removed": "A Charon ismét a mellékelt példányt használja."
+      },
+      "lookup": {
+        "label": "IP-cím",
+        "placeholder": "Például 203.0.113.7",
+        "useMyAddress": "Saját címem használata",
+        "submit": "Keresés",
+        "found": "{{ip}} címe: {{country}}.",
+        "notFound": "Nem található ország a következőhöz: {{ip}}.",
+        "disabled": "A keresés az adatbázis betöltése után érhető el.",
+        "invalid": "Adjon meg érvényes IP-címet.",
+        "notLoaded": "Nincs betöltött adatbázis, ezért a címek nem kereshetők.",
+        "myAddressFailed": "A Charon nem tudta beolvasni az Ön címét."
+      },
+      "errors": {
+        "geoip_file_required": "Válasszon feltöltendő adatbázisfájlt.",
+        "geoip_too_large": "A fájl nagyobb 32 MiB-nál.",
+        "geoip_not_mmdb": "A fájl nem GeoIP-adatbázis.",
+        "geoip_corrupt": "Az adatbázisfájl sérült, nem olvasható.",
+        "geoip_wrong_type": "Ez GeoIP-adatbázis, de nem országadatbázis.",
+        "geoip_older_than_current": "Ez az adatbázis régebbi, mint a használatban lévő. Töltsön fel újabbat.",
+        "geoip_build_date_in_future": "Az adatbázis létrehozási dátuma a jövőben van.",
+        "geoip_custom_path_set": "A szerveren egyéni adatbázis-útvonal van beállítva, ezért a példány itt nem módosítható.",
+        "geoip_busy": "Másik adatbázis-módosítás folyamatban van. Próbálja újra kis idő múlva.",
+        "geoip_write_failed": "A Charon nem tudta menteni az adatbázisfájlt.",
+        "geoip_reload_failed": "A Charon nem tudta betölteni az adatbázisfájlt.",
+        "geoip_no_data_copy": "Nincs eltávolítandó példány az adatmappában.",
+        "geoip_service_unavailable": "A GeoIP szolgáltatás nem fut.",
+        "proxy_apply_failed": "A Charon nem tudta alkalmazni a proxy-konfigurációt.",
+        "generic": "Valami hiba történt. Próbálja újra."
       }
     }
   },

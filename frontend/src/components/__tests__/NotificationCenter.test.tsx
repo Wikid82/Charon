@@ -321,7 +321,7 @@ describe('NotificationCenter', () => {
 
       const region = await screen.findByRole('region', { name: 'Needs attention' })
       expect(region).toHaveTextContent(
-        'The GeoIP database is available again, but 2 country list(s) (No RU/CN and Office only) are not enforced yet. Reload the GeoIP database from the Security page or restart Charon.',
+        'The GeoIP database is available again, but 2 country list(s) (No RU/CN and Office only) are not enforced yet. Press Reload on the Country database card.',
       )
       expect(region).not.toHaveTextContent('is missing or unusable')
     })

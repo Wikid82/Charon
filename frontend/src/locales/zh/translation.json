@@ -396,7 +396,7 @@
       "geoip_unavailable": {
         "title": "国家/地区访问列表未生效",
         "message": "GeoIP 国家数据库缺失或不可用，因此 {{count}} 个国家/地区列表（{{lists}}）在数据库恢复可用之前会放行所有访客。",
-        "messagePendingApply": "GeoIP 数据库已恢复可用，但 {{count}} 个国家/地区列表（{{lists}}）尚未生效。请在安全页面重新加载 GeoIP 数据库，或重启 Charon。",
+        "messagePendingApply": "GeoIP 数据库已再次可用，但仍有 {{count}} 个国家列表（{{lists}}）未生效。请在“国家数据库”卡片上点击“重新加载”。",
         "docsLink": "如何提供数据库",
         "issueHint": "Charon 通常会内置此数据库。请在 GitHub 上提交 issue，以便我们修复。",
         "issueLink": "提交 issue"
@@ -631,6 +631,79 @@
       "unknown": "尚未应用到所有主机。请查看此模块的设置页面。",
       "acl": {
         "geoip_unavailable": "国家列表未生效：此安装中缺少 GeoIP 数据库。在提供数据库之前，所有人都可以访问这些主机。请参阅文档。"
+      }
+    },
+    "geoip": {
+      "title": "国家数据库 (GeoIP)",
+      "description": "按国家的访问列表需要 GeoIP 国家数据库。除非你提供自己的数据库，否则 Charon 将使用随附的副本。",
+      "loadError": "无法加载数据库状态。",
+      "unknownValue": "未知",
+      "status": {
+        "ready": "就绪",
+        "unavailable": "不可用"
+      },
+      "source": {
+        "label": "来源",
+        "bundled": "随 Charon 提供",
+        "data": "你的数据文件夹",
+        "custom": "服务器上设置了自定义路径",
+        "none": "没有数据库"
+      },
+      "buildDate": "构建日期",
+      "size": "大小",
+      "path": "文件",
+      "releaseNote": "随附的副本会随每个 Charon 版本更新。",
+      "customPathNote": "数据库路径由服务器设置 (CHARON_GEOIP_DB_PATH)，因此无法在此处替换该副本。",
+      "readOnlyNote": "数据文件夹为只读，因此无法在此处替换数据库。",
+      "unavailableReason": "不可用。加载数据库之前，国家列表不会生效。",
+      "docsLink": "如何提供数据库",
+      "unenforcedLists": "{{count}} 个国家列表未生效",
+      "formNote": {
+        "unavailable": "在 GeoIP 数据库可用之前，此列表不会生效。",
+        "wouldRefuseYou": "根据你当前使用的地址，此列表会阻止你访问。仍然可以保存。"
+      },
+      "actions": {
+        "reload": "重新加载",
+        "replace": "替换数据库…",
+        "replaceHint": "上传 GeoIP 国家数据库 (.mmdb)，最大 {{max}} MiB。",
+        "useIncluded": "使用随附的副本",
+        "useIncludedConfirmTitle": "使用随附的副本？",
+        "useIncludedConfirmBody": "数据文件夹中的副本将被删除，Charon 将使用随附的数据库。",
+        "useIncludedConfirmBodyNoBundled": "数据文件夹中的副本将被删除。在你提供数据库之前，国家列表不会生效。"
+      },
+      "result": {
+        "reloaded": "数据库已重新加载。",
+        "replaced": "数据库已替换。Charon 现在使用你的副本。",
+        "removed": "Charon 已重新使用随附的副本。"
+      },
+      "lookup": {
+        "label": "IP 地址",
+        "placeholder": "例如 203.0.113.7",
+        "useMyAddress": "使用我的地址",
+        "submit": "查询",
+        "found": "{{ip}} 位于 {{country}}。",
+        "notFound": "未找到 {{ip}} 对应的国家。",
+        "disabled": "加载数据库后即可查询。",
+        "invalid": "请输入有效的 IP 地址。",
+        "notLoaded": "未加载数据库，因此无法查询地址。",
+        "myAddressFailed": "Charon 无法读取你的地址。"
+      },
+      "errors": {
+        "geoip_file_required": "请选择要上传的数据库文件。",
+        "geoip_too_large": "该文件超过 32 MiB。",
+        "geoip_not_mmdb": "该文件不是 GeoIP 数据库。",
+        "geoip_corrupt": "该数据库文件已损坏，无法读取。",
+        "geoip_wrong_type": "这是 GeoIP 数据库，但不是国家数据库。",
+        "geoip_older_than_current": "该数据库比当前使用的数据库旧。请上传更新的版本。",
+        "geoip_build_date_in_future": "该数据库的构建日期在未来。",
+        "geoip_custom_path_set": "服务器上设置了自定义数据库路径，因此无法在此处更改副本。",
+        "geoip_busy": "另一项数据库更改正在进行中。请稍后再试。",
+        "geoip_write_failed": "Charon 无法保存数据库文件。",
+        "geoip_reload_failed": "Charon 无法加载数据库文件。",
+        "geoip_no_data_copy": "数据文件夹中没有可删除的副本。",
+        "geoip_service_unavailable": "GeoIP 服务未运行。",
+        "proxy_apply_failed": "Charon 无法应用代理配置。",
+        "generic": "出现错误。请重试。"
       }
     }
   },

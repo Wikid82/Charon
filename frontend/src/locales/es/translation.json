@@ -396,7 +396,7 @@
       "geoip_unavailable": {
         "title": "Las listas de acceso por país no se están aplicando",
         "message": "La base de datos de países GeoIP falta o no se puede usar, así que {{count}} lista(s) de países ({{lists}}) dejan pasar a cualquier visitante hasta que vuelva a estar disponible.",
-        "messagePendingApply": "La base de datos GeoIP vuelve a estar disponible, pero {{count}} lista(s) de países ({{lists}}) aún no se aplican. Recarga la base de datos GeoIP desde la página de Seguridad o reinicia Charon.",
+        "messagePendingApply": "La base de datos de GeoIP está disponible de nuevo, pero {{count}} lista(s) de países ({{lists}}) aún no se aplican. Pulse Recargar en la tarjeta Base de datos de países.",
         "docsLink": "Cómo proporcionar la base de datos",
         "issueHint": "Charon normalmente incluye esta base de datos. Abre un issue en GitHub para que podamos corregirlo.",
         "issueLink": "Abrir un issue"
@@ -631,6 +631,79 @@
       "unknown": "Todavía no se aplica a todos los hosts. Revisa la página de configuración de este módulo.",
       "acl": {
         "geoip_unavailable": "Las listas de países no se aplican: la base de datos GeoIP falta en esta instalación. Todos pueden acceder a esos hosts hasta que se proporcione. Consulta la documentación."
+      }
+    },
+    "geoip": {
+      "title": "Base de datos de países (GeoIP)",
+      "description": "Las listas de acceso por país necesitan una base de datos de países de GeoIP. Charon usa la copia incluida, a menos que proporcione la suya.",
+      "loadError": "No se pudo cargar el estado de la base de datos.",
+      "unknownValue": "Desconocido",
+      "status": {
+        "ready": "Listo",
+        "unavailable": "No disponible"
+      },
+      "source": {
+        "label": "Origen",
+        "bundled": "Incluida con Charon",
+        "data": "Su carpeta de datos",
+        "custom": "Ruta personalizada definida en el servidor",
+        "none": "Sin base de datos"
+      },
+      "buildDate": "Fecha de compilación",
+      "size": "Tamaño",
+      "path": "Archivo",
+      "releaseNote": "La copia incluida se actualiza con cada versión de Charon.",
+      "customPathNote": "La ruta de la base de datos la define el servidor (CHARON_GEOIP_DB_PATH), así que la copia no se puede reemplazar desde aquí.",
+      "readOnlyNote": "La carpeta de datos es de solo lectura, así que la base de datos no se puede reemplazar desde aquí.",
+      "unavailableReason": "No disponible. Las listas de países no se aplican hasta que se cargue una base de datos.",
+      "docsLink": "Cómo proporcionar una base de datos",
+      "unenforcedLists": "{{count}} lista(s) de países no se aplican",
+      "formNote": {
+        "unavailable": "Esta lista no se aplicará hasta que la base de datos de GeoIP esté disponible.",
+        "wouldRefuseYou": "Según la dirección que usa ahora, esta lista le bloquearía el acceso. Aun así se permite guardar."
+      },
+      "actions": {
+        "reload": "Recargar",
+        "replace": "Reemplazar base de datos…",
+        "replaceHint": "Suba una base de datos de países de GeoIP (.mmdb), de hasta {{max}} MiB.",
+        "useIncluded": "Usar la copia incluida",
+        "useIncludedConfirmTitle": "¿Usar la copia incluida?",
+        "useIncludedConfirmBody": "Su copia de la carpeta de datos se eliminará y Charon usará la base de datos incluida.",
+        "useIncludedConfirmBodyNoBundled": "Su copia de la carpeta de datos se eliminará. Las listas de países no se aplicarán hasta que proporcione una base de datos."
+      },
+      "result": {
+        "reloaded": "Base de datos recargada.",
+        "replaced": "Base de datos reemplazada. Charon ahora usa su copia.",
+        "removed": "Charon vuelve a usar la copia incluida."
+      },
+      "lookup": {
+        "label": "Dirección IP",
+        "placeholder": "Por ejemplo 203.0.113.7",
+        "useMyAddress": "Usar mi dirección",
+        "submit": "Buscar",
+        "found": "{{ip}} está en {{country}}.",
+        "notFound": "No se encontró ningún país para {{ip}}.",
+        "disabled": "La búsqueda está disponible cuando se carga una base de datos.",
+        "invalid": "Introduzca una dirección IP válida.",
+        "notLoaded": "No hay ninguna base de datos cargada, así que no se pueden buscar direcciones.",
+        "myAddressFailed": "Charon no pudo leer su dirección."
+      },
+      "errors": {
+        "geoip_file_required": "Elija un archivo de base de datos para subir.",
+        "geoip_too_large": "Ese archivo supera los 32 MiB.",
+        "geoip_not_mmdb": "Ese archivo no es una base de datos de GeoIP.",
+        "geoip_corrupt": "Ese archivo de base de datos está dañado y no se puede leer.",
+        "geoip_wrong_type": "Es una base de datos de GeoIP, pero no de países.",
+        "geoip_older_than_current": "Esa base de datos es más antigua que la que está en uso. Suba una más reciente.",
+        "geoip_build_date_in_future": "Esa base de datos tiene una fecha de compilación en el futuro.",
+        "geoip_custom_path_set": "Hay una ruta de base de datos personalizada en el servidor, así que la copia no se puede cambiar desde aquí.",
+        "geoip_busy": "Hay otro cambio de base de datos en curso. Inténtelo de nuevo en un momento.",
+        "geoip_write_failed": "Charon no pudo guardar el archivo de la base de datos.",
+        "geoip_reload_failed": "Charon no pudo cargar el archivo de la base de datos.",
+        "geoip_no_data_copy": "No hay ninguna copia en la carpeta de datos para eliminar.",
+        "geoip_service_unavailable": "El servicio GeoIP no está en ejecución.",
+        "proxy_apply_failed": "Charon no pudo aplicar la configuración del proxy.",
+        "generic": "Algo salió mal. Inténtelo de nuevo."
       }
     }
   },

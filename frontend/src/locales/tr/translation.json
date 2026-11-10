@@ -391,7 +391,7 @@
       "geoip_unavailable": {
         "title": "Ülke erişim listeleri uygulanmıyor",
         "message": "GeoIP ülke veritabanı eksik veya kullanılamıyor; bu nedenle {{count}} ülke listesi ({{lists}}) veritabanı yeniden kullanılabilir olana kadar tüm ziyaretçilerin geçmesine izin veriyor.",
-        "messagePendingApply": "GeoIP veritabanı yeniden kullanılabilir, ancak {{count}} ülke listesi ({{lists}}) henüz uygulanmıyor. Güvenlik sayfasından GeoIP veritabanını yeniden yükleyin veya Charon’u yeniden başlatın.",
+        "messagePendingApply": "GeoIP veritabanı yeniden kullanılabilir, ancak {{count}} ülke listesi ({{lists}}) henüz uygulanmıyor. Ülke veritabanı kartındaki Yeniden yükle düğmesine basın.",
         "docsLink": "Veritabanı nasıl sağlanır",
         "issueHint": "Charon genellikle bu veritabanını içerir. Düzeltebilmemiz için lütfen GitHub’da bir issue açın.",
         "issueLink": "Issue aç"
@@ -606,6 +606,79 @@
     "enforcement": {
       "acl": {
         "geoip_unavailable": "Ülke listeleri uygulanmıyor: GeoIP veritabanı bu kurulumda eksik. Veritabanı sağlanana kadar herkes bu sunuculara erişebilir. Belgelere bakın."
+      }
+    },
+    "geoip": {
+      "title": "Ülke veritabanı (GeoIP)",
+      "description": "Ülkeye göre erişim listeleri bir GeoIP ülke veritabanı gerektirir. Kendi veritabanınızı sağlamadığınız sürece Charon, birlikte gelen kopyayı kullanır.",
+      "loadError": "Veritabanı durumu yüklenemedi.",
+      "unknownValue": "Bilinmiyor",
+      "status": {
+        "ready": "Hazır",
+        "unavailable": "Kullanılamıyor"
+      },
+      "source": {
+        "label": "Kaynak",
+        "bundled": "Charon ile birlikte gelir",
+        "data": "Veri klasörünüz",
+        "custom": "Sunucuda özel yol ayarlanmış",
+        "none": "Veritabanı yok"
+      },
+      "buildDate": "Derleme tarihi",
+      "size": "Boyut",
+      "path": "Dosya",
+      "releaseNote": "Birlikte gelen kopya her Charon sürümüyle güncellenir.",
+      "customPathNote": "Veritabanı yolu sunucu tarafından ayarlanır (CHARON_GEOIP_DB_PATH), bu nedenle kopya buradan değiştirilemez.",
+      "readOnlyNote": "Veri klasörü salt okunurdur, bu nedenle veritabanı buradan değiştirilemez.",
+      "unavailableReason": "Kullanılamıyor. Bir veritabanı yüklenene kadar ülke listeleri uygulanmaz.",
+      "docsLink": "Veritabanı nasıl sağlanır",
+      "unenforcedLists": "{{count}} ülke listesi uygulanmıyor",
+      "formNote": {
+        "unavailable": "GeoIP veritabanı kullanılabilir olana kadar bu liste uygulanmayacak.",
+        "wouldRefuseYou": "Şu anda kullandığınız adrese göre bu liste sizi engellerdi. Kaydetmeye yine de izin verilir."
+      },
+      "actions": {
+        "reload": "Yeniden yükle",
+        "replace": "Veritabanını değiştir…",
+        "replaceHint": "Bir GeoIP ülke veritabanı (.mmdb) yükleyin, en fazla {{max}} MiB.",
+        "useIncluded": "Birlikte gelen kopyayı kullan",
+        "useIncludedConfirmTitle": "Birlikte gelen kopya kullanılsın mı?",
+        "useIncludedConfirmBody": "Veri klasöründeki kopyanız kaldırılacak ve Charon birlikte gelen veritabanını kullanacak.",
+        "useIncludedConfirmBodyNoBundled": "Veri klasöründeki kopyanız kaldırılacak. Bir veritabanı sağlayana kadar ülke listeleri uygulanmayacak."
+      },
+      "result": {
+        "reloaded": "Veritabanı yeniden yüklendi.",
+        "replaced": "Veritabanı değiştirildi. Charon artık kendi kopyanızı kullanıyor.",
+        "removed": "Charon yeniden birlikte gelen kopyayı kullanıyor."
+      },
+      "lookup": {
+        "label": "IP adresi",
+        "placeholder": "Örneğin 203.0.113.7",
+        "useMyAddress": "Adresimi kullan",
+        "submit": "Sorgula",
+        "found": "{{ip}} adresi {{country}} ülkesinde.",
+        "notFound": "{{ip}} için ülke bulunamadı.",
+        "disabled": "Sorgulama, bir veritabanı yüklendiğinde kullanılabilir.",
+        "invalid": "Geçerli bir IP adresi girin.",
+        "notLoaded": "Hiçbir veritabanı yüklü değil, bu nedenle adresler sorgulanamaz.",
+        "myAddressFailed": "Charon adresinizi okuyamadı."
+      },
+      "errors": {
+        "geoip_file_required": "Yüklemek için bir veritabanı dosyası seçin.",
+        "geoip_too_large": "Dosya 32 MiB'den büyük.",
+        "geoip_not_mmdb": "Bu dosya bir GeoIP veritabanı değil.",
+        "geoip_corrupt": "Bu veritabanı dosyası bozuk ve okunamıyor.",
+        "geoip_wrong_type": "Bu bir GeoIP veritabanı, ancak ülke veritabanı değil.",
+        "geoip_older_than_current": "Bu veritabanı, kullanılandan daha eski. Daha yeni bir tane yükleyin.",
+        "geoip_build_date_in_future": "Bu veritabanının derleme tarihi gelecekte.",
+        "geoip_custom_path_set": "Sunucuda özel bir veritabanı yolu ayarlanmış, bu nedenle kopya buradan değiştirilemez.",
+        "geoip_busy": "Başka bir veritabanı değişikliği sürüyor. Birazdan tekrar deneyin.",
+        "geoip_write_failed": "Charon veritabanı dosyasını kaydedemedi.",
+        "geoip_reload_failed": "Charon veritabanı dosyasını yükleyemedi.",
+        "geoip_no_data_copy": "Kaldırılacak bir kopya veri klasöründe yok.",
+        "geoip_service_unavailable": "GeoIP hizmeti çalışmıyor.",
+        "proxy_apply_failed": "Charon proxy yapılandırmasını uygulayamadı.",
+        "generic": "Bir şeyler ters gitti. Tekrar deneyin."
       }
     }
   },

@@ -391,7 +391,7 @@
       "geoip_unavailable": {
         "title": "Landenlijsten voor toegang worden niet afgedwongen",
         "message": "De GeoIP-landendatabase ontbreekt of is niet bruikbaar, dus {{count}} landenlijst(en) ({{lists}}) laten elke bezoeker door totdat die weer beschikbaar is.",
-        "messagePendingApply": "De GeoIP-database is weer beschikbaar, maar {{count}} landenlijst(en) ({{lists}}) worden nog niet afgedwongen. Laad de GeoIP-database opnieuw via de beveiligingspagina of herstart Charon.",
+        "messagePendingApply": "De GeoIP-database is weer beschikbaar, maar {{count}} landenlijst(en) ({{lists}}) worden nog niet afgedwongen. Druk op Opnieuw laden op de kaart Landendatabase.",
         "docsLink": "Hoe je de database aanlevert",
         "issueHint": "Charon bevat deze database normaal gesproken. Open een GitHub-issue zodat we dit kunnen oplossen.",
         "issueLink": "Een issue openen"
@@ -606,6 +606,79 @@
     "enforcement": {
       "acl": {
         "geoip_unavailable": "Landenlijsten worden niet afgedwongen: de GeoIP-database ontbreekt in deze installatie. Iedereen kan die hosts bereiken totdat deze beschikbaar is. Zie de documentatie."
+      }
+    },
+    "geoip": {
+      "title": "Landendatabase (GeoIP)",
+      "description": "Landentoegangslijsten hebben een GeoIP-landendatabase nodig. Charon gebruikt de meegeleverde kopie, tenzij je er zelf een opgeeft.",
+      "loadError": "De status van de database kon niet worden geladen.",
+      "unknownValue": "Onbekend",
+      "status": {
+        "ready": "Gereed",
+        "unavailable": "Niet beschikbaar"
+      },
+      "source": {
+        "label": "Bron",
+        "bundled": "Meegeleverd met Charon",
+        "data": "Je gegevensmap",
+        "custom": "Aangepast pad ingesteld op de server",
+        "none": "Geen database"
+      },
+      "buildDate": "Builddatum",
+      "size": "Grootte",
+      "path": "Bestand",
+      "releaseNote": "De meegeleverde kopie wordt bij elke Charon-release bijgewerkt.",
+      "customPathNote": "Het databasepad wordt door de server ingesteld (CHARON_GEOIP_DB_PATH), dus de kopie kan hier niet worden vervangen.",
+      "readOnlyNote": "De gegevensmap is alleen-lezen, dus de database kan hier niet worden vervangen.",
+      "unavailableReason": "Niet beschikbaar. Landenlijsten worden pas afgedwongen als er een database is geladen.",
+      "docsLink": "Hoe je een database opgeeft",
+      "unenforcedLists": "{{count}} landenlijst(en) worden niet afgedwongen",
+      "formNote": {
+        "unavailable": "Deze lijst wordt pas afgedwongen als de GeoIP-database beschikbaar is.",
+        "wouldRefuseYou": "Op basis van het adres dat je nu gebruikt, zou deze lijst je blokkeren. Opslaan is nog steeds toegestaan."
+      },
+      "actions": {
+        "reload": "Opnieuw laden",
+        "replace": "Database vervangen…",
+        "replaceHint": "Upload een GeoIP-landendatabase (.mmdb), maximaal {{max}} MiB.",
+        "useIncluded": "De meegeleverde kopie gebruiken",
+        "useIncludedConfirmTitle": "De meegeleverde kopie gebruiken?",
+        "useIncludedConfirmBody": "Je kopie in de gegevensmap wordt verwijderd en Charon gebruikt de meegeleverde database.",
+        "useIncludedConfirmBodyNoBundled": "Je kopie in de gegevensmap wordt verwijderd. Landenlijsten worden niet afgedwongen totdat je een database opgeeft."
+      },
+      "result": {
+        "reloaded": "Database opnieuw geladen.",
+        "replaced": "Database vervangen. Charon gebruikt nu jouw kopie.",
+        "removed": "Charon gebruikt weer de meegeleverde kopie."
+      },
+      "lookup": {
+        "label": "IP-adres",
+        "placeholder": "Bijvoorbeeld 203.0.113.7",
+        "useMyAddress": "Mijn adres gebruiken",
+        "submit": "Opzoeken",
+        "found": "{{ip}} staat in {{country}}.",
+        "notFound": "Geen land gevonden voor {{ip}}.",
+        "disabled": "Opzoeken is beschikbaar zodra een database is geladen.",
+        "invalid": "Voer een geldig IP-adres in.",
+        "notLoaded": "Er is geen database geladen, dus adressen kunnen niet worden opgezocht.",
+        "myAddressFailed": "Charon kon je adres niet lezen."
+      },
+      "errors": {
+        "geoip_file_required": "Kies een databasebestand om te uploaden.",
+        "geoip_too_large": "Dat bestand is groter dan 32 MiB.",
+        "geoip_not_mmdb": "Dat bestand is geen GeoIP-database.",
+        "geoip_corrupt": "Dat databasebestand is beschadigd en kan niet worden gelezen.",
+        "geoip_wrong_type": "Dat is een GeoIP-database, maar geen landendatabase.",
+        "geoip_older_than_current": "Die database is ouder dan de database die in gebruik is. Upload een nieuwere.",
+        "geoip_build_date_in_future": "Die database heeft een builddatum in de toekomst.",
+        "geoip_custom_path_set": "Er is een aangepast databasepad op de server ingesteld, dus de kopie kan hier niet worden gewijzigd.",
+        "geoip_busy": "Er is al een andere databasewijziging bezig. Probeer het zo opnieuw.",
+        "geoip_write_failed": "Charon kon het databasebestand niet opslaan.",
+        "geoip_reload_failed": "Charon kon het databasebestand niet laden.",
+        "geoip_no_data_copy": "Er is geen kopie in de gegevensmap om te verwijderen.",
+        "geoip_service_unavailable": "De GeoIP-service draait niet.",
+        "proxy_apply_failed": "Charon kon de proxyconfiguratie niet toepassen.",
+        "generic": "Er ging iets mis. Probeer het opnieuw."
       }
     }
   },

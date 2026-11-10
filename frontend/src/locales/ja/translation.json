@@ -391,7 +391,7 @@
       "geoip_unavailable": {
         "title": "国別アクセスリストが適用されていません",
         "message": "GeoIP国データベースが見つからないか使用できないため、{{count}} 件の国別リスト({{lists}})は、利用可能になるまですべての訪問者を通過させています。",
-        "messagePendingApply": "GeoIP データベースは再び利用可能ですが、{{count}} 件の国別リスト({{lists}})はまだ適用されていません。セキュリティページで GeoIP データベースを再読み込みするか、Charon を再起動してください。",
+        "messagePendingApply": "GeoIP データベースが再び利用可能になりましたが、適用されていない国のリストが {{count}} 件 ({{lists}}) あります。国データベースのカードで「再読み込み」を押してください。",
         "docsLink": "データベースの用意方法",
         "issueHint": "Charon には通常このデータベースが含まれています。修正できるよう GitHub で issue を作成してください。",
         "issueLink": "issue を作成"
@@ -606,6 +606,79 @@
     "enforcement": {
       "acl": {
         "geoip_unavailable": "国別リストは適用されていません: このインストールには GeoIP データベースが含まれていません。提供されるまで、すべてのユーザーがこれらのホストにアクセスできます。ドキュメントを参照してください。"
+      }
+    },
+    "geoip": {
+      "title": "国のデータベース (GeoIP)",
+      "description": "国別のアクセスリストには GeoIP の国データベースが必要です。独自のデータベースを指定しない限り、Charon は同梱のコピーを使用します。",
+      "loadError": "データベースの状態を読み込めませんでした。",
+      "unknownValue": "不明",
+      "status": {
+        "ready": "準備完了",
+        "unavailable": "利用不可"
+      },
+      "source": {
+        "label": "ソース",
+        "bundled": "Charon に同梱",
+        "data": "データフォルダー",
+        "custom": "サーバーでカスタムパスが設定されています",
+        "none": "データベースなし"
+      },
+      "buildDate": "ビルド日",
+      "size": "サイズ",
+      "path": "ファイル",
+      "releaseNote": "同梱のコピーは Charon の各リリースで更新されます。",
+      "customPathNote": "データベースのパスはサーバー (CHARON_GEOIP_DB_PATH) で設定されているため、ここではコピーを置き換えられません。",
+      "readOnlyNote": "データフォルダーは読み取り専用のため、ここではデータベースを置き換えられません。",
+      "unavailableReason": "利用不可。データベースが読み込まれるまで、国のリストは適用されません。",
+      "docsLink": "データベースの指定方法",
+      "unenforcedLists": "適用されていない国のリスト: {{count}} 件",
+      "formNote": {
+        "unavailable": "GeoIP データベースが利用可能になるまで、このリストは適用されません。",
+        "wouldRefuseYou": "現在お使いのアドレスに基づくと、このリストではアクセスがブロックされます。保存は引き続き可能です。"
+      },
+      "actions": {
+        "reload": "再読み込み",
+        "replace": "データベースを置き換え…",
+        "replaceHint": "GeoIP の国データベース (.mmdb) をアップロードします。上限は {{max}} MiB です。",
+        "useIncluded": "同梱のコピーを使用",
+        "useIncludedConfirmTitle": "同梱のコピーを使用しますか？",
+        "useIncludedConfirmBody": "データフォルダー内のコピーは削除され、Charon は同梱のデータベースを使用します。",
+        "useIncludedConfirmBodyNoBundled": "データフォルダー内のコピーは削除されます。データベースを指定するまで、国のリストは適用されません。"
+      },
+      "result": {
+        "reloaded": "データベースを再読み込みしました。",
+        "replaced": "データベースを置き換えました。Charon はアップロードしたコピーを使用しています。",
+        "removed": "Charon は再び同梱のコピーを使用しています。"
+      },
+      "lookup": {
+        "label": "IP アドレス",
+        "placeholder": "例 203.0.113.7",
+        "useMyAddress": "自分のアドレスを使用",
+        "submit": "検索",
+        "found": "{{ip}} は {{country}} にあります。",
+        "notFound": "{{ip}} に対応する国が見つかりません。",
+        "disabled": "データベースが読み込まれると検索できます。",
+        "invalid": "有効な IP アドレスを入力してください。",
+        "notLoaded": "データベースが読み込まれていないため、アドレスを検索できません。",
+        "myAddressFailed": "Charon はお使いのアドレスを読み取れませんでした。"
+      },
+      "errors": {
+        "geoip_file_required": "アップロードするデータベースファイルを選択してください。",
+        "geoip_too_large": "ファイルのサイズが 32 MiB を超えています。",
+        "geoip_not_mmdb": "このファイルは GeoIP データベースではありません。",
+        "geoip_corrupt": "このデータベースファイルは破損しており、読み込めません。",
+        "geoip_wrong_type": "GeoIP データベースですが、国のデータベースではありません。",
+        "geoip_older_than_current": "このデータベースは、使用中のものより古いです。新しいものをアップロードしてください。",
+        "geoip_build_date_in_future": "このデータベースのビルド日が未来になっています。",
+        "geoip_custom_path_set": "サーバーでカスタムのデータベースパスが設定されているため、ここではコピーを変更できません。",
+        "geoip_busy": "別のデータベース変更が進行中です。しばらくしてから再試行してください。",
+        "geoip_write_failed": "Charon はデータベースファイルを保存できませんでした。",
+        "geoip_reload_failed": "Charon はデータベースファイルを読み込めませんでした。",
+        "geoip_no_data_copy": "削除するコピーがデータフォルダーにありません。",
+        "geoip_service_unavailable": "GeoIP サービスが実行されていません。",
+        "proxy_apply_failed": "Charon はプロキシ設定を適用できませんでした。",
+        "generic": "問題が発生しました。もう一度お試しください。"
       }
     }
   },
