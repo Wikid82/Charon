@@ -186,11 +186,11 @@ test.describe('GeoIP unenforced alert', () => {
 
       await expect(alerts.getByRole('link', { name: DOCS_LINK_NAME })).toHaveAttribute(
         'href',
-        /\/troubleshooting\/geoip-database/
+        /^https?:\/\/[^/]+\/(?:.+\/)?troubleshooting\/geoip-database\/?$/
       );
       await expect(alerts.getByRole('link', { name: ISSUE_LINK_NAME })).toHaveAttribute(
         'href',
-        /github\.com\/.+\/issues/
+        /^https:\/\/github\.com\/Wikid82\/Charon\/issues\/new\?template=bug_report\.md$/
       );
       await expect(alerts.getByRole('button', { name: DISMISS_NAME })).toHaveCount(0);
     });
