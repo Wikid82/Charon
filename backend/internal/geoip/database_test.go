@@ -40,4 +40,5 @@ func TestDatabaseAvailable(t *testing.T) {
 
 func TestMissingMarkerPath(t *testing.T) {
 	assert.Equal(t, "/app/data/geoip/.missing", MissingMarkerPath("/app/data/geoip/GeoLite2-Country.mmdb"))
+	assert.Equal(t, "/app/geoip/.missing", MissingMarkerPath(filepath.Join(BundledDatabaseDir, DatabaseFileName)))
 }

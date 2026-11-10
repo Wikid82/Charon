@@ -25,6 +25,9 @@ type GeoIPService struct {
 	mu     sync.RWMutex
 	db     geoIPCountryReader
 	dbPath string
+	// resolve, when set, supplies the database path at each Load, so a reload finds a file placed at a location that
+	// was not in use at startup. It is fixed at construction and never changes.
+	resolve func() string
 }
 
 type geoIPCountryReader interface {
@@ -39,6 +42,12 @@ func NewUnloadedGeoIPService(dbPath string) *GeoIPService {
 	return &GeoIPService{dbPath: dbPath}
 }
 
+// NewResolvingGeoIPService returns an unloaded service whose database path comes from resolve. resolve runs once here
+// to set the reported path and again at every Load, so a reload picks up a database placed after startup.
+func NewResolvingGeoIPService(resolve func() string) *GeoIPService {
+	return &GeoIPService{dbPath: resolve(), resolve: resolve}
+}
+
 // NewGeoIPService creates a new GeoIPService and loads the database.
 // Returns an error if the database cannot be loaded.
 func NewGeoIPService(dbPath string) (*GeoIPService, error) {
@@ -49,13 +58,15 @@ func NewGeoIPService(dbPath string) (*GeoIPService, error) {
 	return svc, nil
 }
 
-// Load opens or reloads the GeoIP database.
-// The new file is opened before the current one is replaced, so a failed reload keeps the database already in use.
+// Load opens or reloads the GeoIP database. When a resolver is set, the path is resolved first.
+// The new file is opened before the current one is replaced, so a failed reload keeps the database already in use,
+// and the reported path changes only with a successful load.
 // This method is thread-safe and can be called to hot-reload the database.
 func (s *GeoIPService) Load() error {
-	db, err := geoip2.Open(s.dbPath)
+	path := s.pathToLoad()
+	db, err := geoip2.Open(path)
 	if err != nil {
-		return fmt.Errorf("open geoip database %s: %w", s.dbPath, err)
+		return fmt.Errorf("open geoip database %s: %w", path, err)
 	}
 
 	s.mu.Lock()
@@ -65,7 +76,16 @@ func (s *GeoIPService) Load() error {
 		_ = s.db.Close()
 	}
 	s.db = db
+	s.dbPath = path
 	return nil
+}
+
+// pathToLoad returns the database path Load opens: the resolver's answer when one is set, else the stored path.
+func (s *GeoIPService) pathToLoad() string {
+	if s.resolve != nil {
+		return s.resolve()
+	}
+	return s.GetDatabasePath()
 }
 
 // Close releases the database resources.

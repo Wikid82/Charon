@@ -1038,11 +1038,12 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # In CI, timeout quickly rather than retrying to save build time
 # The download is checked against GEOLITE2_COUNTRY_SHA256; a mismatch only prints a warning because the upstream copy
 # changes between hash updates. A failed or empty download prints a warning and writes the marker
-# /app/data/geoip/.missing so the runtime can report it. The build does not fail: the image then ships without a
-# database and country access lists refuse requests.
+# /app/geoip/.missing so the runtime can report it. The database lives in /app/geoip, outside the data volume, so a
+# volume mounted over /app/data does not hide it. Operators can place a newer copy in /app/data/geoip, which takes
+# precedence. The build does not fail: the image then ships without a database and country access lists refuse requests.
 ARG GEOLITE2_COUNTRY_SHA256=2c2d05c474baeb669298cce912a6236b5ecc4e50f0316a93e01ba5cf22183600
-RUN mkdir -p /app/data/geoip && \
-    db=/app/data/geoip/GeoLite2-Country.mmdb && \
+RUN mkdir -p /app/geoip && \
+    db=/app/geoip/GeoLite2-Country.mmdb && \
     if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
         echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
         wget_opts="-T 10"; \
@@ -1059,11 +1060,11 @@ RUN mkdir -p /app/data/geoip && \
         fi; \
     else \
         echo "WARNING: GeoLite2-Country database not bundled (download failed or empty)." >&2; \
-        echo "WARNING: The image has no GeoIP database. Country access lists will refuse requests until one is provided at CHARON_GEOIP_DB_PATH." >&2; \
+        echo "WARNING: The image has no GeoIP database. Country access lists will refuse requests until one is provided in /app/data/geoip or at CHARON_GEOIP_DB_PATH." >&2; \
         rm -f "$db"; \
-        touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder /app/data/geoip/.missing; \
+        touch /app/geoip/GeoLite2-Country.mmdb.placeholder /app/geoip/.missing; \
     fi && \
-    chown -R charon:charon /app/data
+    chown -R charon:charon /app/geoip
 
 # Copy Caddy binary from caddy-builder (overwriting the one from base image)
 COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
@@ -1186,7 +1187,6 @@ ENV CHARON_ENV=production \
     CHARON_DB_PATH=/app/data/charon.db \
     CHARON_FRONTEND_DIR=/app/frontend/dist \
     CHARON_CADDY_CONFIG_DIR=/app/data/caddy \
-    CHARON_GEOIP_DB_PATH=/app/data/geoip/GeoLite2-Country.mmdb \
     CHARON_HTTP_PORT=8080 \
     CHARON_CROWDSEC_CONFIG_DIR=/app/data/crowdsec \
     CHARON_PLUGINS_DIR=/app/plugins
@@ -1204,7 +1204,8 @@ RUN mkdir -p /app/plugins && chmod 755 /app/plugins
 # them in a second layer on every release. Only the small, root-created dirs need it.
 # Note: /etc/crowdsec will be created as a symlink at runtime, not owned directly
 # Note: /app/plugins has 755 permissions (NOT world-writable) for security
-RUN chown -R charon:charon /app/data/caddy /app/data/crowdsec /app/plugins /app/frontend /config /var/log/crowdsec /var/log/caddy && \
+RUN chown charon:charon /app/data && \
+    chown -R charon:charon /app/data/caddy /app/data/crowdsec /app/plugins /app/frontend /config /var/log/crowdsec /var/log/caddy && \
     chown -R charon:charon /etc/crowdsec.dist 2>/dev/null || true && \
     chown -R charon:charon /var/lib/crowdsec 2>/dev/null || true
 
