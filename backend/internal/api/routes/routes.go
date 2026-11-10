@@ -1097,6 +1097,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management.PUT("/access-lists/:id", middleware.RequireRole(models.RoleAdmin), accessListHandler.Update)
 		management.DELETE("/access-lists/:id", middleware.RequireRole(models.RoleAdmin), accessListHandler.Delete)
 		management.POST("/access-lists/:id/test", accessListHandler.TestIP)
+		management.POST("/access-lists/self-check", middleware.RequireRole(models.RoleAdmin), accessListHandler.SelfCheck)
 
 		// Security Headers. Reads + the three pure calculator POSTs (they do
 		// not persist) stay on management so the role=user-reachable
