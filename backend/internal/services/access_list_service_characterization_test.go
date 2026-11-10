@@ -195,6 +195,23 @@ func TestAccessListServiceTestIPCharacterization(t *testing.T) {
 		assert.Contains(t, reason, "No country found")
 	})
 
+	t.Run("geo list with a lookup error other than not found allows", func(t *testing.T) {
+		geo := &GeoIPService{dbPath: "/fixture/country.mmdb", db: &fakeGeoIPReader{err: errors.New("reader failed")}}
+		for _, listType := range []string{"geo_whitelist", "geo_blacklist"} {
+			svc := characterizationService(t, geo)
+			id := insertCharacterizationACL(t, svc.db, &models.AccessList{
+				Type:         listType,
+				CountryCodes: "DE",
+				Enabled:      true,
+			})
+
+			allowed, reason, err := svc.TestIP(id, "203.0.113.9")
+			assert.NoError(t, err, listType)
+			assert.True(t, allowed, listType)
+			assert.Contains(t, reason, "lookup error", listType)
+		}
+	})
+
 	t.Run("IP allow-list matches and misses", func(t *testing.T) {
 		svc := characterizationService(t, nil)
 		id := insertCharacterizationACL(t, svc.db, &models.AccessList{

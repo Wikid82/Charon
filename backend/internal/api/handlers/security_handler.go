@@ -703,7 +703,7 @@ func (h *SecurityHandler) GetRateLimitPresets(c *gin.Context) {
 // GetGeoIPStatus returns the current status of the GeoIP service.
 // The reason is present only when the database is unavailable, so the card can show why country lists cannot match.
 func (h *SecurityHandler) GetGeoIPStatus(c *gin.Context) {
-	available := geoipDatabaseAvailable(h.geoipSvc)
+	available := h.geoipSvc.Available()
 	body := gin.H{
 		"available": available,
 		"loaded":    false,

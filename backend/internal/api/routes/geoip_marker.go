@@ -36,6 +36,6 @@ func geoIPProxyState(svc *services.GeoIPService) func() (string, bool) {
 			return "", false
 		}
 		path := svc.GetDatabasePath()
-		return path, geoip.DatabaseAvailable(path, svc.IsLoaded())
+		return path, svc.Available()
 	}
 }
