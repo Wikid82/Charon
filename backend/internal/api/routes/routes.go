@@ -943,6 +943,12 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 		// caddyManager is already created early in Register() for use by settingsHandler
 
+		// An upload or removal interrupted by a crash leaves temp or previous files in the data folder. They are cleared
+		// before the database path is resolved, so the resolver sees the state the last completed change left.
+		if err := services.SweepGeoIPDataFolder(geoip.DataDatabasePath()); err != nil {
+			logger.Log().WithError(err).Warn("Could not clean up the GeoIP data folder after an interrupted change")
+		}
+
 		// The GeoIP service always exists, even without a database file, so a database added later is loaded by
 		// POST /security/geoip/reload and every consumer (including the proxy state) sees the same live service.
 		geoipSvc := initGeoIPAtStartup(geoip.ResolveDatabasePath)
@@ -979,6 +985,9 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		securityAdmin.DELETE("/rulesets/:id", securityHandler.DeleteRuleSet)
 		securityAdmin.POST("/geoip/reload", securityHandler.ReloadGeoIP)
 		securityAdmin.POST("/geoip/lookup", securityHandler.LookupGeoIP)
+		// Cookie sessions reach these two routes only from the same origin; see middleware.RequireSameOriginForBrowserAuth.
+		securityAdmin.POST("/geoip/database", middleware.RequireSameOriginForBrowserAuth(), securityHandler.ReplaceGeoIPDatabase)
+		securityAdmin.DELETE("/geoip/database", middleware.RequireSameOriginForBrowserAuth(), securityHandler.RemoveGeoIPDatabase)
 		securityAdmin.POST("/waf/exclusions", securityHandler.AddWAFExclusion)
 		securityAdmin.DELETE("/waf/exclusions/:rule_id", securityHandler.DeleteWAFExclusion)
 

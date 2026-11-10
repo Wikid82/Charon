@@ -71,6 +71,12 @@ type GeoIPDatabaseStore struct {
 	envInEffect func() bool
 	// writable reports whether the folder accepts writes. It is writableFolder; tests replace it.
 	writable func(dir string) bool
+	// loadFile opens the data-folder copy after an upload is installed. It is svc.LoadFrom; tests replace it.
+	loadFile func(path string) error
+	// maxBytes is the largest upload accepted. It is MaxGeoIPDatabaseBytes; tests lower it.
+	maxBytes int64
+	// now supplies the clock for the build-date checks. Tests set it.
+	now func() time.Time
 
 	mu sync.Mutex
 
@@ -102,6 +108,9 @@ func NewGeoIPDatabaseStore(cfg GeoIPDatabaseStoreConfig) *GeoIPDatabaseStore {
 		bundledPath: cfg.BundledPath,
 		envInEffect: envInEffect,
 		writable:    writableFolder,
+		loadFile:    cfg.Service.LoadFrom,
+		maxBytes:    MaxGeoIPDatabaseBytes,
+		now:         time.Now,
 	}
 }
 
