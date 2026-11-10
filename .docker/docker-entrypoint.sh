@@ -175,6 +175,7 @@ fi
 # Create required subdirectories in writable volumes
 mkdir -p /app/data/caddy 2>/dev/null || true
 mkdir -p /app/data/crowdsec 2>/dev/null || true
+# Operators can place a GeoLite2-Country.mmdb here to override the database bundled in /app/geoip.
 mkdir -p /app/data/geoip 2>/dev/null || true
 
 # Fix ownership for the data volume and required subdirectories when running as root.

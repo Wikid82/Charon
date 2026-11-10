@@ -62,10 +62,10 @@ Common configurations:
 - **Block high-risk regions** — Deny specific countries, allow rest
 - **Compliance zones** — Allow only EU countries for GDPR compliance
 
-**Country lists need a GeoIP database.** Charon uses a MaxMind country database to find where each visitor is from. The Docker image tries to include it, but the download can fail. If the database is missing, country lists refuse every request until one is provided:
+**Country lists need a GeoIP database.** Charon uses a MaxMind country database to find where each visitor is from. The Docker image tries to include it, but the download can fail. If the database is missing, country lists refuse every request until one is provided. To use a newer copy:
 
-1. Get the MaxMind GeoLite2-Country database file (it ends in `.mmdb`).
-2. Make the file available to Charon and set the `CHARON_GEOIP_DB_PATH` environment variable to its full path. Your Docker Compose file sets environment variables.
+1. Get the MaxMind GeoLite2-Country database file (it ends in `.mmdb`) and name it `GeoLite2-Country.mmdb`.
+2. Put it in the `geoip` folder inside your data folder. In the container that is `/app/data/geoip/`, so on the host it is the `geoip` folder inside the directory you mount as `/app/data`. When the image also has a copy, Charon uses whichever has the newer MaxMind build date. Alternatively, set the `CHARON_GEOIP_DB_PATH` environment variable to its full path, which takes precedence over both locations.
 3. Restart Charon, or send `POST /api/v1/security/geoip/reload`. Charon then applies your country lists again.
 
 The Security page shows a note while the database is missing. Your IP lists and your other sites keep working.

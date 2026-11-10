@@ -40,4 +40,22 @@ func TestDatabaseAvailable(t *testing.T) {
 
 func TestMissingMarkerPath(t *testing.T) {
 	assert.Equal(t, "/app/data/geoip/.missing", MissingMarkerPath("/app/data/geoip/GeoLite2-Country.mmdb"))
+	assert.Equal(t, "/app/geoip/.missing", MissingMarkerPath(filepath.Join(BundledDatabaseDir, DatabaseFileName)))
+}
+
+func TestReportResolutionNotes(t *testing.T) {
+	cases := []struct {
+		name       string
+		resolution resolution
+	}{
+		{name: "no notes", resolution: resolution{path: DataDatabasePath()}},
+		{name: "former default ignored", resolution: resolution{path: BundledDatabasePath(), ignoredFormerDefault: true}},
+		{name: "data copy unreadable", resolution: resolution{path: BundledDatabasePath(), skippedUnreadable: DataDatabasePath()}},
+		{name: "both notes", resolution: resolution{path: BundledDatabasePath(), ignoredFormerDefault: true, skippedUnreadable: DataDatabasePath()}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.NotPanics(t, func() { reportResolution(tc.resolution) })
+		})
+	}
 }

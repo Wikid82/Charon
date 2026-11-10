@@ -22,6 +22,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/dbmaint"
+	"github.com/Wikid82/charon/backend/internal/geoip"
 	"github.com/Wikid82/charon/backend/internal/hecate"
 	cfprovider "github.com/Wikid82/charon/backend/internal/hecate/providers/cloudflare"
 	nbprovider "github.com/Wikid82/charon/backend/internal/hecate/providers/netbird"
@@ -938,18 +939,10 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 		// caddyManager is already created early in Register() for use by settingsHandler
 
-		// Initialize GeoIP service if database exists
-		geoipPath := os.Getenv("CHARON_GEOIP_DB_PATH")
-		if geoipPath == "" {
-			geoipPath = "/app/data/geoip/GeoLite2-Country.mmdb"
-		}
-
-		// The service always exists, even without a database file, so a database added later is loaded by
+		// The GeoIP service always exists, even without a database file, so a database added later is loaded by
 		// POST /security/geoip/reload and every consumer (including the proxy state) sees the same live service.
-		geoipSvc := services.NewUnloadedGeoIPService(geoipPath)
-		loadGeoIPAtStartup(geoipSvc, geoipPath)
-		reportGeoIPBuildMarker(geoipPath, geoipSvc.IsLoaded())
-		caddyManager.SetGeoIPState(geoIPProxyState(geoipPath, geoipSvc))
+		geoipSvc := initGeoIPAtStartup(geoip.ResolveDatabasePath)
+		caddyManager.SetGeoIPState(geoIPProxyState(geoipSvc))
 
 		// Security Status
 		securityHandler := handlers.NewSecurityHandlerWithDeps(cfg.Security, db, caddyManager, cerb).WithCrowdsecLifecycle(crowdsecHandler)

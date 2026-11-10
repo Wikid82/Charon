@@ -1330,7 +1330,7 @@ Charon uses two types of storage:
    - **Caddy Certificates**: `/app/data/caddy/` - TLS certificates from Let's Encrypt, ZeroSSL, or custom CAs
    - **Import Directory**: `/app/data/imports/` - Uploaded Caddyfile configurations
    - **CrowdSec Data**: `/app/data/crowdsec/` - CrowdSec configuration, database, and hub cache
-   - **GeoIP Database**: `/app/data/geoip/GeoLite2-Country.mmdb` - Pre-populated at build time (read-only at runtime)
+   - **GeoIP Database**: `/app/geoip/GeoLite2-Country.mmdb` - Bundled at build time, outside the data volume (read-only at runtime). A copy placed in `/app/data/geoip/GeoLite2-Country.mmdb` is used when its MaxMind build date is newer (or equal); otherwise the bundled copy is used.
 
 2. **Ephemeral Data** (tmpfs mounts) - Temporary data that doesn't need persistence:
    - **Caddy Logs**: `/var/log/caddy/` - Access logs monitored by CrowdSec
