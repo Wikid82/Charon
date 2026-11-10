@@ -49,7 +49,7 @@ tf_write_dockerfile() {
 
   cat > "$TF_DF" <<EOF
 # syntax=docker/dockerfile:1
-ARG GOLANG_IMAGE=golang:1.27.3-alpine@${golang_digest}
+ARG GOLANG_IMAGE=golang:1.27.4-alpine@${golang_digest}
 ARG ALPINE_IMAGE=${alpine_image}
 ARG CROWDSEC_VERSION=1.8.1
 ARG EXPR_LANG_VERSION=1.17.8
