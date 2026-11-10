@@ -146,26 +146,36 @@ test.describe('ACL Enforcement', () => {
   });
 
   test('should test IP against access list', async () => {
-    // First, get the list of access lists
-    const listResponse = await requestContext.get('/api/v1/access-lists');
-    expect(listResponse.ok()).toBe(true);
+    // The test creates its own block-list over a documentation range, so the decisions below do not depend on
+    // whatever lists other specs left behind. Neither address is in the admin whitelist.
+    const LISTED_ADDRESS = '203.0.113.10';
+    const UNLISTED_ADDRESS = '198.51.100.10';
+    const listUuid = await createIpBlockList(requestContext, `Tester block-list ${Date.now()}`, '203.0.113.0/24');
 
-    const lists = await listResponse.json();
+    try {
+      await test.step('Address inside the blocked range is refused by the tester', async () => {
+        const response = await requestContext.post(`/api/v1/access-lists/${listUuid}/test`, {
+          data: { ip_address: LISTED_ADDRESS },
+        });
+        expect(response.ok()).toBe(true);
+        expect(await response.json()).toEqual({
+          allowed: false,
+          reason: 'Blocked by blacklist rule',
+        });
+      });
 
-    // If there are any access lists, test an IP against the first one
-    if (lists.length > 0) {
-      const testIp = '192.168.1.1';
-      const testResponse = await requestContext.post(
-        `/api/v1/access-lists/${lists[0].uuid}/test`,
-        { data: { ip_address: testIp } }
-      );
-      expect(testResponse.ok()).toBe(true);
-
-      const result = await testResponse.json();
-      expect(typeof result.allowed).toBe('boolean');
-    } else {
-      // No access lists exist - this is valid, just log it
-      console.log('No access lists exist to test against');
+      await test.step('Address outside the blocked range is allowed by the tester', async () => {
+        const response = await requestContext.post(`/api/v1/access-lists/${listUuid}/test`, {
+          data: { ip_address: UNLISTED_ADDRESS },
+        });
+        expect(response.ok()).toBe(true);
+        expect(await response.json()).toEqual({
+          allowed: true,
+          reason: 'Allowed by access list',
+        });
+      });
+    } finally {
+      await deleteAccessList(requestContext, listUuid);
     }
   });
 
