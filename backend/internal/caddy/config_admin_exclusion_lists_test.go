@@ -172,7 +172,7 @@ func TestUnavailableDatabaseDenyAdminExclusion(t *testing.T) {
 	}
 
 	t.Run("handler exempts admin addresses", func(t *testing.T) {
-		assertHandlerRefusals(t, geoUnavailableDenyHandler(parseAdminWhitelist("10.0.0.0/8")), []refusalCase{
+		assertHandlerRefusals(t, geoUnavailableDenyHandler(network.SplitAddressList("10.0.0.0/8")), []refusalCase{
 			{addr: "198.51.100.7", refused: true},
 			{addr: "10.1.1.1"},
 		})

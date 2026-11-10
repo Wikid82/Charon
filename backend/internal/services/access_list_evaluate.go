@@ -98,13 +98,7 @@ func (s *AccessListService) AdminWhitelistRanges() []string {
 		}
 		return nil
 	}
-	var ranges []string
-	for _, entry := range strings.Split(cfg.AdminWhitelist, ",") {
-		if entry = strings.TrimSpace(entry); entry != "" {
-			ranges = append(ranges, entry)
-		}
-	}
-	return ranges
+	return network.SplitAddressList(cfg.AdminWhitelist)
 }
 
 // countryAvailable reports whether country lookups can be served now. A service without a lookup has none.

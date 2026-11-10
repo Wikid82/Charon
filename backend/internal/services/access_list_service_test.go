@@ -826,3 +826,11 @@ func TestAccessListService_ValidateACLRules(t *testing.T) {
 		assert.ErrorIs(t, err, ErrInvalidIPAddress)
 	})
 }
+
+func TestTestIPRefusesZonedAddress(t *testing.T) {
+	svc := characterizationService(t, nil)
+	id := insertCharacterizationACL(t, svc.db, &models.AccessList{Type: "whitelist", Enabled: true})
+
+	_, _, err := svc.TestIP(id, "fe80::1%eth0")
+	assert.ErrorIs(t, err, ErrInvalidIPAddress)
+}

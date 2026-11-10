@@ -199,12 +199,9 @@ func (s *AccessListService) TestIP(aclID uint, ipAddress string) (allowed bool, 
 		return true, "Access list is disabled - all traffic allowed", nil
 	}
 
-	ip := net.ParseIP(ipAddress)
-	if ip == nil {
-		return false, "", ErrInvalidIPAddress
-	}
-	addr, ok := netip.AddrFromSlice(ip)
-	if !ok {
+	// A zoned address (for example "fe80::1%eth0") is refused, as net.ParseIP refused it before.
+	addr, err := netip.ParseAddr(ipAddress)
+	if err != nil || addr.Zone() != "" {
 		return false, "", ErrInvalidIPAddress
 	}
 	addr = addr.Unmap()

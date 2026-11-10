@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // fakeTB records a fatal failure instead of stopping the test. Fatalf ends the goroutine it runs on (as testing.T
@@ -421,4 +423,59 @@ func TestHandlerRefusesFailsOnUnknownHandler(t *testing.T) {
 	if !strings.Contains(msg, "handler \"rewrite\"") {
 		t.Fatalf("unexpected fatal message %q", msg)
 	}
+}
+
+// TestHelperGuardsFailOnMalformedInput checks that each helper stops the test on input it cannot model and accepts
+// the shapes Caddy emits.
+func TestHelperGuardsFailOnMalformedInput(t *testing.T) {
+	const wantFatal = "caddymatchtest"
+	fatalCases := map[string]func(tb testing.TB){
+		"isHostCatchAll: match item is not an object": func(tb testing.TB) {
+			isHostCatchAll(tb, map[string]any{"match": []any{"bad"}}, "app.example.com")
+		},
+		"isHostCatchAll: host list is not an array": func(tb testing.TB) {
+			isHostCatchAll(tb, map[string]any{"match": []any{map[string]any{"host": "app.example.com"}}}, "app.example.com")
+		},
+		"parsePrefix: non-string range": func(tb testing.TB) {
+			parsePrefix(tb, 42)
+		},
+		"parsePrefix: malformed CIDR": func(tb testing.TB) {
+			parsePrefix(tb, "192.0.2.0/99")
+		},
+		"parsePrefix: malformed bare address": func(tb testing.TB) {
+			parsePrefix(tb, "not-an-address")
+		},
+		"statusCode: missing status": func(tb testing.TB) {
+			statusCode(tb, map[string]any{})
+		},
+		"decodeJSON: invalid JSON": func(tb testing.TB) {
+			decodeJSON(tb, []byte("{"))
+		},
+		"asMap: not an object": func(tb testing.TB) {
+			asMap(tb, []any{}, "value")
+		},
+		"listOf: not an array": func(tb testing.TB) {
+			listOf(tb, "text", "value")
+		},
+	}
+	for name, fn := range fatalCases {
+		t.Run(name, func(t *testing.T) {
+			msg := expectFatal(t, fn)
+			assert.Contains(t, msg, wantFatal)
+		})
+	}
+
+	t.Run("accepts well-formed shapes", func(t *testing.T) {
+		assert.True(t, isHostCatchAll(t, map[string]any{"match": []any{map[string]any{"host": []any{"app.example.com"}}}}, "app.example.com"))
+		assert.False(t, isHostCatchAll(t, map[string]any{"match": []any{map[string]any{"host": []any{42}}}}, "app.example.com"))
+		assert.False(t, isHostCatchAll(t, map[string]any{"match": []any{map[string]any{"host": []any{"app.example.com"}}, map[string]any{}}}, "app.example.com"))
+		assert.False(t, isHostCatchAll(t, map[string]any{"match": []any{map[string]any{"host": []any{"app.example.com"}, "path": []any{"/x"}}}}, "app.example.com"))
+		assert.Equal(t, netip.MustParsePrefix("192.0.2.0/24"), parsePrefix(t, "192.0.2.0/24"))
+		assert.Equal(t, netip.MustParsePrefix("192.0.2.1/32"), parsePrefix(t, "192.0.2.1"))
+		assert.Equal(t, float64(403), statusCode(t, map[string]any{"status_code": float64(403)}))
+		assert.Equal(t, map[string]any{"a": "b"}, decodeJSON(t, []byte(`{"a":"b"}`)))
+		assert.Equal(t, map[string]any{}, asMap(t, map[string]any{}, "value"))
+		assert.Nil(t, listOf(t, nil, "value"))
+		assert.Equal(t, []any{"x"}, listOf(t, []any{"x"}, "value"))
+	})
 }

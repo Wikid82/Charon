@@ -438,7 +438,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	routes := make([]*Route, 0)
 	// Track IP-only hostnames to skip AutoHTTPS/ACME
 	// Admin whitelist ranges are parsed once; every deny route excludes them through denyMatcherSet.
-	adminRanges := parseAdminWhitelist(adminWhitelist)
+	adminRanges := network.SplitAddressList(adminWhitelist)
 	ipSubjects := make([]string, 0)
 
 	// Track processed domains to prevent duplicates (Ghost Host fix).
@@ -990,7 +990,7 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 	// For geo-blocking, we use CEL (Common Expression Language) matcher with caddy-geoip2 placeholders
 	// For IP-based ACLs, we use Caddy's native remote_ip matcher
 	// Admin whitelist addresses are excluded from every deny route through denyMatcherSet.
-	adminRanges := parseAdminWhitelist(adminWhitelist)
+	adminRanges := network.SplitAddressList(adminWhitelist)
 
 	if isCountryList(acl) {
 		// Geo-blocking using caddy-geoip2
@@ -1066,7 +1066,7 @@ var errAllowListFailClosed = errors.New("allow-list has no usable IP rules; requ
 
 // allowListFailClosed returns the deny handler for an allow-list without usable rules, with the reason as an error.
 func allowListFailClosed(adminWhitelist string, cause error) (Handler, error) {
-	return whitelistDenyHandler(parseAdminWhitelist(adminWhitelist)), fmt.Errorf("%w: %w", errAllowListFailClosed, cause)
+	return whitelistDenyHandler(network.SplitAddressList(adminWhitelist)), fmt.Errorf("%w: %w", errAllowListFailClosed, cause)
 }
 
 // whitelistDenyHandler refuses every request whose address is not in allowed. With no allowed address it refuses all.
@@ -1116,17 +1116,6 @@ func denyMatcherSet(positive map[string]any, negated []map[string]any, adminRang
 		return nil
 	}
 	return set
-}
-
-// parseAdminWhitelist splits the comma-separated admin whitelist and drops blank entries.
-func parseAdminWhitelist(adminWhitelist string) []string {
-	var addresses []string
-	for _, p := range strings.Split(adminWhitelist, ",") {
-		if p = strings.TrimSpace(p); p != "" {
-			addresses = append(addresses, p)
-		}
-	}
-	return addresses
 }
 
 // buildCrowdSecHandler returns a minimal CrowdSec handler for the caddy-crowdsec-bouncer plugin.

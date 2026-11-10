@@ -255,6 +255,15 @@ func TestEvaluate(t *testing.T) {
 			allowed: true,
 			reason:  ReasonAllowed,
 		},
+		{
+			// An unrecognised type matches no list semantics, so the default branch allows the address even when
+			// an IP rule names it. Only the admin whitelist and local-network checks run before it.
+			name:    "unknown list type allows an address its rules name",
+			acl:     models.AccessList{Type: "unknown", IPRules: `[{"cidr":"203.0.113.9"}]`, Enabled: true},
+			addr:    testVisitor,
+			allowed: true,
+			reason:  ReasonAllowed,
+		},
 	}
 
 	for _, tt := range tests {
