@@ -632,6 +632,75 @@
       "acl": {
         "geoip_unavailable": "Country lists are not enforced: the GeoIP database is missing from this install. Everyone can reach those hosts until it is provided. See the documentation."
       }
+    },
+    "geoip": {
+      "title": "Country database (GeoIP)",
+      "description": "Country access lists need a GeoIP country database. Charon uses the copy included with it unless you provide your own.",
+      "loadError": "The database status could not be loaded.",
+      "unknownValue": "Unknown",
+      "status": {
+        "ready": "Ready",
+        "unavailable": "Not available"
+      },
+      "source": {
+        "label": "Source",
+        "bundled": "Included with Charon",
+        "data": "Your data folder",
+        "custom": "Custom path set on the server",
+        "none": "No database"
+      },
+      "buildDate": "Build date",
+      "size": "Size",
+      "path": "File",
+      "releaseNote": "The included copy is updated with each Charon release.",
+      "customPathNote": "The database path is set by the server (CHARON_GEOIP_DB_PATH), so the copy cannot be replaced here.",
+      "readOnlyNote": "The data folder is read-only, so the database cannot be replaced here.",
+      "unavailableReason": "Not available. Country lists are not enforced until a database is loaded.",
+      "docsLink": "How to provide a database",
+      "unenforcedLists": "{{count}} country list(s) are not enforced",
+      "actions": {
+        "reload": "Reload",
+        "replace": "Replace database…",
+        "replaceHint": "Upload a GeoIP Country database (.mmdb), up to {{max}} MiB.",
+        "useIncluded": "Use the included copy",
+        "useIncludedConfirmTitle": "Use the included copy?",
+        "useIncludedConfirmBody": "Your copy in the data folder will be removed and Charon will use the database included with it.",
+        "useIncludedConfirmBodyNoBundled": "Your copy in the data folder will be removed. Country lists will not be enforced until you provide a database."
+      },
+      "result": {
+        "reloaded": "Database reloaded.",
+        "replaced": "Database replaced. Charon is now using your copy.",
+        "removed": "Charon is using the included copy again."
+      },
+      "lookup": {
+        "label": "IP address",
+        "placeholder": "For example 203.0.113.7",
+        "useMyAddress": "Use my address",
+        "submit": "Look up",
+        "found": "{{ip}} is in {{country}}.",
+        "notFound": "No country found for {{ip}}.",
+        "disabled": "Lookup is available once a database is loaded.",
+        "invalid": "Enter a valid IP address.",
+        "notLoaded": "No database is loaded, so addresses cannot be looked up.",
+        "myAddressFailed": "Charon could not read your address."
+      },
+      "errors": {
+        "geoip_file_required": "Choose a database file to upload.",
+        "geoip_too_large": "That file is larger than 32 MiB.",
+        "geoip_not_mmdb": "That file is not a GeoIP database.",
+        "geoip_corrupt": "That database file is damaged and cannot be read.",
+        "geoip_wrong_type": "That is a GeoIP database, but not a country database.",
+        "geoip_older_than_current": "That database is older than the one in use. Upload a newer one.",
+        "geoip_build_date_in_future": "That database has a build date in the future.",
+        "geoip_custom_path_set": "A custom database path is set on the server, so the copy cannot be changed here.",
+        "geoip_busy": "Another database change is in progress. Try again in a moment.",
+        "geoip_write_failed": "Charon could not save the database file.",
+        "geoip_reload_failed": "Charon could not load the database file.",
+        "geoip_no_data_copy": "There is no copy in the data folder to remove.",
+        "geoip_service_unavailable": "The GeoIP service is not running.",
+        "proxy_apply_failed": "Charon could not apply the proxy configuration.",
+        "generic": "Something went wrong. Try again."
+      }
     }
   },
   "accessLists": {

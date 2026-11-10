@@ -9,6 +9,7 @@ import { crowdsecErrorMessage } from '../api/errorBody'
 import { type SecurityStatus } from '../api/security'
 import { updateSetting } from '../api/settings'
 import { CrowdSecKeyWarning } from '../components/CrowdSecKeyWarning'
+import { GeoIPDatabaseCard } from '../components/GeoIPDatabaseCard'
 import { PageShell } from '../components/layout/PageShell'
 import { LiveLogViewer } from '../components/LiveLogViewer'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
@@ -424,6 +425,7 @@ export default function Security() {
 
         {/* Sign-in throttling is always on, so this sits outside the Cerberus-enabled sections */}
         {user?.role === 'admin' && <LoginProtectionCard />}
+        {user?.role === 'admin' && <GeoIPDatabaseCard />}
 
         <Outlet />
 
