@@ -185,7 +185,11 @@ test.describe('ACL Enforcement', () => {
       data: {
         name: 'Test Enforcement ACL',
         type: 'blacklist',
-        ip_rules: JSON.stringify([{ cidr: '10.255.255.255/32', description: 'Test blocked IP' }]),
+        // 10.255.255.255 is listed too, but sits inside the admin whitelist (10.0.0.0/8), so the tester must admit it.
+        ip_rules: JSON.stringify([
+          { cidr: '203.0.113.77/32', description: 'Test blocked IP' },
+          { cidr: '10.255.255.255/32', description: 'Test listed admin address' },
+        ]),
         enabled: true,
       },
     });
@@ -197,14 +201,25 @@ test.describe('ACL Enforcement', () => {
       // Verify the list was created with correct structure
       expect(createdList.name).toBe('Test Enforcement ACL');
 
-      // Test IP against the list using POST
+      // Test a listed, non-admin address using POST: the tester reports the proxy's refusal
       const testResponse = await requestContext.post(
         `/api/v1/access-lists/${createdList.uuid}/test`,
-        { data: { ip_address: '10.255.255.255' } }
+        { data: { ip_address: '203.0.113.77' } }
       );
       expect(testResponse.ok()).toBe(true);
       const testResult = await testResponse.json();
       expect(testResult.allowed).toBe(false);
+      expect(testResult.reason).toBe('Blocked by blacklist rule');
+
+      // Test a listed address inside the admin whitelist: the proxy exempts it, so the tester must admit it
+      const adminResponse = await requestContext.post(
+        `/api/v1/access-lists/${createdList.uuid}/test`,
+        { data: { ip_address: '10.255.255.255' } }
+      );
+      expect(adminResponse.ok()).toBe(true);
+      const adminResult = await adminResponse.json();
+      expect(adminResult.allowed).toBe(true);
+      expect(adminResult.reason).toBe('Address is in the admin whitelist');
 
       // Cleanup: Delete the test ACL
       const deleteResponse = await requestContext.delete(
