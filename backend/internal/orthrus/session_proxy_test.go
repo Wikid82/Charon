@@ -1,6 +1,7 @@
 package orthrus
 
 import (
+	"context"
 	"io"
 	"net"
 	"net/http"
@@ -9,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 	"github.com/hashicorp/yamux"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -19,11 +20,10 @@ import (
 func testWSPairBoth(t *testing.T) (serverConn, clientConn *websocket.Conn, done func()) {
 	t.Helper()
 
-	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	ready := make(chan *websocket.Conn, 1)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 		if err != nil {
 			return
 		}
@@ -31,15 +31,12 @@ func testWSPairBoth(t *testing.T) (serverConn, clientConn *websocket.Conn, done 
 	}))
 
 	url := "ws" + strings.TrimPrefix(srv.URL, "http")
-	client, dialResp, err := websocket.DefaultDialer.Dial(url, nil)
+	client, _, err := websocket.Dial(context.Background(), url, nil) //nolint:bodyclose // coder/websocket manages the handshake response body
 	require.NoError(t, err)
-	if dialResp != nil {
-		_ = dialResp.Body.Close()
-	}
 
 	srvConn := <-ready
 	return srvConn, client, func() {
-		_ = client.Close()
+		_ = client.CloseNow()
 		srv.Close()
 	}
 }
@@ -91,7 +88,7 @@ func TestStartDockerProxy_AcceptsAndForwards(t *testing.T) {
 	// Build a yamux client from the client websocket conn.
 	cfg := yamux.DefaultConfig()
 	cfg.LogOutput = io.Discard
-	clientYamux, err := yamux.Client(newWSNetConn(clientConn), cfg)
+	clientYamux, err := yamux.Client(newWSNetConn(context.Background(), clientConn), cfg)
 	require.NoError(t, err)
 	defer func() { _ = clientYamux.Close() }()
 

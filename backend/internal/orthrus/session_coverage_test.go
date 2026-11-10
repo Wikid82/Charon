@@ -1,71 +1,65 @@
 package orthrus
 
 import (
+	"context"
 	"errors"
 	"net"
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestWSNetConn_Write_Success(t *testing.T) {
-	serverConn, done := testWSPair(t)
+// TestNewWSNetConn_WriteSendsOneBinaryMessage checks that each Write on the
+// adapter reaches the peer as one binary WebSocket message.
+func TestNewWSNetConn_WriteSendsOneBinaryMessage(t *testing.T) {
+	serverConn, clientConn, done := testWSPairBoth(t)
 	defer done()
 
-	nc := newWSNetConn(serverConn)
+	nc := newWSNetConn(context.Background(), serverConn)
 	n, err := nc.Write([]byte("hello"))
-	assert.NoError(t, err)
+	require.NoError(t, err)
 	assert.Equal(t, 5, n)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	typ, data, err := clientConn.Read(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, websocket.MessageBinary, typ)
+	assert.Equal(t, []byte("hello"), data)
 }
 
-func TestWSNetConn_LocalAddr_NotNil(t *testing.T) {
+func TestNewWSNetConn_LocalAddr_NotNil(t *testing.T) {
 	serverConn, done := testWSPair(t)
 	defer done()
 
-	nc := newWSNetConn(serverConn)
+	nc := newWSNetConn(context.Background(), serverConn)
 	addr := nc.LocalAddr()
 	assert.NotNil(t, addr)
 	assert.Implements(t, (*net.Addr)(nil), addr)
 }
 
-func TestWSNetConn_RemoteAddr_NotNil(t *testing.T) {
+func TestNewWSNetConn_RemoteAddr_NotNil(t *testing.T) {
 	serverConn, done := testWSPair(t)
 	defer done()
 
-	nc := newWSNetConn(serverConn)
+	nc := newWSNetConn(context.Background(), serverConn)
 	addr := nc.RemoteAddr()
 	assert.NotNil(t, addr)
 	assert.Implements(t, (*net.Addr)(nil), addr)
 }
 
-func TestWSNetConn_SetDeadline_NoError(t *testing.T) {
+func TestNewWSNetConn_Deadlines_NoError(t *testing.T) {
 	serverConn, done := testWSPair(t)
 	defer done()
 
-	nc := newWSNetConn(serverConn)
+	nc := newWSNetConn(context.Background(), serverConn)
 	// Zero time clears the deadline — should succeed on a live connection.
-	err := nc.SetDeadline(time.Time{})
-	assert.NoError(t, err)
-}
-
-func TestWSNetConn_SetReadDeadline_NoError(t *testing.T) {
-	serverConn, done := testWSPair(t)
-	defer done()
-
-	nc := newWSNetConn(serverConn)
-	err := nc.SetReadDeadline(time.Time{})
-	assert.NoError(t, err)
-}
-
-func TestWSNetConn_SetWriteDeadline_NoError(t *testing.T) {
-	serverConn, done := testWSPair(t)
-	defer done()
-
-	nc := newWSNetConn(serverConn)
-	err := nc.SetWriteDeadline(time.Time{})
-	assert.NoError(t, err)
+	assert.NoError(t, nc.SetDeadline(time.Time{}))
+	assert.NoError(t, nc.SetReadDeadline(time.Time{}))
+	assert.NoError(t, nc.SetWriteDeadline(time.Time{}))
 }
 
 func TestAgentSession_GetProxyAddr_WithPort(t *testing.T) {
@@ -82,21 +76,6 @@ func TestAgentSession_GetProxyAddr_WithPort(t *testing.T) {
 
 	addr := sess.GetProxyAddr()
 	assert.Equal(t, "127.0.0.1:8080", addr)
-}
-
-// TestWSNetConn_SetDeadline_ClosedConn_ReturnsError covers the error-return path
-// inside SetDeadline when the underlying SetReadDeadline call fails on a closed conn.
-func TestWSNetConn_SetDeadline_ClosedConn_ReturnsError(t *testing.T) {
-	serverConn, done := testWSPair(t)
-	defer done()
-
-	nc := newWSNetConn(serverConn)
-	// Closing the underlying WebSocket connection invalidates the TCP socket;
-	// the subsequent SetReadDeadline call inside SetDeadline will return an error.
-	_ = serverConn.Close()
-
-	err := nc.SetDeadline(time.Now().Add(time.Second))
-	assert.Error(t, err)
 }
 
 // TestGetExternalProxyStatus_ErrorFieldPopulated covers session.go:336-338 —

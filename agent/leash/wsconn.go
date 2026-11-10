@@ -1,80 +1,46 @@
 package leash
 
 import (
-	"io"
+	"context"
+	"crypto/tls"
 	"net"
-	"sync"
-	"time"
+	"net/http"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 )
 
-// wsNetConn adapts a gorilla WebSocket connection to the net.Conn interface
-// so that yamux can use it as a byte-stream transport.
-// gorilla websocket supports one concurrent reader and one concurrent writer;
-// rMu serialises reads and wMu serialises writes accordingly.
+// wsNetConn exposes a WebSocket connection as a net.Conn so that yamux can use
+// it as a byte-stream transport. Each Write is sent as one binary message and
+// reads stream the payload of incoming data messages.
 type wsNetConn struct {
-	conn   *websocket.Conn
-	rMu    sync.Mutex
-	wMu    sync.Mutex
-	reader io.Reader
+	net.Conn
+	ws *websocket.Conn
 }
 
 // NewWSNetConn wraps conn as a net.Conn suitable for use with yamux.
 func NewWSNetConn(conn *websocket.Conn) net.Conn {
-	return &wsNetConn{conn: conn}
-}
-
-func (c *wsNetConn) Read(b []byte) (int, error) {
-	c.rMu.Lock()
-	defer c.rMu.Unlock()
-
-	for {
-		if c.reader != nil {
-			n, err := c.reader.Read(b)
-			if err == io.EOF {
-				c.reader = nil
-				continue
-			}
-			return n, err
-		}
-
-		_, msg, err := c.conn.NextReader()
-		if err != nil {
-			return 0, err
-		}
-		c.reader = msg
+	return &wsNetConn{
+		Conn: websocket.NetConn(context.Background(), conn, websocket.MessageBinary),
+		ws:   conn,
 	}
 }
 
-func (c *wsNetConn) Write(b []byte) (int, error) {
-	c.wMu.Lock()
-	defer c.wMu.Unlock()
-
-	if err := c.conn.WriteMessage(websocket.BinaryMessage, b); err != nil {
-		return 0, err
-	}
-	return len(b), nil
-}
-
+// Close tears the connection down immediately without the WebSocket closing
+// handshake. This matches the agent's previous raw-socket close and avoids
+// blocking session teardown on a peer that has stopped responding.
 func (c *wsNetConn) Close() error {
-	return c.conn.Close()
+	return c.ws.CloseNow()
 }
 
-func (c *wsNetConn) LocalAddr() net.Addr  { return c.conn.NetConn().LocalAddr() }
-func (c *wsNetConn) RemoteAddr() net.Addr { return c.conn.NetConn().RemoteAddr() }
-
-func (c *wsNetConn) SetDeadline(t time.Time) error {
-	if err := c.conn.SetReadDeadline(t); err != nil {
-		return err
+// newDialHTTPClient returns the HTTP client used for the WebSocket handshake.
+// It dials directly, ignoring proxy environment variables, as the previous
+// dialer did, and disables HTTP/2 negotiation because the Upgrade handshake
+// requires HTTP/1.1.
+func newDialHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: &http.Transport{
+			DialContext:  (&net.Dialer{}).DialContext,
+			TLSNextProto: map[string]func(string, *tls.Conn) http.RoundTripper{},
+		},
 	}
-	return c.conn.SetWriteDeadline(t)
-}
-
-func (c *wsNetConn) SetReadDeadline(t time.Time) error {
-	return c.conn.SetReadDeadline(t)
-}
-
-func (c *wsNetConn) SetWriteDeadline(t time.Time) error {
-	return c.conn.SetWriteDeadline(t)
 }

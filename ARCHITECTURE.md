@@ -128,7 +128,7 @@ graph TB
 | **Database** | SQLite | 3.x | Embedded database |
 | **ORM** | GORM | Latest | Database abstraction layer |
 | **Reverse Proxy** | Caddy Server | 2.11.2 | Embedded HTTP/HTTPS proxy |
-| **WebSocket** | gorilla/websocket | Latest | Real-time log streaming |
+| **WebSocket** | coder/websocket | Latest | Real-time log streaming |
 | **Crypto** | golang.org/x/crypto | Latest | Password hashing, encryption |
 | **Metrics** | Prometheus Client | Latest | Application metrics |
 | **Notifications** | github.com/Wikid82/Hermes | Current | External delivery-engine module (Discord, Slack, Gotify, Pushover, Ntfy, Telegram, generic webhook, Web Push, and email) consumed via Charon-supplied SSRF/SMTP/template adapters — see Service Layer below |

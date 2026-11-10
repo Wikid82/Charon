@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -25,15 +25,11 @@ func newHubServer(t *testing.T, hub *StatsWSHub) *httptest.Server {
 	gin.SetMode(gin.TestMode)
 	r := gin.New()
 	r.GET("/ws", func(c *gin.Context) {
-		conn, err := upgrader.Upgrade(c.Writer, c.Request, nil) // nosemgrep: go.gorilla.security.audit.websocket-missing-origin-check.websocket-missing-origin-check
+		conn, err := websocket.Accept(c.Writer, c.Request, nil)
 		if err != nil {
 			return
 		}
-		client := &statsWSClient{
-			conn: conn,
-			send: make(chan []byte, statsWSWriteBuffer),
-		}
-		hub.ServeClient(client)
+		hub.ServeClient(newStatsWSClient(conn))
 	})
 	return httptest.NewServer(r)
 }
@@ -42,7 +38,7 @@ func newHubServer(t *testing.T, hub *StatsWSHub) *httptest.Server {
 func dialHub(t *testing.T, srv *httptest.Server) *websocket.Conn {
 	t.Helper()
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil) //nolint:bodyclose
+	conn, _, err := websocket.Dial(context.Background(), wsURL, nil) //nolint:bodyclose
 	require.NoError(t, err)
 	return conn
 }
@@ -120,7 +116,7 @@ func TestStatsWSHub_BroadcastToConnectedClient(t *testing.T) {
 	defer srv.Close()
 
 	conn := dialHub(t, srv)
-	t.Cleanup(func() { _ = conn.Close() })
+	t.Cleanup(func() { _ = conn.CloseNow() })
 
 	// Allow the client to register.
 	time.Sleep(50 * time.Millisecond)
@@ -132,8 +128,7 @@ func TestStatsWSHub_BroadcastToConnectedClient(t *testing.T) {
 	}
 	hub.Broadcast(services.StatsPushMessage{Type: "stats_update", Data: summary})
 
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(3*time.Second)))
-	_, data, err := conn.ReadMessage()
+	data, err := readWithin(t, conn, 3*time.Second)
 	require.NoError(t, err)
 
 	var got services.StatsPushMessage
@@ -155,7 +150,7 @@ func TestStatsWSHub_Run_ClosesClientsOnContextCancel(t *testing.T) {
 	defer srv.Close()
 
 	conn := dialHub(t, srv)
-	t.Cleanup(func() { _ = conn.Close() })
+	t.Cleanup(func() { _ = conn.CloseNow() })
 
 	// Allow the client to register.
 	time.Sleep(50 * time.Millisecond)
@@ -163,8 +158,7 @@ func TestStatsWSHub_Run_ClosesClientsOnContextCancel(t *testing.T) {
 	// Cancel hub — clients should be closed.
 	cancel()
 
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(3*time.Second)))
-	_, _, err := conn.ReadMessage()
+	_, err := readWithin(t, conn, 3*time.Second)
 	// Expect an error (close frame or EOF) after hub cancellation.
 	assert.Error(t, err, "expected connection to be closed after hub cancel")
 }
@@ -182,7 +176,7 @@ func TestStatsWSHub_Run_SlowClientDropsMessage(t *testing.T) {
 	defer srv.Close()
 
 	conn := dialHub(t, srv)
-	t.Cleanup(func() { _ = conn.Close() })
+	t.Cleanup(func() { _ = conn.CloseNow() })
 
 	// Allow the client to register.
 	time.Sleep(50 * time.Millisecond)
@@ -220,7 +214,7 @@ func TestStatsWSHub_StatsWSHandler_NonWebSocketRequest(t *testing.T) {
 	srv := httptest.NewServer(r)
 	defer srv.Close()
 
-	// Plain HTTP GET — no WebSocket upgrade headers — upgrader.Upgrade will fail.
+	// Plain HTTP GET — no WebSocket upgrade headers — websocket.Accept will fail.
 	resp, err := http.Get(srv.URL + "/ws") //nolint:noctx
 	require.NoError(t, err)
 	_ = resp.Body.Close()
@@ -245,13 +239,12 @@ func TestStatsWSHub_StatsWSHandler_NilHub(t *testing.T) {
 	defer srv.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil) //nolint:bodyclose
+	conn, _, err := websocket.Dial(context.Background(), wsURL, nil) //nolint:bodyclose
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
+	t.Cleanup(func() { _ = conn.CloseNow() })
 
 	// Hub is nil — handler closes the conn immediately after upgrade.
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(3*time.Second)))
-	_, _, err = conn.ReadMessage()
+	_, err = readWithin(t, conn, 3*time.Second)
 	assert.Error(t, err, "expected immediate connection close when hub is nil")
 }
 
@@ -279,7 +272,7 @@ func TestStatsWSHub_UnregisterRemovesClient(t *testing.T) {
 
 	// Close the client-side connection — ServeClient's read loop will detect the close
 	// and send to hub.unregister.
-	_ = conn.Close()
+	_ = conn.CloseNow()
 
 	require.Eventually(t, func() bool {
 		hub.mu.RLock()

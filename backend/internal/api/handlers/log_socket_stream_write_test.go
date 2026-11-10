@@ -10,9 +10,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/require"
 
 	charonlogger "github.com/Wikid82/charon/backend/internal/logger"
@@ -36,12 +36,9 @@ func TestLogsWSHandler_FailedEntryWriteEndsStream(t *testing.T) {
 	srv := httptest.NewServer(router)
 	t.Cleanup(srv.Close)
 
-	conn, resp, err := websocket.DefaultDialer.Dial(toWebSocketURL(srv.URL)+"/logs", nil)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
+	conn, _, err := websocket.Dial(context.Background(), toWebSocketURL(srv.URL)+"/logs", nil) //nolint:bodyclose // coder/websocket manages the handshake response body
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
+	t.Cleanup(func() { _ = conn.CloseNow() })
 	t.Cleanup(func() { <-handlerDone })
 
 	// Log until the handler has subscribed and written, then wait for it to close the stream.
@@ -59,8 +56,9 @@ func TestLogsWSHandler_FailedEntryWriteEndsStream(t *testing.T) {
 		}
 	}()
 
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
-	_, _, err = conn.ReadMessage()
+	// A write that starts before its deadline can still reach the peer, so the
+	// stream may deliver a line first. It must still end on a later failed write.
+	err = readUntilStreamEnds(t, conn)
 	require.Error(t, err, "the server must close the stream after a failed entry write")
 }
 
@@ -90,13 +88,10 @@ func TestCerberusLogsHandler_FailedEntryWriteEndsStream(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
-	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
+	conn, _, err := websocket.Dial(context.Background(), wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
+	t.Cleanup(func() { _ = conn.CloseNow() })
 	t.Cleanup(func() { <-handlerDone })
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
 
 	// Append lines until the stream ends. Every line is a valid access entry.
 	stop := make(chan struct{})
@@ -113,7 +108,8 @@ func TestCerberusLogsHandler_FailedEntryWriteEndsStream(t *testing.T) {
 		}
 	}()
 
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
-	_, _, err = conn.ReadMessage()
+	// A write that starts before its deadline can still reach the peer, so the
+	// stream may deliver a line first. It must still end on a later failed write.
+	err = readUntilStreamEnds(t, conn)
 	require.Error(t, err, "the server must close the stream after a failed entry write")
 }

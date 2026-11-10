@@ -5,12 +5,12 @@ go 1.27.4
 require (
 	filippo.io/age v1.3.2
 	github.com/Wikid82/Hermes v0.3.7
+	github.com/coder/websocket v1.8.15
 	github.com/gin-contrib/gzip v1.2.10
 	github.com/gin-gonic/gin v1.12.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/golang-jwt/jwt/v5 v5.3.1
 	github.com/google/uuid v1.6.0
-	github.com/gorilla/websocket v1.5.3
 	github.com/hashicorp/golang-lru/v2 v2.0.7
 	github.com/hashicorp/yamux v0.1.2
 	github.com/minio/minio-go/v7 v7.4.1

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -890,10 +890,7 @@ func TestHecateWSHandler_StreamLogs_UpgradeAndStream(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	wsURL := toWebSocketURL(srv.URL) + "/ws/tunnels/" + tunnelUUID + "/logs"
-	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if resp != nil {
-		defer resp.Body.Close()
-	}
+	conn, resp, err := websocket.Dial(context.Background(), wsURL, nil) //nolint:bodyclose // coder/websocket manages the handshake response body
 	require.NoError(t, err)
 	require.Equal(t, http.StatusSwitchingProtocols, resp.StatusCode)
 
@@ -901,7 +898,7 @@ func TestHecateWSHandler_StreamLogs_UpgradeAndStream(t *testing.T) {
 		return tracker.GetCount() == 1
 	})
 
-	require.NoError(t, conn.Close())
+	require.NoError(t, conn.CloseNow())
 
 	waitFor(t, func() bool {
 		return tracker.GetCount() == 0
@@ -1174,7 +1171,7 @@ func TestHecateWSHandler_StreamLogs_UpgradeError(t *testing.T) {
 	srv := httptest.NewServer(r)
 	t.Cleanup(srv.Close)
 
-	// Plain HTTP GET — no WebSocket upgrade headers — causes upgrader.Upgrade to fail.
+	// Plain HTTP GET — no WebSocket upgrade headers — causes websocket.Accept to fail.
 	resp, err := http.Get(srv.URL + "/ws/tunnels/" + tunnelUUID + "/logs") //nolint:noctx
 	require.NoError(t, err)
 	_ = resp.Body.Close()
@@ -1205,18 +1202,17 @@ func TestHecateWSHandler_StreamLogs_SubClose(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	wsURL := toWebSocketURL(srv.URL) + "/ws/tunnels/" + tunnelUUID + "/logs"
-	conn, resp, dialErr := websocket.DefaultDialer.Dial(wsURL, nil)
+	conn, resp, dialErr := websocket.Dial(context.Background(), wsURL, nil) //nolint:bodyclose // coder/websocket manages the handshake response body
 	require.NoError(t, dialErr)
-	defer resp.Body.Close()
 	require.Equal(t, http.StatusSwitchingProtocols, resp.StatusCode)
-	t.Cleanup(func() { _ = conn.Close() })
+	t.Cleanup(func() { _ = conn.CloseNow() })
 
 	// Write a live line so the sub case fires with ok=true (covers lines 90-96 assignment).
 	buf.Write("live line")
 
 	// Give the handler goroutine a moment to process the live line.
 	waitFor(t, func() bool {
-		_, _, readErr := conn.ReadMessage()
+		_, readErr := readWithin(t, conn, 3*time.Second)
 		return readErr == nil
 	})
 
@@ -1225,8 +1221,7 @@ func TestHecateWSHandler_StreamLogs_SubClose(t *testing.T) {
 
 	// Wait for the WS connection to be terminated by the handler.
 	waitFor(t, func() bool {
-		_ = conn.SetReadDeadline(time.Now().Add(50 * time.Millisecond))
-		_, _, readErr := conn.ReadMessage()
+		_, readErr := readWithin(t, conn, 50*time.Millisecond)
 		return readErr != nil
 	})
 }

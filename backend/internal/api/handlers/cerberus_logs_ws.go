@@ -2,9 +2,11 @@
 package handlers
 
 import (
+	"context"
 	"strings"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 
@@ -45,8 +47,10 @@ func (h *CerberusLogsHandler) LiveLogs(c *gin.Context) {
 		logger.Log().WithError(err).Error("Failed to upgrade Cerberus logs WebSocket")
 		return
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	defer func() {
-		if err := conn.Close(); err != nil {
+		if err := conn.Close(websocket.StatusNormalClosure, ""); err != nil {
 			logger.Log().WithError(err).Debug("Failed to close Cerberus logs WebSocket connection")
 		}
 	}()
@@ -83,20 +87,8 @@ func (h *CerberusLogsHandler) LiveLogs(c *gin.Context) {
 	logChan := h.watcher.Subscribe()
 	defer h.watcher.Unsubscribe(logChan)
 
-	// Channel to detect client disconnect
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for {
-			if _, _, err := conn.ReadMessage(); err != nil {
-				return
-			}
-		}
-	}()
-
-	// Keep-alive ticker
-	ticker := time.NewTicker(logSocketPingPeriod)
-	defer ticker.Stop()
+	// Closes when the client disconnects or stops answering pings
+	done := watchLogSocket(ctx, conn)
 
 	for {
 		select {
@@ -140,13 +132,6 @@ func (h *CerberusLogsHandler) LiveLogs(c *gin.Context) {
 			// Update activity timestamp
 			if h.tracker != nil {
 				h.tracker.UpdateActivity(subscriberID)
-			}
-
-		case <-ticker.C:
-			// Send ping to keep connection alive
-			if err := writeLogSocketPing(conn); err != nil {
-				logger.Log().WithError(err).WithField("subscriber_id", subscriberID).Debug("Failed to send ping to Cerberus logs WebSocket")
-				return
 			}
 
 		case <-done:
