@@ -76,6 +76,9 @@ func doReset(r http.Handler, remoteAddr string) *httptest.ResponseRecorder {
 
 func okHandler(c *gin.Context) { c.Status(http.StatusOK) }
 
+// failHandler answers like a reset with a wrong or missing token.
+func failHandler(c *gin.Context) { c.Status(http.StatusUnauthorized) }
+
 func TestEmergencyResetThrottle_BudgetExhaustionAnswers429AndAudits(t *testing.T) {
 	clock := newFakeThrottleClock()
 	auditor := &recordingAuditor{}
@@ -85,11 +88,11 @@ func TestEmergencyResetThrottle_BudgetExhaustionAnswers429AndAudits(t *testing.T
 	calls := 0
 	r := throttleRouter(th, func(c *gin.Context) {
 		calls++
-		c.Status(http.StatusOK)
+		c.Status(http.StatusUnauthorized)
 	})
 
 	for i := 0; i < EmergencyResetAttemptsPerWindow; i++ {
-		assert.Equal(t, http.StatusOK, doReset(r, "192.0.2.10:1000").Code, "attempt %d within budget", i+1)
+		assert.Equal(t, http.StatusUnauthorized, doReset(r, "192.0.2.10:1000").Code, "failed attempt %d within budget", i+1)
 	}
 
 	w := doReset(r, "192.0.2.10:1000")
@@ -105,20 +108,156 @@ func TestEmergencyResetThrottle_BudgetExhaustionAnswers429AndAudits(t *testing.T
 
 	// The budget refills once the window has passed.
 	clock.advance(EmergencyResetWindow)
-	assert.Equal(t, http.StatusOK, doReset(r, "192.0.2.10:1000").Code)
+	assert.Equal(t, http.StatusUnauthorized, doReset(r, "192.0.2.10:1000").Code)
+}
+
+func TestEmergencyResetThrottle_SuccessesNeverExhaustBudget(t *testing.T) {
+	th, err := NewEmergencyResetThrottle("main", nil, WithEmergencyResetClock(newFakeThrottleClock().now))
+	require.NoError(t, err)
+
+	calls := 0
+	r := throttleRouter(th, func(c *gin.Context) {
+		calls++
+		c.Status(http.StatusOK)
+	})
+
+	const successes = 4 * EmergencyResetAttemptsPerWindow
+	for i := 0; i < successes; i++ {
+		require.Equal(t, http.StatusOK, doReset(r, "192.0.2.12:1000").Code, "successful reset %d must not be throttled", i+1)
+	}
+	assert.Equal(t, successes, calls)
+}
+
+func TestEmergencyResetThrottle_InterleavedSuccessesDoNotCountAsFailures(t *testing.T) {
+	th, err := NewEmergencyResetThrottle("main", nil, WithEmergencyResetClock(newFakeThrottleClock().now))
+	require.NoError(t, err)
+
+	// Five failures spread among successes: the budget is spent on the failures only.
+	outcomes := []int{
+		http.StatusOK, http.StatusUnauthorized, http.StatusOK, http.StatusUnauthorized,
+		http.StatusOK, http.StatusOK, http.StatusUnauthorized, http.StatusOK,
+		http.StatusUnauthorized, http.StatusOK, http.StatusOK, http.StatusUnauthorized,
+	}
+	require.Len(t, outcomes, 12)
+	idx := 0
+	r := throttleRouter(th, func(c *gin.Context) {
+		c.Status(outcomes[idx])
+		idx++
+	})
+
+	for i, want := range outcomes {
+		assert.Equal(t, want, doReset(r, "192.0.2.13:1000").Code, "outcome %d", i+1)
+	}
+	assert.Equal(t, http.StatusTooManyRequests, doReset(r, "192.0.2.13:1000").Code, "the sixth failure is refused")
+}
+
+func TestEmergencyResetThrottle_OnlyErrorStatusesCharge(t *testing.T) {
+	cases := []struct {
+		name    string
+		status  int
+		charged bool
+	}{
+		{"ok", http.StatusOK, false},
+		{"no content", http.StatusNoContent, false},
+		{"throttle status from handler", http.StatusTooManyRequests, false},
+		{"bad request", http.StatusBadRequest, true},
+		{"forbidden", http.StatusForbidden, true},
+		{"server error", http.StatusInternalServerError, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			th, err := NewEmergencyResetThrottle("main", nil, WithEmergencyResetClock(newFakeThrottleClock().now))
+			require.NoError(t, err)
+			calls := 0
+			r := throttleRouter(th, func(c *gin.Context) {
+				calls++
+				c.Status(tc.status)
+			})
+
+			const attempts = EmergencyResetAttemptsPerWindow + 3
+			for i := 0; i < attempts; i++ {
+				doReset(r, "192.0.2.14:1000")
+			}
+			if tc.charged {
+				assert.Equal(t, EmergencyResetAttemptsPerWindow, calls)
+				assert.Equal(t, http.StatusTooManyRequests, doReset(r, "192.0.2.14:1000").Code)
+			} else {
+				assert.Equal(t, attempts, calls, "a %d response must not consume the budget", tc.status)
+			}
+		})
+	}
 }
 
 func TestEmergencyResetThrottle_PerAddressIsolation(t *testing.T) {
 	clock := newFakeThrottleClock()
 	th, err := NewEmergencyResetThrottle("main", nil, WithEmergencyResetClock(clock.now))
 	require.NoError(t, err)
-	r := throttleRouter(th, okHandler)
+	r := throttleRouter(th, failHandler)
 
 	for i := 0; i < EmergencyResetAttemptsPerWindow; i++ {
 		doReset(r, "192.0.2.10:1000")
 	}
 	assert.Equal(t, http.StatusTooManyRequests, doReset(r, "192.0.2.10:2000").Code)
-	assert.Equal(t, http.StatusOK, doReset(r, "192.0.2.11:1000").Code, "a different address keeps its own budget")
+	assert.Equal(t, http.StatusUnauthorized, doReset(r, "192.0.2.11:1000").Code, "a different address keeps its own budget")
+}
+
+func TestEmergencyResetThrottle_QueuedRequestRechecksBudgetUnderSlot(t *testing.T) {
+	clock := newFakeThrottleClock()
+	th, err := NewEmergencyResetThrottle("main", nil, WithEmergencyResetClock(clock.now), WithEmergencyResetWait(5*time.Second))
+	require.NoError(t, err)
+
+	// Holding requests (header X-Gate) block in the handler until gate closes.
+	entered := make(chan struct{}, EmergencyResetConcurrency)
+	gate := make(chan struct{})
+	calls := make(chan struct{}, 10)
+	r := gin.New()
+	gin.SetMode(gin.TestMode)
+	_ = r.SetTrustedProxies(nil)
+	r.POST("/reset", th.Middleware(), func(c *gin.Context) {
+		calls <- struct{}{}
+		if c.GetHeader("X-Gate") != "" {
+			entered <- struct{}{}
+			<-gate
+		}
+		c.Status(http.StatusUnauthorized)
+	})
+	send := func(addr, gated string) <-chan int {
+		out := make(chan int, 1)
+		go func() {
+			req := httptest.NewRequest(http.MethodPost, "/reset", http.NoBody)
+			req.RemoteAddr = addr
+			if gated != "" {
+				req.Header.Set("X-Gate", gated)
+			}
+			w := httptest.NewRecorder()
+			r.ServeHTTP(w, req)
+			out <- w.Code
+		}()
+		return out
+	}
+
+	// Four failures leave one token for the address.
+	for i := 0; i < EmergencyResetAttemptsPerWindow-1; i++ {
+		require.Equal(t, http.StatusUnauthorized, doReset(r, "192.0.2.15:1").Code)
+	}
+
+	// Two gated requests from the same address hold both slots, each with the last token peeked.
+	holderA := send("192.0.2.15:1", "a")
+	holderB := send("192.0.2.15:1", "b")
+	<-entered
+	<-entered
+
+	// This request peeks a token, then queues for a slot.
+	queued := send("192.0.2.15:1", "")
+	time.Sleep(50 * time.Millisecond)
+
+	close(gate)
+	assert.Equal(t, http.StatusUnauthorized, <-holderA)
+	assert.Equal(t, http.StatusUnauthorized, <-holderB)
+
+	// The holders spent the last token, so the queued request is refused before the handler.
+	assert.Equal(t, http.StatusTooManyRequests, <-queued)
+	assert.Len(t, calls, EmergencyResetAttemptsPerWindow+1, "the queued request must not reach the handler")
 }
 
 func TestEmergencyResetThrottle_SemaphoreWaitsForFreeSlot(t *testing.T) {
@@ -216,7 +355,7 @@ func TestEmergencyResetThrottle_SeparateInstancesDoNotShareBudgetOrSlots(t *test
 	require.NoError(t, err)
 
 	// Exhaust the main instance's budget for one address.
-	mainRouter := throttleRouter(mainTh, okHandler)
+	mainRouter := throttleRouter(mainTh, failHandler)
 	for i := 0; i < EmergencyResetAttemptsPerWindow; i++ {
 		doReset(mainRouter, "127.0.0.1:1")
 	}
@@ -256,7 +395,7 @@ func TestEmergencyResetThrottle_NilAuditorAndFailingAuditorStillAnswer429(t *tes
 	for _, auditor := range []EmergencyThrottleAuditor{nil, failing} {
 		th, err := NewEmergencyResetThrottle("main", auditor)
 		require.NoError(t, err)
-		r := throttleRouter(th, okHandler)
+		r := throttleRouter(th, failHandler)
 		for i := 0; i < EmergencyResetAttemptsPerWindow; i++ {
 			doReset(r, "192.0.2.20:1")
 		}

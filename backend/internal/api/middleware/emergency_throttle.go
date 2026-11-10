@@ -3,6 +3,7 @@ package middleware
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"sync"
 	"time"
 
@@ -96,16 +97,18 @@ func NewEmergencyResetThrottle(listener string, auditor EmergencyThrottleAuditor
 }
 
 // Middleware runs before any token comparison or database read in the reset
-// handler. It charges the caller's per-address budget first (over budget
-// answers 429 at once), then takes a check slot, waiting up to the slot wait
-// before answering 429. A refused request is audited and never reaches the
-// handler.
+// handler. It peeks at the caller's per-address budget first (exhausted answers
+// 429 at once), then takes a check slot, waiting up to the slot wait before
+// answering 429. Under the slot it peeks again, because requests queued behind
+// the semaphore may have been overtaken by failures in the meantime. The handler
+// runs only when the budget admits the request. A failed attempt, meaning the
+// handler answered with a 4xx other than 429, then consumes one token; a
+// successful reset consumes nothing. A refused request is audited and never
+// reaches the handler.
 func (t *EmergencyResetThrottle) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
-		decision := t.budget.Allow(ratelimit.ClientKey(c.ClientIP()))
-		if !decision.Allowed {
-			t.audit(c, "per-address attempt budget exhausted")
-			ratelimit.Reject(c, decision)
+		key := ratelimit.ClientKey(c.ClientIP())
+		if !t.budgetAdmits(c, key) {
 			return
 		}
 
@@ -116,8 +119,34 @@ func (t *EmergencyResetThrottle) Middleware() gin.HandlerFunc {
 		}
 		defer t.releaseSlot()
 
+		if !t.budgetAdmits(c, key) {
+			return
+		}
+
 		c.Next()
+
+		if isFailedAttempt(c.Writer.Status()) {
+			t.budget.Allow(key)
+		}
 	}
+}
+
+// budgetAdmits reports whether the address may make an attempt now. Over budget
+// it audits the refusal and answers 429, consuming nothing either way.
+func (t *EmergencyResetThrottle) budgetAdmits(c *gin.Context, key string) bool {
+	decision := t.budget.Peek(key)
+	if decision.Allowed {
+		return true
+	}
+	t.audit(c, "per-address attempt budget exhausted")
+	ratelimit.Reject(c, decision)
+	return false
+}
+
+// isFailedAttempt reports whether a handler status counts against the budget:
+// any error status except 429, which only the throttle itself answers.
+func isFailedAttempt(status int) bool {
+	return status >= http.StatusBadRequest && status != http.StatusTooManyRequests
 }
 
 // acquireSlot takes a check slot, waiting up to t.wait. It returns false when

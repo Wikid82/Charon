@@ -141,6 +141,28 @@ func (k *KeyedLimiter) Allow(key string) Decision {
 	return Decision{Allowed: false, RetryAfter: k.retryAfter(b.lim, now), FirstDenial: first}
 }
 
+// Peek reports whether Allow would admit one request for key now, without
+// consuming a token. It serves checks that charge only for some outcomes: the
+// caller peeks before doing the work, then calls Allow once the outcome is known.
+func (k *KeyedLimiter) Peek(key string) Decision {
+	k.mu.Lock()
+	defer k.mu.Unlock()
+
+	now := k.now()
+	k.sweepLocked(now)
+
+	b, ok := k.lru.Get(key)
+	if !ok {
+		// An untracked key starts with a full bucket, so it is admitted.
+		return Decision{Allowed: true}
+	}
+	b.lastSeen = now
+	if b.lim.TokensAt(now) >= 1 {
+		return Decision{Allowed: true}
+	}
+	return Decision{Allowed: false, RetryAfter: k.retryAfter(b.lim, now)}
+}
+
 func (k *KeyedLimiter) retryAfter(lim *rate.Limiter, now time.Time) time.Duration {
 	missing := 1 - lim.TokensAt(now)
 	d := time.Duration(missing / float64(k.rate) * float64(time.Second))
