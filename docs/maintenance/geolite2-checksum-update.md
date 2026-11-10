@@ -17,7 +17,7 @@ Update the checksum when:
 1. **Docker build fails** with the following error:
 
    ```text
-   sha256sum: /app/data/geoip/GeoLite2-Country.mmdb: FAILED
+   sha256sum: /app/geoip/GeoLite2-Country.mmdb: FAILED
    sha256sum: WARNING: 1 computed checksum did NOT match
    ```
 
@@ -252,7 +252,7 @@ chmod +x scripts/verify-geolite2-checksum.sh
 
    ```bash
    # Download from a working container
-   docker run --rm ghcr.io/wikid82/charon:latest cat /app/data/geoip/GeoLite2-Country.mmdb > /tmp/GeoLite2-Country.mmdb
+   docker run --rm ghcr.io/wikid82/charon:latest cat /app/geoip/GeoLite2-Country.mmdb > /tmp/GeoLite2-Country.mmdb
 
    # Calculate checksum
    sha256sum /tmp/GeoLite2-Country.mmdb

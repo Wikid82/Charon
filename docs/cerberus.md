@@ -267,9 +267,9 @@ Multiple ACLs can be assigned to a proxy host. The first denial wins.
 
 Country lists (Geo Whitelist and Geo Blacklist) need the MaxMind GeoLite2-Country database. The proxy reads it to find the country of each visitor.
 
-- **Where it comes from:** The Docker image tries to download the database when it is built. If the download fails, the image is still built without it.
-- **Default location:** `/app/data/geoip/GeoLite2-Country.mmdb`.
-- **Custom location:** Set `CHARON_GEOIP_DB_PATH` to the full path of the `.mmdb` file. The file name must end in `.mmdb`. A file with any other ending is treated as unavailable.
+- **Where it comes from:** The Docker image tries to download the database when it is built and keeps it outside the data folder, in `/app/geoip/`, so a data volume does not hide it. If the download fails, the image is still built without it.
+- **Using a newer copy:** Put your own `GeoLite2-Country.mmdb` in the `geoip` folder inside your data folder (`/app/data/geoip/` in the container). Charon prefers that copy over the one in the image. Then restart Charon or reload the database (see below).
+- **Custom location:** Set `CHARON_GEOIP_DB_PATH` to the full path of the `.mmdb` file. Charon uses that path exactly, and it wins over both copies above. The file name must end in `.mmdb`. A file with any other ending is treated as unavailable.
 - **When the database is missing:** Country lists refuse every request until a database is provided. The build log shows a warning, and the Security page shows a note. Your other lists and sites are not affected.
 - **After adding or replacing the file:** Restart Charon, or send `POST /api/v1/security/geoip/reload`. The proxy then applies your country lists again.
 - **Updates:** Download a new copy from MaxMind about once a month to keep country data accurate.
