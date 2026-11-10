@@ -269,76 +269,48 @@ test.describe('Emergency Token Break Glass Protocol', () => {
     console.log('✅ Test 1 passed: Emergency token bypasses ACL');
   });
 
-  test('Emergency token requires valid token', async ({ request }) => {
-    console.log('🧪 Testing emergency token validation...');
-
-    // Test with wrong token
-    const wrongResponse = await request.post('/api/v1/emergency/security-reset', {
-      headers: { 'X-Emergency-Token': 'invalid-token-that-should-not-work-32chars' },
-    });
-
-    expect(wrongResponse.status()).toBe(401);
-    const wrongBody = await wrongResponse.json();
-    expect(wrongBody.error).toBe('unauthorized');
-
-    // Verify settings were NOT changed by checking status
-    const statusResponse = await request.get('/api/v1/security/status');
-    if (statusResponse.ok()) {
-      const status = await statusResponse.json();
-      // Cerberus was enabled in beforeAll and an invalid emergency token must
-      // not be able to flip it back off.
-      expect(status.cerberus?.enabled).toBe(true);
-      console.log('  ✓ Security settings were not modified by invalid token');
-    }
-
-    console.log('✅ Test 3 passed: Invalid token properly rejected');
-  });
-
-  // Runs after the invalid-token test above, because a successful reset disables
-  // Cerberus and that test expects it to stay enabled.
-  test('Emergency reset answers failed attempts 401 and never throttles successful resets', async ({ request }) => {
-    // The per-address budget (burst 5, refill 1/min) is shared by every test that
-    // reaches the reset route from this runner, so this test spends two failed
-    // attempts and stops there. Draining the budget against the shared E2E container
-    // would starve the other reset callers. The 429 contract is covered by the
-    // backend unit and route tests.
+  // Covers the token contract and the throttle contract in one test. The reset route
+  // is the only charged path on the main listener: each failed attempt spends the
+  // shared per-address budget (burst 5, refill 1/min), and CI retries failed tests.
+  // This test therefore sends exactly one failed attempt. Its 429 contract is covered
+  // by the backend unit and route tests.
+  //
+  // Runs before the successful resets below, because a successful reset disables
+  // Cerberus and the Cerberus assertion expects it to stay enabled until then.
+  test('Emergency reset requires a valid token and never throttles successful resets', async ({ request }) => {
     const WRONG_TOKEN = 'wrong-token-for-throttle-contract-test-32chars';
     const resetWith = (token: string) =>
       request.post('/api/v1/emergency/security-reset', {
         headers: { 'X-Emergency-Token': token },
       });
 
-    await test.step('Correct token resets successfully', async () => {
-      const response = await resetWith(EMERGENCY_TOKEN);
-      expect(response.ok()).toBeTruthy();
-      expect((await response.json()).success).toBe(true);
-    });
-
-    await test.step('First failed attempt answers 401, not 429', async () => {
+    await test.step('Wrong token answers 401 and cannot disable security', async () => {
       const response = await resetWith(WRONG_TOKEN);
       expect(response.status()).toBe(401);
       expect(await response.json()).toMatchObject({ error: 'unauthorized' });
+
+      const statusResponse = await request.get('/api/v1/security/status');
+      if (statusResponse.ok()) {
+        const status = await statusResponse.json();
+        // Cerberus was enabled in beforeAll and an invalid emergency token must
+        // not be able to flip it back off.
+        expect(status.cerberus?.enabled).toBe(true);
+      }
     });
 
-    await test.step('Correct token still resets successfully after a failure', async () => {
+    await test.step('Correct token resets successfully after a failure', async () => {
       const response = await resetWith(EMERGENCY_TOKEN);
       expect(response.ok()).toBeTruthy();
       expect((await response.json()).success).toBe(true);
     });
 
-    await test.step('Second failed attempt answers 401, not 429', async () => {
-      const response = await resetWith(WRONG_TOKEN);
-      expect(response.status()).toBe(401);
-      expect(await response.json()).toMatchObject({ error: 'unauthorized' });
-    });
-
-    await test.step('Correct token still resets successfully after a second failure', async () => {
+    await test.step('Correct token is not throttled on a repeated reset', async () => {
       const response = await resetWith(EMERGENCY_TOKEN);
       expect(response.ok()).toBeTruthy();
       expect((await response.json()).success).toBe(true);
     });
 
-    console.log('✅ Test passed: failed attempts answer 401 and successful resets are not throttled');
+    console.log('✅ Test passed: invalid token rejected and successful resets are not throttled');
   });
 
   test('Emergency token audit logging', async ({ request }) => {
