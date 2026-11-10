@@ -3,6 +3,7 @@ package geoip
 import (
 	"fmt"
 	"path/filepath"
+	"time"
 
 	"github.com/oschwald/maxminddb-golang/v2"
 )
@@ -35,4 +36,17 @@ func Inspect(path string) (DatabaseInfo, error) {
 		NodeCount:    meta.NodeCount,
 		IPVersion:    meta.IPVersion,
 	}, nil
+}
+
+// maxBuildEpoch is the last second of the year 9999 UTC, the latest build time Charon represents. Later epochs would
+// overflow the conversion to time.Time and wrap into the past.
+const maxBuildEpoch = 253402300799
+
+// BuildTime returns a MaxMind build epoch as a time. The epoch comes from the file, so an epoch past maxBuildEpoch is
+// clamped to it: it then compares as far in the future instead of wrapping into the past.
+func BuildTime(epoch uint) time.Time {
+	if epoch > maxBuildEpoch {
+		epoch = maxBuildEpoch
+	}
+	return time.Unix(int64(epoch), 0) //nolint:gosec // G115: bounded by maxBuildEpoch above
 }

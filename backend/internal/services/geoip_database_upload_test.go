@@ -43,7 +43,7 @@ func uploadBytes(t *testing.T, buildEpoch uint32, opts ...testutil.GeoIPCountryO
 		testutil.WithGeoIPRecordISOCode("US"),
 	}, opts...)
 	testutil.WriteGeoIPCountryDB(t, path, buildEpoch, all...)
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	return data
 }
@@ -51,7 +51,7 @@ func uploadBytes(t *testing.T, buildEpoch uint32, opts ...testutil.GeoIPCountryO
 // placeFile writes data at path, creating the folder when needed.
 func placeFile(t *testing.T, path string, data []byte) {
 	t.Helper()
-	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
 	require.NoError(t, os.WriteFile(path, data, 0o600))
 }
 
@@ -139,10 +139,10 @@ func TestGeoIPDatabaseStoreReplace_EpochRules(t *testing.T) {
 		wantErr error
 	}{
 		{name: "equal to the database in use", inUse: 1_750_000_000, upload: 1_750_000_000},
-		{name: "23 hours ahead of the clock", upload: uint32(uploadNow.Add(23 * time.Hour).Unix())},
+		{name: "23 hours ahead of the clock", upload: uint32(uploadNow.Add(23 * time.Hour).Unix())}, //nolint:gosec // G115: a 2026 Unix time fits in uint32
 		{
 			name:    "24 hours and a second ahead of the clock",
-			upload:  uint32(uploadNow.Add(24*time.Hour + time.Second).Unix()),
+			upload:  uint32(uploadNow.Add(24*time.Hour + time.Second).Unix()), //nolint:gosec // G115: a 2026 Unix time fits in uint32
 			wantErr: ErrGeoIPBuildDateInFuture,
 		},
 		{name: "older than the database in use", inUse: 1_750_000_000, upload: 1_700_000_000, wantErr: ErrGeoIPOlderThanCurrent},
@@ -364,7 +364,7 @@ func TestGeoIPDatabaseStoreReplace_RefusesSymlinkTarget(t *testing.T) {
 	_, err := f.store.Replace(context.Background(), bytes.NewReader(uploadBytes(t, 1_700_000_000)))
 
 	assert.ErrorIs(t, err, ErrGeoIPWriteFailed)
-	content, err := os.ReadFile(outside)
+	content, err := os.ReadFile(outside) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	assert.Equal(t, "untouched", string(content))
 }
@@ -376,9 +376,9 @@ func TestGeoIPDatabaseStoreReplace_ReadOnlyFolderIsReported(t *testing.T) {
 	t.Run("the GeoIP folder cannot be created", func(t *testing.T) {
 		root := t.TempDir()
 		dataPath := filepath.Join(root, "data", "geoip", geoip.DatabaseFileName)
-		require.NoError(t, os.MkdirAll(filepath.Join(root, "data"), 0o755))
-		require.NoError(t, os.Chmod(filepath.Join(root, "data"), 0o500))
-		t.Cleanup(func() { _ = os.Chmod(filepath.Join(root, "data"), 0o755) })
+		require.NoError(t, os.MkdirAll(filepath.Join(root, "data"), 0o750))
+		require.NoError(t, os.Chmod(filepath.Join(root, "data"), 0o500))       //nolint:gosec // G302: directory needs the exec bit; read-only dir fixture
+		t.Cleanup(func() { _ = os.Chmod(filepath.Join(root, "data"), 0o755) }) //nolint:gosec // G302: the test tree must be removable
 		store := NewGeoIPDatabaseStore(GeoIPDatabaseStoreConfig{
 			Service: NewUnloadedGeoIPService(dataPath), DataPath: dataPath, BundledPath: filepath.Join(root, "b.mmdb"),
 		})
@@ -390,8 +390,8 @@ func TestGeoIPDatabaseStoreReplace_ReadOnlyFolderIsReported(t *testing.T) {
 	})
 	t.Run("the GeoIP folder exists but refuses new files", func(t *testing.T) {
 		f := newUploadFixture(t, false)
-		require.NoError(t, os.Chmod(f.dataDir, 0o500))
-		t.Cleanup(func() { _ = os.Chmod(f.dataDir, 0o755) })
+		require.NoError(t, os.Chmod(f.dataDir, 0o500))       //nolint:gosec // G302: directory needs the exec bit; read-only dir fixture
+		t.Cleanup(func() { _ = os.Chmod(f.dataDir, 0o755) }) //nolint:gosec // G302: the test tree must be removable
 
 		_, err := f.store.Replace(context.Background(), bytes.NewReader(uploadBytes(t, 1_700_000_000)))
 
@@ -529,7 +529,7 @@ func TestSweepGeoIPDataFolder_RestoresPreviousWhenLiveMissing(t *testing.T) {
 
 	require.NoError(t, SweepGeoIPDataFolder(live))
 
-	restored, err := os.ReadFile(live)
+	restored, err := os.ReadFile(live) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	assert.Equal(t, "previous", string(restored))
 	assert.NoFileExists(t, live+prevSuffix)
@@ -543,7 +543,7 @@ func TestSweepGeoIPDataFolder_RemovesPreviousWhenLiveExists(t *testing.T) {
 
 	require.NoError(t, SweepGeoIPDataFolder(live))
 
-	kept, err := os.ReadFile(live)
+	kept, err := os.ReadFile(live) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	assert.Equal(t, "new", string(kept))
 	assert.NoFileExists(t, live+prevSuffix)
@@ -607,7 +607,7 @@ func TestGeoIPDatabaseStoreReplace_CannotMoveCopyAsideRefusesWithoutTouchingCopy
 	before, err := os.ReadFile(f.dataPath)
 	require.NoError(t, err)
 	// A directory where the previous copy would go makes the move aside fail.
-	require.NoError(t, os.MkdirAll(filepath.Join(f.dataPath+prevSuffix, "blocker"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(f.dataPath+prevSuffix, "blocker"), 0o750))
 
 	_, err = f.store.Replace(context.Background(), bytes.NewReader(uploadBytes(t, 1_750_000_000)))
 
@@ -633,8 +633,8 @@ func TestGeoIPDatabaseStoreRemove_ReadOnlyFolderAndUnreachablePath(t *testing.T)
 		}
 		f := newUploadFixture(t, false)
 		writeCountryDB(t, f.dataPath, 1_750_000_000)
-		require.NoError(t, os.Chmod(f.dataDir, 0o500))
-		t.Cleanup(func() { _ = os.Chmod(f.dataDir, 0o755) })
+		require.NoError(t, os.Chmod(f.dataDir, 0o500))       //nolint:gosec // G302: directory needs the exec bit; read-only dir fixture
+		t.Cleanup(func() { _ = os.Chmod(f.dataDir, 0o755) }) //nolint:gosec // G302: the test tree must be removable
 
 		err := f.store.RemoveDataCopy(context.Background())
 
@@ -652,8 +652,8 @@ func TestSweepGeoIPDataFolder_ReportsFilesThatCannotBeChanged(t *testing.T) {
 		dir := t.TempDir()
 		live := filepath.Join(dir, geoip.DatabaseFileName)
 		placeFile(t, filepath.Join(dir, uploadTempPrefix+"1"), []byte("partial"))
-		require.NoError(t, os.Chmod(dir, 0o500))
-		t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+		require.NoError(t, os.Chmod(dir, 0o500))       //nolint:gosec // G302: directory needs the exec bit; read-only dir fixture
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o755) }) //nolint:gosec // G302: the test tree must be removable
 
 		require.Error(t, SweepGeoIPDataFolder(live))
 	})
@@ -661,8 +661,8 @@ func TestSweepGeoIPDataFolder_ReportsFilesThatCannotBeChanged(t *testing.T) {
 		dir := t.TempDir()
 		live := filepath.Join(dir, geoip.DatabaseFileName)
 		placeFile(t, live+prevSuffix, []byte("previous"))
-		require.NoError(t, os.Chmod(dir, 0o500))
-		t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+		require.NoError(t, os.Chmod(dir, 0o500))       //nolint:gosec // G302: directory needs the exec bit; read-only dir fixture
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o755) }) //nolint:gosec // G302: the test tree must be removable
 
 		require.Error(t, SweepGeoIPDataFolder(live))
 	})
@@ -671,8 +671,8 @@ func TestSweepGeoIPDataFolder_ReportsFilesThatCannotBeChanged(t *testing.T) {
 		live := filepath.Join(dir, geoip.DatabaseFileName)
 		placeFile(t, live, []byte("live"))
 		placeFile(t, live+prevSuffix, []byte("previous"))
-		require.NoError(t, os.Chmod(dir, 0o500))
-		t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+		require.NoError(t, os.Chmod(dir, 0o500))       //nolint:gosec // G302: directory needs the exec bit; read-only dir fixture
+		t.Cleanup(func() { _ = os.Chmod(dir, 0o755) }) //nolint:gosec // G302: the test tree must be removable
 
 		require.Error(t, SweepGeoIPDataFolder(live))
 	})

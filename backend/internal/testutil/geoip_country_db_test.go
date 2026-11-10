@@ -126,3 +126,18 @@ func TestWriteGeoIPCountryDBRecordOptionResolvesCountry(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "DE", record.Country.ISOCode)
 }
+
+func TestWriteGeoIPCountryDB_RefusesRecordsTheEncoderCannotWrite(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "GeoLite2-Country.mmdb")
+	tooLarge := make(map[string]any, 29)
+	for i := range 29 {
+		tooLarge[fmt.Sprintf("k%02d", i)] = "v"
+	}
+
+	assert.PanicsWithValue(t, "testutil: MMDB map too large for the fixture encoder", func() {
+		WriteGeoIPCountryDB(t, path, 1_700_000_000, WithGeoIPRecord(tooLarge))
+	})
+	assert.PanicsWithValue(t, "testutil: unsupported MMDB value for the fixture encoder", func() {
+		WriteGeoIPCountryDB(t, path, 1_700_000_000, WithGeoIPRecord(map[string]any{"count": 1}))
+	})
+}

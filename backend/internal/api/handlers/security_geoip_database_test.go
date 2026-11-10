@@ -134,7 +134,7 @@ func validUpload(t *testing.T, buildEpoch uint32, opts ...testutil.GeoIPCountryO
 		testutil.WithGeoIPRecordISOCode("US"),
 	}, opts...)
 	testutil.WriteGeoIPCountryDB(t, path, buildEpoch, all...)
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	return data
 }
@@ -162,7 +162,7 @@ func (f *geoipDBFixture) replace(data []byte) *httptest.ResponseRecorder {
 // seedDataCopy writes and loads a data-folder copy with buildEpoch.
 func (f *geoipDBFixture) seedDataCopy(buildEpoch uint32) {
 	f.t.Helper()
-	require.NoError(f.t, os.MkdirAll(f.dataDir, 0o755))
+	require.NoError(f.t, os.MkdirAll(f.dataDir, 0o750))
 	testutil.WriteGeoIPCountryDB(f.t, f.dataPath, buildEpoch, testutil.WithGeoIPDatabaseType("GeoLite2-Country"))
 	require.NoError(f.t, f.handler.geoipStore.Reload(context.Background()))
 }
@@ -324,7 +324,7 @@ func TestReplaceGeoIPDatabase_RefusedUploadsReturnStableCodes(t *testing.T) {
 		{
 			name: "build date in the future",
 			body: func(t *testing.T) (io.Reader, string) {
-				future := uint32(time.Now().Add(48 * time.Hour).Unix())
+				future := uint32(time.Now().Add(48 * time.Hour).Unix()) //nolint:gosec // G115: a 2026 Unix time fits in uint32
 				return upload(t, "file", validUpload(t, future))
 			},
 			wantStatus: http.StatusBadRequest, wantCode: "geoip_build_date_in_future", wantReason: "geoip_build_date_in_future",
@@ -461,9 +461,9 @@ func TestReplaceGeoIPDatabase_ReadOnlyFolderIsConflict(t *testing.T) {
 		t.Skip("permission checks do not apply to root")
 	}
 	f := newGeoIPDBFixture(t, geoipDBOptions{})
-	require.NoError(t, os.MkdirAll(f.dataDir, 0o755))
-	require.NoError(t, os.Chmod(f.dataDir, 0o500))
-	t.Cleanup(func() { _ = os.Chmod(f.dataDir, 0o755) })
+	require.NoError(t, os.MkdirAll(f.dataDir, 0o750))
+	require.NoError(t, os.Chmod(f.dataDir, 0o500))       //nolint:gosec // G302: directory needs the exec bit; read-only dir fixture
+	t.Cleanup(func() { _ = os.Chmod(f.dataDir, 0o755) }) //nolint:gosec // G302: the test tree must be removable
 
 	w := f.replace(validUpload(t, 1_700_000_000))
 
@@ -473,7 +473,7 @@ func TestReplaceGeoIPDatabase_ReadOnlyFolderIsConflict(t *testing.T) {
 
 func TestRemoveGeoIPDatabase_RestoresBundledCopyAndAudits(t *testing.T) {
 	f := newGeoIPDBFixture(t, geoipDBOptions{})
-	require.NoError(t, os.MkdirAll(filepath.Dir(f.bundledPath), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Dir(f.bundledPath), 0o750))
 	testutil.WriteGeoIPCountryDB(t, f.bundledPath, 1_700_000_000)
 	f.seedDataCopy(1_750_000_000)
 
@@ -541,7 +541,7 @@ func TestRemoveGeoIPDatabase_RefusedCases(t *testing.T) {
 	})
 	t.Run("apply failure restores the copy", func(t *testing.T) {
 		f := newGeoIPDBFixture(t, geoipDBOptions{})
-		require.NoError(t, os.MkdirAll(filepath.Dir(f.bundledPath), 0o755))
+		require.NoError(t, os.MkdirAll(filepath.Dir(f.bundledPath), 0o750))
 		testutil.WriteGeoIPCountryDB(t, f.bundledPath, 1_700_000_000)
 		f.seedDataCopy(1_750_000_000)
 		f.handler.geoipStore = services.NewGeoIPDatabaseStore(services.GeoIPDatabaseStoreConfig{

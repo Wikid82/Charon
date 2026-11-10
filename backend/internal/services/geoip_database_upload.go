@@ -85,6 +85,36 @@ type ReplaceResult struct {
 	SHA256 string
 }
 
+// uploadFile is the temporary file an upload is streamed into. *os.File satisfies it.
+type uploadFile interface {
+	io.Writer
+	Name() string
+	Sync() error
+	Close() error
+}
+
+// geoipFileOps are the data-folder operations an upload or a removal uses.
+type geoipFileOps struct {
+	createTemp func(dir, pattern string) (uploadFile, error)
+	rename     func(oldpath, newpath string) error
+	syncDir    func(dir string) error
+}
+
+// osGeoIPFileOps returns the file operations of the operating system.
+func osGeoIPFileOps() geoipFileOps {
+	return geoipFileOps{
+		createTemp: func(dir, pattern string) (uploadFile, error) {
+			f, err := os.CreateTemp(dir, pattern)
+			if err != nil {
+				return nil, err
+			}
+			return f, nil
+		},
+		rename:  os.Rename,
+		syncDir: syncDir,
+	}
+}
+
 // swapState records what a change replaced, so a failed step can put the previous state back.
 type swapState struct {
 	live, prev  string
@@ -106,7 +136,7 @@ func (s *GeoIPDatabaseStore) Replace(ctx context.Context, upload io.Reader) (Rep
 
 	live := s.dataPath
 	dir := filepath.Dir(live)
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o755); err != nil { //nolint:gosec // G301: the folder holds a public database; mode matches the bundled copy
 		return ReplaceResult{}, folderWriteError(err)
 	}
 	hadPrevious, err := regularTarget(live)
@@ -114,7 +144,7 @@ func (s *GeoIPDatabaseStore) Replace(ctx context.Context, upload io.Reader) (Rep
 		return ReplaceResult{}, err
 	}
 
-	tmp, err := os.CreateTemp(dir, uploadTempPattern)
+	tmp, err := s.files.createTemp(dir, uploadTempPattern)
 	if err != nil {
 		return ReplaceResult{}, folderWriteError(err)
 	}
@@ -142,15 +172,15 @@ func (s *GeoIPDatabaseStore) Replace(ctx context.Context, upload io.Reader) (Rep
 
 	st := swapState{live: live, prev: live + prevSuffix, hadPrevious: hadPrevious, before: s.svc.Info()}
 	if hadPrevious {
-		if err := os.Rename(live, st.prev); err != nil {
+		if err := s.files.rename(live, st.prev); err != nil {
 			return result, folderWriteError(err)
 		}
 	}
-	if err := os.Rename(tmpPath, live); err != nil {
+	if err := s.files.rename(tmpPath, live); err != nil {
 		restoreFiles(st)
 		return result, folderWriteError(err)
 	}
-	if err := syncDir(dir); err != nil {
+	if err := s.files.syncDir(dir); err != nil {
 		restoreFiles(st)
 		return result, folderWriteError(err)
 	}
@@ -173,7 +203,7 @@ func (s *GeoIPDatabaseStore) Replace(ctx context.Context, upload io.Reader) (Rep
 // copyUpload streams the upload into dst and returns its size and digest. The read is capped at maxBytes+1 bytes, so
 // an over-size upload is detected without buffering it. A write failure is reported as a write failure, not as an
 // unreadable upload.
-func (s *GeoIPDatabaseStore) copyUpload(dst *os.File, upload io.Reader) (size int64, digest string, err error) {
+func (s *GeoIPDatabaseStore) copyUpload(dst uploadFile, upload io.Reader) (size int64, digest string, err error) {
 	hasher := sha256.New()
 	w := &uploadWriter{dst: io.MultiWriter(dst, hasher)}
 	n, err := io.Copy(w, io.LimitReader(upload, s.maxBytes+1))
@@ -223,7 +253,7 @@ func (w *uploadWriter) Write(p []byte) (int, error) {
 // checkBuildEpoch refuses a build date in the future, and one older than the database in use or the bundled copy,
 // whichever is newer. Equal dates are accepted.
 func (s *GeoIPDatabaseStore) checkBuildEpoch(epoch uint) error {
-	if time.Unix(int64(epoch), 0).After(s.now().Add(geoipFutureTolerance)) {
+	if geoip.BuildTime(epoch).After(s.now().Add(geoipFutureTolerance)) {
 		return ErrGeoIPBuildDateInFuture
 	}
 	var current uint
@@ -273,10 +303,10 @@ func (s *GeoIPDatabaseStore) RemoveDataCopy(ctx context.Context) error {
 	}
 
 	st := swapState{live: live, prev: live + prevSuffix, hadPrevious: true, before: s.svc.Info()}
-	if err := os.Rename(live, st.prev); err != nil {
+	if err := s.files.rename(live, st.prev); err != nil {
 		return folderWriteError(err)
 	}
-	if err := syncDir(filepath.Dir(live)); err != nil {
+	if err := s.files.syncDir(filepath.Dir(live)); err != nil {
 		restoreFiles(st)
 		return folderWriteError(err)
 	}

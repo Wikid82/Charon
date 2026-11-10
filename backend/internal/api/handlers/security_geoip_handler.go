@@ -212,7 +212,7 @@ func formatBuildEpoch(epoch uint) string {
 	if epoch == 0 {
 		return "unknown"
 	}
-	return time.Unix(int64(epoch), 0).UTC().Format(time.RFC3339)
+	return geoip.BuildTime(epoch).UTC().Format(time.RFC3339)
 }
 
 // geoipUploadField is the only multipart part name the upload accepts.

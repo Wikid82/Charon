@@ -30,7 +30,7 @@ func newStoreFixture(t *testing.T, env bool) *storeFixture {
 	t.Helper()
 	root := t.TempDir()
 	dataDir := filepath.Join(root, "data", "geoip")
-	require.NoError(t, os.MkdirAll(dataDir, 0o755))
+	require.NoError(t, os.MkdirAll(dataDir, 0o750))
 	f := &storeFixture{
 		dataDir:     dataDir,
 		dataPath:    filepath.Join(dataDir, geoip.DatabaseFileName),
@@ -51,7 +51,7 @@ func newStoreFixture(t *testing.T, env bool) *storeFixture {
 
 func writeCountryDB(t *testing.T, path string, epoch uint32) {
 	t.Helper()
-	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Dir(path), 0o750))
 	testutil.WriteGeoIPCountryDB(t, path, epoch, testutil.WithGeoIPDatabaseType("GeoLite2-Country"))
 }
 
@@ -149,7 +149,7 @@ func TestGeoIPDatabaseStoreStatus_RemovedFileHasNoSize(t *testing.T) {
 
 func TestGeoIPDatabaseStoreStatus_DirectoryAsBundledCopyIsUnknown(t *testing.T) {
 	f := newStoreFixture(t, false)
-	require.NoError(t, os.MkdirAll(f.bundledPath, 0o755))
+	require.NoError(t, os.MkdirAll(f.bundledPath, 0o750))
 
 	assert.Nil(t, f.store.Status().IncludedBuildDate)
 }
@@ -192,7 +192,7 @@ func TestGeoIPDatabaseStoreStatus_IncludedCopyAbsentOrUnreadable(t *testing.T) {
 	f := newStoreFixture(t, false)
 	assert.Nil(t, f.store.Status().IncludedBuildDate, "an absent bundled copy is unknown")
 
-	require.NoError(t, os.MkdirAll(filepath.Dir(f.bundledPath), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Dir(f.bundledPath), 0o750))
 	require.NoError(t, os.WriteFile(f.bundledPath, []byte("not a database"), 0o600))
 	assert.Nil(t, f.store.Status().IncludedBuildDate, "an unreadable bundled copy is unknown")
 }

@@ -24,7 +24,7 @@ func TestBackupService_ExcludesGeoIPFolder(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(caddyDir, "caddy.json"), []byte("{}"), 0o600))
 
 	geoipDir := filepath.Join(dataDir, "geoip")
-	require.NoError(t, os.MkdirAll(geoipDir, 0o755))
+	require.NoError(t, os.MkdirAll(geoipDir, 0o750))
 	for _, name := range []string{"GeoLite2-Country.mmdb", "GeoLite2-Country.mmdb.prev", ".GeoLite2-Country.mmdb.upload-123"} {
 		require.NoError(t, os.WriteFile(filepath.Join(geoipDir, name), []byte("database bytes"), 0o600))
 	}

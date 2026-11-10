@@ -99,3 +99,11 @@ func TestSourceOf(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvPathInEffect_ReadsTheEnvironment(t *testing.T) {
+	t.Setenv(EnvDBPath, "")
+	assert.False(t, EnvPathInEffect())
+
+	t.Setenv(EnvDBPath, testCustom)
+	assert.True(t, EnvPathInEffect())
+}

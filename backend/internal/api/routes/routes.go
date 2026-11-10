@@ -945,9 +945,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 		// An upload or removal interrupted by a crash leaves temp or previous files in the data folder. They are cleared
 		// before the database path is resolved, so the resolver sees the state the last completed change left.
-		if err := services.SweepGeoIPDataFolder(geoip.DataDatabasePath()); err != nil {
-			logger.Log().WithError(err).Warn("Could not clean up the GeoIP data folder after an interrupted change")
-		}
+		sweepGeoIPDataFolder(geoip.DataDatabasePath())
 
 		// The GeoIP service always exists, even without a database file, so a database added later is loaded by
 		// POST /security/geoip/reload and every consumer (including the proxy state) sees the same live service.

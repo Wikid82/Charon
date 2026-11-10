@@ -18,3 +18,12 @@ func TestReportGeoIPBuildMarker_ReportsOnlyWhenMarkerPresent(t *testing.T) {
 	assert.True(t, reportGeoIPBuildMarker(dbPath, false))
 	assert.True(t, reportGeoIPBuildMarker(dbPath, true), "marker is reported even when a database is provided later")
 }
+
+func TestSweepGeoIPDataFolder_ReportsWhetherTheFolderIsClean(t *testing.T) {
+	dir := t.TempDir()
+	assert.True(t, sweepGeoIPDataFolder(filepath.Join(dir, "geoip", "GeoLite2-Country.mmdb")), "a missing folder is clean")
+
+	notAFolder := filepath.Join(dir, "file")
+	require.NoError(t, os.WriteFile(notAFolder, []byte("x"), 0o600))
+	assert.False(t, sweepGeoIPDataFolder(filepath.Join(notAFolder, "GeoLite2-Country.mmdb")), "an unreadable folder is logged and startup goes on")
+}

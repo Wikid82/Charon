@@ -48,7 +48,7 @@ func TestRegister_GeoIPDatabaseRoutesRefuseCrossOriginCookieRequests(t *testing.
 		req := httptest.NewRequest(method, path, strings.NewReader(body))
 		req.Header.Set("Content-Type", "text/plain")
 		if token != "" {
-			req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, HttpOnly: true, Secure: true})
+			req.AddCookie(&http.Cookie{Name: "auth_token", Value: token, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
 		}
 		for k, v := range headers {
 			req.Header.Set(k, v)

@@ -53,10 +53,10 @@ func TestValidateCountryDatabase_RejectsMissingFile(t *testing.T) {
 
 func TestValidateCountryDatabase_RejectsTruncatedFile(t *testing.T) {
 	path := writeFixture(t, 1_700_000_000, testutil.WithGeoIPRecordISOCode("US"))
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	// Cutting the file inside the metadata section removes the marker the reader searches for.
-	require.NoError(t, os.WriteFile(path, data[:len(data)-8], 0o600))
+	require.NoError(t, os.WriteFile(path, data[:len(data)-8], 0o600)) //nolint:gosec // G703: t.TempDir-derived path
 
 	_, err = ValidateCountryDatabase(path)
 
@@ -65,14 +65,14 @@ func TestValidateCountryDatabase_RejectsTruncatedFile(t *testing.T) {
 
 func TestValidateCountryDatabase_RejectsUnsupportedFormatVersion(t *testing.T) {
 	path := writeFixture(t, 1_700_000_000, testutil.WithGeoIPRecordISOCode("US"))
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(path) //nolint:gosec // G304: t.TempDir-derived path
 	require.NoError(t, err)
 	// The metadata value after the key is the uint16 major version 2; change it to 3.
 	key := []byte("binary_format_major_version")
 	at := bytes.Index(data, key) + len(key)
 	require.Equal(t, byte(0xA1), data[at], "fixture layout changed")
 	data[at+1] = 3
-	require.NoError(t, os.WriteFile(path, data, 0o600))
+	require.NoError(t, os.WriteFile(path, data, 0o600)) //nolint:gosec // G703: t.TempDir-derived path
 
 	_, err = ValidateCountryDatabase(path)
 

@@ -77,6 +77,9 @@ type GeoIPDatabaseStore struct {
 	maxBytes int64
 	// now supplies the clock for the build-date checks. Tests set it.
 	now func() time.Time
+	// files are the data-folder operations of an upload or removal. They are osGeoIPFileOps; tests replace single
+	// operations to reach the failure branches.
+	files geoipFileOps
 
 	mu sync.Mutex
 
@@ -111,6 +114,7 @@ func NewGeoIPDatabaseStore(cfg GeoIPDatabaseStoreConfig) *GeoIPDatabaseStore {
 		loadFile:    cfg.Service.LoadFrom,
 		maxBytes:    MaxGeoIPDatabaseBytes,
 		now:         time.Now,
+		files:       osGeoIPFileOps(),
 	}
 }
 
@@ -244,7 +248,7 @@ func formatEpochUTC(epoch uint) *string {
 	if epoch == 0 {
 		return nil
 	}
-	return formatTimeUTC(time.Unix(int64(epoch), 0))
+	return formatTimeUTC(geoip.BuildTime(epoch))
 }
 
 // formatTimeUTC renders t as an RFC 3339 UTC time, or nil for the zero time.

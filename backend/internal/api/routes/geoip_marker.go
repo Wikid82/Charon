@@ -39,3 +39,13 @@ func geoIPProxyState(svc *services.GeoIPService) func() (string, bool) {
 		return path, svc.Available()
 	}
 }
+
+// sweepGeoIPDataFolder clears what an interrupted upload or removal left beside livePath, logging a Warn when that
+// fails. It reports whether the folder is clean, so startup carries on either way.
+func sweepGeoIPDataFolder(livePath string) bool {
+	if err := services.SweepGeoIPDataFolder(livePath); err != nil {
+		logger.Log().WithError(err).Warn("Could not clean up the GeoIP data folder after an interrupted change")
+		return false
+	}
+	return true
+}
