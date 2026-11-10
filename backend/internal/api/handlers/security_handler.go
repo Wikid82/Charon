@@ -723,6 +723,15 @@ func (h *SecurityHandler) GetGeoIPStatus(c *gin.Context) {
 	c.JSON(http.StatusOK, body)
 }
 
+// Stable error_code values and fixed messages of the GeoIP reload endpoint. The error text of the underlying failure
+// (which can name filesystem paths) is logged server-side only and never returned to the client.
+const (
+	codeGeoIPReloadFailed       = "geoip_reload_failed"
+	codeGeoIPServiceUnavailable = "geoip_service_unavailable"
+	codeProxyApplyFailed        = "proxy_apply_failed"
+	msgGeoIPReloadFailed        = "Failed to reload the GeoIP database"
+)
+
 // ReloadGeoIP reloads the GeoIP database from disk.
 func (h *SecurityHandler) ReloadGeoIP(c *gin.Context) {
 	if !requireAdmin(c) {
@@ -731,15 +740,17 @@ func (h *SecurityHandler) ReloadGeoIP(c *gin.Context) {
 
 	if h.geoipSvc == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"error": "GeoIP service not initialized",
+			"error":      "GeoIP service not initialized",
+			"error_code": codeGeoIPServiceUnavailable,
 		})
 		return
 	}
 
 	if err := h.geoipSvc.Load(); err != nil {
-		log.WithError(err).Error("Failed to reload GeoIP database")
+		log.WithField("detail", util.SanitizeForLog(err.Error())).Error("Failed to reload GeoIP database")
 		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to reload GeoIP database: " + err.Error(),
+			"error":      msgGeoIPReloadFailed,
+			"error_code": codeGeoIPReloadFailed,
 		})
 		return
 	}
@@ -748,8 +759,11 @@ func (h *SecurityHandler) ReloadGeoIP(c *gin.Context) {
 	// next apply. Apply now, so country lists follow the reload at once.
 	if h.caddyManager != nil {
 		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
-			log.WithError(err).Warn("failed to apply proxy config after GeoIP reload")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
+			log.WithField("detail", util.SanitizeForLog(err.Error())).Warn("failed to apply proxy config after GeoIP reload")
+			c.JSON(http.StatusInternalServerError, gin.H{
+				"error":      msgModuleApplyFailed,
+				"error_code": codeProxyApplyFailed,
+			})
 			return
 		}
 	}
