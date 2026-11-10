@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"fmt"
 	"net/http"
 	"net/url"
 	"strings"
@@ -42,6 +43,49 @@ var upgrader = websocket.Upgrader{
 // analysis at every call site.
 func upgradeWebSocket(c *gin.Context) (*websocket.Conn, error) {
 	return upgrader.Upgrade(c.Writer, c.Request, nil)
+}
+
+// logSocketReadLimit caps the size of a single client message.
+const logSocketReadLimit = 4096
+
+// Log socket timers. They are variables only so tests can shorten them.
+var (
+	// logSocketPongWait is how long a client may stay silent before its read fails.
+	logSocketPongWait = 60 * time.Second
+	// logSocketPingPeriod is how often the server pings the client.
+	logSocketPingPeriod = 30 * time.Second
+	// logSocketWriteWait bounds every write, including pings.
+	logSocketWriteWait = 10 * time.Second
+)
+
+// configureLogSocket applies the read and write limits shared by every log
+// WebSocket. Call it right after the upgrade. Each pong from the client
+// extends the read deadline, so an idle but responsive client stays open.
+func configureLogSocket(conn *websocket.Conn) {
+	conn.SetReadLimit(logSocketReadLimit)
+	if err := conn.SetReadDeadline(time.Now().Add(logSocketPongWait)); err != nil {
+		logger.Log().WithError(err).Debug("Failed to set initial log socket read deadline")
+	}
+	conn.SetPongHandler(func(string) error {
+		return conn.SetReadDeadline(time.Now().Add(logSocketPongWait))
+	})
+}
+
+// writeLogSocketJSON sends v as a JSON text message. The write deadline is
+// refreshed before every write, so a stalled client cannot block the handler.
+func writeLogSocketJSON(conn *websocket.Conn, v any) error {
+	if err := conn.SetWriteDeadline(time.Now().Add(logSocketWriteWait)); err != nil {
+		return fmt.Errorf("set log socket write deadline: %w", err)
+	}
+	return conn.WriteJSON(v)
+}
+
+// writeLogSocketPing sends a ping frame under the same write deadline as data writes.
+func writeLogSocketPing(conn *websocket.Conn) error {
+	if err := conn.SetWriteDeadline(time.Now().Add(logSocketWriteWait)); err != nil {
+		return fmt.Errorf("set log socket write deadline: %w", err)
+	}
+	return conn.WriteMessage(websocket.PingMessage, []byte{})
 }
 
 // LogEntry represents a structured log entry sent over WebSocket.
@@ -88,6 +132,8 @@ func (h *LogsWSHandler) HandleWebSocket(c *gin.Context) {
 		}
 	}()
 
+	configureLogSocket(conn)
+
 	// Generate unique subscriber ID
 	subscriberID := uuid.New().String()
 
@@ -132,7 +178,7 @@ func (h *LogsWSHandler) HandleWebSocket(c *gin.Context) {
 	}()
 
 	// Main loop: stream logs to client
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(logSocketPingPeriod)
 	defer ticker.Stop()
 
 	for {
@@ -167,7 +213,7 @@ func (h *LogsWSHandler) HandleWebSocket(c *gin.Context) {
 			}
 
 			// Send to WebSocket client
-			if err := conn.WriteJSON(logEntry); err != nil {
+			if err := writeLogSocketJSON(conn, logEntry); err != nil {
 				logger.Log().WithError(err).Debug("Failed to write to WebSocket")
 				return
 			}
@@ -179,7 +225,7 @@ func (h *LogsWSHandler) HandleWebSocket(c *gin.Context) {
 
 		case <-ticker.C:
 			// Send ping to keep connection alive
-			if err := conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
+			if err := writeLogSocketPing(conn); err != nil {
 				return
 			}
 

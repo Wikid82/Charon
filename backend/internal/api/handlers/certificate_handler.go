@@ -22,7 +22,7 @@ import (
 
 // BackupServiceInterface defines the contract for backup service operations
 type BackupServiceInterface interface {
-	CreateBackup() (string, error)
+	CreateAutomaticBackup(kind string) (*models.BackupRecord, error)
 	ListBackups() ([]services.BackupFile, error)
 	DeleteBackup(filename string) error
 	GetBackupPath(filename string) (string, error)
@@ -488,6 +488,10 @@ func (h *CertificateHandler) Delete(c *gin.Context) {
 // minBackupFreeSpaceBytes is the free disk space required before a pre-delete backup is attempted.
 const minBackupFreeSpaceBytes = 100 * 1024 * 1024
 
+// certificateDeleteBackupKind is the backup record type stored for the safety
+// backup taken before a certificate delete (single or bulk).
+const certificateDeleteBackupKind = "pre_delete"
+
 // errCertUsageCheck marks a failed in-use lookup so it keeps its own response message.
 var errCertUsageCheck = errors.New("certificate usage check failed")
 
@@ -507,7 +511,7 @@ func (h *CertificateHandler) backupBeforeDelete(c *gin.Context) bool {
 		return false
 	}
 
-	if _, err := h.backupService.CreateBackup(); err != nil {
+	if _, err := h.backupService.CreateAutomaticBackup(certificateDeleteBackupKind); err != nil {
 		logger.Log().WithError(err).Error("failed to create backup before deletion")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create backup before deletion"})
 		return false

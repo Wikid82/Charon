@@ -484,7 +484,7 @@ func (s *BackupService) RunScheduledBackup() {
 		cleanupOld = s.cleanupOld
 	}
 
-	opts, err := s.resolveScheduledBackupOptions()
+	opts, err := s.resolveAutomaticBackupOptions("scheduled")
 	if err != nil {
 		logger.Log().WithError(err).Error("Scheduled backup: failed to resolve encryption settings")
 		return
@@ -682,7 +682,7 @@ func randomFilenameSuffix() (string, error) {
 // BackupOptions configures a single CreateBackupWithOptions call (spec §3.2).
 type BackupOptions struct {
 	// Type identifies why the backup is being created:
-	// manual|scheduled|pre_restore|uploaded. Defaults to "manual" if empty.
+	// manual|scheduled|pre_restore|pre_delete|uploaded. Defaults to "manual" if empty.
 	Type string
 	// Encrypt requests age/scrypt passphrase encryption of the finished
 	// archive (spec §3.6). Requires Passphrase to be non-empty.
@@ -728,14 +728,14 @@ func (s *BackupService) resolveBackupPassphrase(opts BackupOptions) (BackupOptio
 	return opts, nil
 }
 
-// resolveScheduledBackupOptions builds the BackupOptions for a
-// cron-triggered backup, applying the persisted encryption setting (spec
-// §12.3) — previously RunScheduledBackup always created unencrypted
-// backups regardless of the "Enable backup encryption" setting. Reuses
-// resolveBackupPassphrase (§12.2.2) for the identical stored-passphrase
-// decrypt path the manual-create flow now also uses; no new decrypt logic.
-func (s *BackupService) resolveScheduledBackupOptions() (BackupOptions, error) {
-	opts := BackupOptions{Type: "scheduled"} // was "manual" — see spec §12.3.3
+// resolveAutomaticBackupOptions builds the BackupOptions for a backup Charon
+// takes on its own (kind "scheduled" from cron, or "pre_delete" ahead of a
+// certificate delete), applying the persisted encryption setting (spec §12.3)
+// and leaving UploadToRemote unset so the remote-upload policy matches the
+// scheduled path. Reuses resolveBackupPassphrase (§12.2.2) for the identical
+// stored-passphrase decrypt path the manual-create flow now also uses.
+func (s *BackupService) resolveAutomaticBackupOptions(kind string) (BackupOptions, error) {
+	opts := BackupOptions{Type: kind}
 	if s.db == nil {
 		return opts, nil
 	}
@@ -757,6 +757,24 @@ func (s *BackupService) CreateBackup() (string, error) {
 		return "", err
 	}
 	return record.Filename, nil
+}
+
+// CreateAutomaticBackup takes a backup Charon creates on its own behalf
+// (kind is stored as the record Type, e.g. "pre_delete") and applies the same
+// encryption and remote-upload resolution as RunScheduledBackup, so a safety
+// backup never silently ignores the stored backup encryption setting. It
+// returns the persisted record, or an error when the backup could not be
+// created (including a stored-passphrase failure while encryption is on).
+func (s *BackupService) CreateAutomaticBackup(kind string) (*models.BackupRecord, error) {
+	opts, err := s.resolveAutomaticBackupOptions(kind)
+	if err != nil {
+		return nil, fmt.Errorf("resolve %s backup options: %w", kind, err)
+	}
+	record, err := s.CreateBackupWithOptions(opts)
+	if err != nil {
+		return nil, fmt.Errorf("create %s backup: %w", kind, err)
+	}
+	return record, nil
 }
 
 // CreateBackupWithOptions creates a format-v2 archive (charon.db + caddy/**

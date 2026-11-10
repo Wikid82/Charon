@@ -236,14 +236,19 @@ func TestRegister_AuthThrottleDisabledByConfig(t *testing.T) {
 	}
 }
 
-func TestRegister_EmergencyEndpointsNeverThrottled(t *testing.T) {
+func TestRegister_EmergencyEndpointsNotThrottledByAuthBudget(t *testing.T) {
 	app := newThrottledApp(t, withAuthBudget(1, 1))
 	app.login("nobody@example.com", "x")
 	assertGeneric429(t, app.login("nobody@example.com", "x"))
 	for i := 0; i < 15; i++ {
-		assert.NotEqual(t, http.StatusTooManyRequests, app.do(http.MethodPost, "/api/v1/emergency/security-reset", "", "", nil).Code)
 		assert.NotEqual(t, http.StatusTooManyRequests, app.do(http.MethodGet, "/api/v1/emergency/token/status", "", "", nil).Code)
 	}
+
+	// The reset route has its own per-address budget, independent of the sign-in budget.
+	for i := 0; i < middleware.EmergencyResetAttemptsPerWindow; i++ {
+		assert.NotEqual(t, http.StatusTooManyRequests, app.do(http.MethodPost, "/api/v1/emergency/security-reset", "", "", nil).Code)
+	}
+	assertGeneric429(t, app.do(http.MethodPost, "/api/v1/emergency/security-reset", "", "", nil))
 }
 
 func TestRegister_EmergencyBypassSkipsAuthThrottle(t *testing.T) {
