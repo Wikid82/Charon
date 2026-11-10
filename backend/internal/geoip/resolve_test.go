@@ -2,14 +2,10 @@ package geoip
 
 import (
 	"errors"
-	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-
-	"github.com/Wikid82/charon/backend/internal/testutil"
 )
 
 var (
@@ -28,12 +24,12 @@ func fakeFiles(paths ...string) func(string) bool {
 }
 
 // fakeEpochs returns a buildEpoch function answering from epochs; a path absent from the map is unreadable.
-func fakeEpochs(epochs map[string]uint) func(string) (uint, error) {
-	return func(p string) (uint, error) {
+func fakeEpochs(epochs map[string]uint) func(string) (DatabaseInfo, error) {
+	return func(p string) (DatabaseInfo, error) {
 		if e, ok := epochs[p]; ok {
-			return e, nil
+			return DatabaseInfo{BuildEpoch: e}, nil
 		}
-		return 0, errors.New("unreadable")
+		return DatabaseInfo{}, errors.New("unreadable")
 	}
 }
 
@@ -146,22 +142,4 @@ func TestGeoIPResolveReadsEnvironment(t *testing.T) {
 	// An empty variable counts as unset, so the resolver falls through to the file locations.
 	t.Setenv(EnvDBPath, "")
 	assert.Equal(t, filepath.Base(ResolveDatabasePath()), DatabaseFileName)
-}
-
-func TestGeoIPReadBuildEpoch(t *testing.T) {
-	dir := t.TempDir()
-
-	valid := filepath.Join(dir, "valid.mmdb")
-	testutil.WriteGeoIPCountryDB(t, valid, 1700000000)
-	epoch, err := readBuildEpoch(valid)
-	require.NoError(t, err)
-	assert.Equal(t, uint(1700000000), epoch)
-
-	notDatabase := filepath.Join(dir, "not-a-database.mmdb")
-	require.NoError(t, os.WriteFile(notDatabase, []byte("not a database"), 0o600))
-	_, err = readBuildEpoch(notDatabase)
-	require.Error(t, err)
-
-	_, err = readBuildEpoch(filepath.Join(dir, "absent.mmdb"))
-	require.Error(t, err)
 }

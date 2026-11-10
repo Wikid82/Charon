@@ -3,6 +3,7 @@ package testutil
 import (
 	"fmt"
 	"math"
+	"net/netip"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -100,4 +101,28 @@ func TestMMDBUintEncodesFewestBytes(t *testing.T) {
 			assert.Equal(t, tc.want, mmdbUint(tc.typeCode, tc.value))
 		})
 	}
+}
+
+func TestWriteGeoIPCountryDBDatabaseTypeOption(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "GeoLite2-ASN.mmdb")
+	WriteGeoIPCountryDB(t, path, 1, WithGeoIPDatabaseType("GeoLite2-ASN"))
+
+	db, err := geoip2.Open(path)
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	assert.Equal(t, "GeoLite2-ASN", db.Metadata().DatabaseType)
+}
+
+func TestWriteGeoIPCountryDBRecordOptionResolvesCountry(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "GeoLite2-Country.mmdb")
+	WriteGeoIPCountryDB(t, path, 1, WithGeoIPRecordISOCode("DE"))
+
+	db, err := geoip2.Open(path)
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	record, err := db.Country(netip.MustParseAddr("192.0.2.1"))
+	require.NoError(t, err)
+	assert.Equal(t, "DE", record.Country.ISOCode)
 }

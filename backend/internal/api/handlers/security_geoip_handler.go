@@ -8,32 +8,63 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
+	"github.com/Wikid82/charon/backend/internal/geoip"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/util"
 )
 
-// GetGeoIPStatus returns the current status of the GeoIP service.
-// The reason is present only when the database is unavailable, so the card can show why country lists cannot match.
+// geoipStatusResponse is the body of GET /security/geoip/status. The first four fields and reason are the original
+// contract; the database card fields follow, flattened from services.GeoIPStatus. reason is present only when the
+// database is unavailable, so the card can show why country lists cannot match.
+type geoipStatusResponse struct {
+	Available bool   `json:"available"`
+	Loaded    bool   `json:"loaded"`
+	DBPath    string `json:"db_path"`
+	Message   string `json:"message"`
+	Reason    string `json:"reason,omitempty"`
+	services.GeoIPStatus
+}
+
+// GetGeoIPStatus returns the current status of the GeoIP service and the database card.
 func (h *SecurityHandler) GetGeoIPStatus(c *gin.Context) {
 	available := h.geoipSvc.Available()
-	body := gin.H{
-		"available": available,
-		"loaded":    false,
-		"db_path":   "",
-		"message":   "GeoIP service not initialized",
+	body := geoipStatusResponse{
+		Available:   available,
+		Message:     "GeoIP service not initialized",
+		GeoIPStatus: h.geoipStatus(),
 	}
 	if h.geoipSvc != nil {
-		body["loaded"] = h.geoipSvc.IsLoaded()
-		body["db_path"] = h.geoipSvc.GetDatabasePath()
-		body["message"] = "GeoIP database unavailable"
+		body.Loaded = h.geoipSvc.IsLoaded()
+		body.DBPath = h.geoipSvc.GetDatabasePath()
+		body.Message = "GeoIP database unavailable"
 	}
 	if available {
-		body["message"] = "GeoIP service available"
+		body.Message = "GeoIP service available"
 	} else {
-		body["reason"] = caddy.ReasonGeoIPUnavailable
+		body.Reason = caddy.ReasonGeoIPUnavailable
 	}
 	c.JSON(http.StatusOK, body)
+}
+
+// geoipStatus returns the database card status with the number of country lists the proxy is not enforcing. Without a
+// store (no GeoIP service is wired) it reports no database.
+func (h *SecurityHandler) geoipStatus() services.GeoIPStatus {
+	if h.geoipStore == nil {
+		return services.GeoIPStatus{Source: string(geoip.SourceNone)}
+	}
+	st := h.geoipStore.Status()
+	st.UnenforcedListsTotal = h.unenforcedCountryListsTotal()
+	return st
+}
+
+// unenforcedCountryListsTotal counts the country lists the proxy is not enforcing. Without a database there is no
+// access-list state to read, so it reports zero.
+func (h *SecurityHandler) unenforcedCountryListsTotal() int {
+	if h.db == nil {
+		return 0
+	}
+	return len(h.countryListsNotEnforced(h.aclEnabledForAlerts()))
 }
 
 // Stable error_code values and fixed messages of the GeoIP reload endpoint. The error text of the underlying failure
@@ -41,8 +72,10 @@ func (h *SecurityHandler) GetGeoIPStatus(c *gin.Context) {
 const (
 	codeGeoIPReloadFailed       = "geoip_reload_failed"
 	codeGeoIPServiceUnavailable = "geoip_service_unavailable"
+	codeGeoIPBusy               = "geoip_busy"
 	codeProxyApplyFailed        = "proxy_apply_failed"
 	msgGeoIPReloadFailed        = "Failed to reload the GeoIP database"
+	msgGeoIPBusy                = "Another GeoIP database change is in progress"
 )
 
 // ReloadGeoIP reloads the GeoIP database from disk.
@@ -51,7 +84,7 @@ func (h *SecurityHandler) ReloadGeoIP(c *gin.Context) {
 		return
 	}
 
-	if h.geoipSvc == nil {
+	if h.geoipStore == nil {
 		c.JSON(http.StatusServiceUnavailable, gin.H{
 			"error":      "GeoIP service not initialized",
 			"error_code": codeGeoIPServiceUnavailable,
@@ -59,32 +92,9 @@ func (h *SecurityHandler) ReloadGeoIP(c *gin.Context) {
 		return
 	}
 
-	loadErr := h.geoipSvc.Load()
-	if loadErr != nil {
-		log.WithField("detail", util.SanitizeForLog(loadErr.Error())).Error("Failed to reload GeoIP database")
-	}
-
-	// The proxy reads the database only when its config is generated, so apply now and country lists follow the reload
-	// at once. The apply runs even when the load failed: the proxy then converges on the database state it can see
-	// (country lists are not enforced without a usable database) instead of keeping a config that no longer matches.
-	if h.caddyManager != nil {
-		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
-			log.WithField("detail", util.SanitizeForLog(err.Error())).Warn("failed to apply proxy config after GeoIP reload")
-			if loadErr == nil {
-				c.JSON(http.StatusInternalServerError, gin.H{
-					"error":      msgModuleApplyFailed,
-					"error_code": codeProxyApplyFailed,
-				})
-				return
-			}
-		}
-	}
-
-	if loadErr != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error":      msgGeoIPReloadFailed,
-			"error_code": codeGeoIPReloadFailed,
-		})
+	// The store loads the file and applies the proxy config, so country lists follow the reload at once.
+	if err := h.geoipStore.Reload(c.Request.Context()); err != nil {
+		h.writeGeoIPReloadError(c, err)
 		return
 	}
 
@@ -96,6 +106,30 @@ func (h *SecurityHandler) ReloadGeoIP(c *gin.Context) {
 		"message": "GeoIP database reloaded successfully",
 		"loaded":  h.geoipSvc.IsLoaded(),
 		"db_path": h.geoipSvc.GetDatabasePath(),
+		"status":  h.geoipStatus(),
+	})
+}
+
+// writeGeoIPReloadError maps a failed reload to its status and error_code. The detail is logged, never returned.
+func (h *SecurityHandler) writeGeoIPReloadError(c *gin.Context, err error) {
+	if errors.Is(err, services.ErrGeoIPBusy) {
+		c.JSON(http.StatusConflict, gin.H{
+			"error":      msgGeoIPBusy,
+			"error_code": codeGeoIPBusy,
+		})
+		return
+	}
+	log.WithField("detail", util.SanitizeForLog(err.Error())).Error("Failed to reload GeoIP database")
+	if errors.Is(err, services.ErrGeoIPReloadFailed) {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error":      msgGeoIPReloadFailed,
+			"error_code": codeGeoIPReloadFailed,
+		})
+		return
+	}
+	c.JSON(http.StatusInternalServerError, gin.H{
+		"error":      msgModuleApplyFailed,
+		"error_code": codeProxyApplyFailed,
 	})
 }
 

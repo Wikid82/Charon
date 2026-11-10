@@ -59,3 +59,43 @@ func TestReportResolutionNotes(t *testing.T) {
 		})
 	}
 }
+
+func TestEnvPathInEffect(t *testing.T) {
+	cases := []struct {
+		name    string
+		env     string
+		present []string
+		want    bool
+	}{
+		{name: "unset", env: "", want: false},
+		{name: "custom path", env: testCustom, want: true},
+		{name: "former default with no file", env: FormerImageDefaultDBPath, want: false},
+		{name: "former default with a file", env: FormerImageDefaultDBPath, present: []string{FormerImageDefaultDBPath}, want: true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, envPathInEffect(tc.env, fakeFiles(tc.present...)))
+		})
+	}
+}
+
+func TestSourceOf(t *testing.T) {
+	cases := []struct {
+		name string
+		path string
+		env  bool
+		want Source
+	}{
+		{name: "env in effect is custom", path: testCustom, env: true, want: SourceCustom},
+		{name: "env in effect wins over the data path", path: DataDatabasePath(), env: true, want: SourceCustom},
+		{name: "data-folder copy", path: DataDatabasePath(), want: SourceData},
+		{name: "bundled copy", path: BundledDatabasePath(), want: SourceBundled},
+		{name: "empty path", path: "", want: SourceNone},
+		{name: "unknown location without env", path: "/srv/geo/other.mmdb", want: SourceNone},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, SourceOf(tc.path, tc.env))
+		})
+	}
+}

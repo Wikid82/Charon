@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/netip"
 	"sync"
+	"time"
 
 	"github.com/oschwald/geoip2-golang/v2"
 
@@ -30,6 +31,25 @@ type GeoIPService struct {
 	// resolve, when set, supplies the database path at each Load, so a reload finds a file placed at a location that
 	// was not in use at startup. It is fixed at construction and never changes.
 	resolve func() string
+	// Metadata of the database in use, recorded by LoadFrom and cleared by Close.
+	loadedAt     time.Time
+	databaseType string
+	buildEpoch   uint
+	// now supplies the load time. Nil means the wall clock; tests set it.
+	now func() time.Time
+}
+
+// GeoIPInfo describes the database a GeoIPService serves lookups from.
+type GeoIPInfo struct {
+	// Path is the configured database path. It is set before any load.
+	Path string
+	// Loaded reports whether a database is open.
+	Loaded bool
+	// LoadedAt is the time of the load that opened the database in use; zero when none is open.
+	LoadedAt time.Time
+	// DatabaseType and BuildEpoch come from the metadata of the database in use.
+	DatabaseType string
+	BuildEpoch   uint
 }
 
 type geoIPCountryReader interface {
@@ -75,6 +95,8 @@ func (s *GeoIPService) LoadFrom(path string) error {
 	if err != nil {
 		return fmt.Errorf("open geoip database %s: %w", path, err)
 	}
+	meta := db.Metadata()
+	loadedAt := s.clock()
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -84,7 +106,31 @@ func (s *GeoIPService) LoadFrom(path string) error {
 	}
 	s.db = db
 	s.dbPath = path
+	s.loadedAt = loadedAt
+	s.databaseType = meta.DatabaseType
+	s.buildEpoch = meta.BuildEpoch
 	return nil
+}
+
+// clock returns the current time from the injected clock, or the wall clock when none is set.
+func (s *GeoIPService) clock() time.Time {
+	if s.now != nil {
+		return s.now()
+	}
+	return time.Now()
+}
+
+// Info returns the metadata of the database in use and the configured path. A failed load leaves it unchanged.
+func (s *GeoIPService) Info() GeoIPInfo {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return GeoIPInfo{
+		Path:         s.dbPath,
+		Loaded:       s.db != nil,
+		LoadedAt:     s.loadedAt,
+		DatabaseType: s.databaseType,
+		BuildEpoch:   s.buildEpoch,
+	}
 }
 
 // pathToLoad returns the database path Load opens: the resolver's answer when one is set, else the stored path.
@@ -99,6 +145,9 @@ func (s *GeoIPService) pathToLoad() string {
 func (s *GeoIPService) Close() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.loadedAt = time.Time{}
+	s.databaseType = ""
+	s.buildEpoch = 0
 	if s.db != nil {
 		err := s.db.Close()
 		s.db = nil

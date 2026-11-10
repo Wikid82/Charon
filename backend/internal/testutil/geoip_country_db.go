@@ -9,10 +9,35 @@ import (
 // mmdbMetadataMarker opens the metadata section of a MaxMind DB file.
 var mmdbMetadataMarker = []byte("\xAB\xCD\xEFMaxMind.com")
 
-// WriteGeoIPCountryDB writes a minimal, valid MaxMind DB file to path. Its metadata carries buildEpoch and the search
-// tree is empty, so it opens and reports metadata but resolves no addresses to a country.
-func WriteGeoIPCountryDB(t testing.TB, path string, buildEpoch uint32) {
+// GeoIPCountryOption adjusts the database that WriteGeoIPCountryDB writes.
+type GeoIPCountryOption func(*geoIPCountryConfig)
+
+type geoIPCountryConfig struct {
+	databaseType string
+	isoCode      string
+}
+
+// WithGeoIPDatabaseType sets the database_type metadata. The default is GeoIP2-Country.
+func WithGeoIPDatabaseType(databaseType string) GeoIPCountryOption {
+	return func(c *geoIPCountryConfig) { c.databaseType = databaseType }
+}
+
+// WithGeoIPRecordISOCode adds one data record, {"country": {"iso_code": code}}, that every address resolves to. Without
+// it the search tree is empty and no address resolves to a country.
+func WithGeoIPRecordISOCode(code string) GeoIPCountryOption {
+	return func(c *geoIPCountryConfig) { c.isoCode = code }
+}
+
+// WriteGeoIPCountryDB writes a minimal, valid MaxMind DB file to path. Its metadata carries buildEpoch. By default the
+// search tree is empty, so it opens and reports metadata but resolves no addresses to a country; see
+// WithGeoIPRecordISOCode for a database that resolves every address.
+func WriteGeoIPCountryDB(t testing.TB, path string, buildEpoch uint32, opts ...GeoIPCountryOption) {
 	t.Helper()
+
+	cfg := geoIPCountryConfig{databaseType: "GeoIP2-Country"}
+	for _, opt := range opts {
+		opt(&cfg)
+	}
 
 	meta := []byte{0xE0 | 8} // map with eight entries
 	meta = appendMMDBString(meta, "binary_format_major_version")
@@ -22,7 +47,7 @@ func WriteGeoIPCountryDB(t testing.TB, path string, buildEpoch uint32) {
 	meta = appendMMDBString(meta, "build_epoch")
 	meta = append(meta, mmdbUint(6, uint64(buildEpoch))...) // uint32
 	meta = appendMMDBString(meta, "database_type")
-	meta = appendMMDBString(meta, "GeoIP2-Country")
+	meta = appendMMDBString(meta, cfg.databaseType)
 	meta = appendMMDBString(meta, "ip_version")
 	meta = append(meta, mmdbUint(5, 6)...)
 	meta = appendMMDBString(meta, "languages")
@@ -32,15 +57,33 @@ func WriteGeoIPCountryDB(t testing.TB, path string, buildEpoch uint32) {
 	meta = appendMMDBString(meta, "record_size")
 	meta = append(meta, mmdbUint(5, 24)...)
 
-	// One node with 24-bit records is six bytes; the 16-byte zero separator follows it.
+	// One node with 24-bit records is six bytes; the 16-byte zero separator follows it. With a record option both
+	// records point at data offset zero, which is the node count (1) plus the separator length (16).
 	var buf bytes.Buffer
-	buf.Write(make([]byte, 6+16))
+	if cfg.isoCode == "" {
+		buf.Write(make([]byte, 6))
+	} else {
+		buf.Write([]byte{0x00, 0x00, 0x11, 0x00, 0x00, 0x11})
+	}
+	buf.Write(make([]byte, 16))
+	if cfg.isoCode != "" {
+		buf.Write(countryRecord(cfg.isoCode))
+	}
 	buf.Write(mmdbMetadataMarker)
 	buf.Write(meta)
 
 	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
 		t.Fatalf("write geoip test database: %v", err)
 	}
+}
+
+// countryRecord encodes {"country": {"iso_code": code}} as an MMDB map.
+func countryRecord(code string) []byte {
+	out := []byte{0xE0 | 1}
+	out = appendMMDBString(out, "country")
+	out = append(out, 0xE0|1)
+	out = appendMMDBString(out, "iso_code")
+	return appendMMDBString(out, code)
 }
 
 // appendMMDBString appends s as an MMDB UTF-8 string. The size must fit the control byte, so strings of 28 bytes or

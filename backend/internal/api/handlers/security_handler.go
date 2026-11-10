@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
+	"github.com/Wikid82/charon/backend/internal/geoip"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	securitypkg "github.com/Wikid82/charon/backend/internal/security"
@@ -56,6 +58,7 @@ type SecurityHandler struct {
 	svc          *services.SecurityService
 	caddyManager CaddyConfigManager
 	geoipSvc     *services.GeoIPService
+	geoipStore   *services.GeoIPDatabaseStore
 	cerberus     CacheInvalidator
 	crowdsec     CrowdsecLifecycle
 }
@@ -83,9 +86,26 @@ func (h *SecurityHandler) Close() {
 	h.svc.Close()
 }
 
-// SetGeoIPService sets the GeoIP service for the handler.
+// SetGeoIPService sets the GeoIP service for the handler and builds the database store over it. The store applies the
+// proxy config after a change when the handler has a caddy manager.
 func (h *SecurityHandler) SetGeoIPService(geoipSvc *services.GeoIPService) {
 	h.geoipSvc = geoipSvc
+	h.geoipStore = nil
+	if geoipSvc == nil {
+		return
+	}
+	var apply func(context.Context) error
+	if mgr := h.caddyManager; mgr != nil {
+		apply = func(ctx context.Context) error {
+			return applyProxyConfigDetached(ctx, mgr, proxyApplyTimeout)
+		}
+	}
+	h.geoipStore = services.NewGeoIPDatabaseStore(services.GeoIPDatabaseStoreConfig{
+		Service:     geoipSvc,
+		Apply:       apply,
+		DataPath:    geoip.DataDatabasePath(),
+		BundledPath: geoip.BundledDatabasePath(),
+	})
 }
 
 // GetStatus returns the current status of all security services.
