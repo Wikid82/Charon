@@ -257,16 +257,32 @@
     },
     {
       "customType": "regex",
-      "description": "Track Go toolchain version in go.work for the dl shim",
+      "description": "Track the Go toolchain version in go.work and every go.mod against the golang Docker image (-alpine tags) rather than go.dev releases, so these pins only move once the builder image that Dockerfile and agent/Dockerfile use is actually published. Grouped with the Dockerfile golang pin by the toolchain rule.",
       "managerFilePatterns": [
-        "/^go\\.work$/"
+        "/^go\\.work$/",
+        "/^(?:backend|agent|plugins/powerdns)/go\\.mod$/"
       ],
       "matchStrings": [
         "^go (?<currentValue>\\d+\\.\\d+\\.\\d+)$"
       ],
-      "depNameTemplate": "golang/go",
-      "datasourceTemplate": "golang-version",
-      "versioningTemplate": "semver"
+      "depNameTemplate": "golang",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^(?<version>\\d+\\.\\d+\\.\\d+)-alpine$"
+    },
+    {
+      "customType": "regex",
+      "description": "Track the Go toolchain ARG in agent/Dockerfile (golang-alpine tags, same source as the root Dockerfile and the go.mod pins)",
+      "managerFilePatterns": [
+        "/^agent/Dockerfile$/"
+      ],
+      "matchStrings": [
+        "#\\s*renovate:\\s*datasource=docker\\s+depName=golang.*\\nARG GO_VERSION=(?<currentValue>\\d+\\.\\d+\\.\\d+)"
+      ],
+      "depNameTemplate": "golang",
+      "datasourceTemplate": "docker",
+      "versioningTemplate": "semver",
+      "extractVersionTemplate": "^(?<version>\\d+\\.\\d+\\.\\d+)-alpine$"
     },
     {
       "customType": "regex",
@@ -971,6 +987,19 @@
       ],
       "groupName": "github-actions",
       "groupSlug": "github-actions"
+    },
+    {
+      "description": "Never let the built-in gomod manager bump the `go` directive: it resolves against go.dev releases, which land before the golang Docker image does and break the build (GOTOOLCHAIN=local). The directive is tracked by the custom regex manager against golang-alpine tags instead.",
+      "matchManagers": [
+        "gomod"
+      ],
+      "matchDepNames": [
+        "go"
+      ],
+      "matchDatasources": [
+        "golang-version"
+      ],
+      "enabled": false
     },
     {
       "description": "Group Go non-major updates into one PR",
