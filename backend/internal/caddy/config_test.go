@@ -278,24 +278,25 @@ func TestGenerateConfig_ACMEStaging(t *testing.T) {
 }
 
 func TestBuildACLHandler_WhitelistAndBlacklistAdminMerge(t *testing.T) {
-	// Whitelist case: ensure adminWhitelist gets merged into allowed ranges
+	// Whitelist case: the listed and the admin address are allowed, everything else is refused.
 	acl := &models.AccessList{Type: "whitelist", IPRules: `[{"cidr":"127.0.0.1/32"}]`}
 	handler, err := buildACLHandler(acl, "10.0.0.1/32")
 	require.NoError(t, err)
-	// handler should include both ranges in the remote_ip ranges
-	b, _ := json.Marshal(handler)
-	s := string(b)
-	require.Contains(t, s, "127.0.0.1/32")
-	require.Contains(t, s, "10.0.0.1/32")
+	assertHandlerRefusals(t, handler, []refusalCase{
+		{addr: "127.0.0.1"},
+		{addr: "10.0.0.1"},
+		{addr: "203.0.113.9", refused: true},
+	})
 
-	// Blacklist case: ensure adminWhitelist excluded from match
+	// Blacklist case: the listed range is refused, the admin address is not.
 	acl2 := &models.AccessList{Type: "blacklist", IPRules: `[{"cidr":"1.2.3.0/24"}]`}
 	handler2, err := buildACLHandler(acl2, "192.168.0.1/32")
 	require.NoError(t, err)
-	b2, _ := json.Marshal(handler2)
-	s2 := string(b2)
-	require.Contains(t, s2, "1.2.3.0/24")
-	require.Contains(t, s2, "192.168.0.1/32")
+	assertHandlerRefusals(t, handler2, []refusalCase{
+		{addr: "1.2.3.4", refused: true},
+		{addr: "192.168.0.1"},
+		{addr: "203.0.113.9"},
+	})
 }
 
 func TestBuildACLHandler_GeoAndLocalNetwork(t *testing.T) {
@@ -329,20 +330,22 @@ func TestBuildACLHandler_AdminWhitelistParsing(t *testing.T) {
 	acl := &models.AccessList{Type: "whitelist", IPRules: `[{"cidr":"127.0.0.1/32"}]`}
 	handler, err := buildACLHandler(acl, " , 10.0.0.1/32, , 192.168.1.5/32 ")
 	require.NoError(t, err)
-	b, _ := json.Marshal(handler)
-	s := string(b)
-	require.Contains(t, s, "127.0.0.1/32")
-	require.Contains(t, s, "10.0.0.1/32")
-	require.Contains(t, s, "192.168.1.5/32")
+	assertHandlerRefusals(t, handler, []refusalCase{
+		{addr: "127.0.0.1"},
+		{addr: "10.0.0.1"},
+		{addr: "192.168.1.5"},
+		{addr: "203.0.113.9", refused: true},
+	})
 
-	// Blacklist parsing too
+	// Blacklist parsing too: the blank entries add no exemption and no refusal.
 	acl2 := &models.AccessList{Type: "blacklist", IPRules: `[{"cidr":"1.2.3.0/24"}]`}
 	handler2, err := buildACLHandler(acl2, " , 192.168.0.1/32, ")
 	require.NoError(t, err)
-	b2, _ := json.Marshal(handler2)
-	s2 := string(b2)
-	require.Contains(t, s2, "1.2.3.0/24")
-	require.Contains(t, s2, "192.168.0.1/32")
+	assertHandlerRefusals(t, handler2, []refusalCase{
+		{addr: "1.2.3.4", refused: true},
+		{addr: "192.168.0.1"},
+		{addr: "203.0.113.9"},
+	})
 }
 
 func TestBuildRateLimitHandler_Disabled(t *testing.T) {
@@ -1621,19 +1624,15 @@ func TestGenerateConfig_SecurityDecisionsWithAdminWhitelist(t *testing.T) {
 	}
 
 	// With admin whitelist
-	config, err := GenerateConfig(hosts, "/tmp/caddy-data", "admin@example.com", "", "", false, false, false, false, false, "10.0.0.1/32", nil, nil, decisions, nil, nil)
+	config, err := GenerateConfig(hosts, t.TempDir(), "admin@example.com", "", "", false, false, false, false, false, "10.0.0.1/32", nil, nil, decisions, nil, nil)
 	require.NoError(t, err)
 
-	server := config.Apps.HTTP.Servers["charon_server"]
-	require.NotNil(t, server)
-
-	route := server.Routes[0] // Main route is at index 0
-	b, _ := json.Marshal(route.Handle)
-	s := string(b)
-
-	// Should contain blocked IP and admin whitelist exclusion
-	require.Contains(t, s, "1.2.3.4")
-	require.Contains(t, s, "10.0.0.1/32")
+	// The decided address is refused; the admin address and an unlisted address are not.
+	assertHostRefusals(t, config, "test.example.com", []refusalCase{
+		{addr: "1.2.3.4", refused: true},
+		{addr: "10.0.0.1"},
+		{addr: "203.0.113.9"},
+	})
 }
 
 // TestBuildSecurityHeadersHandler_DefaultProfile verifies default profile when enabled

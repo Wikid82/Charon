@@ -437,6 +437,8 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	// Initialize routes slice
 	routes := make([]*Route, 0)
 	// Track IP-only hostnames to skip AutoHTTPS/ACME
+	// Admin whitelist ranges are parsed once; every deny route excludes them through denyMatcherSet.
+	adminRanges := parseAdminWhitelist(adminWhitelist)
 	ipSubjects := make([]string, 0)
 
 	// Track processed domains to prevent duplicates (Ghost Host fix).
@@ -518,30 +520,13 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			}
 		}
 		if len(decisionIPs) > 0 {
-			// Build a subroute to match these remote IPs and serve 403
-			// Admin whitelist exclusion must be applied: exclude adminWhitelist if present
-			// Build matchParts
-			var matchParts []map[string]any
-			matchParts = append(matchParts, map[string]any{"remote_ip": map[string]any{"ranges": decisionIPs}})
-			if adminWhitelist != "" {
-				adminParts := strings.Split(adminWhitelist, ",")
-				trims := make([]string, 0)
-				for _, p := range adminParts {
-					p = strings.TrimSpace(p)
-					if p == "" {
-						continue
-					}
-					trims = append(trims, p)
-				}
-				if len(trims) > 0 {
-					matchParts = append(matchParts, map[string]any{"not": []map[string]any{{"remote_ip": map[string]any{"ranges": trims}}}})
-				}
-			}
+			// Build a subroute that answers 403 for these remote IPs, except admin whitelist addresses.
+			decisionSet := denyMatcherSet(map[string]any{"remote_ip": map[string]any{"ranges": decisionIPs}}, nil, adminRanges)
 			decHandler := Handler{
 				"handler": "subroute",
 				"routes": []map[string]any{
 					{
-						"match": matchParts,
+						"match": []map[string]any{decisionSet},
 						"handle": []map[string]any{
 							{
 								"handler":     "static_response",
@@ -1128,23 +1113,13 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 	}
 
 	if acl.Type == "blacklist" {
-		// Block these IPs (allow everything else)
-		// For blacklist, add an explicit 'not' clause excluding adminWhitelist ranges from the match
-		var adminExclusion any
-		if trims := parseAdminWhitelist(adminWhitelist); len(trims) > 0 {
-			adminExclusion = map[string]any{"not": []map[string]any{{"remote_ip": map[string]any{"ranges": trims}}}}
-		}
-		// Build matcher parts
-		matchParts := []map[string]any{}
-		matchParts = append(matchParts, map[string]any{"remote_ip": map[string]any{"ranges": cidrs}})
-		if adminExclusion != nil {
-			matchParts = append(matchParts, adminExclusion.(map[string]any))
-		}
+		// Block these IPs (allow everything else). Admin whitelist addresses are never refused.
+		blockSet := denyMatcherSet(map[string]any{"remote_ip": map[string]any{"ranges": cidrs}}, nil, parseAdminWhitelist(adminWhitelist))
 		return Handler{
 			"handler": "subroute",
 			"routes": []map[string]any{
 				{
-					"match": matchParts,
+					"match": []map[string]any{blockSet},
 					"handle": []map[string]any{
 						{
 							"handler":     "static_response",
@@ -1186,6 +1161,36 @@ func whitelistDenyHandler(allowed []string) Handler {
 		}
 	}
 	return Handler{"handler": "subroute", "routes": []map[string]any{route}}
+}
+
+// denyMatcherSet returns the single matcher set of a deny route, or nil when the set would be empty (the route then
+// matches every request). Caddy ORs the sets in a route's "match" list and ANDs the matchers inside one set, and "not"
+// is true when none of its sets matches. The admin ranges become the first negated set, so the route refuses a request
+// only when its own condition holds and the connection address is not an admin address. Callers must emit the result
+// as the only element of "match"; never append a second set, because two sets are OR'd and refuse every other visitor.
+func denyMatcherSet(positive map[string]any, negated []map[string]any, adminRanges []string) map[string]any {
+	set := make(map[string]any, len(positive)+1)
+	var not []map[string]any
+	if len(adminRanges) > 0 {
+		not = append(not, map[string]any{"remote_ip": map[string]any{"ranges": adminRanges}})
+	}
+	for key, value := range positive {
+		if key == "not" {
+			if existing, ok := value.([]map[string]any); ok {
+				not = append(not, existing...)
+			}
+			continue
+		}
+		set[key] = value
+	}
+	not = append(not, negated...)
+	if len(not) > 0 {
+		set["not"] = not
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	return set
 }
 
 // parseAdminWhitelist splits the comma-separated admin whitelist and drops blank entries.

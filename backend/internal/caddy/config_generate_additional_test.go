@@ -144,30 +144,14 @@ func TestGenerateConfig_DecisionsBlockWithAdminExclusion(t *testing.T) {
 	host := models.ProxyHost{UUID: "dec1", DomainNames: "dec.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080}
 	// create a security decision to block 1.2.3.4
 	dec := models.SecurityDecision{Action: "block", IP: "1.2.3.4"}
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, false, "10.0.0.1/32", nil, nil, []models.SecurityDecision{dec}, nil, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, t.TempDir(), "", "", "", false, false, false, false, false, "10.0.0.1/32", nil, nil, []models.SecurityDecision{dec}, nil, nil)
 	require.NoError(t, err)
-	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0] // Main route is at index 0
-	b, _ := json.MarshalIndent(route.Handle, "", "  ")
-	t.Logf("handles: %s", string(b))
-	// Expect first security handler is a subroute that includes both remote_ip and a 'not' exclusion for adminWhitelist
-	found := false
-	for _, h := range route.Handle {
-		// convert to JSON string and assert the expected fields exist
-		b, _ := json.Marshal(h)
-		s := string(b)
-		if strings.Contains(s, "\"remote_ip\"") && strings.Contains(s, "\"not\"") && strings.Contains(s, "1.2.3.4") && strings.Contains(s, "10.0.0.1/32") {
-			found = true
-			break
-		}
-	}
-	if !found {
-		// Log the route handles for debugging
-		for i, h := range route.Handle {
-			b, _ := json.MarshalIndent(h, "  ", "  ")
-			t.Logf("handler #%d: %s", i, string(b))
-		}
-	}
-	require.True(t, found, "expected decision subroute with admin exclusion to be present")
+	// The decided address is refused; the admin address is exempt and an unlisted address is allowed.
+	assertHostRefusals(t, cfg, "dec.example.com", []refusalCase{
+		{addr: "1.2.3.4", refused: true},
+		{addr: "10.0.0.1"},
+		{addr: "203.0.113.9"},
+	})
 }
 
 func TestGenerateConfig_WAFModeAndRulesetReference(t *testing.T) {
@@ -238,19 +222,14 @@ func TestGenerateConfig_DecisionAdminPartsEmpty(t *testing.T) {
 	host := models.ProxyHost{UUID: "dec2", DomainNames: "dec2.example.com", Enabled: true, ForwardHost: "app", ForwardPort: 8080}
 	dec := models.SecurityDecision{Action: "block", IP: "2.3.4.5"}
 	// Provide an adminWhitelist with an empty segment to trigger p == ""
-	cfg, err := GenerateConfig([]models.ProxyHost{host}, "/tmp/caddy-data", "", "", "", false, false, false, false, false, ", 10.0.0.1/32", nil, nil, []models.SecurityDecision{dec}, nil, nil)
+	cfg, err := GenerateConfig([]models.ProxyHost{host}, t.TempDir(), "", "", "", false, false, false, false, false, ", 10.0.0.1/32", nil, nil, []models.SecurityDecision{dec}, nil, nil)
 	require.NoError(t, err)
-	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0] // Main route is at index 0
-	found := false
-	for _, h := range route.Handle {
-		b, _ := json.Marshal(h)
-		s := string(b)
-		if strings.Contains(s, "\"remote_ip\"") && strings.Contains(s, "\"not\"") && strings.Contains(s, "2.3.4.5") {
-			found = true
-			break
-		}
-	}
-	require.True(t, found, "expected decision subroute with admin exclusion present when adminWhitelist contains empty parts")
+	// Blank admin entries are ignored: the decided address is refused and the admin address is still exempt.
+	assertHostRefusals(t, cfg, "dec2.example.com", []refusalCase{
+		{addr: "2.3.4.5", refused: true},
+		{addr: "10.0.0.1"},
+		{addr: "203.0.113.9"},
+	})
 }
 
 func TestNormalizeHeaderOps_PreserveStringArray(t *testing.T) {
