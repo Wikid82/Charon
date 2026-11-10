@@ -1090,6 +1090,7 @@
       "manual": "Manuelle",
       "scheduled": "Planifiée",
       "preRestore": "Avant restauration",
+      "preDelete": "Avant suppression",
       "uploaded": "Téléversée"
     },
     "schedule": {

@@ -129,3 +129,35 @@ func TestLogsWSHandler_StreamWithFiltersAndTracker(t *testing.T) {
 		return tracker.GetCount() == 0
 	})
 }
+
+// TestLogsWSHandler_ConnectionListOmitsToken verifies the logs socket connection list does not expose the query token.
+func TestLogsWSHandler_ConnectionListOmitsToken(t *testing.T) {
+	charonlogger.Init(false, io.Discard)
+
+	tracker := services.NewWebSocketTracker()
+	r := gin.New()
+	r.GET("/logs", NewLogsWSHandler(tracker).HandleWebSocket)
+	r.GET("/websocket/connections", NewWebSocketStatusHandler(tracker).GetConnections)
+
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	wsURL := toWebSocketURL(srv.URL) + "/logs?level=error&source=api&token=" + wsTestToken
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	if resp != nil {
+		defer resp.Body.Close()
+	}
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+
+	waitFor(t, func() bool { return tracker.GetCount() == 1 })
+
+	statusResp, err := http.Get(srv.URL + "/websocket/connections") //nolint:noctx // test-only request against httptest server
+	require.NoError(t, err)
+	defer func() { _ = statusResp.Body.Close() }()
+	body, err := io.ReadAll(statusResp.Body)
+	require.NoError(t, err)
+
+	assert.NotContains(t, string(body), wsTestToken)
+	assert.Contains(t, string(body), "source=api")
+}

@@ -15,7 +15,7 @@ export interface BackupFile {
   time: string
   /** Additive v2 fields (spec §3.3.1) — optional so v1-only consumers/tests keep working. */
   uuid?: string
-  type?: 'manual' | 'scheduled' | 'pre_restore' | 'uploaded'
+  type?: 'manual' | 'scheduled' | 'pre_restore' | 'pre_delete' | 'uploaded'
   encrypted?: boolean
   format_version?: number
   sha256?: string

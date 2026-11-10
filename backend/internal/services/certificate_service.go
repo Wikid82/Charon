@@ -30,6 +30,32 @@ var ErrCertInUse = fmt.Errorf("certificate is in use by one or more proxy hosts"
 // ErrCertNotFound is returned when a certificate cannot be found by UUID.
 var ErrCertNotFound = fmt.Errorf("certificate not found")
 
+// ErrKeyExportNotAuthorized is returned when an export that embeds the private
+// key arrives without an authorisation result from the caller.
+var ErrKeyExportNotAuthorized = fmt.Errorf("private key export requires authorisation")
+
+// ExportOptions describes one certificate export request.
+//
+// KeyAuthorized must be true whenever the export embeds the private key. Only a
+// caller that has re-verified the requesting admin may set it, so the service
+// refuses key-containing exports that arrive without that result.
+type ExportOptions struct {
+	IncludeKey    bool
+	PFXPassword   string
+	KeyAuthorized bool
+}
+
+// FormatCarriesPrivateKey reports whether an export format always embeds the
+// private key, regardless of the include-key option.
+func FormatCarriesPrivateKey(format string) bool {
+	switch strings.ToLower(format) {
+	case "pfx", "p12":
+		return true
+	default:
+		return false
+	}
+}
+
 // ensureCertificateExists returns ErrCertNotFound when certID is non-nil and no
 // such certificate row exists. Host writes call it inside their write-locked
 // transaction so a concurrent certificate delete cannot leave a dangling
@@ -771,8 +797,14 @@ func (s *CertificateService) removeACMEFiles(domains string) {
 }
 
 // ExportCertificate exports a certificate in the requested format.
-// Returns the file data, suggested filename, and any error.
-func (s *CertificateService) ExportCertificate(certUUID, format string, includeKey bool, pfxPassword string) (data []byte, filename string, err error) {
+// Returns the file data, suggested filename, and any error. Any export that
+// embeds the private key is refused with ErrKeyExportNotAuthorized unless
+// opts.KeyAuthorized is set.
+func (s *CertificateService) ExportCertificate(certUUID, format string, opts ExportOptions) (data []byte, filename string, err error) {
+	if (opts.IncludeKey || FormatCarriesPrivateKey(format)) && !opts.KeyAuthorized {
+		return nil, "", ErrKeyExportNotAuthorized
+	}
+
 	var cert models.SSLCertificate
 	if err := s.db.Where("uuid = ?", certUUID).First(&cert).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -794,7 +826,7 @@ func (s *CertificateService) ExportCertificate(certUUID, format string, includeK
 			buf.WriteString("\n")
 			buf.WriteString(cert.CertificateChain)
 		}
-		if includeKey {
+		if opts.IncludeKey {
 			keyPEM, err := s.GetDecryptedPrivateKey(&cert)
 			if err != nil {
 				return nil, "", fmt.Errorf("failed to decrypt private key: %w", err)
@@ -816,7 +848,7 @@ func (s *CertificateService) ExportCertificate(certUUID, format string, includeK
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to decrypt private key for PFX: %w", err)
 		}
-		pfxData, err := ConvertPEMToPFX(cert.Certificate, keyPEM, cert.CertificateChain, pfxPassword)
+		pfxData, err := ConvertPEMToPFX(cert.Certificate, keyPEM, cert.CertificateChain, opts.PFXPassword)
 		if err != nil {
 			return nil, "", fmt.Errorf("failed to create PFX: %w", err)
 		}

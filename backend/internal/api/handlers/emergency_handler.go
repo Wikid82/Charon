@@ -554,9 +554,11 @@ func (h *EmergencyHandler) UpdateTokenExpiration(c *gin.Context) {
 }
 
 // WithManagementCIDRs sets the networks allowed to use the direct reset path.
-// An empty list selects the default private and loopback ranges.
+// An empty list selects the default private and loopback ranges. An invalid
+// entry limits the networks to loopback; the error is reported once by
+// middleware.EmergencyBypass at startup, so it is not logged again here.
 func (h *EmergencyHandler) WithManagementCIDRs(cidrs []string) *EmergencyHandler {
-	h.managementNets = middleware.ParseManagementNets(cidrs)
+	h.managementNets, _ = middleware.ParseManagementNets(cidrs)
 	return h
 }
 
@@ -571,7 +573,7 @@ func (h *EmergencyHandler) WithCrowdsecLifecycle(l CrowdsecLifecycle) *Emergency
 func (h *EmergencyHandler) isManagementClient(clientIP string) bool {
 	nets := h.managementNets
 	if nets == nil {
-		nets = middleware.ParseManagementNets(nil)
+		nets, _ = middleware.ParseManagementNets(nil)
 	}
 	return middleware.IsManagementIP(nets, net.ParseIP(clientIP))
 }

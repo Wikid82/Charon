@@ -7,7 +7,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/services"
@@ -51,6 +50,7 @@ func (h *CerberusLogsHandler) LiveLogs(c *gin.Context) {
 			logger.Log().WithError(err).Debug("Failed to close Cerberus logs WebSocket connection")
 		}
 	}()
+	configureLogSocket(conn)
 
 	// Generate unique subscriber ID for logging
 	subscriberID := uuid.New().String()
@@ -58,7 +58,7 @@ func (h *CerberusLogsHandler) LiveLogs(c *gin.Context) {
 
 	// Register connection with tracker if available
 	if h.tracker != nil {
-		filters := c.Request.URL.RawQuery
+		filters := trackedFilters(c.Request.URL.Query(), cerberusTrackedFilterKeys)
 		connInfo := &services.ConnectionInfo{
 			ID:             subscriberID,
 			Type:           "cerberus",
@@ -95,7 +95,7 @@ func (h *CerberusLogsHandler) LiveLogs(c *gin.Context) {
 	}()
 
 	// Keep-alive ticker
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(logSocketPingPeriod)
 	defer ticker.Stop()
 
 	for {
@@ -132,7 +132,7 @@ func (h *CerberusLogsHandler) LiveLogs(c *gin.Context) {
 			}
 
 			// Send to WebSocket client
-			if err := conn.WriteJSON(entry); err != nil {
+			if err := writeLogSocketJSON(conn, entry); err != nil {
 				logger.Log().WithError(err).WithField("subscriber_id", subscriberID).Debug("Failed to write Cerberus log to WebSocket")
 				return
 			}
@@ -144,7 +144,7 @@ func (h *CerberusLogsHandler) LiveLogs(c *gin.Context) {
 
 		case <-ticker.C:
 			// Send ping to keep connection alive
-			if err := conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
+			if err := writeLogSocketPing(conn); err != nil {
 				logger.Log().WithError(err).WithField("subscriber_id", subscriberID).Debug("Failed to send ping to Cerberus logs WebSocket")
 				return
 			}

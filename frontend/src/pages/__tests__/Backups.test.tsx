@@ -122,6 +122,28 @@ describe('Backups page', () => {
     encryptionPassphraseSet = false
   })
 
+  it('renders the pre_delete type label for a pre-delete safety backup', () => {
+    mockUseBackups.mockReturnValue({
+      data: [
+        {
+          filename: 'backup_2026-07-08_04-00-00.zip',
+          size: 4096,
+          time: '2026-07-08T04:00:00Z',
+          uuid: 'a3',
+          type: 'pre_delete' as const,
+          encrypted: false,
+          format_version: 2,
+        },
+      ],
+      isLoading: false,
+    })
+
+    render(<Backups />)
+
+    const row = screen.getByTestId('backup-row')
+    expect(within(row).getByTestId('backup-type-badge')).toHaveTextContent(/pre-delete/i)
+  })
+
   it('renders the backup table with type badges, encrypted icon, and remote copy status', () => {
     render(<Backups />)
 

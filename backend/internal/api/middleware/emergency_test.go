@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -338,4 +339,73 @@ func TestAuthMiddleware_NonBoolEmergencyBypassIsIgnored(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusUnauthorized, w.Code)
+}
+
+func TestEmergencyBypass_InvalidManagementEntryUsesLoopbackOnly(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	const token = "test-token-that-meets-minimum-length-requirement-32-chars"
+	t.Setenv("CHARON_EMERGENCY_TOKEN", token)
+
+	router := gin.New()
+	router.Use(EmergencyBypass([]string{"203.0.113.0/24", "bogus"}, nil))
+	router.GET("/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"bypass": IsEmergencyBypass(c)})
+	})
+
+	tests := []struct {
+		name       string
+		remoteAddr string
+		wantBypass bool
+	}{
+		{"private address outside loopback is not admitted", "10.1.2.3:12345", false},
+		{"listed address is not admitted after fallback", "203.0.113.7:12345", false},
+		{"loopback is admitted", "127.0.0.1:12345", true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+			req.Header.Set(EmergencyTokenHeader, token)
+			req.RemoteAddr = tc.remoteAddr
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, http.StatusOK, w.Code)
+			assert.Contains(t, w.Body.String(), fmt.Sprintf(`"bypass":%t`, tc.wantBypass))
+		})
+	}
+}
+
+func TestEmergencyBypass_BareAddressManagementEntry(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	const token = "test-token-that-meets-minimum-length-requirement-32-chars"
+	t.Setenv("CHARON_EMERGENCY_TOKEN", token)
+
+	router := gin.New()
+	router.Use(EmergencyBypass([]string{"198.51.100.20"}, nil))
+	router.GET("/test", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"bypass": IsEmergencyBypass(c)})
+	})
+
+	tests := []struct {
+		name       string
+		remoteAddr string
+		wantBypass bool
+	}{
+		{"exact address is admitted", "198.51.100.20:12345", true},
+		{"neighbouring address is not admitted", "198.51.100.21:12345", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/test", http.NoBody)
+			req.Header.Set(EmergencyTokenHeader, token)
+			req.RemoteAddr = tc.remoteAddr
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, http.StatusOK, w.Code)
+			assert.Contains(t, w.Body.String(), fmt.Sprintf(`"bypass":%t`, tc.wantBypass))
+		})
+	}
 }

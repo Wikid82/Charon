@@ -336,9 +336,11 @@ func TestGenerateConfig_LoggingConfigured(t *testing.T) {
 	// When CrowdSec is enabled, the path should be /var/log/caddy/access.log
 	require.Equal(t, "/var/log/caddy/access.log", accessLog.Writer.Filename)
 
-	// Encoder should be JSON
+	// Encoder should be the filter encoder wrapping JSON
 	require.NotNil(t, accessLog.Encoder)
-	require.Equal(t, "json", accessLog.Encoder.Format)
+	require.Equal(t, "filter", accessLog.Encoder.Format)
+	require.NotNil(t, accessLog.Encoder.Wrap)
+	require.Equal(t, "json", accessLog.Encoder.Wrap.Format)
 
 	// Should include access log directive
 	require.Contains(t, accessLog.Include, "http.log.access.access_log")

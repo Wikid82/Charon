@@ -83,10 +83,28 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 						RollKeep:     5,  // Keep 5 files
 						RollKeepDays: 7,  // Keep for 7 days
 					},
+					// Filter encoder over JSON: the access log is still JSON for CrowdSec, but request URIs
+					// lose their "token" query parameter before they are written.
 					Encoder: &EncoderConfig{
-						Format: "json",
+						Format: "filter",
+						Wrap:   &EncoderConfig{Format: "json"},
+						Fields: map[string]FieldFilter{
+							"request>uri": {
+								Filter: "query",
+								Actions: []QueryAction{
+									{Type: "delete", Parameter: "token"},
+								},
+							},
+						},
 					},
 					Include: []string{"http.log.access.access_log"},
+				},
+				// Caddy's default log writes to stderr, which the container captures. Access entries
+				// carry the raw request URI, so they are kept out of it and reach logs only through the
+				// filtered "access" log above. Every other runtime message keeps Caddy's default behavior.
+				"default": {
+					Level:   "INFO",
+					Exclude: []string{"http.log.access.access_log"},
 				},
 			},
 		},

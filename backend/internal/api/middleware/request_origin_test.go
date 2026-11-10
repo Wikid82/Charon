@@ -128,7 +128,8 @@ func TestSelfHop_VerifiedHopFromOwnInterfaceAddress(t *testing.T) {
 
 func TestSelfHop_UnusableClientResolvesToNonLocalAddress(t *testing.T) {
 	secret := newOriginSecret(t)
-	mgmt := ParseManagementNets(nil)
+	mgmt, err := ParseManagementNets(nil)
+	require.NoError(t, err)
 	for _, client := range []string{"", "{http.request.remote.host}", "not-an-ip", "198.51.100.23:80", "1.2.3.4, 5.6.7.8", "[::1]"} {
 		var res probeResult
 		r := originRouter(t, secret, nil, &res)
@@ -159,7 +160,7 @@ func TestSelfHop_MissingClientHeaderResolvesToNonLocalAddress(t *testing.T) {
 	require.True(t, res.hasOrigin)
 	assert.Equal(t, "0.0.0.0", res.clientIP)
 	assert.Equal(t, "http", res.origin.Scheme)
-	assert.False(t, IsManagementIP(ParseManagementNets(nil), net.ParseIP(res.clientIP)))
+	assert.False(t, IsManagementIP(mgmtDefaults(t), net.ParseIP(res.clientIP)))
 }
 
 func TestSelfHop_ClientAddressNormalisation(t *testing.T) {
@@ -178,7 +179,7 @@ func TestSelfHop_ClientAddressNormalisation(t *testing.T) {
 
 		require.True(t, res.hasOrigin, in)
 		assert.Equal(t, want, res.clientIP, in)
-		assert.False(t, IsManagementIP(ParseManagementNets(nil), net.ParseIP(res.clientIP)), in)
+		assert.False(t, IsManagementIP(mgmtDefaults(t), net.ParseIP(res.clientIP)), in)
 	}
 }
 
@@ -516,4 +517,12 @@ func TestSelfHop_UnusableClientDoesNotSatisfyManagementCheck(t *testing.T) {
 		r.ServeHTTP(w, req)
 		assert.Contains(t, w.Body.String(), `"bypass":false`, client)
 	}
+}
+
+// mgmtDefaults returns the default management networks for assertions.
+func mgmtDefaults(t *testing.T) []*net.IPNet {
+	t.Helper()
+	nets, err := ParseManagementNets(nil)
+	require.NoError(t, err)
+	return nets
 }

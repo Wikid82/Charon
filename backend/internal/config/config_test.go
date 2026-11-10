@@ -600,3 +600,21 @@ func TestLoad_DBCompactOnStart(t *testing.T) {
 		})
 	}
 }
+
+func TestLoad_ManagementCIDRsFromEnv(t *testing.T) {
+	t.Setenv("CHARON_DB_PATH", filepath.Join(t.TempDir(), "charon.db"))
+
+	t.Run("absent variable keeps the default empty list", func(t *testing.T) {
+		t.Setenv("CHARON_MANAGEMENT_CIDRS", "")
+		cfg, err := Load()
+		require.NoError(t, err)
+		assert.Empty(t, cfg.Security.ManagementCIDRs)
+	})
+
+	t.Run("entries are split and trimmed, bare addresses pass through unchanged", func(t *testing.T) {
+		t.Setenv("CHARON_MANAGEMENT_CIDRS", " 203.0.113.0/24 , 10.0.0.5 ")
+		cfg, err := Load()
+		require.NoError(t, err)
+		assert.Equal(t, []string{"203.0.113.0/24", "10.0.0.5"}, cfg.Security.ManagementCIDRs)
+	})
+}

@@ -269,55 +269,48 @@ test.describe('Emergency Token Break Glass Protocol', () => {
     console.log('✅ Test 1 passed: Emergency token bypasses ACL');
   });
 
-  test('Emergency endpoint has NO rate limiting', async ({ request }) => {
-    console.log('🧪 Verifying emergency endpoint has no rate limiting...');
-    console.log('  ℹ️  Emergency endpoints are "break-glass" - they must work immediately without artificial delays');
-
-    const wrongToken = 'wrong-token-for-no-rate-limit-test-32chars';
-
-    // Make 10 rapid attempts with wrong token to verify NO rate limiting applied
-    const responses = [];
-    for (let i = 0; i < 10; i++) {
-      const response = await request.post('/api/v1/emergency/security-reset', {
-        headers: { 'X-Emergency-Token': wrongToken },
+  // Covers the token contract and the throttle contract in one test. The reset route
+  // is the only charged path on the main listener: each failed attempt spends the
+  // shared per-address budget (burst 5, refill 1/min), and CI retries failed tests.
+  // This test therefore sends exactly one failed attempt. Its 429 contract is covered
+  // by the backend unit and route tests.
+  //
+  // Runs before the successful resets below, because a successful reset disables
+  // Cerberus and the Cerberus assertion expects it to stay enabled until then.
+  test('Emergency reset requires a valid token and never throttles successful resets', async ({ request }) => {
+    const WRONG_TOKEN = 'wrong-token-for-throttle-contract-test-32chars';
+    const resetWith = (token: string) =>
+      request.post('/api/v1/emergency/security-reset', {
+        headers: { 'X-Emergency-Token': token },
       });
-      responses.push(response);
-    }
 
-    // ALL requests should be unauthorized (401), NONE should be rate limited (429)
-    for (let i = 0; i < responses.length; i++) {
-      expect(responses[i].status()).toBe(401);
-      const body = await responses[i].json();
-      expect(body.error).toBe('unauthorized');
-    }
+    await test.step('Wrong token answers 401 and cannot disable security', async () => {
+      const response = await resetWith(WRONG_TOKEN);
+      expect(response.status()).toBe(401);
+      expect(await response.json()).toMatchObject({ error: 'unauthorized' });
 
-    console.log(`✅ Test 2 passed: No rate limiting on emergency endpoint (${responses.length} rapid requests all got 401, not 429)`);
-    console.log('  ℹ️  Emergency endpoints protected by: token validation + IP restrictions + audit logging');
-  });
-
-  test('Emergency token requires valid token', async ({ request }) => {
-    console.log('🧪 Testing emergency token validation...');
-
-    // Test with wrong token
-    const wrongResponse = await request.post('/api/v1/emergency/security-reset', {
-      headers: { 'X-Emergency-Token': 'invalid-token-that-should-not-work-32chars' },
+      const statusResponse = await request.get('/api/v1/security/status');
+      if (statusResponse.ok()) {
+        const status = await statusResponse.json();
+        // Cerberus was enabled in beforeAll and an invalid emergency token must
+        // not be able to flip it back off.
+        expect(status.cerberus?.enabled).toBe(true);
+      }
     });
 
-    expect(wrongResponse.status()).toBe(401);
-    const wrongBody = await wrongResponse.json();
-    expect(wrongBody.error).toBe('unauthorized');
+    await test.step('Correct token resets successfully after a failure', async () => {
+      const response = await resetWith(EMERGENCY_TOKEN);
+      expect(response.ok()).toBeTruthy();
+      expect((await response.json()).success).toBe(true);
+    });
 
-    // Verify settings were NOT changed by checking status
-    const statusResponse = await request.get('/api/v1/security/status');
-    if (statusResponse.ok()) {
-      const status = await statusResponse.json();
-      // Cerberus was enabled in beforeAll and an invalid emergency token must
-      // not be able to flip it back off.
-      expect(status.cerberus?.enabled).toBe(true);
-      console.log('  ✓ Security settings were not modified by invalid token');
-    }
+    await test.step('Correct token is not throttled on a repeated reset', async () => {
+      const response = await resetWith(EMERGENCY_TOKEN);
+      expect(response.ok()).toBeTruthy();
+      expect((await response.json()).success).toBe(true);
+    });
 
-    console.log('✅ Test 3 passed: Invalid token properly rejected');
+    console.log('✅ Test passed: invalid token rejected and successful resets are not throttled');
   });
 
   test('Emergency token audit logging', async ({ request }) => {

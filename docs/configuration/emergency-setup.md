@@ -94,6 +94,10 @@ environment:
 
 The emergency server uses this same list, with the same defaults as the main Charon API (private ranges plus localhost). If you connect from anywhere else, such as Tailscale (`100.64.0.0/10`) or a public VPN range, add that range here or the emergency server will refuse you.
 
+You can list either a network range (like `192.168.1.0/24`) or a single address on its own (like `10.0.0.5`). A single address is treated as just that one computer.
+
+**If an entry is typed wrong:** Charon writes an error to its log that names the bad entry. Until you fix it, emergency access works only from the Charon machine itself. Fix the entry and restart Charon to restore access from your other networks.
+
 **Security Notes:**
 
 - Be as restrictive as possible
@@ -188,6 +192,17 @@ environment:
 - Use `.env` file or secrets manager
 - Minimum 20 characters recommended
 - Rotate every 90 days
+
+---
+
+## Reset Attempt Limits
+
+To stop anyone from guessing your emergency token, Charon limits wrong attempts for each address:
+
+- Each address gets **5 failed attempts** in a **5-minute** window. A failed attempt is one with a wrong or missing token. Requests refused for other reasons, such as coming from outside the management network, do not count.
+- After that, each extra failed attempt needs a wait of about **one minute** before the next try. Charon answers "Too many requests" until the wait is over.
+- The main Charon port and the local-only emergency port (Tier 2) keep **separate** counters, so attempts on one never use up the other.
+- A **successful** reset does not use up any attempts. However, if your address is already waiting out a limit, you must wait for the timer to finish before trying again, even with the correct token.
 
 ---
 
