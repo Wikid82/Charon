@@ -21,6 +21,15 @@ import { generateUniqueId } from '../../fixtures/test-data';
 import type { Page } from '@playwright/test';
 
 /**
+ * RFC 5737 TEST-NET-3 documentation range. No real client uses it, and the
+ * seeded lists are never attached to a proxy host, so it cannot lock out the
+ * test runner. An enabled allow-list needs at least one IP rule (or the
+ * local-network option) to be accepted, so seeds and name-only UI creations
+ * use this rule.
+ */
+const DOCUMENTATION_CIDR = '203.0.113.0/24';
+
+/**
  * Seed an access list directly via the API so list-view assertions (type
  * badge, CGNAT banner, bulk-selection, rename) have a guaranteed, known row
  * to check instead of depending on leftover state from earlier tests in
@@ -47,6 +56,7 @@ async function seedAccessList(
       name,
       type: overrides.type ?? 'whitelist',
       enabled: true,
+      ip_rules: JSON.stringify([{ cidr: DOCUMENTATION_CIDR, description: 'E2E seed rule' }]),
     },
   });
 
@@ -79,6 +89,15 @@ test.describe('Access Lists - CRUD Operations', () => {
   // Helper to get Cancel button in form (visible in form footer)
   const getCancelButton = (page: import('@playwright/test').Page) =>
     page.getByRole('button', { name: /^cancel$/i }).first();
+
+  // Adds one IP/CIDR rule in the open create/edit form (Enter adds it, as in AccessListForm.tsx)
+  const addIpRule = async (page: Page, cidr: string) => {
+    const ipInput = page.locator('input[placeholder="192.168.1.0/24 or 10.0.0.1"]');
+    await ipInput.waitFor({ state: 'visible', timeout: 5000 });
+    await ipInput.fill(cidr);
+    await ipInput.press('Enter');
+    await expect(page.getByText(cidr)).toBeVisible({ timeout: 5000 });
+  };
 
   test.describe('List View', () => {
     test('should display access lists page with title', async ({ page }) => {
@@ -246,7 +265,7 @@ test.describe('Access Lists - CRUD Operations', () => {
       });
     });
 
-    test('should create ACL with name only (IP whitelist)', async ({ page }) => {
+    test('should create ACL with an IP rule (IP whitelist)', async ({ page }) => {
       const aclName = `Test ACL ${generateUniqueId()}`;
 
       await test.step('Open create form', async () => {
@@ -265,6 +284,10 @@ test.describe('Access Lists - CRUD Operations', () => {
 
         // Default should be whitelist
         await expect(typeSelect).toHaveValue('whitelist');
+      });
+
+      await test.step('Add an IP rule so the enabled allow-list is accepted', async () => {
+        await addIpRule(page, DOCUMENTATION_CIDR);
       });
 
       await test.step('Submit form', async () => {
@@ -286,6 +309,63 @@ test.describe('Access Lists - CRUD Operations', () => {
         const hasAclInList = await aclInList.isVisible({ timeout: 5000 }).catch(() => false);
 
         expect(hasSuccess || hasAclInList).toBeTruthy();
+      });
+    });
+
+    test('should refuse an enabled name-only allow-list with the rules-required message', async ({ page }) => {
+      const aclName = `No Rules ACL ${generateUniqueId()}`;
+
+      await test.step('Open create form and enter only a name', async () => {
+        await getCreateButton(page).click();
+        await waitForModal(page, /create|access.*list/i);
+
+        await page.locator('#name').fill(aclName);
+        await expect(page.locator('#type')).toHaveValue('whitelist');
+      });
+
+      await test.step('Submit and expect the API refusal to be shown in the form', async () => {
+        await getSaveButton(page).click();
+
+        // The API answers 400 access_list_rules_required; the form stays open
+        // and renders the translated message (AccessListForm.tsx).
+        const saveError = page.getByTestId('access-list-save-error');
+        await expect(saveError).toBeVisible({ timeout: 5000 });
+        await expect(saveError).toHaveText(
+          /an enabled allow-list needs at least one rule/i
+        );
+        await expect(page.getByRole('heading', { name: /create.*access.*list/i })).toBeVisible();
+        // The form stays open with the error. The footer is pushed below the
+        // fold at this viewport, so Cancel is asserted attached rather than
+        // clicked; the page is discarded at test end.
+        await expect(getCancelButton(page)).toBeAttached();
+      });
+
+      await test.step('Verify the refused list was not persisted', async () => {
+        const response = await page.request.get('/api/v1/access-lists');
+        expect(response.ok()).toBeTruthy();
+        const lists = (await response.json()) as Array<{ name: string }>;
+        expect(lists.some((acl) => acl.name === aclName)).toBe(false);
+      });
+    });
+
+    test('should create a name-only block-list (blocks nobody, so no rule is required)', async ({ page }) => {
+      const aclName = `Block ACL ${generateUniqueId()}`;
+
+      await test.step('Open create form, choose blacklist, and enter only a name', async () => {
+        await getCreateButton(page).click();
+        await waitForModal(page, /create|access.*list/i);
+
+        await page.locator('#name').fill(aclName);
+        await page.locator('#type').selectOption('blacklist');
+        await expect(page.locator('#type')).toHaveValue('blacklist');
+      });
+
+      await test.step('Submit form and verify the block-list was saved', async () => {
+        await getSaveButton(page).click();
+
+        const formTitle = page.getByRole('heading', { name: /create.*access.*list/i });
+        await expect(formTitle).not.toBeVisible({ timeout: 10000 });
+        await expect(page.getByText(aclName)).toBeVisible({ timeout: 5000 });
       });
     });
 
@@ -445,6 +525,7 @@ test.describe('Access Lists - CRUD Operations', () => {
         await waitForModal(page, /create|access.*list/i);
 
         await page.locator('#name').fill(aclName);
+        await addIpRule(page, DOCUMENTATION_CIDR);
         await getSaveButton(page).click();
       });
 
