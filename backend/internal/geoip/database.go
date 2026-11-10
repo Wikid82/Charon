@@ -71,6 +71,13 @@ var (
 // it reports as missing until a database is provided there.
 func ResolveDatabasePath() string {
 	r := resolveDatabasePath(os.Getenv(EnvDBPath), isRegularFile, readBuildEpoch)
+	reportResolution(r)
+	return r.path
+}
+
+// reportResolution logs the resolution notes that need the operator's attention. Each note is logged at most once per
+// process, so repeated calls to ResolveDatabasePath do not flood the log.
+func reportResolution(r resolution) {
 	if r.ignoredFormerDefault {
 		reportIgnoredFormerDefault.Do(func() {
 			logger.Log().WithField("path", FormerImageDefaultDBPath).Info("CHARON_GEOIP_DB_PATH names the former image default, which is not a file; treating it as unset")
@@ -81,7 +88,6 @@ func ResolveDatabasePath() string {
 			logger.Log().WithField("path", r.skippedUnreadable).Warn("GeoIP database in the data folder cannot be read; using the bundled copy instead")
 		})
 	}
-	return r.path
 }
 
 // resolveDatabasePath implements ResolveDatabasePath with the environment value, the file check and the build-time
