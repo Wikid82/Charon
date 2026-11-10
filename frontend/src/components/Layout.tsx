@@ -7,6 +7,7 @@ import { Link, useLocation } from 'react-router'
 import { getFeatureFlags } from '../api/featureFlags'
 import { checkHealth } from '../api/health'
 import { getSettings } from '../api/settings'
+import { GITHUB_REPO_URL } from '../constants/links'
 import { useAuth } from '../hooks/useAuth'
 import { useMediaQuery } from '../hooks/useMediaQuery'
 import { toast } from '../utils/toast'
@@ -67,7 +68,7 @@ export default function Layout({ children }: LayoutProps) {
   }
 
   const handleShareProject = async () => {
-    const shareUrl = 'https://github.com/Wikid82/Charon'
+    const shareUrl = GITHUB_REPO_URL
     const shareData = {
       title: 'Charon',
       text: 'Charon is a self-hosted reverse proxy manager for securely exposing and managing your services.',
