@@ -46,26 +46,10 @@ Not related to this branch.
 | Backend line coverage gate | 92.2% (minimum 87%) |
 | Local patch coverage (`scripts/local-patch-report.sh`, strict) | 100% (391 of 391 changed lines) |
 
-Uncovered changed lines:
+The branch initially left 27 changed lines without a test (an unreachable parse branch, a merge branch no caller uses, an
+unknown-list-type branch and guard branches in the test helper). They were covered or removed, and the test helper
+package is excluded from coverage like the existing `hubcachetest` helper.
 
-| File | Lines | Code |
-| --- | --- | --- |
-| `backend/internal/caddy/config.go` | 1104-1107 | `denyMatcherSet`: merging an existing `"not"` list from `positive` (no caller passes one) |
-| `backend/internal/services/access_list_service.go` | 208-209 | `TestIP`: `netip.AddrFromSlice` failure after a successful `net.ParseIP` |
-| `backend/internal/services/access_list_evaluate.go` | 193 | `evaluateIPRules`: `default` branch for an unknown list type |
-| `backend/internal/caddy/caddymatchtest/caddymatchtest.go` | 252-253, 256-257, 271-272, 276-277, 282-283, 291-292, 300-301, 309-310, 317-318, 321-322 | guard and `t.Fatalf` branches of the test helper (`isHostCatchAll`, `parsePrefix`, `statusCode`, `decodeJSON`, `asMap`, `listOf`) |
-
-Remediation:
-
-- `config.go` 1104-1107: add a unit test calling `denyMatcherSet` with `positive` that already holds a `"not"` list
-  and assert the admin set comes first, followed by the existing sets, then `negated`.
-- `access_list_service.go` 208-209: `net.ParseIP` always returns a 4 or 16 byte slice, so this branch cannot run.
-  Replace the pair with `netip.ParseAddr` (keeping today's error) or drop the branch.
-- `access_list_evaluate.go` 193: add an `Evaluate` case with an unknown `Type` and no `LocalNetworkOnly`, asserting
-  allowed (matching `buildACLHandler`, which adds no handler for an unknown type).
-- `caddymatchtest.go`: either cover the guards with a `testing.TB` fake that records `Fatalf`, or add
-  `backend/internal/caddy/caddymatchtest/**` to the `ignore` list in `codecov.yml` (precedent:
-  `backend/internal/crowdsec/hubcachetest/**`). The package is test-only and is not linked into the binary.
 
 ## E2E (Playwright, `--project=security-tests`, after the image rebuild)
 
