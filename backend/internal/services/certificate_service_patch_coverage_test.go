@@ -28,7 +28,7 @@ func TestExportCertificate_DER(t *testing.T) {
 	info, err := cs.UploadCertificate("der-export", string(certPEM), string(keyPEM), "")
 	require.NoError(t, err)
 
-	data, filename, err := cs.ExportCertificate(info.UUID, "der", false, "")
+	data, filename, err := cs.ExportCertificate(info.UUID, "der", ExportOptions{})
 	require.NoError(t, err)
 	assert.NotEmpty(t, data)
 	assert.Contains(t, filename, ".der")
@@ -48,7 +48,7 @@ func TestExportCertificate_PFX(t *testing.T) {
 	info, err := cs.UploadCertificate("pfx-export", string(certPEM), string(keyPEM), "")
 	require.NoError(t, err)
 
-	data, filename, err := cs.ExportCertificate(info.UUID, "pfx", true, "test-password")
+	data, filename, err := cs.ExportCertificate(info.UUID, "pfx", ExportOptions{IncludeKey: true, PFXPassword: "test-password", KeyAuthorized: true})
 	require.NoError(t, err)
 	assert.NotEmpty(t, data)
 	assert.Contains(t, filename, ".pfx")
@@ -66,7 +66,7 @@ func TestExportCertificate_P12(t *testing.T) {
 	info, err := cs.UploadCertificate("p12-export", string(certPEM), string(keyPEM), "")
 	require.NoError(t, err)
 
-	data, filename, err := cs.ExportCertificate(info.UUID, "p12", true, "password")
+	data, filename, err := cs.ExportCertificate(info.UUID, "p12", ExportOptions{IncludeKey: true, PFXPassword: "password", KeyAuthorized: true})
 	require.NoError(t, err)
 	assert.NotEmpty(t, data)
 	assert.Contains(t, filename, ".pfx")
@@ -84,7 +84,7 @@ func TestExportCertificate_UnsupportedFormat(t *testing.T) {
 	info, err := cs.UploadCertificate("unsupported-fmt", string(certPEM), string(keyPEM), "")
 	require.NoError(t, err)
 
-	_, _, err = cs.ExportCertificate(info.UUID, "xml", false, "")
+	_, _, err = cs.ExportCertificate(info.UUID, "xml", ExportOptions{})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "unsupported export format")
 }
@@ -101,7 +101,7 @@ func TestExportCertificate_PEMWithKey(t *testing.T) {
 	info, err := cs.UploadCertificate("pem-key-export", string(certPEM), string(keyPEM), "")
 	require.NoError(t, err)
 
-	data, filename, err := cs.ExportCertificate(info.UUID, "pem", true, "")
+	data, filename, err := cs.ExportCertificate(info.UUID, "pem", ExportOptions{IncludeKey: true, KeyAuthorized: true})
 	require.NoError(t, err)
 	assert.Contains(t, string(data), "PRIVATE KEY")
 	assert.Contains(t, filename, ".pem")
@@ -115,7 +115,7 @@ func TestExportCertificate_NotFound(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
 	cs := newTestCertificateService(tmpDir, db)
-	_, _, err = cs.ExportCertificate("nonexistent-uuid", "pem", false, "")
+	_, _, err = cs.ExportCertificate("nonexistent-uuid", "pem", ExportOptions{})
 	assert.ErrorIs(t, err, ErrCertNotFound)
 }
 
@@ -588,7 +588,7 @@ func TestExportCertificate_PEMWithChain(t *testing.T) {
 		PrivateKeyEncrypted: encKey,
 	})
 
-	data, filename, err := cs.ExportCertificate("export-chain-uuid", "pem", true, "")
+	data, filename, err := cs.ExportCertificate("export-chain-uuid", "pem", ExportOptions{IncludeKey: true, KeyAuthorized: true})
 	require.NoError(t, err)
 	assert.Equal(t, "Export Chain.pem", filename)
 	assert.Contains(t, string(data), "BEGIN CERTIFICATE")

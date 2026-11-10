@@ -387,15 +387,26 @@ func (h *CertificateHandler) Export(c *gin.Context) {
 		return
 	}
 
-	// Re-authenticate when requesting private key
-	if req.IncludeKey && !h.reauthenticateForKeyExport(c, req.Password) {
+	// Formats such as PFX/P12 always embed the key, so they re-authenticate
+	// even when include_key is false or omitted.
+	keyRequested := req.IncludeKey || services.FormatCarriesPrivateKey(req.Format)
+	if keyRequested && !h.reauthenticateForKeyExport(c, req.Password) {
 		return
 	}
 
-	data, filename, err := h.service.ExportCertificate(certUUID, req.Format, req.IncludeKey, req.PFXPassword)
+	// KeyAuthorized is set only here, after re-authentication has succeeded.
+	data, filename, err := h.service.ExportCertificate(certUUID, req.Format, services.ExportOptions{
+		IncludeKey:    req.IncludeKey,
+		PFXPassword:   req.PFXPassword,
+		KeyAuthorized: keyRequested,
+	})
 	if err != nil {
 		if errors.Is(err, services.ErrCertNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "certificate not found"})
+			return
+		}
+		if errors.Is(err, services.ErrKeyExportNotAuthorized) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "private key export requires re-authentication"})
 			return
 		}
 		logger.Log().WithError(fmt.Errorf("%s", util.SanitizeForLog(err.Error()))).Error("failed to export certificate")

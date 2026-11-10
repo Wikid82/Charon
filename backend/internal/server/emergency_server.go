@@ -68,7 +68,8 @@ func NewEmergencyServerWithDeps(db *gorm.DB, cfg config.EmergencyConfig, caddyMa
 }
 
 // WithManagementCIDRs sets the networks allowed to use the reset endpoint.
-// An empty list selects the default private and loopback ranges.
+// Entries may be CIDRs or bare addresses. An empty list selects the default
+// private and loopback ranges; an invalid entry limits access to loopback.
 func (s *EmergencyServer) WithManagementCIDRs(cidrs []string) *EmergencyServer {
 	s.mgmtCIDRs = cidrs
 	return s

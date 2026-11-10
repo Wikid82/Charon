@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"net/url"
 	"os"
 	"strings"
 	"sync"
@@ -229,7 +230,7 @@ func (w *LogWatcher) ParseLogEntry(line string) *models.SecurityLogEntry {
 		Logger:    caddyLog.Logger,
 		ClientIP:  caddyLog.Request.RemoteIP,
 		Method:    caddyLog.Request.Method,
-		URI:       caddyLog.Request.URI,
+		URI:       stripQueryToken(caddyLog.Request.URI),
 		Status:    caddyLog.Status,
 		Duration:  caddyLog.Duration,
 		Size:      int64(caddyLog.Size),
@@ -375,4 +376,25 @@ func minInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+// stripQueryToken removes the "token" query parameter from a request URI so that credentials passed in the query
+// are never broadcast to log stream subscribers. A query that cannot be parsed is dropped entirely.
+func stripQueryToken(uri string) string {
+	path, rawQuery, hasQuery := strings.Cut(uri, "?")
+	if !hasQuery {
+		return uri
+	}
+	query, err := url.ParseQuery(rawQuery)
+	if err != nil {
+		return path
+	}
+	if !query.Has("token") {
+		return uri
+	}
+	query.Del("token")
+	if len(query) == 0 {
+		return path
+	}
+	return path + "?" + query.Encode()
 }

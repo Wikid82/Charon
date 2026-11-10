@@ -95,7 +95,7 @@ func (h *LogsWSHandler) HandleWebSocket(c *gin.Context) {
 
 	// Register connection with tracker if available
 	if h.tracker != nil {
-		filters := c.Request.URL.RawQuery
+		filters := trackedFilters(c.Request.URL.Query(), logsTrackedFilterKeys)
 		connInfo := &services.ConnectionInfo{
 			ID:             subscriberID,
 			Type:           "logs",

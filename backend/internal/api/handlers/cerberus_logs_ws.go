@@ -58,7 +58,7 @@ func (h *CerberusLogsHandler) LiveLogs(c *gin.Context) {
 
 	// Register connection with tracker if available
 	if h.tracker != nil {
-		filters := c.Request.URL.RawQuery
+		filters := trackedFilters(c.Request.URL.Query(), cerberusTrackedFilterKeys)
 		connInfo := &services.ConnectionInfo{
 			ID:             subscriberID,
 			Type:           "cerberus",

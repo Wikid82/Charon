@@ -44,6 +44,13 @@ func IsEmergencyBypass(c *gin.Context) bool {
 //
 // This middleware must be registered FIRST in the middleware chain.
 func EmergencyBypass(managementCIDRs []string, db *gorm.DB) gin.HandlerFunc {
+	// Parsed before the token checks so an invalid list is reported at startup
+	// even when emergency access is disabled. This is the one place it is logged.
+	managementNets, err := ParseManagementNets(managementCIDRs)
+	if err != nil {
+		logger.Log().WithError(err).Error("Emergency management networks are invalid; emergency access limited to loopback")
+	}
+
 	// Load emergency token from environment
 	emergencyToken := os.Getenv(EmergencyTokenEnvVar)
 	if emergencyToken == "" {
@@ -55,8 +62,6 @@ func EmergencyBypass(managementCIDRs []string, db *gorm.DB) gin.HandlerFunc {
 		logger.Log().Warn("CHARON_EMERGENCY_TOKEN too short - emergency bypass disabled")
 		return func(c *gin.Context) { c.Next() } // noop
 	}
-
-	managementNets := ParseManagementNets(managementCIDRs)
 
 	return func(c *gin.Context) {
 		// Check if emergency token is present

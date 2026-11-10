@@ -83,8 +83,19 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 						RollKeep:     5,  // Keep 5 files
 						RollKeepDays: 7,  // Keep for 7 days
 					},
+					// Filter encoder over JSON: the access log is still JSON for CrowdSec, but request URIs
+					// lose their "token" query parameter before they are written.
 					Encoder: &EncoderConfig{
-						Format: "json",
+						Format: "filter",
+						Wrap:   &EncoderConfig{Format: "json"},
+						Fields: map[string]FieldFilter{
+							"request>uri": {
+								Filter: "query",
+								Actions: []QueryAction{
+									{Type: "delete", Parameter: "token"},
+								},
+							},
+						},
 					},
 					Include: []string{"http.log.access.access_log"},
 				},

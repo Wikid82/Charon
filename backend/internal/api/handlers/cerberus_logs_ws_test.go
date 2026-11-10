@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -503,4 +504,100 @@ func TestCerberusLogsHandler_UpgradeFailure(t *testing.T) {
 
 	// Should fail upgrade (400 Bad Request)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
+}
+
+// wsTestToken is a credential-like value used to check that it never reaches connection info or streamed entries.
+const wsTestToken = "tkn-test-value-7f3a"
+
+// TestCerberusLogsHandler_ConnectionListOmitsToken verifies the connection list does not expose the query token.
+func TestCerberusLogsHandler_ConnectionListOmitsToken(t *testing.T) {
+	t.Parallel()
+
+	logPath := filepath.Join(t.TempDir(), "access.log")
+	// #nosec G304 -- Test fixture uses controlled path from t.TempDir()
+	require.NoError(t, os.WriteFile(logPath, nil, 0o600))
+
+	watcher := services.NewLogWatcher(logPath)
+	require.NoError(t, watcher.Start(context.Background()))
+	defer watcher.Stop()
+
+	tracker := services.NewWebSocketTracker()
+	handler := NewCerberusLogsHandler(watcher, tracker)
+
+	router := gin.New()
+	router.GET("/ws", handler.LiveLogs)
+	router.GET("/websocket/connections", NewWebSocketStatusHandler(tracker).GetConnections)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?source=waf&token=" + wsTestToken
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+	if resp != nil {
+		defer func() { _ = resp.Body.Close() }()
+	}
+
+	waitFor(t, func() bool { return tracker.GetCount() == 1 })
+
+	statusResp, err := http.Get(server.URL + "/websocket/connections") //nolint:noctx // test-only request against httptest server
+	require.NoError(t, err)
+	defer func() { _ = statusResp.Body.Close() }()
+	body, err := io.ReadAll(statusResp.Body)
+	require.NoError(t, err)
+
+	assert.NotContains(t, string(body), wsTestToken)
+	assert.Contains(t, string(body), "source=waf")
+}
+
+// TestCerberusLogsHandler_StreamedEntryOmitsToken verifies a streamed entry has the query token removed from its URI.
+func TestCerberusLogsHandler_StreamedEntryOmitsToken(t *testing.T) {
+	t.Parallel()
+
+	logPath := filepath.Join(t.TempDir(), "access.log")
+	// #nosec G304 -- Test fixture uses controlled path from t.TempDir()
+	file, err := os.Create(logPath)
+	require.NoError(t, err)
+	defer func() { _ = file.Close() }()
+
+	watcher := services.NewLogWatcher(logPath)
+	require.NoError(t, watcher.Start(context.Background()))
+	defer watcher.Stop()
+
+	router := gin.New()
+	router.GET("/ws", NewCerberusLogsHandler(watcher, nil).LiveLogs)
+	server := httptest.NewServer(router)
+	defer server.Close()
+
+	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
+	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
+	require.NoError(t, err)
+	defer func() { _ = conn.Close() }()
+	if resp != nil {
+		defer func() { _ = resp.Body.Close() }()
+	}
+
+	time.Sleep(300 * time.Millisecond)
+
+	caddyLog := models.CaddyAccessLog{Level: "info", Ts: float64(time.Now().Unix()), Logger: "http.log.access", Status: 200}
+	caddyLog.Request.RemoteIP = "10.0.0.1"
+	caddyLog.Request.Method = "GET"
+	caddyLog.Request.URI = "/api/items?token=" + wsTestToken + "&page=2"
+	caddyLog.Request.Host = "example.com"
+
+	logJSON, err := json.Marshal(caddyLog)
+	require.NoError(t, err)
+	_, err = file.WriteString(string(logJSON) + "\n")
+	require.NoError(t, err)
+	require.NoError(t, file.Sync())
+
+	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
+	_, msg, err := conn.ReadMessage()
+	require.NoError(t, err)
+
+	assert.NotContains(t, string(msg), wsTestToken)
+
+	var entry models.SecurityLogEntry
+	require.NoError(t, json.Unmarshal(msg, &entry))
+	assert.Equal(t, "/api/items?page=2", entry.URI)
 }
