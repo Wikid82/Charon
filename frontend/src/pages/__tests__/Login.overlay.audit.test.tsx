@@ -46,8 +46,10 @@ describe('Login - Coin Overlay Security Audit', () => {
   })
 
   it('shows coin-themed overlay during login', async () => {
+    // The login request stays pending until the overlay has been checked, so a slow runner cannot finish it first.
+    let finishLogin: (value: { data: object }) => void = () => {}
     vi.mocked(client.post).mockImplementation(
-      () => new Promise(resolve => setTimeout(() => resolve({ data: {} }), 100))
+      () => new Promise(resolve => { finishLogin = resolve })
     )
 
     renderWithProviders(<Login />)
@@ -69,10 +71,11 @@ describe('Login - Coin Overlay Security Audit', () => {
     const overlay = document.querySelector('.bg-amber-950\\/90')
     expect(overlay).toBeInTheDocument()
 
-    // Wait for completion
+    // The overlay goes away once the request completes
+    finishLogin({ data: {} })
     await waitFor(() => {
       expect(screen.queryByText('Paying the ferryman...')).not.toBeInTheDocument()
-    }, { timeout: 200 })
+    })
   })
 
   it('ATTACK: rapid fire login attempts are blocked by overlay', async () => {
