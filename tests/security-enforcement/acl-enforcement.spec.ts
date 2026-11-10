@@ -400,16 +400,12 @@ test.describe('ACL Enforcement', () => {
       });
 
       await test.step('API reset path answers from the reset handler without a token', async () => {
+        // One tokenless call only: each failed reset attempt spends the shared per-address
+        // budget, so no direct-to-app comparison is sent alongside it.
         const response = await proxied(selfProxyDomain, RESET_API_PATH, 'POST');
-        const direct = await proxyContext.fetch(`${APP_BASE_URL}${RESET_API_PATH}`, {
-          method: 'POST',
-          data: {},
-          failOnStatusCode: false,
-        });
 
-        // The reset endpoint's own token check answers (401), the same as the app directly.
+        // The reset endpoint's own token check answers (401), not the ACL refusal (403).
         expect(response.status()).toBe(401);
-        expect(response.status()).toBe(direct.status());
         expect(await response.json()).toMatchObject({ error: 'unauthorized' });
       });
 
