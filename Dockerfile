@@ -31,7 +31,7 @@ ARG CROWDSEC_BUILDER_SRC=toolchain-prebuilt
 
 # ---- Pinned Toolchain Versions ----
 # renovate: datasource=docker depName=golang versioning=docker
-ARG GOLANG_IMAGE=golang:1.27.3-alpine@sha256:fa3d596898d9f126af7c01d14ee7597bab3f39cccf392ef36b69fe77cd681f18
+ARG GOLANG_IMAGE=golang:1.27.4-alpine@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf
 
 # renovate: datasource=docker depName=alpine versioning=docker
 ARG ALPINE_IMAGE=alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
@@ -880,7 +880,7 @@ RUN set -e; \
     _retry go get go.opentelemetry.io/otel@v1.47.0; \
     # GHSA-xmrv-pmrh-hhx2: AWS SDK v2 event stream injection
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
-    _retry go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.26; \
+    _retry go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.27; \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
     _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.92.1; \
     _retry go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7; \
