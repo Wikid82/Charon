@@ -10,6 +10,11 @@ vi.mock('../../api/system', () => ({
   getMyIP: vi.fn(),
 }));
 
+// The country note reads the session and GeoIP queries; its own tests cover it
+vi.mock('../AccessListGeoNote', () => ({
+  AccessListGeoNote: () => null,
+}));
+
 vi.mock('react-hot-toast', () => ({
   default: {
     success: vi.fn(),

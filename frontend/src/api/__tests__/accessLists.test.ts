@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import { accessListsApi, type AccessList  } from '../accessLists';
+import { accessListsApi, selfCheckAccessList, type AccessList, type AccessListSelfCheckDraft } from '../accessLists';
 import client from '../client';
 
 
@@ -172,5 +172,43 @@ describe('accessListsApi', () => {
       expect(client.get).toHaveBeenCalledWith<[string]>('/access-lists/templates');
       expect(result).toEqual(mockTemplates);
     });
+  });
+});
+
+describe('selfCheckAccessList', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('posts the unsaved draft and returns the decision', async () => {
+    const draft: AccessListSelfCheckDraft = {
+      type: 'geo_blacklist',
+      country_codes: 'RU,CN',
+      ip_rules: '',
+      local_network_only: false,
+      enabled: true,
+    };
+    const decision = {
+      ip_address: '203.0.113.7',
+      country_code: 'RU',
+      allowed: false,
+      admin_exempt: false,
+      geoip_available: true,
+      reason: 'country_blocked',
+    };
+    vi.mocked(client.post).mockResolvedValueOnce({ data: decision });
+
+    const result = await selfCheckAccessList(draft);
+
+    expect(client.post).toHaveBeenCalledWith<[string, AccessListSelfCheckDraft]>('/access-lists/self-check', draft);
+    expect(result).toEqual(decision);
+  });
+
+  it('propagates a refused request', async () => {
+    vi.mocked(client.post).mockRejectedValueOnce(new Error('forbidden'));
+
+    await expect(
+      selfCheckAccessList({ type: 'geo_whitelist', country_codes: 'DE', ip_rules: '', local_network_only: false, enabled: true })
+    ).rejects.toThrow('forbidden');
   });
 });

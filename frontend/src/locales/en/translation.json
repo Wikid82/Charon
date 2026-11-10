@@ -658,6 +658,10 @@
       "unavailableReason": "Not available. Country lists are not enforced until a database is loaded.",
       "docsLink": "How to provide a database",
       "unenforcedLists": "{{count}} country list(s) are not enforced",
+      "formNote": {
+        "unavailable": "This list will not be enforced until the GeoIP database is available.",
+        "wouldRefuseYou": "Based on the address you are using now, this list would refuse you. Saving is still allowed."
+      },
       "actions": {
         "reload": "Reload",
         "replace": "Replace database…",

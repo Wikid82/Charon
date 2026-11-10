@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query'
 
+import { selfCheckAccessList, type AccessListSelfCheckDraft } from '../api/accessLists'
 import {
   getGeoIPStatus,
   lookupGeoIP,
@@ -9,6 +10,7 @@ import {
 } from '../api/security'
 import { getMyIP } from '../api/system'
 import { ACTIVE_ALERTS_QUERY_KEY } from './useActiveAlerts'
+import { useDebouncedValue } from './useDebouncedValue'
 import { SECURITY_STATUS_QUERY_KEY } from './useSecurity'
 
 
@@ -17,6 +19,12 @@ export const GEOIP_STATUS_QUERY_KEY = ['geoipStatus'] as const
 
 /** The status changes only through the card's own actions, so it is not polled. */
 const GEOIP_STATUS_STALE_MS = 60_000
+
+/** Pause after the last edit of an access list draft before the self-check runs. */
+export const ACCESS_LIST_SELF_CHECK_DEBOUNCE_MS = 500
+
+/** Cache key prefix of the access list self-check (keyed by the debounced draft). */
+export const ACCESS_LIST_SELF_CHECK_QUERY_KEY = ['accessListSelfCheck'] as const
 
 /** Reads the GeoIP database status (admin only: the caller decides whether to mount the reader). */
 export function useGeoIPStatus() {
@@ -78,5 +86,21 @@ export function useGeoIPLookup() {
 export function useMyIPAddress() {
   return useMutation({
     mutationFn: () => getMyIP(),
+  })
+}
+
+/**
+ * Asks whether the draft access list would refuse the viewer's current address. Runs only while `enabled` is true
+ * (admin and a country list with codes) and waits for the draft to stop changing for 500 ms, so typing does not
+ * send a request per keystroke. The draft is compared by value, so callers need not memoize it.
+ */
+export function useAccessListSelfCheck(draft: AccessListSelfCheckDraft, enabled: boolean) {
+  const draftKey = JSON.stringify(draft)
+  const debouncedKey = useDebouncedValue(draftKey, ACCESS_LIST_SELF_CHECK_DEBOUNCE_MS)
+  return useQuery({
+    queryKey: [...ACCESS_LIST_SELF_CHECK_QUERY_KEY, debouncedKey],
+    queryFn: () => selfCheckAccessList(JSON.parse(debouncedKey) as AccessListSelfCheckDraft),
+    enabled,
+    retry: false,
   })
 }
