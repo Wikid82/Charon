@@ -1,2 +1,2 @@
 # Docs tooling only (not shipped in the Charon container). Tracked by Renovate; see .github/renovate.json.
-zensical==0.1.0
+zensical==0.1.1
