@@ -628,3 +628,35 @@ func TestDetectSecurityEvent_403WithoutHeaders(t *testing.T) {
 	assert.Equal(t, "Access denied", entry.BlockReason)
 	assert.Equal(t, "warn", entry.Level)
 }
+
+// TestParseLogEntry_RemovesTokenFromURI verifies the parsed entry keeps the path and drops the token parameter.
+func TestParseLogEntry_RemovesTokenFromURI(t *testing.T) {
+	t.Parallel()
+
+	watcher := NewLogWatcher("/tmp/test.log")
+
+	logLine := `{"level":"info","ts":1702406400.123,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"192.168.1.100","method":"GET","uri":"/api/items?token=tkn-test-value-7f3a&page=2","host":"example.com","headers":{}},"status":200,"duration":0.001,"size":10}`
+
+	entry := watcher.ParseLogEntry(logLine)
+
+	require.NotNil(t, entry)
+	assert.NotContains(t, entry.URI, "tkn-test-value-7f3a")
+	assert.Equal(t, "/api/items?page=2", entry.URI)
+}
+
+// TestStripQueryToken covers URIs with and without the token parameter.
+func TestStripQueryToken(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]string{
+		"/plain":                       "/plain",
+		"/only?token=abc":              "/only",
+		"/mixed?token=abc&a=1":         "/mixed?a=1",
+		"/keep?a=1&b=2":                "/keep?a=1&b=2",
+		"/broken?token=%zz&a=1":        "/broken",
+		"/multi?token=abc&token=def&x": "/multi?x=",
+	}
+	for in, want := range tests {
+		assert.Equal(t, want, stripQueryToken(in), in)
+	}
+}

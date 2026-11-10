@@ -22,7 +22,7 @@ import (
 
 // BackupServiceInterface defines the contract for backup service operations
 type BackupServiceInterface interface {
-	CreateBackup() (string, error)
+	CreateAutomaticBackup(kind string) (*models.BackupRecord, error)
 	ListBackups() ([]services.BackupFile, error)
 	DeleteBackup(filename string) error
 	GetBackupPath(filename string) (string, error)
@@ -30,8 +30,16 @@ type BackupServiceInterface interface {
 	GetAvailableSpace() (int64, error)
 }
 
+// certificateExporter is the export step of the certificate service. The export
+// endpoint depends on this narrow interface so tests can stand in for failures the
+// service does not produce on the normal path.
+type certificateExporter interface {
+	ExportCertificate(certUUID, format string, opts services.ExportOptions) ([]byte, string, error)
+}
+
 type CertificateHandler struct {
 	service             *services.CertificateService
+	exporter            certificateExporter
 	backupService       BackupServiceInterface
 	notificationService *services.NotificationService
 	db                  *gorm.DB
@@ -45,6 +53,7 @@ type CertificateHandler struct {
 func NewCertificateHandler(service *services.CertificateService, backupService BackupServiceInterface, ns *services.NotificationService) *CertificateHandler {
 	return &CertificateHandler{
 		service:              service,
+		exporter:             service,
 		backupService:        backupService,
 		notificationService:  ns,
 		lastNotificationTime: make(map[string]time.Time),
@@ -387,15 +396,26 @@ func (h *CertificateHandler) Export(c *gin.Context) {
 		return
 	}
 
-	// Re-authenticate when requesting private key
-	if req.IncludeKey && !h.reauthenticateForKeyExport(c, req.Password) {
+	// Formats such as PFX/P12 always embed the key, so they re-authenticate
+	// even when include_key is false or omitted.
+	keyRequested := req.IncludeKey || services.FormatCarriesPrivateKey(req.Format)
+	if keyRequested && !h.reauthenticateForKeyExport(c, req.Password) {
 		return
 	}
 
-	data, filename, err := h.service.ExportCertificate(certUUID, req.Format, req.IncludeKey, req.PFXPassword)
+	// KeyAuthorized is set only here, after re-authentication has succeeded.
+	data, filename, err := h.exporter.ExportCertificate(certUUID, req.Format, services.ExportOptions{
+		IncludeKey:    req.IncludeKey,
+		PFXPassword:   req.PFXPassword,
+		KeyAuthorized: keyRequested,
+	})
 	if err != nil {
 		if errors.Is(err, services.ErrCertNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "certificate not found"})
+			return
+		}
+		if errors.Is(err, services.ErrKeyExportNotAuthorized) {
+			c.JSON(http.StatusForbidden, gin.H{"error": "private key export requires re-authentication"})
 			return
 		}
 		logger.Log().WithError(fmt.Errorf("%s", util.SanitizeForLog(err.Error()))).Error("failed to export certificate")
@@ -477,6 +497,10 @@ func (h *CertificateHandler) Delete(c *gin.Context) {
 // minBackupFreeSpaceBytes is the free disk space required before a pre-delete backup is attempted.
 const minBackupFreeSpaceBytes = 100 * 1024 * 1024
 
+// certificateDeleteBackupKind is the backup record type stored for the safety
+// backup taken before a certificate delete (single or bulk).
+const certificateDeleteBackupKind = "pre_delete"
+
 // errCertUsageCheck marks a failed in-use lookup so it keeps its own response message.
 var errCertUsageCheck = errors.New("certificate usage check failed")
 
@@ -496,7 +520,7 @@ func (h *CertificateHandler) backupBeforeDelete(c *gin.Context) bool {
 		return false
 	}
 
-	if _, err := h.backupService.CreateBackup(); err != nil {
+	if _, err := h.backupService.CreateAutomaticBackup(certificateDeleteBackupKind); err != nil {
 		logger.Log().WithError(err).Error("failed to create backup before deletion")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to create backup before deletion"})
 		return false

@@ -79,7 +79,7 @@ A confirmation dialog appears before anything is removed. Charon creates a backu
 
 ## Exporting a Certificate
 
-You can download a certificate from the Certificates list. If you also want to download its private key (the secret half that must never be shared), Charon asks for your password again first. Only admins can do this, and the emergency access token cannot be used for it.
+You can download a certificate from the Certificates list. Exports that contain a private key, including PFX/P12, always ask for your password. The private key is the secret half that must never be shared, so Charon asks you to confirm it's really you first. Only admins can do this, and the emergency access token cannot be used for it.
 
 ## Troubleshooting
 

@@ -1090,6 +1090,7 @@
       "manual": "Manuell",
       "scheduled": "Geplant",
       "preRestore": "Vor Wiederherstellung",
+      "preDelete": "Vor Löschung",
       "uploaded": "Hochgeladen"
     },
     "schedule": {

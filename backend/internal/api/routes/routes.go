@@ -305,13 +305,17 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	}
 	crowdsecHandler := newCrowdsecHandler(db, handlers.NewDefaultCrowdsecExecutor(), crowdsecBinPath, crowdsecDataDir, caddyManager).WithAppContext(ctx)
 
-	// Emergency endpoint
+	securityService := services.NewSecurityService(db)
+
+	// Emergency endpoint. The main listener has its own reset throttle so a flood here cannot
+	// use up the loopback Tier 2 recovery budget.
 	emergencyHandler := handlers.NewEmergencyHandlerWithDeps(db, caddyManager, cerb).
 		WithManagementCIDRs(cfg.Security.ManagementCIDRs).
 		WithCrowdsecLifecycle(crowdsecHandler)
+	emergencyResetThrottle := middleware.NewEmergencyResetThrottle("main", securityService)
 	emergency := router.Group("/api/v1/emergency")
-	// Emergency endpoints must stay responsive and should not be rate limited.
-	emergency.POST("/security-reset", emergencyHandler.SecurityReset)
+	// Emergency endpoints must stay responsive; the reset route is throttled by its own middleware.
+	emergency.POST("/security-reset", emergencyResetThrottle.Middleware(), emergencyHandler.SecurityReset)
 
 	// Emergency token management (admin-only, protected by EmergencyBypass middleware)
 	emergencyTokenService := services.NewEmergencyTokenService(db)
@@ -353,8 +357,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		// Set before Start() so no cron tick can miss it.
 		backupService.SetMaintenanceDeferrer(ctx, gate)
 	}
-	backupService.Start() // Start cron scheduler for scheduled backups
-	securityService := services.NewSecurityService(db)
+	backupService.Start()                             // Start cron scheduler for scheduled backups
 	backupService.SetSecurityService(securityService) // Async Backup/Restore Jobs §3.3.1: security-audit logging from inside the job goroutine
 	backupHandler := handlers.NewBackupHandlerWithDeps(backupService, securityService, db)
 	backupRemoteHandler := handlers.NewBackupRemoteHandler(backupRemoteService)

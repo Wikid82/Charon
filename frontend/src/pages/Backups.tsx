@@ -41,6 +41,7 @@ const BACKUP_TYPE_KEYS: Record<string, string> = {
   manual: 'manual',
   scheduled: 'scheduled',
   pre_restore: 'preRestore',
+  pre_delete: 'preDelete',
   uploaded: 'uploaded',
 }
 

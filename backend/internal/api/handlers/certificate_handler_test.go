@@ -263,13 +263,20 @@ func TestDeleteCertificate_InUse_NoBackup(t *testing.T) {
 type mockBackupService struct {
 	createFunc         func() (string, error)
 	availableSpaceFunc func() (int64, error)
+	// lastKind records the kind passed to the most recent CreateAutomaticBackup call.
+	lastKind string
 }
 
-func (m *mockBackupService) CreateBackup() (string, error) {
+func (m *mockBackupService) CreateAutomaticBackup(kind string) (*models.BackupRecord, error) {
+	m.lastKind = kind
 	if m.createFunc != nil {
-		return m.createFunc()
+		filename, err := m.createFunc()
+		if err != nil {
+			return nil, err
+		}
+		return &models.BackupRecord{Filename: filename, Type: kind}, nil
 	}
-	return "", fmt.Errorf("not implemented")
+	return nil, fmt.Errorf("not implemented")
 }
 
 func (m *mockBackupService) ListBackups() ([]services.BackupFile, error) {

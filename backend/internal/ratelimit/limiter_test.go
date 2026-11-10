@@ -106,6 +106,44 @@ func TestKeyedLimiter_DenialsDoNotConsume(t *testing.T) {
 	assert.True(t, k.Allow("a").Allowed)
 }
 
+func TestKeyedLimiter_PeekDoesNotConsume(t *testing.T) {
+	clk := newFakeClock()
+	k := newTestLimiter(t, 3, 600*time.Second, 0, clk)
+
+	// Peeking an untracked key admits it and must not start tracking it.
+	for i := 0; i < 20; i++ {
+		require.True(t, k.Peek("a").Allowed)
+	}
+	assert.Equal(t, 0, k.lru.Len())
+
+	// Peeks never reduce the budget.
+	for i := 0; i < 3; i++ {
+		require.True(t, k.Allow("a").Allowed, "request %d should be allowed", i+1)
+	}
+	for i := 0; i < 20; i++ {
+		d := k.Peek("a")
+		require.False(t, d.Allowed)
+		assert.Positive(t, d.RetryAfter)
+	}
+
+	// Once the bucket refills, a peek admits again without consuming.
+	clk.Advance(200 * time.Second)
+	require.True(t, k.Peek("a").Allowed)
+	require.True(t, k.Peek("a").Allowed)
+	assert.True(t, k.Allow("a").Allowed)
+}
+
+func TestKeyedLimiter_PeekAndAllowShareBudget(t *testing.T) {
+	clk := newFakeClock()
+	k := newTestLimiter(t, 2, 600*time.Second, 0, clk)
+
+	require.True(t, k.Peek("a").Allowed)
+	require.True(t, k.Allow("a").Allowed)
+	require.True(t, k.Allow("a").Allowed)
+	assert.False(t, k.Peek("a").Allowed)
+	assert.False(t, k.Allow("a").Allowed)
+}
+
 func TestKeyedLimiter_IndependentKeys(t *testing.T) {
 	clk := newFakeClock()
 	k := newTestLimiter(t, 2, time.Minute, 0, clk)

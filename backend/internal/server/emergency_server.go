@@ -13,9 +13,11 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/api/handlers"
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/dbmaint"
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/util"
 )
 
@@ -68,7 +70,8 @@ func NewEmergencyServerWithDeps(db *gorm.DB, cfg config.EmergencyConfig, caddyMa
 }
 
 // WithManagementCIDRs sets the networks allowed to use the reset endpoint.
-// An empty list selects the default private and loopback ranges.
+// Entries may be CIDRs or bare addresses. An empty list selects the default
+// private and loopback ranges; an invalid entry limits access to loopback.
 func (s *EmergencyServer) WithManagementCIDRs(cidrs []string) *EmergencyServer {
 	s.mgmtCIDRs = cidrs
 	return s
@@ -168,8 +171,10 @@ func (s *EmergencyServer) Start() error {
 		logger.Log().WithField("username", util.SanitizeForLog(s.cfg.BasicAuthUsername)).Info("Emergency server Basic Auth enabled")
 	}
 
-	// POST /emergency/security-reset - Disable all security modules
-	router.POST("/emergency/security-reset", emergencyHandler.SecurityReset)
+	// POST /emergency/security-reset - Disable all security modules. The loopback listener has its
+	// own throttle, separate from the main router's, so its recovery budget is never shared.
+	resetThrottle := middleware.NewEmergencyResetThrottle("loopback", services.NewSecurityService(s.db))
+	router.POST("/emergency/security-reset", resetThrottle.Middleware(), emergencyHandler.SecurityReset)
 
 	// Create HTTP server with sensible timeouts
 	s.server = &http.Server{

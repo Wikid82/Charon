@@ -367,7 +367,7 @@ fork/offline fallback.
 - `POST /api/v1/proxy-hosts` - Create new proxy host
 - `PUT /api/v1/proxy-hosts/:id` - Update proxy host
 - `DELETE /api/v1/proxy-hosts/:id` - Delete proxy host
-- `WS /api/v1/logs` - WebSocket for real-time logs
+- `WS /api/v1/logs` - WebSocket for real-time logs. Live log sockets cap each client message at 4 KB, send pings every 30 s, and close a connection that stays silent for 60 s. Every write has a 10 s deadline. Access-log entries are filtered by `services.LogWatcher` before broadcast: any `token` query parameter is removed from the logged address (`stripQueryToken`), and a query string that cannot be parsed is dropped entirely, so tokens passed in the address never reach log viewers.
 
 #### Service Layer (`internal/services/`)
 
@@ -1059,7 +1059,7 @@ pin (the stage already carries ~40 such pins).
 - **Trust:** `CHARON_TRUSTED_PROXIES` is validated once at startup (`config.ValidateTrustedProxies`). One invalid entry yields an empty list plus a WARN. Gin, the session-cookie logic, the throttle and the status endpoint share that list; peers are matched as parsed prefixes, so `127.0.0.1` and `::1` must each be listed. See `docs/configuration/trusted-proxies.md`.
 - **Detector:** forwarded headers arriving from an untrusted peer are recorded per scope (local or public) with capped WARNs (at most one per 15 minutes per scope).
 - **Response:** `429`, `Retry-After` (integer seconds, at least 1) and `{"error":"Too many requests. Please wait before trying again."}`. Metric: `charon_auth_rate_limited_total{class}`.
-- **Never throttled:** validated emergency bypass requests, `/api/v1/emergency/*` and the Tier-2 server.
+- **Never throttled:** validated emergency bypass requests, `/api/v1/emergency/*` and the Tier-2 server. These are exempt from this login-protection bucket only; the emergency reset route has its own limit (see [Emergency Break-Glass Protocol](#emergency-break-glass-protocol)).
 - **Configuration:** environment variables only (table below). `AuthRateLimitConfig`'s zero value is the secure default.
 - **Admin status:** `GET /api/v1/security/login-protection` (admin only) returns the effective budgets, the effective trusted-proxy count, the key Charon derives for the caller, and the forwarded-header observations. The Security dashboard renders it as a card.
 - Buckets are in memory and reset on restart. Details: `docs/features/login-protection.md`.
@@ -1113,6 +1113,14 @@ users; every subsequent account is created by an existing admin — directly
 - Grants temporary admin access
 - Rotated after each use
 
+**Reset Attempt Limits** (`middleware.EmergencyResetThrottle`, one instance per listener: `main` on the management port and `loopback` on the Tier-2 server):
+
+- **Per-address budget:** `ratelimit.KeyedLimiter` allows 5 failed attempts per address per 5-minute window, refilling at one attempt per minute. Failed means any 4xx other than 429. A successful reset consumes nothing. The budget is checked before the token is compared, so an address that is out of budget gets `429` and `Retry-After` even with a correct token.
+- **Check slots:** at most 2 reset checks run at once per listener. A request waits up to 2 s for a slot, then receives `429`.
+- **Audit:** the first refusal per address per window writes one `emergency_reset_throttled` audit row. Later refusals in that window are counted at Debug, and the count rides on the next audited row.
+- **Isolation:** each listener has its own budget and slots, so a flood on one cannot exhaust the other.
+- **Management networks:** `ParseManagementNets` accepts CIDRs and bare IPs (a bare IP becomes a /32 or /128). An empty list selects RFC 1918 plus loopback. An invalid entry switches the list to loopback only; `EmergencyBypass` logs one error at startup that names every rejected entry.
+
 ---
 
 ## Network Architecture
@@ -1135,7 +1143,7 @@ Charon operates with **two distinct traffic flows** on separate ports, each with
 
 **Why Limited Middleware?**
 
-- Management interface must remain accessible even when security modules are misconfigured; valid emergency requests bypass the throttles
+- Management interface must remain accessible even when security modules are misconfigured; the sign-in and general API throttles do not apply to emergency requests, and the reset route has its own limit on failed attempts
 - Emergency endpoints (`/api/v1/emergency/*`) require unrestricted access for system recovery
 - Separation of concerns: management access control is handled by JWT authentication plus role-based route guards (see [Management API Authentication & Authorization](#management-api-authentication--authorization)), not proxy-level security
 
