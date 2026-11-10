@@ -17,6 +17,12 @@ const PREVIEW_BYTES = 200;
 const NC_IDLE_TIMEOUT_SECONDS = 10;
 /** Hard deadline for one request, so a stuck proxy fails the check instead of hanging the run. */
 const REQUEST_DEADLINE_MS = 20_000;
+/**
+ * Quiet period after a complete header block that carries no Content-Length. Such an answer is framed by the server
+ * closing the connection (allowed for HTTP/1.0), and busybox nc does not notice that close, so the answer is taken
+ * once no more bytes arrive for this long.
+ */
+const CLOSE_FRAMED_IDLE_MS = 1_500;
 
 /**
  * Returns the name of the running E2E container. PLAYWRIGHT_CONTAINER_NAME wins when set; otherwise the first of the
@@ -140,13 +146,20 @@ function isCompleteAnswer(raw: string): boolean {
   return declared !== null && raw.length - (headerEnd + 4) >= Number(declared[1]);
 }
 
+/** True once the header block is complete and declares no Content-Length (the body is then closed-framed). */
+function isHeadersWithoutLength(raw: string): boolean {
+  const headerEnd = raw.indexOf('\r\n\r\n');
+  return headerEnd !== -1 && !/^content-length:/im.test(raw.slice(0, headerEnd));
+}
+
 /**
  * Writes the raw request to `nc` and resolves with the answer as soon as it is complete.
  *
  * busybox `nc` does not exit when the server closes its side; it only exits after stdin ends. Ending stdin before the
  * answer is complete would make `nc` drop the connection, and Caddy would then cancel a proxied request before its
- * upstream answers (a 499 instead of the 502). So stdin is ended only after `isCompleteAnswer` holds. Answers without a
- * Content-Length never complete and fail at the deadline; Caddy and Go set one for the small bodies used here.
+ * upstream answers (a 499 instead of the 502). So stdin is ended only once the answer is complete: either
+ * `isCompleteAnswer` holds, or the headers are complete without a Content-Length and no bytes arrived for
+ * CLOSE_FRAMED_IDLE_MS. Anything still missing fails at the deadline.
  */
 function sendRawRequest(container: string, port: number, rawRequest: string): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -158,22 +171,32 @@ function sendRawRequest(container: string, port: number, rawRequest: string): Pr
     const received: Buffer[] = [];
     const stderr: Buffer[] = [];
     let settled = false;
+    let closedFramedTimer: NodeJS.Timeout | undefined;
 
     const settle = (outcome: () => void): void => {
       if (!settled) {
         settled = true;
         clearTimeout(deadline);
+        clearTimeout(closedFramedTimer);
         outcome();
       }
+    };
+
+    const finishWith = (text: string): void => {
+      settle(() => {
+        child.stdin.end();
+        resolve(text);
+      });
     };
 
     const deadline = setTimeout(() => {
       settle(() => {
         child.kill();
+        const partial = Buffer.concat(received).toString('latin1');
         reject(
           new Error(
             `Container request to port ${port} did not complete within ${REQUEST_DEADLINE_MS} ms ` +
-              '(the answer may lack a Content-Length header)'
+              `(the answer may lack a Content-Length header); received so far: ${preview(partial)}`
           )
         );
       });
@@ -183,10 +206,14 @@ function sendRawRequest(container: string, port: number, rawRequest: string): Pr
       received.push(chunk);
       const text = Buffer.concat(received).toString('latin1');
       if (isCompleteAnswer(text)) {
-        settle(() => {
-          child.stdin.end();
-          resolve(text);
-        });
+        finishWith(text);
+        return;
+      }
+      if (isHeadersWithoutLength(text)) {
+        clearTimeout(closedFramedTimer);
+        closedFramedTimer = setTimeout(() => {
+          finishWith(Buffer.concat(received).toString('latin1'));
+        }, CLOSE_FRAMED_IDLE_MS);
       }
     });
     child.stderr.on('data', (chunk: Buffer) => stderr.push(chunk));
