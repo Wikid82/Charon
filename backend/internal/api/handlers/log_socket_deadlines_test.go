@@ -76,7 +76,8 @@ func TestConfigureLogSocket_OversizeClientMessageClosesConnection(t *testing.T) 
 	require.NoError(t, client.Write(context.Background(), websocket.MessageText, []byte(oversize)))
 
 	select {
-	case <-serverErr:
+	case srvErr := <-serverErr:
+		require.Error(t, srvErr, "server read should fail on an oversize message")
 	case <-time.After(5 * time.Second):
 		t.Fatal("server did not reject the oversize message")
 	}
