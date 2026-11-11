@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 	"github.com/hashicorp/yamux"
 	"golang.org/x/time/rate"
 )
@@ -36,73 +36,11 @@ const (
 // Must match the constant in the Orthrus agent (agent/leash/leash.go).
 const streamTypeDocker = byte(0x01)
 
-// wsNetConn adapts a gorilla WebSocket connection to the net.Conn interface
-// so that yamux can use it as a byte-stream transport.
-// gorilla websocket supports one concurrent reader and one concurrent writer;
-// rMu serialises reads and wMu serialises writes accordingly.
-type wsNetConn struct {
-	conn   *websocket.Conn
-	rMu    sync.Mutex
-	wMu    sync.Mutex
-	reader io.Reader
-}
-
-func newWSNetConn(conn *websocket.Conn) net.Conn {
-	return &wsNetConn{conn: conn}
-}
-
-func (c *wsNetConn) Read(b []byte) (int, error) {
-	c.rMu.Lock()
-	defer c.rMu.Unlock()
-
-	for {
-		if c.reader != nil {
-			n, err := c.reader.Read(b)
-			if err == io.EOF {
-				c.reader = nil
-				continue
-			}
-			return n, err
-		}
-
-		_, msg, err := c.conn.NextReader()
-		if err != nil {
-			return 0, err
-		}
-		c.reader = msg
-	}
-}
-
-func (c *wsNetConn) Write(b []byte) (int, error) {
-	c.wMu.Lock()
-	defer c.wMu.Unlock()
-
-	if err := c.conn.WriteMessage(websocket.BinaryMessage, b); err != nil {
-		return 0, err
-	}
-	return len(b), nil
-}
-
-func (c *wsNetConn) Close() error {
-	return c.conn.Close()
-}
-
-func (c *wsNetConn) LocalAddr() net.Addr  { return c.conn.NetConn().LocalAddr() }
-func (c *wsNetConn) RemoteAddr() net.Addr { return c.conn.NetConn().RemoteAddr() }
-
-func (c *wsNetConn) SetDeadline(t time.Time) error {
-	if err := c.conn.SetReadDeadline(t); err != nil {
-		return err
-	}
-	return c.conn.SetWriteDeadline(t)
-}
-
-func (c *wsNetConn) SetReadDeadline(t time.Time) error {
-	return c.conn.SetReadDeadline(t)
-}
-
-func (c *wsNetConn) SetWriteDeadline(t time.Time) error {
-	return c.conn.SetWriteDeadline(t)
+// newWSNetConn adapts a WebSocket connection to net.Conn so that yamux can use
+// it as a byte-stream transport. Each Write sends one binary message. ctx bounds
+// the adapter's reads and writes: cancelling it closes the WebSocket.
+func newWSNetConn(ctx context.Context, conn *websocket.Conn) net.Conn {
+	return websocket.NetConn(ctx, conn, websocket.MessageBinary)
 }
 
 // ExternalProxyStatus describes the runtime state of the external Docker proxy
@@ -125,7 +63,6 @@ type ExternalProxyStatus struct {
 type AgentSession struct {
 	agentUUID    string
 	agentName    string
-	conn         *websocket.Conn
 	session      *yamux.Session
 	cancel       context.CancelFunc
 	proxyPort    int          // ephemeral port; 0 until StartDockerProxy succeeds
@@ -149,16 +86,17 @@ type AgentSession struct {
 }
 
 // NewAgentSession wraps the WebSocket connection in a Yamux server session.
+// The session owns conn: Close tears the WebSocket down.
 func NewAgentSession(agentUUID, agentName string, writeEnabled bool, auditLogger AuditLogger, conn *websocket.Conn) (*AgentSession, error) {
 	cfg := yamux.DefaultConfig()
 	cfg.LogOutput = io.Discard
 
-	session, err := yamux.Server(newWSNetConn(conn), cfg)
+	ctx, cancel := context.WithCancel(context.Background())
+	session, err := yamux.Server(newWSNetConn(ctx, conn), cfg)
 	if err != nil {
+		cancel()
 		return nil, fmt.Errorf("orthrus: create yamux session: %w", err)
 	}
-
-	_, cancel := context.WithCancel(context.Background())
 
 	var writeLimiter *rate.Limiter
 	if writeEnabled {
@@ -168,7 +106,6 @@ func NewAgentSession(agentUUID, agentName string, writeEnabled bool, auditLogger
 	return &AgentSession{
 		agentUUID:    agentUUID,
 		agentName:    agentName,
-		conn:         conn,
 		session:      session,
 		writeLimiter: writeLimiter,
 		auditLogger:  auditLogger,

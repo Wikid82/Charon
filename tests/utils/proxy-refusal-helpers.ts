@@ -144,3 +144,16 @@ export async function createProxyHost(request: APIRequestContext, options: Proxy
 export async function deleteProxyHost(request: APIRequestContext, uuid: string): Promise<void> {
   await withRateLimitRetry(() => request.delete(`${PROXY_HOSTS_PATH}/${uuid}`));
 }
+
+/** Deletes the proxy host whose `domain_names` equals the given domain. A no-op when none matches. */
+export async function deleteProxyHostByDomain(request: APIRequestContext, domain: string): Promise<void> {
+  const listResponse = await withRateLimitRetry(() => request.get(PROXY_HOSTS_PATH));
+  if (!listResponse.ok()) {
+    return;
+  }
+  const hosts = (await listResponse.json()) as Array<{ uuid: string; domain_names: string }>;
+  const match = hosts.find((host) => host.domain_names === domain);
+  if (match) {
+    await deleteProxyHost(request, match.uuid);
+  }
+}

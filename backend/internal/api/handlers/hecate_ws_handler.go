@@ -1,12 +1,13 @@
 package handlers
 
 import (
+	"context"
 	"net/http"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/services"
@@ -25,7 +26,7 @@ func NewHecateWSHandler(svc *services.HecateService, tracker *services.WebSocket
 
 // StreamLogs upgrades the request to WebSocket and streams log lines from
 // the tunnel's ring buffer. It replays buffered lines first, then delivers
-// new lines as they arrive. A 30 s ping keeps the connection alive.
+// new lines as they arrive. The connection is kept alive with pings.
 func (h *HecateWSHandler) StreamLogs(c *gin.Context) {
 	tunnelUUID := c.Param("uuid")
 
@@ -42,8 +43,11 @@ func (h *HecateWSHandler) StreamLogs(c *gin.Context) {
 		logger.Log().WithError(upgradeErr).Error("hecate ws: upgrade failed")
 		return
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	defer func() {
-		if closeErr := conn.Close(); closeErr != nil {
+		if closeErr := conn.Close(websocket.StatusNormalClosure, ""); closeErr != nil {
 			logger.Log().WithError(closeErr).Debug("hecate ws: close error")
 		}
 	}()
@@ -64,25 +68,15 @@ func (h *HecateWSHandler) StreamLogs(c *gin.Context) {
 
 	// Replay buffered lines.
 	for _, line := range buf.ReadAll() {
-		if writeErr := conn.WriteMessage(websocket.TextMessage, []byte(line)); writeErr != nil {
+		if writeErr := writeLogSocketText(conn, []byte(line)); writeErr != nil {
 			return
 		}
 	}
 
 	sub := buf.Subscribe()
 
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		for {
-			if _, _, readErr := conn.ReadMessage(); readErr != nil {
-				return
-			}
-		}
-	}()
-
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
+	// Closes when the client disconnects or stops answering pings
+	done := watchLogSocket(ctx, conn)
 
 	for {
 		select {
@@ -92,11 +86,7 @@ func (h *HecateWSHandler) StreamLogs(c *gin.Context) {
 			if !ok {
 				return
 			}
-			if writeErr := conn.WriteMessage(websocket.TextMessage, []byte(line)); writeErr != nil {
-				return
-			}
-		case <-ticker.C:
-			if pingErr := conn.WriteMessage(websocket.PingMessage, nil); pingErr != nil {
+			if writeErr := writeLogSocketText(conn, []byte(line)); writeErr != nil {
 				return
 			}
 		}

@@ -70,6 +70,21 @@ const BROWSER_LAUNCH_OPTIONS = {
   webkit: {},
 };
 
+/**
+ * Engine for the `security-tests` project. CI keeps Chromium for it, exactly as before. A local run uses Firefox,
+ * the single-browser middle ground between Chromium and WebKit, because CI already covers the others.
+ * PLAYWRIGHT_SECURITY_BROWSER overrides either default (chromium, firefox or webkit).
+ */
+const SECURITY_DEVICES = {
+  chromium: devices['Desktop Chrome'],
+  firefox: devices['Desktop Firefox'],
+  webkit: devices['Desktop Safari'],
+};
+const securityBrowser = process.env.PLAYWRIGHT_SECURITY_BROWSER ?? (process.env.CI ? 'chromium' : 'firefox');
+if (!SECURITY_DEVICES[securityBrowser]) {
+  throw new Error(`PLAYWRIGHT_SECURITY_BROWSER must be chromium, firefox or webkit, got "${securityBrowser}"`);
+}
+
 const coverageReporterConfig = enableCoverage ? defineCoverageReporterConfig({
   sourceRoot: __dirname,
   exclude: [
@@ -276,7 +291,7 @@ export default defineConfig({
       dependencies: ['setup'],
     },
 
-    // Security Tests - Run WITH security enabled (SEQUENTIAL, Chromium only)
+    // Security Tests - Run WITH security enabled (SEQUENTIAL, one engine: Chromium in CI, Firefox locally)
     {
       name: 'security-tests',
       testDir: './tests',
@@ -289,7 +304,8 @@ export default defineConfig({
       fullyParallel: false,
       workers: 1,
       use: {
-        ...devices['Desktop Chrome'],
+        ...SECURITY_DEVICES[securityBrowser],
+        launchOptions: BROWSER_LAUNCH_OPTIONS[securityBrowser],
         headless: true,
         storageState: STORAGE_STATE,
       },

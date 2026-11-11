@@ -1023,7 +1023,8 @@ export const LIVE_LOG_SELECTORS = {
   levelSelect: 'select >> text=All Levels',
   sourceSelect: 'select >> text=All Sources',
   blockedOnlyCheckbox: 'input[type="checkbox"]',
-  logContainer: '.font-mono.text-xs',
+  // Scrollable log pane only; see real-time-logs.spec.ts for why the bare classes are ambiguous on /security.
+  logContainer: '.overflow-y-auto.font-mono.text-xs',
   logEntry: '[data-testid="log-entry"]',
   blockedEntry: '.bg-red-900\\/30',
   logCount: '[data-testid="log-count"]',

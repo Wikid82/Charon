@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -18,14 +18,14 @@ import (
 )
 
 // newClosedLogSocketConn serves one WebSocket connection, closes it on the server
-// side, and hands the closed connection to check. Deadline setters on a closed
+// side, and hands the closed connection to check. Writes and pings on a closed
 // connection fail, which lets tests reach the error branches of the log socket helpers.
 func newClosedLogSocketConn(t *testing.T, check func(conn *websocket.Conn)) {
 	t.Helper()
 	done := make(chan struct{})
 	srv := newLogSocketTestServer(t, func(conn *websocket.Conn) {
 		defer close(done)
-		require.NoError(t, conn.Close())
+		require.NoError(t, conn.CloseNow())
 		check(conn)
 	})
 	client := dialLogSocketTestServer(t, srv)
@@ -34,17 +34,27 @@ func newClosedLogSocketConn(t *testing.T, check func(conn *websocket.Conn)) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("server handler did not run")
 	}
-	_ = client.Close()
+	_ = client.CloseNow()
 }
 
-func TestConfigureLogSocket_ClosedConnectionKeepsGoingWithoutDeadlines(t *testing.T) {
+func TestConfigureLogSocket_ClosedConnectionDoesNotPanic(t *testing.T) {
 	newClosedLogSocketConn(t, func(conn *websocket.Conn) {
 		assert.NotPanics(t, func() { configureLogSocket(conn) })
+	})
+}
 
-		// The pong handler refreshes the read deadline, which fails on a closed connection.
-		pong := conn.PongHandler()
-		require.NotNil(t, pong)
-		assert.Error(t, pong(""))
+// TestWatchLogSocket_ClosedConnectionEndsImmediately covers a connection that is
+// already closed when the watch starts. The watch must end without waiting for a
+// ping period.
+func TestWatchLogSocket_ClosedConnectionEndsImmediately(t *testing.T) {
+	withLogSocketTimings(t, 60*time.Second, 10*time.Second, time.Hour)
+
+	newClosedLogSocketConn(t, func(conn *websocket.Conn) {
+		select {
+		case <-watchLogSocketUntilDone(conn):
+		case <-time.After(5 * time.Second):
+			t.Fatal("watch did not end on a closed connection")
+		}
 	})
 }
 
@@ -53,15 +63,23 @@ func TestWriteLogSocketHelpers_ClosedConnectionReturnsWriteError(t *testing.T) {
 
 	newClosedLogSocketConn(t, func(conn *websocket.Conn) {
 		require.Error(t, writeLogSocketJSON(conn, map[string]string{"data": "x"}))
-		require.Error(t, writeLogSocketPing(conn))
+		require.Error(t, writeLogSocketText(conn, []byte("x")))
 	})
 }
 
-// TestLogsWSHandler_FailedKeepAlivePingEndsStream runs the stream with a write
-// deadline that has already passed, so the keep-alive ping fails while the client
-// stays connected. The handler must end the stream instead of looping.
-func TestLogsWSHandler_FailedKeepAlivePingEndsStream(t *testing.T) {
-	withLogSocketTimings(t, 60*time.Second, time.Nanosecond, 10*time.Millisecond)
+// TestWriteLogSocketJSON_UnmarshalableValueFails covers a value encoding/json
+// cannot marshal. The connection is never touched.
+func TestWriteLogSocketJSON_UnmarshalableValueFails(t *testing.T) {
+	newClosedLogSocketConn(t, func(conn *websocket.Conn) {
+		require.Error(t, writeLogSocketJSON(conn, map[string]any{"bad": make(chan int)}))
+	})
+}
+
+// TestLogsWSHandler_UnansweredPingEndsStream runs the stream with a pong deadline
+// that passes before any pong can arrive. The client never reads, so no pong is
+// sent. The handler must close the stream instead of looping.
+func TestLogsWSHandler_UnansweredPingEndsStream(t *testing.T) {
+	withLogSocketTimings(t, 50*time.Millisecond, time.Second, 10*time.Millisecond)
 
 	// The handler reads the package timers, so the cleanup waits for it to return
 	// before withLogSocketTimings restores the production values.
@@ -75,23 +93,22 @@ func TestLogsWSHandler_FailedKeepAlivePingEndsStream(t *testing.T) {
 	srv := httptest.NewServer(router)
 	t.Cleanup(srv.Close)
 
-	conn, resp, err := websocket.DefaultDialer.Dial(toWebSocketURL(srv.URL)+"/logs", nil)
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
+	conn, _, err := websocket.Dial(context.Background(), toWebSocketURL(srv.URL)+"/logs", nil) //nolint:bodyclose // coder/websocket manages the handshake response body
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
+	t.Cleanup(func() { _ = conn.CloseNow() })
 	t.Cleanup(func() { <-handlerDone })
 
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
-	_, _, err = conn.ReadMessage()
-	require.Error(t, err, "the server must close the stream after the failed ping")
+	// Wait past the pong deadline before reading. Reading answers pings, so the
+	// client must stay silent until the server has closed the stream.
+	time.Sleep(200 * time.Millisecond)
+	err = readUntilStreamEnds(t, conn)
+	require.Error(t, err, "the server must close the stream after the unanswered ping")
 }
 
-// TestCerberusLogsHandler_FailedKeepAlivePingEndsStream mirrors the logs stream
-// test for the Cerberus log stream, whose keep-alive failure is logged before return.
-func TestCerberusLogsHandler_FailedKeepAlivePingEndsStream(t *testing.T) {
-	withLogSocketTimings(t, 60*time.Second, time.Nanosecond, 10*time.Millisecond)
+// TestCerberusLogsHandler_UnansweredPingEndsStream mirrors the logs stream test
+// for the Cerberus log stream, whose keep-alive failure ends the stream.
+func TestCerberusLogsHandler_UnansweredPingEndsStream(t *testing.T) {
+	withLogSocketTimings(t, 50*time.Millisecond, time.Second, 10*time.Millisecond)
 
 	logPath := filepath.Join(t.TempDir(), "access.log")
 	// #nosec G304 -- Test fixture uses controlled path from t.TempDir()
@@ -113,15 +130,14 @@ func TestCerberusLogsHandler_FailedKeepAlivePingEndsStream(t *testing.T) {
 	t.Cleanup(srv.Close)
 
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/ws"
-	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
+	conn, _, err := websocket.Dial(context.Background(), wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = conn.Close() })
+	t.Cleanup(func() { _ = conn.CloseNow() })
 	t.Cleanup(func() { <-handlerDone })
-	if resp != nil {
-		_ = resp.Body.Close()
-	}
 
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(5*time.Second)))
-	_, _, err = conn.ReadMessage()
-	require.Error(t, err, "the server must close the stream after the failed ping")
+	// Wait past the pong deadline before reading. Reading answers pings, so the
+	// client must stay silent until the server has closed the stream.
+	time.Sleep(200 * time.Millisecond)
+	err = readUntilStreamEnds(t, conn)
+	require.Error(t, err, "the server must close the stream after the unanswered ping")
 }

@@ -1,6 +1,7 @@
 package orthrus
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -8,8 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
-	gorillaws "github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
@@ -254,12 +255,9 @@ func TestOrthrusServer_HandleWebSocket_ValidToken_UpgradesConnection(t *testing.
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws"
 	header := http.Header{"Authorization": []string{"Bearer " + token}}
 
-	conn, dialResp, err := gorillaws.DefaultDialer.Dial(wsURL, header)
+	conn, _, err := websocket.Dial(context.Background(), wsURL, &websocket.DialOptions{HTTPHeader: header}) //nolint:bodyclose // coder/websocket manages the handshake response body
 	require.NoError(t, err)
-	if dialResp != nil {
-		_ = dialResp.Body.Close()
-	}
-	defer func() { _ = conn.Close() }()
+	defer func() { _ = conn.CloseNow() }()
 
 	var ok bool
 	for i := 0; i < 20; i++ {
@@ -281,7 +279,7 @@ func TestOrthrusServer_FindAgentByToken_DBError_ReturnsError(t *testing.T) {
 }
 
 // TestOrthrusServer_HandleWebSocket_UpgradeFailure covers server.go:82-85 —
-// the error-log path when wsUpgrader.Upgrade rejects a non-WebSocket request.
+// the error-log path when websocket.Accept rejects a non-WebSocket request.
 func TestOrthrusServer_HandleWebSocket_UpgradeFailure(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupServerTestDB(t)
@@ -301,7 +299,7 @@ func TestOrthrusServer_HandleWebSocket_UpgradeFailure(t *testing.T) {
 	require.NoError(t, db.Create(agent).Error)
 
 	// Plain HTTP GET with valid auth — NOT a WebSocket upgrade.
-	// wsUpgrader.Upgrade writes 400 Bad Request and returns an error.
+	// websocket.Accept rejects the missing Upgrade header with 426 Upgrade Required.
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
 	req := httptest.NewRequest(http.MethodGet, "/ws", http.NoBody)
@@ -310,7 +308,7 @@ func TestOrthrusServer_HandleWebSocket_UpgradeFailure(t *testing.T) {
 
 	// Should not panic; handler logs the error and returns.
 	srv.HandleWebSocket(c)
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, http.StatusUpgradeRequired, w.Code)
 }
 
 // TestOrthrusServer_HandleWebSocket_ExternalProxyFails covers server.go:100-104 —
@@ -349,12 +347,9 @@ func TestOrthrusServer_HandleWebSocket_ExternalProxyFails(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws"
 	header := http.Header{"Authorization": []string{"Bearer " + token}}
-	conn, dialResp, err := gorillaws.DefaultDialer.Dial(wsURL, header)
+	conn, _, err := websocket.Dial(context.Background(), wsURL, &websocket.DialOptions{HTTPHeader: header}) //nolint:bodyclose // coder/websocket manages the handshake response body
 	require.NoError(t, err)
-	if dialResp != nil {
-		_ = dialResp.Body.Close()
-	}
-	defer func() { _ = conn.Close() }()
+	defer func() { _ = conn.CloseNow() }()
 
 	// sessions.Store is called after StartExternalProxy, so once the session is
 	// present the proxy attempt (and its failure) has already completed.
@@ -407,12 +402,9 @@ func TestHandleWebSocket_DisplacesExistingSession(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws"
 	header := http.Header{"Authorization": []string{"Bearer " + token}}
-	conn, dialResp, err := gorillaws.DefaultDialer.Dial(wsURL, header)
+	conn, _, err := websocket.Dial(context.Background(), wsURL, &websocket.DialOptions{HTTPHeader: header}) //nolint:bodyclose // coder/websocket manages the handshake response body
 	require.NoError(t, err)
-	if dialResp != nil {
-		_ = dialResp.Body.Close()
-	}
-	defer func() { _ = conn.Close() }()
+	defer func() { _ = conn.CloseNow() }()
 
 	// Wait for the new session to be stored, which means HandleWebSocket has run
 	// past the displacement block and stored the replacement session.

@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -67,10 +67,9 @@ func TestCerberusLogsHandler_SuccessfulConnection(t *testing.T) {
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
 
 	// Connect WebSocket
-	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
+	conn, resp, err := websocket.Dial(context.Background(), wsURL, nil) //nolint:bodyclose // coder/websocket manages the handshake response body
 	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	defer func() { _ = conn.Close() }()
+	defer func() { _ = conn.CloseNow() }()
 
 	assert.Equal(t, http.StatusSwitchingProtocols, resp.StatusCode)
 }
@@ -103,9 +102,9 @@ func TestCerberusLogsHandler_ReceiveLogEntries(t *testing.T) {
 
 	// Connect WebSocket
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
+	conn, _, err := websocket.Dial(context.Background(), wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
 	require.NoError(t, err)
-	defer func() { _ = conn.Close() }()
+	defer func() { _ = conn.CloseNow() }()
 
 	// Give the subscription time to register and watcher to seek to end
 	time.Sleep(300 * time.Millisecond)
@@ -130,8 +129,7 @@ func TestCerberusLogsHandler_ReceiveLogEntries(t *testing.T) {
 	_ = file.Sync()
 
 	// Read the entry from WebSocket
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, msg, err := conn.ReadMessage()
+	msg, err := readWithin(t, conn, 2*time.Second)
 	require.NoError(t, err)
 
 	var entry models.SecurityLogEntry
@@ -172,9 +170,9 @@ func TestCerberusLogsHandler_SourceFilter(t *testing.T) {
 
 	// Connect with WAF source filter
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?source=waf"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
+	conn, _, err := websocket.Dial(context.Background(), wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
 	require.NoError(t, err)
-	defer func() { _ = conn.Close() }()
+	defer func() { _ = conn.CloseNow() }()
 
 	time.Sleep(300 * time.Millisecond)
 
@@ -213,8 +211,7 @@ func TestCerberusLogsHandler_SourceFilter(t *testing.T) {
 	_ = file.Sync()
 
 	// Read from WebSocket - should only get WAF entry
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, msg, err := conn.ReadMessage()
+	msg, err := readWithin(t, conn, 2*time.Second)
 	require.NoError(t, err)
 
 	var entry models.SecurityLogEntry
@@ -252,9 +249,9 @@ func TestCerberusLogsHandler_BlockedOnlyFilter(t *testing.T) {
 
 	// Connect with blocked_only filter
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?blocked_only=true"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
+	conn, _, err := websocket.Dial(context.Background(), wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
 	require.NoError(t, err)
-	defer func() { _ = conn.Close() }()
+	defer func() { _ = conn.CloseNow() }()
 
 	time.Sleep(300 * time.Millisecond)
 
@@ -292,8 +289,7 @@ func TestCerberusLogsHandler_BlockedOnlyFilter(t *testing.T) {
 	_ = file.Sync()
 
 	// Read from WebSocket - should only get blocked entry
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, msg, err := conn.ReadMessage()
+	msg, err := readWithin(t, conn, 2*time.Second)
 	require.NoError(t, err)
 
 	var entry models.SecurityLogEntry
@@ -329,9 +325,9 @@ func TestCerberusLogsHandler_IPFilter(t *testing.T) {
 
 	// Connect with IP filter
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?ip=192.168"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
+	conn, _, err := websocket.Dial(context.Background(), wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
 	require.NoError(t, err)
-	defer func() { _ = conn.Close() }()
+	defer func() { _ = conn.CloseNow() }()
 
 	time.Sleep(300 * time.Millisecond)
 
@@ -369,8 +365,7 @@ func TestCerberusLogsHandler_IPFilter(t *testing.T) {
 	_ = file.Sync()
 
 	// Read from WebSocket - should only get matching IP entry
-	_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-	_, msg, err := conn.ReadMessage()
+	msg, err := readWithin(t, conn, 2*time.Second)
 	require.NoError(t, err)
 
 	var entry models.SecurityLogEntry
@@ -403,11 +398,11 @@ func TestCerberusLogsHandler_ClientDisconnect(t *testing.T) {
 	defer server.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
-	conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
+	conn, _, err := websocket.Dial(context.Background(), wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
 	require.NoError(t, err)
 
 	// Close the connection
-	_ = conn.Close()
+	_ = conn.CloseNow()
 
 	// Give time for cleanup
 	time.Sleep(100 * time.Millisecond)
@@ -446,12 +441,12 @@ func TestCerberusLogsHandler_MultipleClients(t *testing.T) {
 		// Close all connections after test
 		for _, conn := range conns {
 			if conn != nil {
-				_ = conn.Close()
+				_ = conn.CloseNow()
 			}
 		}
 	}()
 	for i := 0; i < 3; i++ {
-		conn, _, err := websocket.DefaultDialer.Dial(wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
+		conn, _, err := websocket.Dial(context.Background(), wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
 		require.NoError(t, err)
 		conns[i] = conn
 	}
@@ -477,8 +472,7 @@ func TestCerberusLogsHandler_MultipleClients(t *testing.T) {
 
 	// All clients should receive the entry
 	for i, conn := range conns {
-		_ = conn.SetReadDeadline(time.Now().Add(2 * time.Second))
-		_, msg, err := conn.ReadMessage()
+		msg, err := readWithin(t, conn, 2*time.Second)
 		require.NoError(t, err, "Client %d should receive message", i)
 
 		var entry models.SecurityLogEntry
@@ -503,8 +497,8 @@ func TestCerberusLogsHandler_UpgradeFailure(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 
-	// Should fail upgrade (400 Bad Request)
-	assert.Equal(t, http.StatusBadRequest, w.Code)
+	// Should fail upgrade (426 Upgrade Required: the Upgrade header is missing)
+	assert.Equal(t, http.StatusUpgradeRequired, w.Code)
 }
 
 // wsTestToken is a credential-like value used to check that it never reaches connection info or streamed entries.
@@ -533,12 +527,9 @@ func TestCerberusLogsHandler_ConnectionListOmitsToken(t *testing.T) {
 	defer server.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws?source=waf&token=" + wsTestToken
-	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
+	conn, _, err := websocket.Dial(context.Background(), wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
 	require.NoError(t, err)
-	defer func() { _ = conn.Close() }()
-	if resp != nil {
-		defer func() { _ = resp.Body.Close() }()
-	}
+	defer func() { _ = conn.CloseNow() }()
 
 	waitFor(t, func() bool { return tracker.GetCount() == 1 })
 
@@ -572,12 +563,9 @@ func TestCerberusLogsHandler_StreamedEntryOmitsToken(t *testing.T) {
 	defer server.Close()
 
 	wsURL := "ws" + strings.TrimPrefix(server.URL, "http") + "/ws"
-	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
+	conn, _, err := websocket.Dial(context.Background(), wsURL, nil) //nolint:bodyclose // WebSocket Dial response body is consumed by the dial
 	require.NoError(t, err)
-	defer func() { _ = conn.Close() }()
-	if resp != nil {
-		defer func() { _ = resp.Body.Close() }()
-	}
+	defer func() { _ = conn.CloseNow() }()
 
 	time.Sleep(300 * time.Millisecond)
 
@@ -593,8 +581,7 @@ func TestCerberusLogsHandler_StreamedEntryOmitsToken(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, file.Sync())
 
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(2*time.Second)))
-	_, msg, err := conn.ReadMessage()
+	msg, err := readWithin(t, conn, 2*time.Second)
 	require.NoError(t, err)
 
 	assert.NotContains(t, string(msg), wsTestToken)

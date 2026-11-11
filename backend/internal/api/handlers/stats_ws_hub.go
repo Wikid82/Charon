@@ -5,7 +5,7 @@ import (
 	"encoding/json"
 	"sync"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/services"
@@ -14,16 +14,32 @@ import (
 const statsWSWriteBuffer = 64
 
 // statsWSClient represents a single connected WebSocket client.
+//
+// ctx is cancelled when the client is closed. Cancelling it closes the
+// connection, which unblocks any write that is stalled on a slow peer.
 type statsWSClient struct {
 	conn      *websocket.Conn
 	send      chan []byte
+	ctx       context.Context
+	cancel    context.CancelFunc
 	closeOnce sync.Once
+}
+
+// newStatsWSClient wraps conn for registration with a StatsWSHub.
+func newStatsWSClient(conn *websocket.Conn) *statsWSClient {
+	ctx, cancel := context.WithCancel(context.Background())
+	return &statsWSClient{
+		conn:   conn,
+		send:   make(chan []byte, statsWSWriteBuffer),
+		ctx:    ctx,
+		cancel: cancel,
+	}
 }
 
 func (c *statsWSClient) close() {
 	c.closeOnce.Do(func() {
 		close(c.send)
-		_ = c.conn.Close()
+		c.cancel()
 	})
 }
 
@@ -105,7 +121,7 @@ func (h *StatsWSHub) Run(ctx context.Context) {
 	}
 }
 
-// ServeClient upgrades c to WebSocket and registers it with the hub.
+// ServeClient registers an upgraded client with the hub.
 // It blocks until the client disconnects. Call from a Gin handler.
 func (h *StatsWSHub) ServeClient(c *statsWSClient) {
 	h.register <- c
@@ -113,16 +129,16 @@ func (h *StatsWSHub) ServeClient(c *statsWSClient) {
 	// Writer goroutine: forwards hub messages to the WebSocket connection.
 	go func() {
 		for payload := range c.send {
-			if err := c.conn.WriteMessage(websocket.TextMessage, payload); err != nil {
+			if err := c.conn.Write(c.ctx, websocket.MessageText, payload); err != nil {
 				break
 			}
 		}
-		_ = c.conn.Close()
+		_ = c.conn.Close(websocket.StatusNormalClosure, "")
 	}()
 
 	// Reader loop: detects client disconnect.
 	for {
-		if _, _, err := c.conn.ReadMessage(); err != nil {
+		if _, _, err := c.conn.Read(c.ctx); err != nil {
 			break
 		}
 	}

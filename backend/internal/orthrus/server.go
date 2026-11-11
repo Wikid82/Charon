@@ -12,17 +12,12 @@ import (
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/util"
+	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
 	"github.com/sirupsen/logrus"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
-
-var wsUpgrader = websocket.Upgrader{
-	// Allow all origins; the real trust boundary is the bearer token.
-	CheckOrigin: func(r *http.Request) bool { return true },
-}
 
 // OrthrusServer manages incoming agent WebSocket connections and tracks
 // active sessions indexed by agent UUID.
@@ -103,10 +98,12 @@ func (s *OrthrusServer) HandleWebSocket(c *gin.Context) {
 	// constant on top of the two (streamTypeDocker, streamTypePortForward)
 	// that already have to be kept in sync between this package and
 	// agent/leash/leash.go.
-	respHeader := http.Header{}
-	respHeader.Set("X-Orthrus-Write-Enabled", strconv.FormatBool(agent.WriteEnabled))
+	// websocket.Accept writes the handshake response from the writer's headers, so
+	// the flag is set on the header before the upgrade.
+	c.Writer.Header().Set("X-Orthrus-Write-Enabled", strconv.FormatBool(agent.WriteEnabled))
 
-	conn, err := wsUpgrader.Upgrade(c.Writer, c.Request, respHeader)
+	// Origin is not checked: the real trust boundary is the bearer token above.
+	conn, err := websocket.Accept(c.Writer, c.Request, &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
 		logger.Log().WithError(err).Error("orthrus: WebSocket upgrade failed")
 		return
@@ -115,7 +112,7 @@ func (s *OrthrusServer) HandleWebSocket(c *gin.Context) {
 	session, err := NewAgentSession(agent.UUID, agent.Name, agent.WriteEnabled, s.auditLogger, conn)
 	if err != nil {
 		logger.Log().WithError(err).Error("orthrus: create agent session failed")
-		_ = conn.Close()
+		_ = conn.CloseNow()
 		return
 	}
 

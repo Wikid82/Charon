@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { deleteAccessListViaAPI } from '../utils/api-helpers';
 
 const TEST_EMAIL = process.env.E2E_TEST_EMAIL || 'e2e-test@example.com';
 const TEST_PASSWORD = process.env.E2E_TEST_PASSWORD || 'TestPassword123!';
@@ -23,61 +24,69 @@ test.describe('ACL Creation Baseline', () => {
     const unique = Date.now();
     const aclName = `ACL Baseline ${unique}`;
     const profileName = `Headers Baseline ${unique}`;
+    let aclUuid: string | undefined;
 
-    await test.step('Create ACL baseline entry', async () => {
-      const aclResponse = await request.post('/api/v1/access-lists', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        data: {
-          name: aclName,
-          type: 'whitelist',
-          enabled: true,
-          ip_rules: JSON.stringify([
-            {
-              cidr: '127.0.0.1/32',
-              description: 'Local test runner',
-            },
-          ]),
-        },
+    try {
+      await test.step('Create ACL baseline entry', async () => {
+        const aclResponse = await request.post('/api/v1/access-lists', {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          data: {
+            name: aclName,
+            type: 'whitelist',
+            enabled: true,
+            ip_rules: JSON.stringify([
+              {
+                cidr: '127.0.0.1/32',
+                description: 'Local test runner',
+              },
+            ]),
+          },
+        });
+
+        expect(aclResponse.ok()).toBeTruthy();
+        aclUuid = (await aclResponse.json()).uuid;
       });
 
-      expect(aclResponse.ok()).toBeTruthy();
-    });
+      await test.step('Create security headers profile baseline entry', async () => {
+        const profileResponse = await request.post('/api/v1/security/headers/profiles', {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+          data: {
+            name: profileName,
+          },
+        });
 
-    await test.step('Create security headers profile baseline entry', async () => {
-      const profileResponse = await request.post('/api/v1/security/headers/profiles', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-        data: {
-          name: profileName,
-        },
+        expect(profileResponse.status()).toBe(201);
       });
 
-      expect(profileResponse.status()).toBe(201);
-    });
+      await test.step('Verify baseline entries are queryable', async () => {
+        const aclListResponse = await request.get('/api/v1/access-lists', {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        expect(aclListResponse.ok()).toBeTruthy();
+        const aclList = await aclListResponse.json();
+        expect(Array.isArray(aclList)).toBeTruthy();
+        expect(aclList.some((item: { name?: string }) => item.name === aclName)).toBeTruthy();
 
-    await test.step('Verify baseline entries are queryable', async () => {
-      const aclListResponse = await request.get('/api/v1/access-lists', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        const profileListResponse = await request.get('/api/v1/security/headers/profiles', {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        });
+        expect(profileListResponse.ok()).toBeTruthy();
+        const profilePayload = await profileListResponse.json();
+        const profiles = Array.isArray(profilePayload?.profiles) ? profilePayload.profiles : [];
+        expect(profiles.some((item: { name?: string }) => item.name === profileName)).toBeTruthy();
       });
-      expect(aclListResponse.ok()).toBeTruthy();
-      const aclList = await aclListResponse.json();
-      expect(Array.isArray(aclList)).toBeTruthy();
-      expect(aclList.some((item: { name?: string }) => item.name === aclName)).toBeTruthy();
-
-      const profileListResponse = await request.get('/api/v1/security/headers/profiles', {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      expect(profileListResponse.ok()).toBeTruthy();
-      const profilePayload = await profileListResponse.json();
-      const profiles = Array.isArray(profilePayload?.profiles) ? profilePayload.profiles : [];
-      expect(profiles.some((item: { name?: string }) => item.name === profileName)).toBeTruthy();
-    });
+    } finally {
+      if (aclUuid) {
+        await deleteAccessListViaAPI(request, aclUuid, token);
+      }
+    }
   });
 });

@@ -1,6 +1,7 @@
 package orthrus
 
 import (
+	"context"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -8,8 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
-	gorillaws "github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/bcrypt"
@@ -47,12 +48,9 @@ func TestOrthrusServer_HandleWebSocket_StartsDockerProxy(t *testing.T) {
 	wsURL := "ws" + strings.TrimPrefix(ts.URL, "http") + "/ws"
 	header := http.Header{"Authorization": []string{"Bearer " + token}}
 
-	conn, dialResp, err := gorillaws.DefaultDialer.Dial(wsURL, header)
+	conn, _, err := websocket.Dial(context.Background(), wsURL, &websocket.DialOptions{HTTPHeader: header}) //nolint:bodyclose // coder/websocket manages the handshake response body
 	require.NoError(t, err)
-	if dialResp != nil {
-		_ = dialResp.Body.Close()
-	}
-	defer func() { _ = conn.Close() }()
+	defer func() { _ = conn.CloseNow() }()
 
 	assert.Eventually(t, func() bool {
 		addr, ok := srv.GetProxyAddr("proxy-s1-uuid")

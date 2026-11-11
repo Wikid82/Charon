@@ -2,6 +2,7 @@ import { test, expect, loginUser, logoutUser, TEST_PASSWORD } from '../fixtures/
 
 import { dismissNewDomainPromptIfPresent, retryAction, waitForLoadingComplete } from '../utils/wait-helpers';
 import { caddyProxyOrigin, createUserViaApi, getAuthTokenFromPage } from '../utils/api-helpers';
+import { deleteAccessList, deleteProxyHostByDomain } from '../utils/proxy-refusal-helpers';
 
 /**
  * Integration: ACL & WAF Layering (Defense in Depth)
@@ -23,6 +24,9 @@ import { caddyProxyOrigin, createUserViaApi, getAuthTokenFromPage } from '../uti
  */
 
 test.describe('ACL & WAF Layering', () => {
+  // Set by the deny-all ACL test; afterEach removes it after the proxy host that references it.
+  let createdAccessListUuid: string | undefined;
+
   // Assigned fresh per test in beforeEach below (not a single shared
   // const across all 4 tests). Empirically, all 4 tests racing for the
   // SAME static domain caused intermittent "domain already exists" 400s
@@ -126,43 +130,31 @@ test.describe('ACL & WAF Layering', () => {
   //    with the orphaned one. Plain API calls never navigate the page at
   //    all, so they can't race a pending navigation, and they're
   //    substantially faster than a full SPA page load + `networkidle` wait.
-  test.afterEach(async ({ page, adminUser }) => {
+  test.afterEach(async ({ request }) => {
+    // Runs on the fixture's request context (admin storage state), not on `page`: a test may have logged `page` in as
+    // the restricted user, and that session cannot delete proxy hosts, access lists or users.
     try {
-      // Cleanup proxy
-      const proxiesResponse = await page.request.get('/api/v1/proxy-hosts', {
-        headers: { Authorization: `Bearer ${adminUser.token}` },
-      });
-      if (proxiesResponse.ok()) {
-        const proxies = await proxiesResponse.json();
-        const matchingProxy = Array.isArray(proxies)
-          ? proxies.find((proxy: { domain_names?: string; domainNames?: string }) =>
-              proxy.domain_names === testProxy.domain || proxy.domainNames === testProxy.domain
-            )
-          : undefined;
-        if (matchingProxy?.uuid) {
-          await page.request.delete(`/api/v1/proxy-hosts/${matchingProxy.uuid}`, {
-            headers: { Authorization: `Bearer ${adminUser.token}` },
-          });
-        }
+      // Proxy host first: it references the access list removed below
+      await deleteProxyHostByDomain(request, testProxy.domain);
+
+      if (createdAccessListUuid) {
+        await deleteAccessList(request, createdAccessListUuid);
+        createdAccessListUuid = undefined;
       }
 
-      // Cleanup user
-      const usersResponse = await page.request.get('/api/v1/users', {
-        headers: { Authorization: `Bearer ${adminUser.token}` },
-      });
+      const usersResponse = await request.get('/api/v1/users');
       if (usersResponse.ok()) {
         const users = await usersResponse.json();
         const matchingUser = Array.isArray(users)
           ? users.find((user: { email?: string }) => user.email === testUser.email)
           : undefined;
         if (matchingUser?.id) {
-          await page.request.delete(`/api/v1/users/${matchingUser.id}`, {
-            headers: { Authorization: `Bearer ${adminUser.token}` },
-          });
+          await request.delete(`/api/v1/users/${matchingUser.id}`);
         }
       }
-    } catch {
-      // Ignore cleanup errors
+    } catch (error) {
+      // Surface cleanup failures: a silent failure here leaves enabled lists behind for later specs
+      console.warn('ACL & WAF Layering cleanup failed:', error);
     }
   });
 
@@ -455,6 +447,7 @@ test.describe('ACL & WAF Layering', () => {
         headers: { Authorization: `Bearer ${adminToken}` },
       });
       expect(accessListResponse.ok()).toBe(true);
+      createdAccessListUuid = (await accessListResponse.json()).uuid;
 
       await page.goto('/proxy-hosts');
 

@@ -1,6 +1,7 @@
 package orthrus
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -11,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -21,11 +22,10 @@ import (
 func testWSPair(t *testing.T) (serverConn *websocket.Conn, done func()) {
 	t.Helper()
 
-	upgrader := websocket.Upgrader{CheckOrigin: func(*http.Request) bool { return true }}
 	ready := make(chan *websocket.Conn, 1)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := upgrader.Upgrade(w, r, nil)
+		conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 		if err != nil {
 			return
 		}
@@ -33,15 +33,12 @@ func testWSPair(t *testing.T) (serverConn *websocket.Conn, done func()) {
 	}))
 
 	url := "ws" + strings.TrimPrefix(srv.URL, "http")
-	clientConn, dialResp, err := websocket.DefaultDialer.Dial(url, nil)
+	clientConn, _, err := websocket.Dial(context.Background(), url, nil) //nolint:bodyclose // coder/websocket manages the handshake response body
 	require.NoError(t, err)
-	if dialResp != nil {
-		_ = dialResp.Body.Close()
-	}
 
 	serverConn = <-ready
 	return serverConn, func() {
-		_ = clientConn.Close()
+		_ = clientConn.CloseNow()
 		srv.Close()
 	}
 }
