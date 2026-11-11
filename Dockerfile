@@ -57,7 +57,7 @@ ARG XNET_VERSION=0.62.0
 # crowdsec-builder stages so the two never drift. v0.56.0 also carries the
 # golang.org/x/crypto/ssh channel-flood deadlock DoS fixes (GO-2026-6354, GO-2026-6355).
 # renovate: datasource=go depName=golang.org/x/crypto
-ARG XCRYPTO_VERSION=0.58.0
+ARG XCRYPTO_VERSION=0.59.0
 # Shared golang.org/x/mod pin (GOSUMDB tile-verification bypass, CVE-2026-56864 / CVE-2026-56865;
 # fixed in v0.40.0). Must be >= the x/mod that the pinned x/net and x/crypto require (v0.41.0):
 # `go get golang.org/x/mod@<older>` is a downgrade and its cascade drags x/net, x/crypto and
