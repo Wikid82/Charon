@@ -677,7 +677,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         _retry go get github.com/crowdsecurity/crowdsec@v${CROWDSEC_VERSION}; \
         # CVE-2026-56864 / CVE-2026-56865: golang.org/x/mod/sumdb GOSUMDB tile-verification bypass
         # (a colluding GOPROXY+GOSUMDB pair could forge sumdb tiles / serve module content outside
-        # the transparency log). Affects /usr/bin/caddy — go mod tidy's MVS resolution otherwise
+        # the transparency log). Affects /usr/bin/caddy — go mod tidys MVS resolution otherwise
         # lands on an older, vulnerable version. Fix available at v0.40.0. Same pattern as the
         # crowdsec-builder pin below.
         _retry go get golang.org/x/mod@v${XMOD_VERSION}; \
@@ -704,7 +704,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         _retry go get github.com/caddyserver/caddy/v2@v${CADDY_VERSION}; \
         # Final re-pin: grpc-go (CVE-2026-84304). MUST come after the OpenTelemetry
         # go.get block above: `go get .../otlp*http@v0.19.0 / v1.43.0` is a *downgrade*,
-        # and go get's downgrade cascade drags google.golang.org/grpc back down to the
+        # and go gets downgrade cascade drags google.golang.org/grpc back down to the
         # v1.83.0-dev that otel v1.43.0 requires (v1.83.1 => v1.83.0-dev => v1.83.0 in
         # the build log), silently undoing the earlier pin. Re-pinning here — with grpc
         # named on the command line so it is held fixed — and letting `go mod tidy`
