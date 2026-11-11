@@ -114,7 +114,7 @@ on:
       - '.github/workflows/e2e-tests-split.yml'
 
 env:
-  NODE_VERSION: '26.13.0'
+  NODE_VERSION: '26.13.1'
   GOTOOLCHAIN: auto
   DOCKERHUB_REGISTRY: docker.io
   IMAGE_NAME: ${{ github.repository_owner }}/charon
