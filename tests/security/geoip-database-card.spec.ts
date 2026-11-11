@@ -191,12 +191,17 @@ test.describe('GeoIP database card', () => {
     });
 
     await test.step('Confirming removes the data-folder copy and returns to the bundled source', async () => {
-      await page.getByRole('dialog').getByRole('button', { name: USE_INCLUDED_NAME }).click();
+      // The dialog closes only once the removal has succeeded. While it is open the page behind it is aria-hidden, so
+      // the card's own button is out of the accessibility tree and a count of 0 would pass before the DELETE completes.
+      // Waiting for the dialog to close is the settle signal; the card button is then checked against the refreshed UI.
+      const dialog = page.getByRole('dialog');
+      await dialog.getByRole('button', { name: USE_INCLUDED_NAME }).click();
+      await expect(dialog).toBeHidden();
 
       await expect(card.getByRole('button', { name: USE_INCLUDED_NAME })).toHaveCount(0);
-      const status = await readStatus(requestContext);
-      expect(status.source).toBe('bundled');
-      expect(status.data_copy_present).toBe(false);
+      await expect
+        .poll(async () => readStatus(requestContext))
+        .toMatchObject({ source: 'bundled', data_copy_present: false });
     });
 
     await test.step('No GeoIP alert is raised while the bundled copy is in use', async () => {
