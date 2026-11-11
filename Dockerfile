@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-1937000e58add6a1
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:7f516a69316ebac828933ca70598f44be0ff05ae186bd5ba481a54f2efbeb0d4
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-5d9ab03bdfd93f5a
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:89157c7db370ce1972ac8e89cafb8e1d2b5e137decae784d584663b8e4a81380
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -657,7 +657,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         _retry go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.47.0; \
         # CVE-2026-41889: SQL Injection via placeholder confusion with dollar quoted string literals
         # renovate: datasource=go depName=github.com/jackc/pgx/v5
-        _retry go get github.com/jackc/pgx/v5@v5.12.0; \
+        _retry go get github.com/jackc/pgx/v5@v5.13.0; \
         # renovate: datasource=go depName=github.com/russellhaering/goxmldsig
         _retry go get github.com/russellhaering/goxmldsig@v1.6.1; \
         # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
@@ -677,7 +677,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         _retry go get github.com/crowdsecurity/crowdsec@v${CROWDSEC_VERSION}; \
         # CVE-2026-56864 / CVE-2026-56865: golang.org/x/mod/sumdb GOSUMDB tile-verification bypass
         # (a colluding GOPROXY+GOSUMDB pair could forge sumdb tiles / serve module content outside
-        # the transparency log). Affects /usr/bin/caddy — go mod tidy's MVS resolution otherwise
+        # the transparency log). Affects /usr/bin/caddy — go mod tidys MVS resolution otherwise
         # lands on an older, vulnerable version. Fix available at v0.40.0. Same pattern as the
         # crowdsec-builder pin below.
         _retry go get golang.org/x/mod@v${XMOD_VERSION}; \
@@ -704,7 +704,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         _retry go get github.com/caddyserver/caddy/v2@v${CADDY_VERSION}; \
         # Final re-pin: grpc-go (CVE-2026-84304). MUST come after the OpenTelemetry
         # go.get block above: `go get .../otlp*http@v0.19.0 / v1.43.0` is a *downgrade*,
-        # and go get's downgrade cascade drags google.golang.org/grpc back down to the
+        # and go gets downgrade cascade drags google.golang.org/grpc back down to the
         # v1.83.0-dev that otel v1.43.0 requires (v1.83.1 => v1.83.0-dev => v1.83.0 in
         # the build log), silently undoing the earlier pin. Re-pinning here — with grpc
         # named on the command line so it is held fixed — and letting `go mod tidy`
