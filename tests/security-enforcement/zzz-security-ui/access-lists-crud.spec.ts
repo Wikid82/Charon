@@ -18,7 +18,8 @@ import { waitForLoadingComplete, waitForModal, waitForDialog, waitForDebounce } 
 import { waitForAPIHealth, getAccessListViaAPI } from '../../utils/api-helpers';
 import { clickSwitch } from '../../utils/ui-helpers';
 import { generateUniqueId } from '../../fixtures/test-data';
-import type { Page } from '@playwright/test';
+import type { APIRequestContext, Page } from '@playwright/test';
+import { deleteAccessList } from '../../utils/proxy-refusal-helpers';
 
 /**
  * RFC 5737 TEST-NET-3 documentation range. No real client uses it, and the
@@ -46,6 +47,15 @@ const DOCUMENTATION_CIDR = '203.0.113.0/24';
  * as certificates.spec.ts's `createCustomCertViaAPI` for
  * `CertificateResponse`'s analogous mismatch.
  */
+async function listAccessListUuids(request: APIRequestContext): Promise<string[]> {
+  const response = await request.get('/api/v1/access-lists');
+  if (!response.ok()) {
+    throw new Error(`Failed to list access lists: ${response.status()} ${await response.text()}`);
+  }
+  const lists = (await response.json()) as Array<{ uuid: string }>;
+  return lists.map((list) => list.uuid);
+}
+
 async function seedAccessList(
   page: Page,
   overrides: { name?: string; type?: string } = {}
@@ -69,6 +79,14 @@ async function seedAccessList(
 }
 
 test.describe('Access Lists - CRUD Operations', () => {
+  // Lists that existed before this spec ran. The spec creates lists through seeds and through the UI, and an enabled
+  // list left behind is enforced by every later spec, so afterAll removes each list created since this snapshot.
+  let preexistingAccessListUuids: Set<string> | undefined;
+
+  test.beforeAll(async ({ request }) => {
+    preexistingAccessListUuids = new Set(await listAccessListUuids(request));
+  });
+
   test.beforeEach(async ({ page, adminUser }) => {
     await waitForAPIHealth(page.request);
     await loginUser(page, adminUser);
@@ -76,6 +94,18 @@ test.describe('Access Lists - CRUD Operations', () => {
     // Navigate to access lists page - supports both routes
     await page.goto('/access-lists');
     await waitForLoadingComplete(page);
+  });
+
+  test.afterAll(async ({ request }) => {
+    // Without a snapshot there is no way to tell this spec's lists from pre-existing ones, so delete nothing.
+    if (!preexistingAccessListUuids) {
+      return;
+    }
+    for (const uuid of await listAccessListUuids(request)) {
+      if (!preexistingAccessListUuids.has(uuid)) {
+        await deleteAccessList(request, uuid);
+      }
+    }
   });
 
   // Helper to get the Create Access List button

@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { deleteAccessList, deleteProxyHostByDomain } from '../utils/proxy-refusal-helpers';
 
 type SelectionPair = {
   aclLabel: string;
@@ -109,10 +110,41 @@ async function selectNonDefaultPair(
 }
 
 test.describe('ProxyHostForm ACL and Security Headers Dropdown Regression', () => {
+  // Set by the test as it creates fixtures. An enabled ACL or a proxy host attached to one is enforced by later specs.
+  let createdProxyDomain: string | undefined;
+  let createdAclUuid: string | undefined;
+
+  test.afterEach(async ({ page }) => {
+    // Proxy host first: it references the ACL.
+    if (createdProxyDomain) {
+      await deleteProxyHostByDomain(page.request, createdProxyDomain);
+      createdProxyDomain = undefined;
+    }
+    if (createdAclUuid) {
+      await deleteAccessList(page.request, createdAclUuid);
+      createdAclUuid = undefined;
+    }
+  });
+
   test('should keep ACL and Security Headers behavior equivalent across create/edit flows', async ({ page }) => {
     const suffix = Date.now();
     const proxyName = `Dropdown Regression ${suffix}`;
     const proxyDomain = `dropdown-${suffix}.test.local`;
+    createdProxyDomain = proxyDomain;
+
+    await test.step('Seed an access list so the dropdown has a non-default option', async () => {
+      // 203.0.113.0/24 is the RFC 5737 documentation range, so the seed admits no real client.
+      const response = await page.request.post('/api/v1/access-lists', {
+        data: {
+          name: `Dropdown Regression ACL ${suffix}`,
+          type: 'whitelist',
+          enabled: true,
+          ip_rules: JSON.stringify([{ cidr: '203.0.113.0/24', description: 'E2E seed rule' }]),
+        },
+      });
+      expect(response.ok()).toBeTruthy();
+      createdAclUuid = (await response.json()).uuid;
+    });
 
     await test.step('Navigate to Proxy Hosts', async () => {
       await page.goto('/proxy-hosts');

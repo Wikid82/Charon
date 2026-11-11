@@ -208,34 +208,33 @@ test.describe('ACL Enforcement', () => {
       const createdList = await createResponse.json();
       expect(createdList.uuid).toBeDefined();
 
-      // Verify the list was created with correct structure
-      expect(createdList.name).toBe('Test Enforcement ACL');
+      try {
+        // Verify the list was created with correct structure
+        expect(createdList.name).toBe('Test Enforcement ACL');
 
-      // Test a listed, non-admin address using POST: the tester reports the proxy's refusal
-      const testResponse = await requestContext.post(
-        `/api/v1/access-lists/${createdList.uuid}/test`,
-        { data: { ip_address: '203.0.113.77' } }
-      );
-      expect(testResponse.ok()).toBe(true);
-      const testResult = await testResponse.json();
-      expect(testResult.allowed).toBe(false);
-      expect(testResult.reason).toBe('Blocked by blacklist rule');
+        // Test a listed, non-admin address using POST: the tester reports the proxy's refusal
+        const testResponse = await requestContext.post(
+          `/api/v1/access-lists/${createdList.uuid}/test`,
+          { data: { ip_address: '203.0.113.77' } }
+        );
+        expect(testResponse.ok()).toBe(true);
+        const testResult = await testResponse.json();
+        expect(testResult.allowed).toBe(false);
+        expect(testResult.reason).toBe('Blocked by blacklist rule');
 
-      // Test a listed address inside the admin whitelist: the proxy exempts it, so the tester must admit it
-      const adminResponse = await requestContext.post(
-        `/api/v1/access-lists/${createdList.uuid}/test`,
-        { data: { ip_address: '10.255.255.255' } }
-      );
-      expect(adminResponse.ok()).toBe(true);
-      const adminResult = await adminResponse.json();
-      expect(adminResult.allowed).toBe(true);
-      expect(adminResult.reason).toBe('Address is in the admin whitelist');
-
-      // Cleanup: Delete the test ACL
-      const deleteResponse = await requestContext.delete(
-        `/api/v1/access-lists/${createdList.uuid}`
-      );
-      expect(deleteResponse.ok()).toBe(true);
+        // Test a listed address inside the admin whitelist: the proxy exempts it, so the tester must admit it
+        const adminResponse = await requestContext.post(
+          `/api/v1/access-lists/${createdList.uuid}/test`,
+          { data: { ip_address: '10.255.255.255' } }
+        );
+        expect(adminResponse.ok()).toBe(true);
+        const adminResult = await adminResponse.json();
+        expect(adminResult.allowed).toBe(true);
+        expect(adminResult.reason).toBe('Address is in the admin whitelist');
+      } finally {
+        // Removed even when an assertion above fails, so the enabled blacklist cannot outlive this test
+        await deleteAccessList(requestContext, createdList.uuid);
+      }
     } else {
       // May fail if ACL already exists or other issue
       const errorBody = await createResponse.text();
