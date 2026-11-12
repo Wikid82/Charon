@@ -1,146 +1,145 @@
-# QA Report: Redirect Target Handling
+# QA Report: Workflow Permissions and Build Inputs
 
-- Branch: `fix/redirect-target-handling` (8 commits on `origin/development`, up to `b649a9641`, plus the
-  uncommitted QA change listed below)
-- Spec: `docs/plans/cerberus_hardening_batch7_spec.md`, section 4 (fix PR)
-- Scope: user-supplied values are written to proxy config as literals (redirect targets, domain matchers, location
-  paths, upstream dial addresses, security header profile values); redirect targets with curly braces are refused on
-  create and update with `error_code: redirect_target_invalid`; a startup warning names stored rows that the new rule
-  refuses; translated form message in all locales; docs; plus a Dockerfile comment cleanup and lefthook PATH change
-  carried on the branch.
+- Branch: `chore/ci-workflow-permissions` (11 commits on `origin/development`, up to `7da34cd2d`)
+- Spec: `docs/plans/cerberus_hardening_batch7_spec.md`, section 3, plus two follow-ups (per-run key in
+  `quality-checks.yml`; base-branch Trivy ignore list in `docker-build.yml` and `toolchain-image.yml`)
+- Scope: CI workflows, CI and skill shell scripts, Playwright compose files, E2E test fixtures, editor tasks, CI docs.
+  No application code changed (`git diff --stat origin/development...HEAD` touches no `backend/`, `frontend/` or
+  `agent/` source), so the backend and frontend coverage suites and the patch coverage preflight were not run.
 - Image under test: `charon:local` from `docker-rebuild-e2e` on the committed branch.
 - Date: 2026-11-12
 
 ## Verdict
 
-**Pass.** Every Definition of Done gate for a fix PR passes. Local patch coverage is 100% (55 of 55 changed lines).
-No CRITICAL or HIGH findings. The throwaway-container check confirms that stored braced targets are served as
-literals and that brace-free configuration is byte-identical to `origin/development`.
+**Findings resolved in follow-up commits.** QA first blocked the branch on two defects in the per-run test value
+flow of `e2e-tests-split.yml` (H1, H2) and found four low items (L1 to L4). All six were fixed in the five commits
+after `7da34cd2d`; the report below describes the state that was reviewed. The remaining check is the PR's own CI
+run, which is the only way to exercise the E2E jobs, the result-publishing job and the base-branch policy fetch.
 
-## Changes made during QA
+## Gates run (all foreground)
 
-| Area | Change |
+| Gate | Result |
 | --- | --- |
-| `scripts/pre-commit-hooks/codeql-go-scan.sh`, `codeql-js-scan.sh` | The closing `echo` held backticks inside double quotes, so the shell ran a nested `lefthook run pre-commit` at the end of every CodeQL scan. The backticked text is removed; the message is otherwise unchanged. Not related to this branch; suitable as its own `chore:` commit. |
-
-No product code was changed.
-
-## Static checks and build
-
-| Check | Result |
-| --- | --- |
-| `make lint-backend` (golangci-lint v2.15.0, full config) | 0 issues |
-| `lefthook run pre-commit --all-files` | all 20 hooks pass, including semgrep (0 findings), golangci-lint-fast, frontend lint/type-check, locale lint, e2e lint (0 errors, warnings only, pre-existing) |
-| `cd frontend && npm run lint` | pass, 0 warnings |
-| `node_modules/.bin/tsc6 --noEmit` (TypeScript 6.0.3) | pass |
-| `cd frontend && npm run build` | pass |
-| `cd backend && go build ./...` | pass |
-| `./scripts/scan-gorm-security.sh --check` | 0 issues (1 pre-existing suppressed) |
-
-## Coverage
-
-| Run | Result |
-| --- | --- |
-| `scripts/go-test-coverage.sh` (full) | all packages pass; statements 93.7%, lines 92.6% (gate 87%) |
-| `scripts/frontend-test-coverage.sh` (full) | 346 files, 4473 tests pass (2 todo); statements 91.77%, lines 92.66% |
-| `bash scripts/local-patch-report.sh` | overall 100.0% (55/55), backend 100.0% (49/49), frontend 100.0% (6/6) |
-
-## E2E (Playwright, after the image rebuild)
-
-| Command | Result |
-| --- | --- |
-| `PLAYWRIGHT_CADDY_PROXY_PORT=8180 npx playwright test tests/redirection-hosts.spec.ts --project=firefox` | 16 passed, including the four new "Redirect Target Safety" tests |
-| `npx playwright test tests/security-enforcement/acl-enforcement.spec.ts tests/security-enforcement/security-headers-enforcement.spec.ts --project=security-tests` | 18 passed |
-
-The image rebuild succeeded with the Dockerfile on this branch.
-
-## Security scans
-
-| Scan | Result |
-| --- | --- |
-| CodeQL Go + JS (`lefthook run codeql`, CLI 2.27.2) | 0 blocking. Go: 4 results, all pre-existing entries in `codeql-suppressions.yml`, none in files of this branch. JS: 0 results. Extraction and parity checks pass. |
-| Semgrep (pre-commit hook) | 0 findings |
-| Trivy | Not run locally (fix PR, no new feature surface); CI runs it on the PR. |
-
-## Spot check (throwaway container)
-
-A separate `charon:local` container with a fresh named volume, published on loopback-only ports and removed
-afterwards. `charon-dev` and `charon` were not touched. The container had an extra environment variable holding a
-canary value. Four redirection rows were inserted straight into the database before start: two with braced targets
-(one with Preserve Path), one plain, one plain with Preserve Path.
-
-| Step | Result |
-| --- | --- |
-| Startup log | One warning per braced row, with `host` and `redirection_host_uuid` only. The stored target, its placeholder names and the canary value do not appear in the log. |
-| Live Caddy config (`/config/`) | Braced targets appear as `%7B...%7D`. The only raw placeholder in a redirect `Location` is the generator's own `{http.request.uri}` on Preserve Path rows. The canary value is absent. |
-| Request to the braced host with a probe request header | `302`, `Location` carries `%7Benv...%7D` and `%7Bhttp.request.header...%7D` literally; neither the canary nor the probe header value appears. |
-| Braced host with Preserve Path | `Location` is the encoded target followed by the requested path and query. |
-| Plain host / plain host with Preserve Path | `301` to the fixed target; `308` with the requested path and query appended. Unchanged behaviour. |
-| Edit the braced row (name only, or a new braced target) | `400`, `error_code: redirect_target_invalid`, fixed message, input not echoed |
-| Create a braced row | Same `400` |
-| Edit the row to a plain target | `200`; the next request redirects to the new target |
-
-### Brace-free configuration is unchanged
-
-The repo has no golden config files, so a differential check was run instead: one throwaway test (not committed)
-generated the full Caddy config from the same fixtures against an export of `origin/development` and of this branch,
-and the two JSON outputs were compared. Fixtures: a multi-domain host with two locations (one IPv6 upstream), HSTS,
-websockets and standard headers; a Plex host with standard headers off; a wildcard host with a full security header
-profile (HSTS preload, CSP, Permissions-Policy, cross-origin headers, cache control); an IP-only host with an
-advanced-config header handler; two redirection hosts (one with Preserve Path); Cerberus, WAF, rate limit and ACL on.
-Result: **byte-identical** (706 lines of JSON).
-
-## Security review of the diff
-
-| Area | Result |
-| --- | --- |
-| `caddy/literal.go` | `proxyLiteral` replaces only `{` and `}` with `%7B`/`%7D` through a `strings.Replacer`; brace-free input is returned unchanged. `proxyLiterals` copies, so the caller's slice is not modified. Table tests cover empty, plain, IPv6, existing escapes, nested and mixed braces. |
-| `caddy/redirect_routes.go` | The user target is encoded before the generator appends `{http.request.uri}`, so only the generator's placeholder survives. Domain matchers are encoded too. |
-| `caddy/config.go`, `types.go` | Host matchers, location path matchers and upstream dial addresses go through the helper. Generator-emitted placeholders (standard proxy headers, Plex headers, rate-limit key, self-upstream headers) are not routed through it and keep working. `advanced_config` is raw JSON by design and out of scope (spec). |
-| Header value encoding | Applied to the security header profile values only, after the map is built. Profile values never carry generator placeholders, so this is safe; HSTS, CSP and Permissions-Policy output is unchanged for brace-free values (differential check). |
-| `services/redirectionhost_service.go` | The brace check runs after trimming and before URL parsing; percent-encoded input is accepted. The error is a fixed sentinel and never contains the submitted value. |
-| `services/redirectionhost_target_check.go` | Selects only `uuid`, `domain_names`, `target_url`; logs host and UUID, never the target; a read failure logs and returns 0 without blocking startup. |
-| Handler error body | `respondRedirectionHostWriteError` returns the fixed message plus `error_code` for the sentinel; other errors keep the previous behaviour. Handler tests assert the body does not echo the input. |
-| Frontend | The form maps `redirect_target_invalid` to a translated message and falls back to the previous text for other errors. All locale files carry the key (parity test). |
-| Gotify tokens | None in the diff, test artifacts or logs reviewed. |
+| `actionlint` (all workflows) | Pass |
+| `shellcheck` on changed scripts | Pass (info-level SC1091 only, same as on `development`) |
+| `bats scripts/tests/dockerfile-arg.bats` | Pass, 10/10 |
+| `scripts/ci/dockerfile-arg.sh --require-digest Dockerfile ALPINE_IMAGE` | Prints the tag@digest reference |
+| `markdownlint` on changed docs | Pass |
+| `jq . .vscode/tasks.json` | Pass |
+| `docker compose config`, CI file, all four values set | Pass; port 2020 bound to `127.0.0.1` |
+| `docker compose config`, CI file, values unset or empty | Fails with the `:?` message (intended) |
+| `docker compose config`, CI file, only token and key set (what the workflow sets) | **Fails**: username and password missing (see H1) |
+| `docker compose config`, local file, set and unset | Pass / fails as intended |
+| `lefthook run pre-commit --all-files` | Pass (all 20 hooks) |
+| `docker-rebuild-e2e` skill | Pass; container healthy, 2020 on loopback |
+| `npx playwright test tests/security-enforcement/emergency-reset.spec.ts --project=security-tests` | 5 passed |
+| `npx playwright test tests/security-enforcement/multi-component-security-workflows.spec.ts --project=security-tests` | 5 passed |
+| Same emergency spec with the emergency password unset | Fails in setup with the clear "is not set" message (intended) |
+| `npx tsc --noEmit -p tests/tsconfig.json` | Pass |
+| `npm run lint:e2e` | 0 errors, 123 warnings (cap 124); no new warnings on changed lines |
+| Installer checksums in `.vscode/tasks.json` | Both match an independent download (see below) |
 
 ## Findings
 
-No CRITICAL, HIGH or MEDIUM findings.
+### HIGH
 
-### Low: Dockerfile comment cleanup removed correct apostrophes
+**H1. CI E2E jobs do not provide the emergency username and password.**
+`.docker/compose/docker-compose.playwright-ci.yml` now requires `CHARON_EMERGENCY_USERNAME` and
+`CHARON_EMERGENCY_PASSWORD` (`${VAR:?}`), and the test helpers (`requireEmergencyEnv`) throw when they are unset.
+The six E2E jobs in `.github/workflows/e2e-tests-split.yml` set only `CHARON_EMERGENCY_TOKEN` and
+`CHARON_ENCRYPTION_KEY`. `docker compose ... up -d` will fail in every job, and Playwright setup would fail after
+it. Reproduced locally with `docker compose config` using only the two values the workflow sets.
+Remediation: generate a per-run username and password alongside the token and key, and set them in the same place
+as the other two values in all six jobs (see H2 for where that place should be).
 
-`chore(docker): correct typos in comments and documentation` and the follow-up quoting fix leave 18 comment
-lines where possessives and contractions lost their apostrophe (for example "Debians pre-compiled version",
-"Caddys dependency patches", "its cheap", "workflows bot PR"). Comments only; the image builds and nothing changes
-at runtime. Apostrophes inside Dockerfile comment lines are safe even within a `RUN` continuation, because the
-parser drops comment lines before the shell sees them. Remediation: restore the apostrophes in those comment lines
-(a `git diff origin/development -- Dockerfile` shows each one), or drop the Dockerfile commits from this PR, since
-they are outside section 4 of the spec.
+**H2. Per-run values passed as job outputs will arrive empty.**
+The `build` job masks the generated token and key (`::add-mask::`) and exposes them as job outputs; the E2E jobs
+read `needs.build.outputs.*`. The runner drops any job output that contains a masked value ("Skip output ... since
+it may contain secret"), so the E2E jobs receive empty strings. The token check step then fails with "secret not
+configured", and compose fails on the empty key. (GitHub documents this behaviour in "Passing information between
+jobs".) Remediation: generate the values inside each E2E job instead of in `build` (each job starts its own
+container, so the values do not need to be shared). Because job-level `env` is evaluated before steps run, either
+set them per step from a step output, or keep one generation step that masks them and writes them for the job. The
+spec's no-`GITHUB_ENV` rule can be kept by giving the compose, Playwright and log steps the values through
+step-level `env` from `steps.<id>.outputs`. Do not drop the masking to make the outputs pass: the job-level `env`
+block is printed in step logs before any later mask takes effect.
 
-### Low: docs wording for existing braced redirects
+Only the PR's CI run can confirm the fix for H1 and H2; there is no local equivalent of the cross-job output filter.
 
-`docs/features/redirection-hosts.md` says an existing braced redirect "keeps working as before". It keeps
-redirecting, but the braces are now sent as `%7B` and `%7D`, which is a change for anyone who relied on them. The
-startup warning already says "served as a literal". Remediation: reword to "it keeps redirecting, with the braces
-sent as `%7B` and `%7D`", which says what happens without describing why.
+### MEDIUM
 
-## Acceptance criteria (spec section 4)
+None.
 
-| Criterion | Evidence |
-| --- | --- |
-| User target written as a literal; generator still appends `{http.request.uri}` for Preserve Path | `TestRedirectTargetIsLiteral`; spot check |
-| Braced target refused with `redirect_target_invalid` (400); percent-encoded accepted | `TestRedirectTargetRejectsReservedCharacters`, handler tests, E2E "Redirect Target Safety", spot check |
-| Audit: domains, location paths, dial addresses, header profile values written as literals | `literal_test.go`; config review |
-| Brace-free input byte-identical | `TestProxyLiteral_BraceFreeInputUnchanged`; differential config check |
-| Startup warning names the host, not the value | `TestWarnRefusedRedirectTargets_WarnsOncePerRowNamingHostNotValue`; spot check |
-| Form explains the refusal in every locale | `RedirectionHostForm.test.tsx`, `errorBody.redirection.test.ts`, `redirectionHostLocales.test.ts` |
-| Container gate: seeded braced row yields `%7B...%7D`, never an expanded value | spot check |
-| Full DoD | this report |
+### LOW
 
-## Deviations from the spec
+**L1. Backend coverage job lost its Go cache key.** `.github/workflows/codecov-upload.yml`, `backend-codecov`
+job, "Set up Go": the `cache-dependency-path: backend/go.sum` line was removed together with the old key step.
+The job still works but restores no module cache (setup-go looks for a root `go.sum`). Remediation: restore the line.
 
-- The branch also carries `chore: call npm and npx from PATH in the lefthook frontend hooks` and two Dockerfile
-  comment commits that are not part of section 4. They do not affect the fix; see the low finding for the comments.
-- Spec's commit 4 lists two E2E cases; the branch has four (adds an API refusal case and a percent-encoded target case).
-- Trivy was not run locally (fix PR); CI runs it.
+**L2. Editor scanner tasks report success when the checksum fails.** `.vscode/tasks.json`, Grype and Syft update
+tasks: the command ends with `; rm -f "$tmp"`, so the task's exit status is that of `rm`, not of the checksum or
+install. A mismatch prints `FAILED` and installs nothing (safe), but the task shows as successful. Remediation:
+`... ; rc=$?; rm -f "$tmp"; exit $rc`, or a `trap`. Also, the spec asked for `sudo` only on the final copy; the
+whole installer runs under `sudo`. Acceptable because the script is checksum-verified first, but an unprivileged
+install to a temp dir followed by `sudo install` would match the spec.
+
+**L3. Issue-file path check validates only the last path component.** `.github/workflows/docs-to-issues.yml`,
+`rejectIssueFile`: `lstat` rejects a symlinked file, but a symlinked directory inside `docs/issues/` would still be
+followed. Inputs come from pushes and manual runs by people with write access, so impact is small. Remediation:
+also require `fs.realpathSync(filePath)` to start with `fs.realpathSync('docs/issues') + path.sep`. Manual paths
+also skip the `created/`, template and README exclusions that commit-derived paths get; consider applying the same
+filter to both.
+
+**L4. Toolchain scan job can now fail on PRs where it was report-only.** `.github/workflows/toolchain-image.yml`,
+`trivy-scan`: the base-policy step runs on every PR (including fork PRs where `scan` is false) and has no
+`continue-on-error`, while the Trivy gate it feeds is report-only on PRs. A transient fetch failure fails the job.
+This is fail-closed and acceptable; optionally gate the step on `steps.ref.outputs.scan == 'true'`.
+
+### Informational
+
+- `benchmark.yml`: the concurrency group still references `github.event.workflow_run.head_branch`, which no longer
+  applies (the workflow has no `workflow_run` trigger). Harmless; can be dropped.
+- `supply-chain-pr.yml`, "Fail on Critical/High vulnerabilities": still interpolates step outputs directly into
+  `run`. The values are counts produced by `jq` in the same job, so this is not exploitable, but moving them to
+  `env` would match the rest of the change.
+- Once this merges, the repository secrets for the backend test key and the E2E emergency token are no longer read
+  by any workflow and can be deleted.
+
+## Security review notes
+
+- **Permissions.** `supply-chain-pr.yml` workflow scope is read-only; write scopes exist only on
+  `publish-results`, which never checks out code, downloads the scan artifact only, and validates every count as a
+  non-negative integer before building the comment. Comment values and repository/run identifiers now come through
+  `env`, not inline expressions. `benchmark.yml` runs PR and dispatch code with `contents: read` and no repository
+  secrets; the `store` job holds the write scopes and runs only on `push` to `main`.
+- **Registry token expression.** `(head.repo.full_name == '' || head.repo.full_name == github.repository) &&
+  secrets.GITHUB_TOKEN || ''` is the exact complement of the existing `builder-src` inline condition: push and
+  dispatch (no PR payload) and same-repository PRs get the token; fork PRs get `''`, and the composite action skips
+  the registry login when the token is empty. The deviation from the spec wording is sound. Edge case: a PR whose
+  head repository was deleted has an empty `full_name` and is treated like a push; its token is read-only.
+- **Base-branch scanner policy.** `BASE_REF` is passed through `env` and quoted. `FETCH_HEAD` is the right ref to
+  read after `git fetch --depth=1 origin "$BASE_REF"` (a checkout made with a single ref does not always update the
+  remote-tracking ref), so this deviation from the spec is sound. Failure is closed: `set -euo pipefail` fails the
+  step, and the Trivy steps that consume the output have no `always()`, so they cannot run with the PR's own policy.
+  The repository is public, so the anonymous fetch works without persisted credentials.
+- **Six E2E jobs.** All three security and three non-security jobs were switched, and all six old key steps
+  removed. No caller passes the removed reusable-workflow secret. The coverage is complete; the flow itself is
+  broken (H1, H2).
+- **Secrets in logs.** The old token preview (first and last characters) is gone. No value is written to
+  `GITHUB_ENV`. Test-only values in `quality-checks.yml`, `codecov-upload.yml` and `benchmark.yml` stay in step
+  outputs within one job, which works.
+- **Installer pins.** Independently downloaded both commit-pinned `install.sh` files: Grype `8646f06a...3556` and
+  Syft `2ed88b16...4b3b` match `.vscode/tasks.json`. Both commits are ancestors of the upstream `main` branch, not
+  commits that exist only in a fork. The Grype pin matches `supply-chain-pr.yml`. The installers then verify the
+  release archive checksum themselves; the tasks install the latest release rather than a pinned version.
+- **Compose.** Port 2020 now binds to loopback in both Playwright compose files, and no compose file carries a
+  committed default credential.
+
+## What only the PR's own CI run can confirm
+
+- The E2E jobs start and pass after H1 and H2 are fixed.
+- `publish-results` posts or updates the PR comment and uploads SARIF without a checkout.
+- The base-branch policy steps fetch and feed Trivy on a real PR.
+- The benchmark `store` job's push to the results branch runs only after a merge to `main` and cannot be tested on
+  the PR; its condition was checked by reading it.
+- The `beta` tag condition was checked by reading it.
