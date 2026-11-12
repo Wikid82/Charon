@@ -423,7 +423,7 @@ jobs:
             type=raw,value=latest,enable=${{ env.TRIGGER_REF == 'refs/heads/main' }}
             type=raw,value=dev,enable=${{ env.TRIGGER_REF == 'refs/heads/development' }}
             type=raw,value=nightly,enable=${{ env.TRIGGER_REF == 'refs/heads/nightly' }}
-            type=raw,value=beta,enable=${{ env.TRIGGER_EVENT == 'pull_request' && env.TRIGGER_BASE_REF == 'development' }}
+            type=raw,value=beta,enable=${{ env.TRIGGER_EVENT == 'pull_request' && env.TRIGGER_BASE_REF == 'development' && github.event.pull_request.head.repo.full_name == github.repository }}
             type=raw,value=${{ steps.pr_image_ref_output.outputs.image_tag }},enable=${{ steps.pr_image_ref_output.outputs.image_tag != '' }}
             type=raw,value=${{ steps.branch-tags.outputs.feature_branch_tag }},enable=${{ env.TRIGGER_EVENT != 'pull_request' && startsWith(env.TRIGGER_REF, 'refs/heads/feature/') && steps.branch-tags.outputs.feature_branch_tag != '' }}
             type=raw,value=${{ steps.branch-tags.outputs.branch_sha_tag }},enable=${{ env.TRIGGER_EVENT != 'pull_request' && steps.branch-tags.outputs.branch_sha_tag != '' }}
