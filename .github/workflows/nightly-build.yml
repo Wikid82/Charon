@@ -240,11 +240,7 @@ jobs:
       - name: Resolve Alpine base image digest
         id: alpine
         run: |
-          ALPINE_IMAGE_REF=$(grep -m1 'ARG ALPINE_IMAGE=' Dockerfile | cut -d'=' -f2-)
-          if [[ -z "$ALPINE_IMAGE_REF" ]]; then
-            echo "::error::Failed to parse ALPINE_IMAGE from Dockerfile"
-            exit 1
-          fi
+          ALPINE_IMAGE_REF=$(bash scripts/ci/dockerfile-arg.sh --require-digest Dockerfile ALPINE_IMAGE)
           echo "Resolved Alpine image: ${ALPINE_IMAGE_REF}"
           echo "image=${ALPINE_IMAGE_REF}" >> "$GITHUB_OUTPUT"
 

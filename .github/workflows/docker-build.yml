@@ -279,10 +279,11 @@ jobs:
         if: steps.skip.outputs.skip_build != 'true'
         id: alpine
         run: |
-          ALPINE_TAG=$(grep -m1 'ARG ALPINE_IMAGE=' Dockerfile | sed 's/ARG ALPINE_IMAGE=alpine://' | cut -d'@' -f1)
-          docker pull "alpine:${ALPINE_TAG}"
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "alpine:${ALPINE_TAG}")
-          echo "image=$DIGEST" >> "$GITHUB_OUTPUT"
+          # Pass the full pinned reference (tag@digest) the Dockerfile declares,
+          # so the build never re-resolves a mutable tag.
+          ALPINE_IMAGE_REF=$(bash scripts/ci/dockerfile-arg.sh --require-digest Dockerfile ALPINE_IMAGE)
+          echo "Resolved Alpine image: ${ALPINE_IMAGE_REF}"
+          echo "image=${ALPINE_IMAGE_REF}" >> "$GITHUB_OUTPUT"
 
       - name: Compute branch tags
         if: steps.skip.outputs.skip_build != 'true'
