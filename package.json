@@ -31,7 +31,7 @@
     "@typescript-eslint/eslint-plugin": "^8.72.2",
     "@typescript-eslint/parser": "^8.72.2",
     "@typescript-eslint/utils": "^8.72.2",
-    "@typescript/native": "npm:typescript@^7.1.0-dev.20261111.1",
+    "@typescript/native": "npm:typescript@^7.1.0-dev.20261112.1",
     "audit-ci": "^7.1.0",
     "dotenv": "^18.0.10",
     "eslint": "^10.14.0",
