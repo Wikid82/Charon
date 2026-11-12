@@ -346,6 +346,24 @@ jobs:
             echo "Fork PR / image not published — no remote image to scan."
           fi
 
+      - name: Load Trivy ignore list from the base branch
+        # On pull requests the suppression list comes from the base branch, so a pull request
+        # cannot suppress its own findings. Push and schedule runs use the checked-out file.
+        if: github.event_name == 'pull_request'
+        id: base-policy
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          POLICY_DIR="${RUNNER_TEMP}/scanner-policy"
+          mkdir -p "${POLICY_DIR}"
+
+          git fetch --depth=1 origin "${BASE_REF}"
+          git show "FETCH_HEAD:.trivyignore" > "${POLICY_DIR}/.trivyignore"
+
+          echo "trivyignores=${POLICY_DIR}/.trivyignore" >> "$GITHUB_OUTPUT"
+          echo "📋 Using Trivy ignore list from base branch ${BASE_REF}"
+
       - name: Trivy vulnerability scan (CRITICAL/HIGH gate)
         if: steps.ref.outputs.scan == 'true'
         uses: step-security/trivy-action@4d04e2d32ba36aae5693467644b22741d68f9115 # v0.36.0
@@ -354,7 +372,7 @@ jobs:
           format: 'table'
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
-          trivyignores: '.trivyignore'
+          trivyignores: ${{ github.event_name == 'pull_request' && steps.base-policy.outputs.trivyignores || '.trivyignore' }}
           version: 'v0.76.2'
         # Report-only on PRs (the app-image Trivy gates still run downstream);
         # blocking on schedule / workflow_dispatch / workflow_call (spec §3.4.3).
@@ -368,7 +386,7 @@ jobs:
           format: 'sarif'
           output: 'trivy-toolchain.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
-          trivyignores: '.trivyignore'
+          trivyignores: ${{ github.event_name == 'pull_request' && steps.base-policy.outputs.trivyignores || '.trivyignore' }}
           version: 'v0.76.2'
 
       - name: Upload Trivy SARIF

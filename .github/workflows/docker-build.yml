@@ -1526,13 +1526,31 @@ jobs:
 
           echo "✅ Image freshness validated"
 
+      - name: Load Trivy ignore list from the base branch
+        # On pull requests the suppression list comes from the base branch, so a pull request
+        # cannot suppress its own findings. Push and schedule runs use the checked-out file.
+        if: github.event_name == 'pull_request'
+        id: base-policy
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          POLICY_DIR="${RUNNER_TEMP}/scanner-policy"
+          mkdir -p "${POLICY_DIR}"
+
+          git fetch --depth=1 origin "${BASE_REF}"
+          git show "FETCH_HEAD:.trivyignore" > "${POLICY_DIR}/.trivyignore"
+
+          echo "trivyignores=${POLICY_DIR}/.trivyignore" >> "$GITHUB_OUTPUT"
+          echo "📋 Using Trivy ignore list from base branch ${BASE_REF}"
+
       - name: Run Trivy scan on PR image (table output)
         uses: step-security/trivy-action@4d04e2d32ba36aae5693467644b22741d68f9115 # v0.36.0
         with:
           image-ref: ${{ steps.pr-image.outputs.image_ref }}
           format: 'table'
           scanners: 'vuln'
-          trivyignores: '.trivyignore'
+          trivyignores: ${{ github.event_name == 'pull_request' && steps.base-policy.outputs.trivyignores || '.trivyignore' }}
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
           version: 'v0.76.2'
@@ -1545,7 +1563,7 @@ jobs:
           format: 'sarif'
           output: 'trivy-pr-results.sarif'
           scanners: 'vuln'
-          trivyignores: '.trivyignore'
+          trivyignores: ${{ github.event_name == 'pull_request' && steps.base-policy.outputs.trivyignores || '.trivyignore' }}
           severity: 'CRITICAL,HIGH'
           # Keep scanning strict for CRITICAL/HIGH; fail is enforced explicitly
           # at the end so SARIF upload and summaries still run.
