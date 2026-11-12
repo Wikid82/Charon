@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -236,23 +237,58 @@ func TestEmergencyResetThrottle_QueuedRequestRechecksBudgetUnderSlot(t *testing.
 		require.Equal(t, http.StatusUnauthorized, doReset(r, "192.0.2.15:1").Code)
 	}
 
-	// Two gated requests from the same address hold both slots, each with the last token peeked.
-	holderA := send("192.0.2.15:1", "a")
-	holderB := send("192.0.2.15:1", "b")
-	<-entered
+	// The gated holder takes the last token and blocks in the handler, holding the address gate.
+	holder := send("192.0.2.15:1", "a")
 	<-entered
 
-	// This request peeks a token, then queues for a slot.
+	// A second attempt from the same address queues behind the gate and must not run the handler
+	// while the holder is in flight, even though a check slot is free.
 	queued := send("192.0.2.15:1", "")
 	time.Sleep(50 * time.Millisecond)
+	assert.Len(t, calls, EmergencyResetAttemptsPerWindow, "the queued attempt must wait for the gate")
 
 	close(gate)
-	assert.Equal(t, http.StatusUnauthorized, <-holderA)
-	assert.Equal(t, http.StatusUnauthorized, <-holderB)
+	assert.Equal(t, http.StatusUnauthorized, <-holder)
 
-	// The holders spent the last token, so the queued request is refused before the handler.
+	// The holder spent the last token, so the queued request is refused before the handler.
 	assert.Equal(t, http.StatusTooManyRequests, <-queued)
-	assert.Len(t, calls, EmergencyResetAttemptsPerWindow+1, "the queued request must not reach the handler")
+	assert.Len(t, calls, EmergencyResetAttemptsPerWindow, "the queued request must not reach the handler")
+}
+
+func TestEmergencyResetThrottle_GateWaitEndsWithRequestContext(t *testing.T) {
+	th := NewEmergencyResetThrottle("main", nil, WithEmergencyResetWait(time.Hour))
+	holding := make(chan struct{})
+	release := make(chan struct{})
+	r := gin.New()
+	gin.SetMode(gin.TestMode)
+	_ = r.SetTrustedProxies(nil)
+	r.POST("/reset", th.Middleware(), func(c *gin.Context) {
+		close(holding)
+		<-release
+		c.Status(http.StatusOK)
+	})
+
+	holderDone := make(chan int, 1)
+	go func() { holderDone <- doReset(r, "192.0.2.16:1").Code }()
+	<-holding
+
+	// The waiting attempt is abandoned by its client: it must give up on the gate and release its slot.
+	ctx, cancel := context.WithCancel(context.Background())
+	req := httptest.NewRequest(http.MethodPost, "/reset", http.NoBody).WithContext(ctx)
+	req.RemoteAddr = "192.0.2.16:1"
+	done := make(chan struct{})
+	go func() {
+		r.ServeHTTP(httptest.NewRecorder(), req)
+		close(done)
+	}()
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+	<-done
+
+	assert.Len(t, th.slots, 1, "only the holder may keep a check slot")
+	close(release)
+	assert.Equal(t, http.StatusOK, <-holderDone)
+	assert.Empty(t, th.gates.gates, "idle address gates must be dropped")
 }
 
 func TestEmergencyResetThrottle_SemaphoreWaitsForFreeSlot(t *testing.T) {
