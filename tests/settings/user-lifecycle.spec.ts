@@ -1,3 +1,4 @@
+import { requireEmergencyEnv } from '../fixtures/security';
 import { test, expect, loginUser, logoutUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
 import type { UserRole } from '../utils/TestDataManager';
 import { waitForLoadingComplete, gotoTolerant, reloadTolerant } from '../utils/wait-helpers';
@@ -12,8 +13,8 @@ async function resetSecurityState(page: import('@playwright/test').Page): Promis
 
   const baseURL = process.env.PLAYWRIGHT_BASE_URL || 'http://127.0.0.1:8080';
   const emergencyBase = process.env.EMERGENCY_SERVER_HOST || baseURL.replace(':8080', ':2020');
-  const username = process.env.CHARON_EMERGENCY_USERNAME || 'admin';
-  const password = process.env.CHARON_EMERGENCY_PASSWORD || 'changeme';
+  const username = requireEmergencyEnv('CHARON_EMERGENCY_USERNAME');
+  const password = requireEmergencyEnv('CHARON_EMERGENCY_PASSWORD');
   const basicAuth = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
 
   const response = await page.request.post(`${emergencyBase}/emergency/security-reset`, {

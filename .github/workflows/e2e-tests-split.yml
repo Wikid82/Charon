@@ -39,8 +39,6 @@ on:
         default: false
         type: boolean
     secrets:
-      CHARON_EMERGENCY_TOKEN:
-        required: false
       DOCKERHUB_USERNAME:
         required: false
       DOCKERHUB_TOKEN:
@@ -150,11 +148,27 @@ jobs:
       image_ref: ${{ steps.resolve-image.outputs.image_ref }}
       image_tag: ${{ steps.resolve-image.outputs.image_tag }}
       image_digest: ${{ steps.resolve-image.outputs.image_digest != '' && steps.resolve-image.outputs.image_digest || steps.build-image.outputs.digest }}
+      emergency_token: ${{ steps.test-secrets.outputs.emergency_token }}
+      encryption_key: ${{ steps.test-secrets.outputs.encryption_key }}
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
+
+      # Per-run test secrets. Generated once per workflow run and handed to the e2e jobs as
+      # job outputs, so the workflow needs no repository secret and nothing is stored.
+      - name: Generate per-run test secrets
+        id: test-secrets
+        run: |
+          emergency_token="$(openssl rand -hex 32)"
+          encryption_key="$(openssl rand -base64 32)"
+          echo "::add-mask::${emergency_token}"
+          echo "::add-mask::${encryption_key}"
+          {
+            echo "emergency_token=${emergency_token}"
+            echo "encryption_key=${encryption_key}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Resolve image inputs
         id: resolve-image
@@ -297,7 +311,8 @@ jobs:
       ((inputs.test_category || 'all') == 'security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 60
     env:
-      CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+      CHARON_EMERGENCY_TOKEN: ${{ needs.build.outputs.emergency_token }}
+      CHARON_ENCRYPTION_KEY: ${{ needs.build.outputs.encryption_key }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "true"  # Cerberus ON for enforcement tests
       CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
@@ -349,27 +364,19 @@ jobs:
             echo "::error title=Missing Secret::CHARON_EMERGENCY_TOKEN secret not configured"
             exit 1
           fi
+          echo "::add-mask::${CHARON_EMERGENCY_TOKEN}"
           TOKEN_LENGTH=${#CHARON_EMERGENCY_TOKEN}
           if [ "$TOKEN_LENGTH" -lt 64 ]; then
             echo "::error title=Invalid Token Length::CHARON_EMERGENCY_TOKEN must be at least 64 characters"
             exit 1
           fi
-          MASKED_TOKEN="${CHARON_EMERGENCY_TOKEN:0:8}...${CHARON_EMERGENCY_TOKEN: -4}"
-          echo "::notice::Emergency token validated (length: $TOKEN_LENGTH, preview: $MASKED_TOKEN)"
-        env:
-          CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+          echo "::notice::Emergency token validated (length: $TOKEN_LENGTH)"
 
       - name: Load Docker image artifact
         if: needs.build.outputs.image_source == 'build'
         run: |
           docker load -i charon-e2e-image.tar
           docker images | grep charon
-
-      - name: Generate ephemeral encryption key
-        run: |
-          key="$(openssl rand -base64 32)"
-          echo "::add-mask::${key}"
-          echo "CHARON_ENCRYPTION_KEY=${key}" >> "$GITHUB_ENV"
 
       - name: Start test environment (Security Tests Profile)
         run: |
@@ -534,7 +541,8 @@ jobs:
       ((inputs.test_category || 'all') == 'security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 60
     env:
-      CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+      CHARON_EMERGENCY_TOKEN: ${{ needs.build.outputs.emergency_token }}
+      CHARON_ENCRYPTION_KEY: ${{ needs.build.outputs.encryption_key }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "true"  # Cerberus ON for enforcement tests
       CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
@@ -586,27 +594,19 @@ jobs:
             echo "::error title=Missing Secret::CHARON_EMERGENCY_TOKEN secret not configured"
             exit 1
           fi
+          echo "::add-mask::${CHARON_EMERGENCY_TOKEN}"
           TOKEN_LENGTH=${#CHARON_EMERGENCY_TOKEN}
           if [ "$TOKEN_LENGTH" -lt 64 ]; then
             echo "::error title=Invalid Token Length::CHARON_EMERGENCY_TOKEN must be at least 64 characters"
             exit 1
           fi
-          MASKED_TOKEN="${CHARON_EMERGENCY_TOKEN:0:8}...${CHARON_EMERGENCY_TOKEN: -4}"
-          echo "::notice::Emergency token validated (length: $TOKEN_LENGTH, preview: $MASKED_TOKEN)"
-        env:
-          CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+          echo "::notice::Emergency token validated (length: $TOKEN_LENGTH)"
 
       - name: Load Docker image artifact
         if: needs.build.outputs.image_source == 'build'
         run: |
           docker load -i charon-e2e-image.tar
           docker images | grep charon
-
-      - name: Generate ephemeral encryption key
-        run: |
-          key="$(openssl rand -base64 32)"
-          echo "::add-mask::${key}"
-          echo "CHARON_ENCRYPTION_KEY=${key}" >> "$GITHUB_ENV"
 
       - name: Start test environment (Security Tests Profile)
         run: |
@@ -775,7 +775,8 @@ jobs:
       ((inputs.test_category || 'all') == 'security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 60
     env:
-      CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+      CHARON_EMERGENCY_TOKEN: ${{ needs.build.outputs.emergency_token }}
+      CHARON_ENCRYPTION_KEY: ${{ needs.build.outputs.encryption_key }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "true"  # Cerberus ON for enforcement tests
       CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
@@ -827,27 +828,19 @@ jobs:
             echo "::error title=Missing Secret::CHARON_EMERGENCY_TOKEN secret not configured"
             exit 1
           fi
+          echo "::add-mask::${CHARON_EMERGENCY_TOKEN}"
           TOKEN_LENGTH=${#CHARON_EMERGENCY_TOKEN}
           if [ "$TOKEN_LENGTH" -lt 64 ]; then
             echo "::error title=Invalid Token Length::CHARON_EMERGENCY_TOKEN must be at least 64 characters"
             exit 1
           fi
-          MASKED_TOKEN="${CHARON_EMERGENCY_TOKEN:0:8}...${CHARON_EMERGENCY_TOKEN: -4}"
-          echo "::notice::Emergency token validated (length: $TOKEN_LENGTH, preview: $MASKED_TOKEN)"
-        env:
-          CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+          echo "::notice::Emergency token validated (length: $TOKEN_LENGTH)"
 
       - name: Load Docker image artifact
         if: needs.build.outputs.image_source == 'build'
         run: |
           docker load -i charon-e2e-image.tar
           docker images | grep charon
-
-      - name: Generate ephemeral encryption key
-        run: |
-          key="$(openssl rand -base64 32)"
-          echo "::add-mask::${key}"
-          echo "CHARON_ENCRYPTION_KEY=${key}" >> "$GITHUB_ENV"
 
       - name: Start test environment (Security Tests Profile)
         run: |
@@ -1023,7 +1016,8 @@ jobs:
       ((inputs.test_category || 'all') == 'non-security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 60
     env:
-      CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+      CHARON_EMERGENCY_TOKEN: ${{ needs.build.outputs.emergency_token }}
+      CHARON_ENCRYPTION_KEY: ${{ needs.build.outputs.encryption_key }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "false"  # Cerberus OFF for non-security tests
       CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
@@ -1121,12 +1115,6 @@ jobs:
         run: |
           docker load -i charon-e2e-image.tar
           docker images | grep charon
-
-      - name: Generate ephemeral encryption key
-        run: |
-          key="$(openssl rand -base64 32)"
-          echo "::add-mask::${key}"
-          echo "CHARON_ENCRYPTION_KEY=${key}" >> "$GITHUB_ENV"
 
       - name: Start test environment (Non-Security Profile)
         run: |
@@ -1274,7 +1262,8 @@ jobs:
       ((inputs.test_category || 'all') == 'non-security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 60
     env:
-      CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+      CHARON_EMERGENCY_TOKEN: ${{ needs.build.outputs.emergency_token }}
+      CHARON_ENCRYPTION_KEY: ${{ needs.build.outputs.encryption_key }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "false"  # Cerberus OFF for non-security tests
       CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
@@ -1372,12 +1361,6 @@ jobs:
         run: |
           docker load -i charon-e2e-image.tar
           docker images | grep charon
-
-      - name: Generate ephemeral encryption key
-        run: |
-          key="$(openssl rand -base64 32)"
-          echo "::add-mask::${key}"
-          echo "CHARON_ENCRYPTION_KEY=${key}" >> "$GITHUB_ENV"
 
       - name: Start test environment (Non-Security Profile)
         run: |
@@ -1526,7 +1509,8 @@ jobs:
       ((inputs.test_category || 'all') == 'non-security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 60
     env:
-      CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+      CHARON_EMERGENCY_TOKEN: ${{ needs.build.outputs.emergency_token }}
+      CHARON_ENCRYPTION_KEY: ${{ needs.build.outputs.encryption_key }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "false"  # Cerberus OFF for non-security tests
       CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
@@ -1624,12 +1608,6 @@ jobs:
         run: |
           docker load -i charon-e2e-image.tar
           docker images | grep charon
-
-      - name: Generate ephemeral encryption key
-        run: |
-          key="$(openssl rand -base64 32)"
-          echo "::add-mask::${key}"
-          echo "CHARON_ENCRYPTION_KEY=${key}" >> "$GITHUB_ENV"
 
       - name: Start test environment (Non-Security Profile)
         run: |
