@@ -56,7 +56,7 @@
     "react-router-hash-link": "^2.4.3",
     "recharts": "^3.10.1",
     "tailwind-merge": "^3.7.0",
-    "tldts": "^7.4.24",
+    "tldts": "^7.4.28",
     "translate": "^3.1.1"
   },
   "devDependencies": {
