@@ -104,21 +104,21 @@ pre-commit:
     # Remove overrides when plugins declare ESLint v10 support natively.
     frontend-type-check:
       glob: "frontend/**/*.{ts,tsx}"
-      run: cd frontend && /usr/share/nodejs/corepack/shims/npx tsc --noEmit
+      run: cd frontend && npx tsc --noEmit
 
     frontend-lint:
       glob: "frontend/**/*.{ts,tsx,js,jsx}"
-      run: cd frontend && /usr/share/nodejs/corepack/shims/npm run lint
+      run: cd frontend && npm run lint
 
     frontend-locales-lint:
       glob: "frontend/src/locales/**/*.json"
-      run: cd frontend && /usr/share/nodejs/corepack/shims/npm run lint:locales
+      run: cd frontend && npm run lint:locales
 
     # Root Playwright tests. The script lints the whole tests/ tree, so the
     # staged-file filter only decides when the step runs.
     e2e-lint:
       glob: "{tests/*.{ts,js},tests/**/*.{ts,js},eslint.config.js,tests/tsconfig.json}"
-      run: /usr/share/nodejs/corepack/shims/npm run lint:e2e
+      run: npm run lint:e2e
 
     semgrep:
       glob: "{**/*.{go,ts,tsx,js,jsx,sh,yml,yaml,json},Dockerfile*}"
