@@ -1104,7 +1104,7 @@
         {
             "label": "Utility: Update Grype Version",
             "type": "shell",
-            "command": "tmp=$(mktemp) && curl -sSfL https://raw.githubusercontent.com/anchore/grype/b6f5194537747ee7f705f4113069ac9eb269919f/install.sh -o \"$tmp\" && echo '8646f06a90b10ca64992c1809b4aa00c44e30b4f551f63c309b0b0ab66873556  '\"$tmp\" | sha256sum -c - && sudo sh \"$tmp\" -b /usr/local/bin; rm -f \"$tmp\"",
+            "command": "tmp=$(mktemp) && curl -sSfL https://raw.githubusercontent.com/anchore/grype/b6f5194537747ee7f705f4113069ac9eb269919f/install.sh -o \"$tmp\" && echo '8646f06a90b10ca64992c1809b4aa00c44e30b4f551f63c309b0b0ab66873556  '\"$tmp\" | sha256sum -c - && sudo sh \"$tmp\" -b /usr/local/bin; rc=$?; rm -f \"$tmp\"; exit $rc",
             "group": "none",
             "problemMatcher": [],
             "presentation": {
@@ -1115,7 +1115,7 @@
         {
             "label": "Utility: Update Syft Version",
             "type": "shell",
-            "command": "tmp=$(mktemp) && curl -sSfL https://raw.githubusercontent.com/anchore/syft/c581c84ff16150297fbc2507f803aa4f2adaa599/install.sh -o \"$tmp\" && echo '2ed88b163a4576521598f9e573bd3d64f39c7b5912a21fb9571a9d604ca64b3b  '\"$tmp\" | sha256sum -c - && sudo sh \"$tmp\" -b /usr/local/bin; rm -f \"$tmp\"",
+            "command": "tmp=$(mktemp) && curl -sSfL https://raw.githubusercontent.com/anchore/syft/c581c84ff16150297fbc2507f803aa4f2adaa599/install.sh -o \"$tmp\" && echo '2ed88b163a4576521598f9e573bd3d64f39c7b5912a21fb9571a9d604ca64b3b  '\"$tmp\" | sha256sum -c - && sudo sh \"$tmp\" -b /usr/local/bin; rc=$?; rm -f \"$tmp\"; exit $rc",
             "group": "none",
             "problemMatcher": [],
             "presentation": {
