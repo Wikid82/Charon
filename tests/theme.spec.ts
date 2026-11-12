@@ -557,12 +557,12 @@ test.describe('Theme System', () => {
       });
 
       await test.step('Appearance navigation link is visible', async () => {
-        const appearanceLink = page.getByRole('link', { name: /appearance/i });
+        const appearanceLink = page.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: /appearance/i });
         await expect(appearanceLink).toBeVisible();
       });
 
       await test.step('Clicking appearance link navigates to /settings/appearance', async () => {
-        await page.getByRole('link', { name: /appearance/i }).click();
+        await page.getByRole('navigation', { name: 'Settings' }).getByRole('link', { name: /appearance/i }).click();
         await page.waitForURL(/\/settings\/appearance/, { timeout: 10000 });
         await expect(page).toHaveURL(/\/settings\/appearance/);
       });
