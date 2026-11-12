@@ -279,7 +279,12 @@ test.describe('What\'s New Changelog', () => {
         await page.getByRole('button', { name: /Settings/ }).click();
         await page.getByRole('link', { name: /system/i }).click();
         await waitForLoadingComplete(page);
-        await page.getByRole('link', { name: /appearance/i }).click();
+        // Scope to the in-page Settings tab nav: the sidebar submenu also has an
+        // "Appearance" link, which would make a bare role/name locator ambiguous.
+        await page
+          .getByRole('navigation', { name: 'Settings' })
+          .getByRole('link', { name: /appearance/i })
+          .click();
         await waitForLoadingComplete(page);
 
         const toggle = page.getByRole('checkbox', { name: /show update notifications/i });

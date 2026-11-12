@@ -374,12 +374,9 @@ test.describe('Email Notification Provider', () => {
 
   test.describe('Validation', () => {
     test('should allow saving email provider without URL (recipients optional)', async ({ page }) => {
-      let createCalled = false;
-
       await test.step('Mock create endpoint', async () => {
         await page.route('**/api/v1/notifications/providers', async (route, request) => {
           if (request.method() === 'POST') {
-            createCalled = true;
             await route.fulfill({
               status: 201,
               contentType: 'application/json',
@@ -401,13 +398,18 @@ test.describe('Email Notification Provider', () => {
         await page.getByTestId('provider-name').fill(generateProviderName('email-empty-recipients'));
       });
 
-      await test.step('Save and verify no URL validation error for email type', async () => {
+      await test.step('Save and verify create was sent without a URL (URL not required for email)', async () => {
+        // Register the request wait before clicking so the POST cannot be missed.
+        const createRequestPromise = page.waitForRequest(
+          (request) => request.method() === 'POST' && /\/api\/v1\/notifications\/providers$/.test(request.url())
+        );
         await page.getByTestId('provider-save-btn').click();
-        await expect(page.getByTestId('provider-url-error')).toHaveCount(0);
-      });
+        const createRequest = await createRequestPromise;
+        const createdPayload = createRequest.postDataJSON() as Record<string, unknown>;
 
-      await test.step('Verify create was called (URL not required for email)', async () => {
-        expect(createCalled).toBeTruthy();
+        expect(createdPayload.type).toBe('email');
+        expect(createdPayload.url ?? '').toBe('');
+        await expect(page.getByTestId('provider-url-error')).toHaveCount(0);
       });
     });
 
