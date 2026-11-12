@@ -535,7 +535,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # hadolint ignore=SC2016
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    bash -c set -e; \
+    bash -c 'set -e; \
         # Retry helper: survive transient network failures (module proxy or
         # sum.golang.org timeouts) without weakening checksum verification.
         # 3 attempts with incremental backoff (15s, 30s).
@@ -910,7 +910,7 @@ RUN set -e; \
 # Fix compatibility issues with expr-lang v1.17.7
 # In v1.17.7, program.Source() returns file.Source struct instead of string
 # The upstream fix is in main branch but not yet released
-RUN sed -i s/string(program\.Source())/program.Source().String()/g' pkg/exprhelpers/debugger.go
+RUN sed -i 's/string(program\.Source())/program.Source().String()/g' pkg/exprhelpers/debugger.go
 
 # Build CrowdSec binaries for target architecture with patched dependencies
 # hadolint ignore=DL3059
@@ -1109,7 +1109,7 @@ RUN set -e; \
     grep -q "^version: v${CROWDSEC_VERSION}\$" /tmp/cscli-v.txt \
         || { echo "ERROR: toolchain cscli does not report version v${CROWDSEC_VERSION} (version ldflag no-op or wrong pin)"; cat /tmp/cscli-v.txt; exit 1; }; \
     rm -f /tmp/cscli-v.txt; \
-    echo "Verified toolchain cscli runs (GoVersion: $(/usr/local/bin/cscli version 2>&1 | sed -n s/^GoVersion: //p'))"
+    echo "Verified toolchain cscli runs (GoVersion: $(/usr/local/bin/cscli version 2>&1 | sed -n 's/^GoVersion: //p'))"
 # Copy CrowdSec configuration files to .dist directory (will be used at runtime)
 COPY --from=crowdsec-builder /crowdsec-out/config /etc/crowdsec.dist
 # Verify config files were copied successfully
