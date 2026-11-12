@@ -64,6 +64,7 @@ type EmergencyResetThrottle struct {
 	budget   *ratelimit.KeyedLimiter
 	slots    chan struct{}
 	wait     time.Duration
+	gates    *addressGates
 
 	// auditMu guards auditState and lastPrune. auditState holds one entry per
 	// client address that was refused within the current window.
@@ -81,6 +82,7 @@ func NewEmergencyResetThrottle(listener string, auditor EmergencyThrottleAuditor
 		clock:      time.Now,
 		slots:      make(chan struct{}, EmergencyResetConcurrency),
 		wait:       EmergencyResetSlotWait,
+		gates:      newAddressGates(),
 		auditState: make(map[string]*emergencyAuditWindow),
 	}
 	for _, opt := range opts {
@@ -107,13 +109,16 @@ func mustNewKeyedLimiter(cfg ratelimit.Config) *ratelimit.KeyedLimiter {
 // Middleware runs before any token comparison or database read in the reset
 // handler. It peeks at the caller's per-address budget first (exhausted answers
 // 429 at once), then takes a check slot, waiting up to the slot wait before
-// answering 429. Under the slot it peeks again, because requests queued behind
-// the semaphore may have been overtaken by failures in the meantime. The handler
-// runs only when the budget admits the request. An attempt the handler refuses
-// as unauthorized (401, wrong or missing token) then consumes one token; every
-// other response, including other 4xx statuses such as 400 or 403 and any
-// success, consumes nothing. A refused request is audited and never reaches the
-// handler.
+// answering 429. It then takes the address's gate, so attempts from one address
+// run one at a time. Under the gate it peeks again, because an earlier attempt
+// from the same address may have spent the last token while this one waited.
+// The handler runs only when the budget admits the request. An attempt the
+// handler refuses as unauthorized (401, wrong or missing token) then consumes
+// one token before the gate is released; every other response, including other
+// 4xx statuses such as 400 or 403 and any success, consumes nothing. Because the
+// peek and the charge both happen under the gate, concurrent attempts from one
+// address cannot overshoot the budget. A refused request is audited and never
+// reaches the handler.
 func (t *EmergencyResetThrottle) Middleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		key := ratelimit.ClientKey(c.ClientIP())
@@ -122,11 +127,17 @@ func (t *EmergencyResetThrottle) Middleware() gin.HandlerFunc {
 		}
 
 		if !t.acquireSlot(c.Request.Context()) {
-			t.audit(c, "concurrent check slots busy")
-			ratelimit.Reject(c, ratelimit.Decision{RetryAfter: t.wait})
+			t.refuseBusy(c)
 			return
 		}
 		defer t.releaseSlot()
+
+		release, ok := t.gates.acquire(c.Request.Context(), key)
+		if !ok {
+			t.refuseBusy(c)
+			return
+		}
+		defer release()
 
 		if !t.budgetAdmits(c, key) {
 			return
@@ -138,6 +149,13 @@ func (t *EmergencyResetThrottle) Middleware() gin.HandlerFunc {
 			t.budget.Allow(key)
 		}
 	}
+}
+
+// refuseBusy answers a request that could not get a check slot or its address
+// gate in time with 429, and audits the refusal.
+func (t *EmergencyResetThrottle) refuseBusy(c *gin.Context) {
+	t.audit(c, "concurrent attempts busy")
+	ratelimit.Reject(c, ratelimit.Decision{RetryAfter: t.wait})
 }
 
 // budgetAdmits reports whether the address may make an attempt now. Over budget
@@ -183,6 +201,61 @@ func (t *EmergencyResetThrottle) acquireSlot(ctx context.Context) bool {
 
 func (t *EmergencyResetThrottle) releaseSlot() {
 	<-t.slots
+}
+
+// addressGates serializes the budget check and the handler for one client
+// address, so an attempt's charge is visible to the next attempt from that
+// address. Gates exist only while a request holds or waits for one, so the map
+// is bounded by in-flight requests rather than by addresses seen.
+type addressGates struct {
+	mu    sync.Mutex
+	gates map[string]*addressGate
+}
+
+// addressGate is a one-holder lock. users counts holders and waiters and is
+// guarded by addressGates.mu; busy holds a token while a request owns the gate.
+type addressGate struct {
+	busy  chan struct{}
+	users int
+}
+
+func newAddressGates() *addressGates {
+	return &addressGates{gates: make(map[string]*addressGate)}
+}
+
+// acquire takes the gate for key, waiting until the holder releases it or ctx
+// ends. It returns the release func, or false when ctx ended first. The wait
+// lasts at most as long as the holder's handler call, which holds a check slot.
+func (g *addressGates) acquire(ctx context.Context, key string) (release func(), ok bool) {
+	g.mu.Lock()
+	gate, found := g.gates[key]
+	if !found {
+		gate = &addressGate{busy: make(chan struct{}, 1)}
+		g.gates[key] = gate
+	}
+	gate.users++
+	g.mu.Unlock()
+
+	select {
+	case gate.busy <- struct{}{}:
+		return func() {
+			<-gate.busy
+			g.drop(key, gate)
+		}, true
+	case <-ctx.Done():
+		g.drop(key, gate)
+		return nil, false
+	}
+}
+
+// drop forgets one user of gate, deleting the gate once nobody holds or waits.
+func (g *addressGates) drop(key string, gate *addressGate) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	gate.users--
+	if gate.users == 0 {
+		delete(g.gates, key)
+	}
 }
 
 // audit writes one emergency_reset_throttled row for the first refusal of a

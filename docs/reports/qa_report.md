@@ -1,141 +1,146 @@
-# QA Report: GeoIP Database Card and Unenforced Country List Alert
+# QA Report: Redirect Target Handling
 
-- Branch: `feature/geoip-database-card` (13 commits on `development`, up to `fae16ffec`, plus the uncommitted QA
-  changes listed below)
-- Spec: `docs/plans/geoip_database_card_spec.md` (feature PR, commit C14)
-- Scope: notification bell alerts (`GET /notifications/alerts`), country lists left unenforced (with an alert) while
-  no GeoIP database is usable, GeoIP database status with source, date and size, replacing and removing the
-  data-folder copy (`POST`/`DELETE /security/geoip/database`) behind `RequireSameOriginForBrowserAuth`, the access
-  list self-check (`POST /access-lists/self-check`), the Security page card, the access list form note, 28 locales,
-  and docs.
-- Image under test: `charon:local` from `docker-rebuild-e2e` on the working tree described above.
-- Date: 2026-11-10
+- Branch: `fix/redirect-target-handling` (8 commits on `origin/development`, up to `b649a9641`, plus the
+  uncommitted QA change listed below)
+- Spec: `docs/plans/cerberus_hardening_batch7_spec.md`, section 4 (fix PR)
+- Scope: user-supplied values are written to proxy config as literals (redirect targets, domain matchers, location
+  paths, upstream dial addresses, security header profile values); redirect targets with curly braces are refused on
+  create and update with `error_code: redirect_target_invalid`; a startup warning names stored rows that the new rule
+  refuses; translated form message in all locales; docs; plus a Dockerfile comment cleanup and lefthook PATH change
+  carried on the branch.
+- Image under test: `charon:local` from `docker-rebuild-e2e` on the committed branch.
+- Date: 2026-11-12
 
 ## Verdict
 
-**Pass.** Every Definition of Done gate passes. Local patch coverage is 100% (983 of 983 changed lines). The QA pass
-added tests, two small test seams, and one small hardening of build-date handling; nothing else in the product was
-changed. No CRITICAL or HIGH findings in the code of this branch.
+**Pass.** Every Definition of Done gate for a fix PR passes. Local patch coverage is 100% (55 of 55 changed lines).
+No CRITICAL or HIGH findings. The throwaway-container check confirms that stored braced targets are served as
+literals and that brace-free configuration is byte-identical to `origin/development`.
 
 ## Changes made during QA
 
 | Area | Change |
 | --- | --- |
-| `services/geoip_database_upload.go`, `geoip_database_store.go` | File operations of an upload or removal (create temp file, rename, folder sync) go through a `geoipFileOps` value on the store, defaulting to the OS calls. Behaviour is unchanged; tests replace single operations to reach the write, sync, close, rename and folder-sync failure branches. |
-| `services/geoip_database_upload_fileops_test.go` (new) | Failure-branch tests for the seam above: each failure reports a write failure, leaves no temp file, restores the previous copy (or removes the new one), and applies nothing. |
-| `geoip/inspect.go` | New `BuildTime(epoch)` that clamps a build epoch to the end of year 9999 before converting it to a time. Used by the build-date check and both date formatters. See the finding below. |
-| `api/routes/geoip_marker.go`, `routes.go` | The startup sweep of the data folder moved into `sweepGeoIPDataFolder`, so its failure log is testable. Same behaviour. |
-| Tests | Lookup handler answers and admin checks (`security_geoip_lookup_test.go`), `EnvPathInEffect`, fixture encoder refusals, `BuildTime`, the sweep helper, the GeoIP API client functions, and the locale key helper. |
-| `pages/__tests__/Login.overlay.audit.test.tsx` | Made deterministic: the mocked login request now stays pending until the overlay has been asserted. It failed once under CPU load because a 100 ms timer finished the request before the click returned. Not related to this branch; fixed per the DoD. |
-| Lint | `make lint-backend` reported 45 gosec findings, all in files of this branch (44 in tests). Test fixtures now use `0o750` folders or carry the repo's usual justified `nolint` comments; the remaining production one (data folder `MkdirAll` at `0o755`) carries a justified `nolint`. |
+| `scripts/pre-commit-hooks/codeql-go-scan.sh`, `codeql-js-scan.sh` | The closing `echo` held backticks inside double quotes, so the shell ran a nested `lefthook run pre-commit` at the end of every CodeQL scan. The backticked text is removed; the message is otherwise unchanged. Not related to this branch; suitable as its own `chore:` commit. |
+
+No product code was changed.
 
 ## Static checks and build
 
 | Check | Result |
 | --- | --- |
-| `make lint-backend` (golangci-lint v2.15.0, full config) | 0 issues (after the fixes above) |
-| `lefthook run pre-commit --all-files` | all 20 hooks pass, including semgrep, golangci-lint-fast, frontend lint/type-check, locale lint, e2e lint (0 errors, 124 warnings at the limit) |
+| `make lint-backend` (golangci-lint v2.15.0, full config) | 0 issues |
+| `lefthook run pre-commit --all-files` | all 20 hooks pass, including semgrep (0 findings), golangci-lint-fast, frontend lint/type-check, locale lint, e2e lint (0 errors, warnings only, pre-existing) |
 | `cd frontend && npm run lint` | pass, 0 warnings |
-| `node node_modules/typescript/bin/tsc6 --noEmit` | pass |
+| `node_modules/.bin/tsc6 --noEmit` (TypeScript 6.0.3) | pass |
 | `cd frontend && npm run build` | pass |
-| `cd backend && go build ./...`, `go vet` on touched packages | pass |
-| `./scripts/scan-gorm-security.sh --check` | 0 CRITICAL, 0 HIGH, 0 MEDIUM, 2 INFO (pre-existing index suggestions) |
+| `cd backend && go build ./...` | pass |
+| `./scripts/scan-gorm-security.sh --check` | 0 issues (1 pre-existing suppressed) |
 
 ## Coverage
 
 | Run | Result |
 | --- | --- |
-| `scripts/go-test-coverage.sh` (full) | all packages pass; statements 93.6%, lines 92.6% (gate 87%) |
-| `scripts/frontend-test-coverage.sh` (full) | 344 files, 4466 tests pass (2 todo); statements 91.76%, lines 92.65% |
-| `bash scripts/local-patch-report.sh` | overall 100.0% (983/983), backend 100.0% (794/794), frontend 100.0% (189/189) |
+| `scripts/go-test-coverage.sh` (full) | all packages pass; statements 93.7%, lines 92.6% (gate 87%) |
+| `scripts/frontend-test-coverage.sh` (full) | 346 files, 4473 tests pass (2 todo); statements 91.77%, lines 92.66% |
+| `bash scripts/local-patch-report.sh` | overall 100.0% (55/55), backend 100.0% (49/49), frontend 100.0% (6/6) |
 
-The patch report compares committed `HEAD` with `origin/development`. The uncommitted QA additions were checked
-separately: the backend coverage profile has no uncovered block in any Go file they touch.
+## E2E (Playwright, after the image rebuild)
 
-## E2E (Playwright, `--project=security-tests`, after the image rebuild)
+| Command | Result |
+| --- | --- |
+| `PLAYWRIGHT_CADDY_PROXY_PORT=8180 npx playwright test tests/redirection-hosts.spec.ts --project=firefox` | 16 passed, including the four new "Redirect Target Safety" tests |
+| `npx playwright test tests/security-enforcement/acl-enforcement.spec.ts tests/security-enforcement/security-headers-enforcement.spec.ts --project=security-tests` | 18 passed |
 
-`npx playwright test tests/security/geoip-unenforced-alert.spec.ts tests/security/geoip-database-card.spec.ts
-tests/security-enforcement/acl-enforcement.spec.ts tests/security-enforcement/security-headers-enforcement.spec.ts
-tests/security/self-proxy-requests.spec.ts --project=security-tests`: **33 passed**, run twice (before and after the
-QA code changes, each after a fresh `docker-rebuild-e2e`).
+The image rebuild succeeded with the Dockerfile on this branch.
 
 ## Security scans
 
 | Scan | Result |
 | --- | --- |
-| CodeQL Go + JS (`lefthook run codeql`, CLI 2.27.2) | 0 blocking. Go: 4 results, all pre-existing entries in `codeql-suppressions.yml`, none in files of this branch. JS: 0 results. Parity check passes. |
-| Trivy filesystem (`skill-runner.sh security-scan-trivy`) | No findings in the branch's dependency manifests. The skill exits non-zero on items outside the tracked tree: stale untracked `.claude/worktrees/*` copies of other branches, and an ignored, untracked CA key generated by an earlier test run under `backend/internal/api/routes/keys/` (not in git, not in the image). |
-| Trivy image (`charon:local`, HIGH/CRITICAL) | Alpine base and the Charon binary: 0. One HIGH each in the bundled Caddy and CrowdSec binaries; both CVEs are already accepted in `.trivyignore` and `.grype.yaml`. The branch does not change the Dockerfile. |
-
-## Security review
-
-| Area | Result |
-| --- | --- |
-| Upload route authorization | `POST`/`DELETE /security/geoip/database` sit in the admin-only security group and check the role again in the handler. A non-admin gets 403. |
-| `RequireSameOriginForBrowserAuth` | Applied only to the two new routes. Requests with an `Authorization` header pass (a foreign page cannot add it without a preflight, which is not granted); other unsafe requests go through the standard library's cross-origin check. Spot check: a cookie upload with a foreign `Origin` and `Sec-Fetch-Site: cross-site` got 403 `cross_origin_refused`; same-origin and non-browser requests succeed. |
-| Upload handling | Body capped by `http.MaxBytesReader` (32 MiB plus framing); exactly one multipart part named `file`; client file name and content type ignored; temp file named by `os.CreateTemp` in the data folder; symlinked targets refused; validation (MaxMind format, country edition, record decode, build date) runs before the rename; failures restore the previous copy; one change at a time (busy answers 409 at once). Installed file is `0600`, owned by the app user. |
-| Build-date check | Hardened during QA (see finding). |
-| Alerts endpoint | Management access (any role except pass-through). It returns only the alert key, severity, up to five access list names, a count, and whether a database is available. Access list names are already readable by the same roles. |
-| Self-check endpoint | Admin only; evaluates a draft against the caller's own address and the admin whitelist; no data is stored. |
-| Error bodies | Fixed messages plus `error_code`; no paths or OS text in any response (verified in handler tests and the spot check). |
-| Logs | Failure detail, which can include the data-folder path, is written to the server log only and sanitized, as the spec allows. Audit rows carry type, build date, size and digest, never a path or client file name. |
-| Backups | Backups are built from an allow-list (database and `caddy/`), so the GeoIP folder, its previous copy and upload temp files are never included. Pinned by `TestBackupService_ExcludesGeoIPFolder`. |
-| Gotify tokens | None in the diff, test artifacts or logs reviewed. |
-
-### Finding (fixed in QA): out-of-range build dates
-
-Severity: low (admin-only upload). A database whose build epoch is outside the range Go's time conversion handles
-could pass the "not in the future" check by wrapping into the past, and would then always win over later bundled
-updates. `geoip.BuildTime` now clamps such an epoch to the end of year 9999, so the upload is refused as dated in the
-future. Covered by `TestBuildTime_ClampsEpochsPastTheTimeRange` and
-`TestGeoIPDatabaseStoreCheckBuildEpoch_RefusesEpochsPastTheTimeRange`.
+| CodeQL Go + JS (`lefthook run codeql`, CLI 2.27.2) | 0 blocking. Go: 4 results, all pre-existing entries in `codeql-suppressions.yml`, none in files of this branch. JS: 0 results. Extraction and parity checks pass. |
+| Semgrep (pre-commit hook) | 0 findings |
+| Trivy | Not run locally (fix PR, no new feature surface); CI runs it on the PR. |
 
 ## Spot check (throwaway container)
 
-A separate `charon:local` container on a loopback-only port with a fresh data volume, removed afterwards. The dev
-containers were not touched.
+A separate `charon:local` container with a fresh named volume, published on loopback-only ports and removed
+afterwards. `charon-dev` and `charon` were not touched. The container had an extra environment variable holding a
+canary value. Four redirection rows were inserted straight into the database before start: two with braced targets
+(one with Preserve Path), one plain, one plain with Preserve Path.
 
 | Step | Result |
 | --- | --- |
-| Remove the bundled copy, enable Cerberus and ACL, reload | 500 `geoip_reload_failed`, fixed message, no path |
-| Add a country allow-list on an enabled host | `GET /notifications/alerts` returns one `geoip_unavailable` error alert naming the list, `database_available: false`; status reports `unenforced_lists_total: 1` |
-| Cross-origin cookie upload | 403 `cross_origin_refused` |
-| Upload a file that is not a database | 400 `geoip_not_mmdb` |
-| Upload a valid country database | 200, source `data`, `unenforced_lists_total: 0`; alerts list empty |
-| Remove the data-folder copy (no bundled copy) | 200, source `none`; the alert returns |
+| Startup log | One warning per braced row, with `host` and `redirection_host_uuid` only. The stored target, its placeholder names and the canary value do not appear in the log. |
+| Live Caddy config (`/config/`) | Braced targets appear as `%7B...%7D`. The only raw placeholder in a redirect `Location` is the generator's own `{http.request.uri}` on Preserve Path rows. The canary value is absent. |
+| Request to the braced host with a probe request header | `302`, `Location` carries `%7Benv...%7D` and `%7Bhttp.request.header...%7D` literally; neither the canary nor the probe header value appears. |
+| Braced host with Preserve Path | `Location` is the encoded target followed by the requested path and query. |
+| Plain host / plain host with Preserve Path | `301` to the fixed target; `308` with the requested path and query appended. Unchanged behaviour. |
+| Edit the braced row (name only, or a new braced target) | `400`, `error_code: redirect_target_invalid`, fixed message, input not echoed |
+| Create a braced row | Same `400` |
+| Edit the row to a plain target | `200`; the next request redirects to the new target |
 
-## Acceptance criteria (spec section 12, feature items)
+### Brace-free configuration is unchanged
+
+The repo has no golden config files, so a differential check was run instead: one throwaway test (not committed)
+generated the full Caddy config from the same fixtures against an export of `origin/development` and of this branch,
+and the two JSON outputs were compared. Fixtures: a multi-domain host with two locations (one IPv6 upstream), HSTS,
+websockets and standard headers; a Plex host with standard headers off; a wildcard host with a full security header
+profile (HSTS preload, CSP, Permissions-Policy, cross-origin headers, cache control); an IP-only host with an
+advanced-config header handler; two redirection hosts (one with Preserve Path); Cerberus, WAF, rate limit and ACL on.
+Result: **byte-identical** (706 lines of JSON).
+
+## Security review of the diff
+
+| Area | Result |
+| --- | --- |
+| `caddy/literal.go` | `proxyLiteral` replaces only `{` and `}` with `%7B`/`%7D` through a `strings.Replacer`; brace-free input is returned unchanged. `proxyLiterals` copies, so the caller's slice is not modified. Table tests cover empty, plain, IPv6, existing escapes, nested and mixed braces. |
+| `caddy/redirect_routes.go` | The user target is encoded before the generator appends `{http.request.uri}`, so only the generator's placeholder survives. Domain matchers are encoded too. |
+| `caddy/config.go`, `types.go` | Host matchers, location path matchers and upstream dial addresses go through the helper. Generator-emitted placeholders (standard proxy headers, Plex headers, rate-limit key, self-upstream headers) are not routed through it and keep working. `advanced_config` is raw JSON by design and out of scope (spec). |
+| Header value encoding | Applied to the security header profile values only, after the map is built. Profile values never carry generator placeholders, so this is safe; HSTS, CSP and Permissions-Policy output is unchanged for brace-free values (differential check). |
+| `services/redirectionhost_service.go` | The brace check runs after trimming and before URL parsing; percent-encoded input is accepted. The error is a fixed sentinel and never contains the submitted value. |
+| `services/redirectionhost_target_check.go` | Selects only `uuid`, `domain_names`, `target_url`; logs host and UUID, never the target; a read failure logs and returns 0 without blocking startup. |
+| Handler error body | `respondRedirectionHostWriteError` returns the fixed message plus `error_code` for the sentinel; other errors keep the previous behaviour. Handler tests assert the body does not echo the input. |
+| Frontend | The form maps `redirect_target_invalid` to a translated message and falls back to the previous text for other errors. All locale files carry the key (parity test). |
+| Gotify tokens | None in the diff, test artifacts or logs reviewed. |
+
+## Findings
+
+No CRITICAL, HIGH or MEDIUM findings.
+
+### Low: Dockerfile comment cleanup removed correct apostrophes
+
+`chore(docker): correct typos in comments and documentation` and the follow-up quoting fix leave 18 comment
+lines where possessives and contractions lost their apostrophe (for example "Debians pre-compiled version",
+"Caddys dependency patches", "its cheap", "workflows bot PR"). Comments only; the image builds and nothing changes
+at runtime. Apostrophes inside Dockerfile comment lines are safe even within a `RUN` continuation, because the
+parser drops comment lines before the shell sees them. Remediation: restore the apostrophes in those comment lines
+(a `git diff origin/development -- Dockerfile` shows each one), or drop the Dockerfile commits from this PR, since
+they are outside section 4 of the spec.
+
+### Low: docs wording for existing braced redirects
+
+`docs/features/redirection-hosts.md` says an existing braced redirect "keeps working as before". It keeps
+redirecting, but the braces are now sent as `%7B` and `%7D`, which is a change for anyone who relied on them. The
+startup warning already says "served as a literal". Remediation: reword to "it keeps redirecting, with the braces
+sent as `%7B` and `%7D`", which says what happens without describing why.
+
+## Acceptance criteria (spec section 4)
 
 | Criterion | Evidence |
 | --- | --- |
-| No usable database: country-list hosts reachable, no country 403 | `acl-enforcement.spec.ts` "Country lists", `geoip-unenforced-alert.spec.ts` |
-| Bell shows the alert first, with links, no dismiss; stays during and after a failed apply | `NotificationCenter.test.tsx`, `geoip-unenforced-alert.spec.ts`, `manager_last_applied_test.go` |
-| A successful apply with the database clears the alert | E2E "Restored database"; spot check |
-| A failed reload still applies; proxy, status and alert agree | `security_geoip_reload_apply_test.go`; spot check |
-| `acl.reason = geoip_unavailable` and tester say "not enforced" | `security_status_enforcement_test.go`, `access_list_evaluate_test.go` |
-| Card, replace/remove, lookup and form note; hidden for non-admins | `GeoIPDatabaseCard.test.tsx`, `AccessListGeoNote.test.tsx`, `Security.geoip.test.tsx`, `geoip-database-card.spec.ts` |
-| Cross-origin cookie requests refused; UI and header-authenticated clients succeed | `browser_origin_test.go`, `geoip_database_routes_test.go`, E2E cross-origin rows; spot check |
-| No toasts or banners; strings in 28 locales; parity tests | diff review (results are inline); `geoipLocales.test.ts`, `notificationCenterLocales.test.ts` |
-| Troubleshooting page exists, linked, in the nav | `docs/troubleshooting/geoip-database.md`, `security-module-applied.md`, `docs-site/zensical.toml` |
+| User target written as a literal; generator still appends `{http.request.uri}` for Preserve Path | `TestRedirectTargetIsLiteral`; spot check |
+| Braced target refused with `redirect_target_invalid` (400); percent-encoded accepted | `TestRedirectTargetRejectsReservedCharacters`, handler tests, E2E "Redirect Target Safety", spot check |
+| Audit: domains, location paths, dial addresses, header profile values written as literals | `literal_test.go`; config review |
+| Brace-free input byte-identical | `TestProxyLiteral_BraceFreeInputUnchanged`; differential config check |
+| Startup warning names the host, not the value | `TestWarnRefusedRedirectTargets_WarnsOncePerRowNamingHostNotValue`; spot check |
+| Form explains the refusal in every locale | `RedirectionHostForm.test.tsx`, `errorBody.redirection.test.ts`, `redirectionHostLocales.test.ts` |
+| Container gate: seeded braced row yields `%7B...%7D`, never an expanded value | spot check |
 | Full DoD | this report |
 
 ## Deviations from the spec
 
-- Two test seams were added that the spec does not describe: `geoipFileOps` on the store and the
-  `sweepGeoIPDataFolder` helper in `routes`. Neither changes behaviour.
-- `geoip.BuildTime` was added to harden build-date handling (see the finding).
-- The strict docs build (`zensical build --strict`) was not run locally because Zensical is not installed in this
-  environment; the docs workflow runs it in CI.
-- The spec's DoD floor for patch coverage is 85%; this branch reaches 100%.
-
-## Follow-ups (not blocking)
-
-- Low: `LookupGeoIP` (moved unchanged from the older handler) returns the lookup library's error text in its 500
-  body (`"GeoIP lookup failed: ..."`). The text carries no path, but a fixed message plus `error_code` would match
-  the other GeoIP endpoints.
-- Low, informational: when the database file disappears under a running instance and a reload fails, the service
-  keeps the database it already had open, so the status reports the previous source and build date with
-  `available: false` and a null size. The card and the alert use `available`, so users see the right state; the
-  extra fields may confuse someone reading the raw API.
-- Housekeeping: the local Trivy filesystem skill scans untracked `.claude/worktrees/` copies and git-ignored test
-  keys. Excluding those paths in the skill would make its exit code reflect the tracked tree only.
+- The branch also carries `chore: call npm and npx from PATH in the lefthook frontend hooks` and two Dockerfile
+  comment commits that are not part of section 4. They do not affect the fix; see the low finding for the comments.
+- Spec's commit 4 lists two E2E cases; the branch has four (adds an API refusal case and a percent-encoded target case).
+- Trivy was not run locally (fix PR); CI runs it.

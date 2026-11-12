@@ -518,6 +518,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		if isIPOnly {
 			ipSubjects = append(ipSubjects, uniqueDomains...)
 		}
+		matchHosts := proxyLiterals(uniqueDomains)
 
 		// Build handlers for this host
 		handlers := make([]Handler, 0)
@@ -649,11 +650,12 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			// Determine if standard headers should be enabled (default true if nil)
 			enableStdHeaders := host.EnableStandardHeaders == nil || *host.EnableStandardHeaders
 			locHandlers = append(locHandlers, resolvedOpts.proxyHandler(dial, false, host.Application, enableStdHeaders))
+			locPath := proxyLiteral(loc.Path)
 			locRoute := &Route{
 				Match: []Match{
 					{
-						Host: uniqueDomains,
-						Path: []string{loc.Path, loc.Path + "/*"},
+						Host: matchHosts,
+						Path: []string{locPath, locPath + "/*"},
 					},
 				},
 				Handle:   locHandlers,
@@ -717,7 +719,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			recoveryRoute := &Route{
 				Match: []Match{
 					{
-						Host: uniqueDomains,
+						Host: matchHosts,
 						Path: slices.Clone(resetRecoveryPaths),
 					},
 				},
@@ -739,7 +741,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 
 		route := &Route{
 			Match: []Match{
-				{Host: uniqueDomains},
+				{Host: matchHosts},
 			},
 			Handle:   mainHandlers,
 			Terminal: true,
@@ -1720,6 +1722,10 @@ func buildSecurityHeaderHandlers(host *models.ProxyHost) []Handler {
 
 	if len(responseHeaders) == 0 {
 		return nil
+	}
+
+	for name, values := range responseHeaders {
+		responseHeaders[name] = proxyLiterals(values)
 	}
 
 	return HeaderHandlers(responseHeaders)

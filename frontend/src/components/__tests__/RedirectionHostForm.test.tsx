@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { AxiosError, type AxiosResponse } from 'axios'
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 
 import RedirectionHostForm from '../RedirectionHostForm'
@@ -194,6 +195,30 @@ describe('RedirectionHostForm', () => {
     expect(
       await screen.findByText(/redirect target cannot point back to one of this host's own domains/i)
     ).toBeInTheDocument()
+    expect(mockOnCancel).not.toHaveBeenCalled()
+  })
+
+  it('shows the translated text for a refused redirect target instead of the raw server message', async () => {
+    const response = {
+      status: 400,
+      statusText: 'Bad Request',
+      headers: {},
+      config: {},
+      data: { error: 'raw server text', error_code: 'redirect_target_invalid' },
+    } as AxiosResponse
+    const refusedSubmit = vi.fn().mockRejectedValue(
+      new AxiosError('Request failed with status code 400', 'ERR_BAD_REQUEST', undefined, undefined, response)
+    )
+    renderWithClient(<RedirectionHostForm onSubmit={refusedSubmit} onCancel={mockOnCancel} />)
+
+    await userEvent.type(screen.getByLabelText(/domain names/i), 'braces.example.com')
+    await userEvent.type(screen.getByLabelText(/target url/i), 'https://example.com/{x}')
+    await userEvent.click(screen.getByRole('button', { name: /^save$/i }))
+
+    expect(
+      await screen.findByText('The target address cannot contain curly braces. Use a plain web address.')
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Request failed with status code 400')).not.toBeInTheDocument()
     expect(mockOnCancel).not.toHaveBeenCalled()
   })
 

@@ -109,6 +109,23 @@ Once saved, your Redirection Host appears in the list, and the redirect is live 
 
 ---
 
+## Target addresses are plain web addresses
+
+The **Target URL** must be a plain web address, like `https://newblog.example.com`. Curly braces `{` and `}` are not allowed in it. If you type one, Charon shows a message explaining why and will not save the redirect until you fix it.
+
+If your address needs a special character, use its **percent-encoded** form instead. This is a standard way of writing special characters in web addresses:
+
+- `{` becomes `%7B`
+- `}` becomes `%7D`
+
+For example, `https://newblog.example.com/start%7Bdemo%7D` is accepted.
+
+**Existing redirects:** If you already have a redirect whose target contains curly braces, it keeps redirecting, with the braces sent as `%7B` and `%7D`. You can't save changes to it, though, until you fix the address. When Charon starts up, it writes a warning to its log that names each of these redirects, so you can find and fix them.
+
+**Preserve Path still works:** If Preserve Path is on, Charon still adds the page the visitor asked for to the end of your target address, just as described in Step 3.
+
+---
+
 ## A Few Things Worth Knowing
 
 - **Domain names must be unique.** You can't set up a Redirection Host for a domain that's already in use by a Proxy Host (or another Redirection Host) — Charon will tell you if there's a conflict, so you never end up with two rules quietly fighting over the same address.
