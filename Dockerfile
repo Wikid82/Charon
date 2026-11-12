@@ -11,7 +11,7 @@ ARG BUILD_DEBUG=0
 # ---- Prebuilt Caddy + CrowdSec toolchain image ----
 # Built by .github/workflows/toolchain-image.yml from the caddy-inline /
 # crowdsec-inline stages below (--target toolchain-runtime). Bumped by that
-# workflow's bot PR when a security-relevant input moves OR the DAILY
+# workflows bot PR when a security-relevant input moves OR the DAILY
 # `--no-cache --pull` rebuild produces a new digest. The freshness-guard CI
 # check (scripts/verify-toolchain-pin.sh) fails any PR where TAG/DIGEST is
 # stale for the current pins.
@@ -110,7 +110,7 @@ ARG CADDY_GEOIP2_VERSION=1.3.1
 ARG CADDY_RATELIMIT_VERSION=0.1.0
 # ---- DNS-01 Challenge Provider Modules (github.com/caddy-dns/*) ----
 # Curated set of 27 DNS provider modules compiled into xcaddy so
-# backend/pkg/dnsprovider/builtin/*.go's BuildCaddyConfig() output (module ID
+# backend/pkg/dnsprovider/builtin/*.gos BuildCaddyConfig() output (module ID
 # "dns.providers.<name>") actually resolves at Caddy admin-API /load time.
 # Fixes GitHub #1361. 10 have full Charon backend/UI support (existing
 # built-in providers); 17 are Caddy-module-only, tracked for backend/UI in
@@ -190,11 +190,11 @@ ARG CADDY_DNS_VERCEL_VERSION=0.0.2
 # Same libdns v1.1.1-project-wide-floor issue as above. caddy-dns/namedotcom
 # @v0.1.2 and caddy-dns/vercel@v0.0.2 each pin an old, incompatible
 # libdns/<provider> release in their own go.mod, and neither caddy-dns
-# wrapper repo has a newer tag that bumps it (verified against each repo's
+# wrapper repo has a newer tag that bumps it (verified against each repos
 # tags API). Their underlying libdns/<provider> libraries DO have newer,
 # libdns-v1.1.1-compatible releases upstream, so force xcaddy to pull those
 # instead via extra --with entries (xcaddy runs `go get` for every --with
-# module, whether or not it's a real Caddy plugin) placed immediately after
+# module, whether or not its a real Caddy plugin) placed immediately after
 # the corresponding caddy-dns/* --with line in the build command below.
 # renovate: datasource=go depName=github.com/libdns/namedotcom
 ARG LIBDNS_NAMEDOTCOM_VERSION=0.9.0
@@ -211,7 +211,7 @@ ARG CADDY_DNS_DNSIMPLE_GO_VERSION=10.0.0
 ## upstream caddy image tags while still shipping a pinned caddy binary.
 ## Alpine 3.23 base to reduce glibc CVE exposure and image size.
 
-# Patch known CVEs in Alpine's SQLite and SQLite-libs packages when fix is published upstream. 
+# Patch known CVEs in Alpines SQLite and SQLite-libs packages when fix is published upstream. 
 # CVE-2026-119591, CVE-2026-119372, CVE-2026-119378, CVE-2026-119375, CVE-2026-119371, CVE-2026-119376, CVE-2026-119377
 # Renovate tracking requires a matching rule for apk
 # renovate: datasource=apk depName=sqlite
@@ -222,8 +222,8 @@ ARG SQLITE_VERSION=3.54.1-r0
 FROM --platform=$BUILDPLATFORM tonistiigi/xx:1.10.0@sha256:40fe21f44bb8cddf1eb1226db190d0a984118f62ee02a91b77d99448d28264a6 AS xx
 
 # ---- Gosu Builder ----
-# Build gosu from source to avoid CVEs from Debian's pre-compiled version (Go 1.19.8)
-# This fixes 22 HIGH/CRITICAL CVEs in stdlib embedded in Debian's gosu package
+# Build gosu from source to avoid CVEs from Debians pre-compiled version (Go 1.19.8)
+# This fixes 22 HIGH/CRITICAL CVEs in stdlib embedded in Debians gosu package
 # CVEs fixed: CVE-2023-24531, CVE-2023-24540, CVE-2023-29402, CVE-2023-29404,
 #             CVE-2023-29405, CVE-2024-24790, CVE-2025-22871, and 15 more
 FROM --platform=$BUILDPLATFORM ${GOLANG_IMAGE} AS gosu-builder
@@ -255,14 +255,14 @@ RUN for _attempt in 1 2 3; do \
     done
 
 # Pin golang.org/x/sys to a patched version for scanner hygiene (GO-2026-5024 / CVE-2026-39824).
-# Upstream tianon/gosu@1.17's own go.sum resolves golang.org/x/sys to v0.13.0, which Grype/GitHub
+# Upstream tianon/gosu@1.17s own go.sum resolves golang.org/x/sys to v0.13.0, which Grype/GitHub
 # code scanning flags. The vulnerable code (NewNTUnicodeString overflow) lives only in
 # golang.org/x/sys/windows; gosu is Unix-only and this stage only cross-compiles Linux targets
 # (CGO_ENABLED=0 xx-go build below), so the flagged code path is never compiled into this binary.
-# Fixed regardless, since it's cheap and keeps the scanner quiet. Pinned to v0.46.0 (above the
-# advisory's v0.44.0 fix floor) to match the same x/sys version already used by the Delve debug
+# Fixed regardless, since its cheap and keeps the scanner quiet. Pinned to v0.46.0 (above the
+# advisorys v0.44.0 fix floor) to match the same x/sys version already used by the Delve debug
 # stage below (Dockerfile:199) for this identical advisory. Do NOT bump GOSU_VERSION instead:
-# upstream tag 1.19's go.mod actually requires an OLDER golang.org/x/sys v0.1.0.
+# upstream tag 1.19s go.mod actually requires an OLDER golang.org/x/sys v0.1.0.
 #
 # Also pin github.com/moby/sys/user to v0.4.1 (CVE-2026-61801: unbounded parsing of user and
 # group database files). gosu is the only shipped binary that links this module; upstream
@@ -319,7 +319,7 @@ RUN npm ci --ignore-scripts --fetch-retries=5 --fetch-retry-mintimeout=10000
 # Copy frontend source and build.
 # Sync package.json to the release version for semver builds; skip for
 # non-semver values like "dev", which npm version rejects. Build metadata such as
-# X.Y.Z+pr.N is not part of npm's version, so npm gets only X.Y.Z (any leading "v"
+# X.Y.Z+pr.N is not part of npms version, so npm gets only X.Y.Z (any leading "v"
 # is stripped too).
 COPY frontend/ ./
 RUN --mount=type=cache,target=/app/frontend/node_modules/.cache \
@@ -535,7 +535,7 @@ RUN --mount=type=cache,target=/go/pkg/mod \
 # hadolint ignore=SC2016
 RUN --mount=type=cache,target=/root/.cache/go-build \
     --mount=type=cache,target=/go/pkg/mod \
-    bash -c 'set -e; \
+    bash -c set -e; \
         # Retry helper: survive transient network failures (module proxy or
         # sum.golang.org timeouts) without weakening checksum verification.
         # 3 attempts with incremental backoff (15s, 30s).
@@ -807,7 +807,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 #
 # Like caddy-inline, this is the single source of truth for the CrowdSec build
 # recipe. Compiled by toolchain-image.yml and the fork/offline fallback only; the
-# default app build COPY --from's its output out of the pinned toolchain image.
+# default app build COPY --froms its output out of the pinned toolchain image.
 FROM --platform=$BUILDPLATFORM ${GOLANG_IMAGE} AS crowdsec-inline
 COPY --from=xx / /
 
@@ -842,7 +842,7 @@ RUN for _attempt in 1 2 3; do \
     done
 
 # Patch dependencies to fix CVEs in transitive dependencies
-# This follows the same pattern as Caddy's dependency patches
+# This follows the same pattern as Caddys dependency patches
 # Each fetch is retried to survive transient module proxy / sum.golang.org
 # network failures without weakening checksum verification.
 RUN set -e; \
@@ -897,7 +897,7 @@ RUN set -e; \
     # CVE-2026-56864 / CVE-2026-56865: golang.org/x/mod/sumdb GOSUMDB tile-verification bypass
     # (a colluding GOPROXY+GOSUMDB pair could forge sumdb tiles / serve module content outside
     # the transparency log). Affects /usr/local/bin/crowdsec and /usr/local/bin/cscli — go mod
-    # tidy's MVS resolution otherwise lands on v0.38.0. Fix available at v0.40.0.
+    # tidys MVS resolution otherwise lands on v0.38.0. Fix available at v0.40.0.
     # CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
     # renovate: datasource=go depName=github.com/jackc/pgproto3/v2
     _retry go get github.com/jackc/pgproto3/v2@v2.3.3; \
@@ -910,7 +910,7 @@ RUN set -e; \
 # Fix compatibility issues with expr-lang v1.17.7
 # In v1.17.7, program.Source() returns file.Source struct instead of string
 # The upstream fix is in main branch but not yet released
-RUN sed -i 's/string(program\.Source())/program.Source().String()/g' pkg/exprhelpers/debugger.go
+RUN sed -i s/string(program\.Source())/program.Source().String()/g' pkg/exprhelpers/debugger.go
 
 # Build CrowdSec binaries for target architecture with patched dependencies
 # hadolint ignore=DL3059
@@ -953,7 +953,7 @@ RUN mkdir -p /crowdsec-out/config && \
 # ---- Toolchain image assembly target (built by toolchain-image.yml) ----
 # NOT part of the app build graph — nothing FROMs it here. `docker buildx build
 # --target toolchain-runtime` produces the publishable multi-arch image that the
-# default app build then COPY --from's. The binaries land at the SAME paths the
+# default app build then COPY --froms. The binaries land at the SAME paths the
 # inline stages produce, so the final-stage COPY --from lines need no change.
 FROM ${ALPINE_IMAGE} AS toolchain-runtime
 ARG CHARON_TOOLCHAIN_TAG
@@ -992,7 +992,7 @@ FROM ${ALPINE_IMAGE}
 WORKDIR /app
 
 # Install runtime dependencies for Charon, including bash for maintenance scripts
-# Note: gosu is now built from source (see gosu-builder stage) to avoid CVEs from Debian's pre-compiled version
+# Note: gosu is now built from source (see gosu-builder stage) to avoid CVEs from Debians pre-compiled version
 # Explicitly upgrade packages to fix security vulnerabilities
 #
 # libxml2 carries open CVEs with no upstream fix as of 2.13.9-r2. It is declared as a
@@ -1079,7 +1079,7 @@ RUN setcap 'cap_net_bind_service=+ep' /usr/bin/caddy
 # The final stage has no Go toolchain, so instead assert the binary loads and
 # exposes the four custom plugins the recipe adds — a wrong-arch or stale-recipe
 # image fails here immediately. The authoritative embed-version checks remain in
-# caddy-inline (run by toolchain-image.yml) and docker-build.yml's post-build step.
+# caddy-inline (run by toolchain-image.yml) and docker-build.ymls post-build step.
 RUN set -e; \
     mods="$(/usr/bin/caddy list-modules 2>/dev/null)"; \
     for m in http.handlers.rate_limit http.handlers.crowdsec http.handlers.geoip2 http.handlers.waf; do \
@@ -1109,7 +1109,7 @@ RUN set -e; \
     grep -q "^version: v${CROWDSEC_VERSION}\$" /tmp/cscli-v.txt \
         || { echo "ERROR: toolchain cscli does not report version v${CROWDSEC_VERSION} (version ldflag no-op or wrong pin)"; cat /tmp/cscli-v.txt; exit 1; }; \
     rm -f /tmp/cscli-v.txt; \
-    echo "Verified toolchain cscli runs (GoVersion: $(/usr/local/bin/cscli version 2>&1 | sed -n 's/^GoVersion: //p'))"
+    echo "Verified toolchain cscli runs (GoVersion: $(/usr/local/bin/cscli version 2>&1 | sed -n s/^GoVersion: //p'))"
 # Copy CrowdSec configuration files to .dist directory (will be used at runtime)
 COPY --from=crowdsec-builder /crowdsec-out/config /etc/crowdsec.dist
 # Verify config files were copied successfully
