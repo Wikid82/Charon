@@ -22,6 +22,9 @@ fi
 echo "✅ PLAYWRIGHT_BASE_URL is localhost or unset (defaults to localhost)"
 
 # Check 2: Verify Docker container is running
+# Load the local emergency-test values (written by the docker-rebuild-e2e skill) so compose can interpolate them.
+# shellcheck source=/dev/null
+if [[ -f .env ]]; then set -a; . ./.env; set +a; fi
 if ! docker ps | grep -q charon-e2e; then
   echo "⚠️ charon-e2e container not running. Starting..."
   docker compose -f .docker/compose/docker-compose.playwright-local.yml up -d
