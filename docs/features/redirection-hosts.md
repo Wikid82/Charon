@@ -120,7 +120,7 @@ If your address needs a special character, use its **percent-encoded** form inst
 
 For example, `https://newblog.example.com/start%7Bdemo%7D` is accepted.
 
-**Existing redirects:** If you already have a redirect whose target contains curly braces, it keeps working as before. You can't save changes to it, though, until you fix the address. When Charon starts up, it writes a warning to its log that names each of these redirects, so you can find and fix them.
+**Existing redirects:** If you already have a redirect whose target contains curly braces, it keeps redirecting, with the braces sent as `%7B` and `%7D`. You can't save changes to it, though, until you fix the address. When Charon starts up, it writes a warning to its log that names each of these redirects, so you can find and fix them.
 
 **Preserve Path still works:** If Preserve Path is on, Charon still adds the page the visitor asked for to the end of your target address, just as described in Step 3.
 
