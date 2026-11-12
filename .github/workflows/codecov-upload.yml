@@ -59,6 +59,8 @@ jobs:
         with:
           go-version-file: backend/go.mod
 
+          cache-dependency-path: backend/go.sum
+
       # The backend tests need only a valid 32-byte key, so it is generated per run and kept in
       # this step's output. No repository secret is read, which keeps fork and Dependabot PRs
       # and same-repository PRs on the same path.
