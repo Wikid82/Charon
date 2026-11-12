@@ -123,6 +123,29 @@ export function accessListErrorMessage(err: unknown, t: TFunction): string | nul
 }
 
 /**
+ * Coded redirection-host save refusals with a translated text of their own, keyed by the server's `error_code`.
+ * Every other code keeps the form's fallback text.
+ */
+const REDIRECTION_CODE_MESSAGE_KEYS = {
+  redirect_target_invalid: 'redirectionHosts.errors.redirect_target_invalid',
+} as const
+
+type RedirectionCodedMessage = keyof typeof REDIRECTION_CODE_MESSAGE_KEYS
+
+const REDIRECTION_CODED_MESSAGES = Object.keys(REDIRECTION_CODE_MESSAGE_KEYS) as RedirectionCodedMessage[]
+
+/**
+ * Translated text for a coded redirection-host save refusal, for display inside the form.
+ * @param err - The value thrown by the request
+ * @param t - The translation function of the calling component or hook
+ * @returns The text, or null when the refusal has no text of its own
+ */
+export function redirectionErrorMessage(err: unknown, t: TFunction): string | null {
+  const code = getApiErrorCode(err, REDIRECTION_CODED_MESSAGES)
+  return code ? t(REDIRECTION_CODE_MESSAGE_KEYS[code]) : null
+}
+
+/**
  * Error codes of the GeoIP database routes (reload, lookup, replace, remove) that have a translated text. Keep in step
  * with the backend's error_code values and the `security.geoip.errors.*` locale keys.
  */
