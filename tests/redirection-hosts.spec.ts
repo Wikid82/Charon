@@ -57,7 +57,7 @@
  * Code Selection), §8 Phase 1, §9 Commit 1.
  */
 
-import type { Page } from '@playwright/test';
+import type { APIRequestContext, Locator, Page } from '@playwright/test';
 import { test, expect } from './fixtures/test';
 import { waitForAPIHealth } from './utils/api-helpers';
 import {
@@ -68,6 +68,7 @@ import {
 } from './utils/wait-helpers';
 import { generateDomain } from './fixtures/test-data';
 import { generateProxyHost } from './fixtures/proxy-hosts';
+import { fetchThroughProxy } from './utils/proxy-refusal-helpers';
 
 /**
  * Escape a string for safe use inside a `RegExp` constructor.
@@ -150,12 +151,10 @@ async function openEditRedirectionHostDialogForDomain(page: Page, domain: string
 }
 
 /**
- * Fill and submit the Add Redirection Host form, waiting for the create
- * response. Mirrors `createProxyHostViaUI` in tests/proxy-groups.spec.ts.
+ * Fill every field of an open Add Redirection Host dialog from `host`
+ * without submitting it.
  */
-async function createRedirectionHostViaUI(page: Page, host: RedirectionHostConfig): Promise<void> {
-  const dialog = await openAddRedirectionHostDialog(page);
-
+async function fillRedirectionHostDialog(page: Page, dialog: Locator, host: RedirectionHostConfig): Promise<void> {
   await dialog.getByLabel(/^name\b/i).fill(host.name);
   await dialog.getByLabel(/domain names/i).fill(host.domain);
   await dialog.getByLabel(/target url/i).fill(host.targetUrl);
@@ -167,10 +166,38 @@ async function createRedirectionHostViaUI(page: Page, host: RedirectionHostConfi
   if (!host.preservePath) {
     await toggleLabel(dialog.getByLabel(/preserve path/i)).click();
   }
+}
+
+/**
+ * Fill and submit the Add Redirection Host form, waiting for the create
+ * response. Mirrors `createProxyHostViaUI` in tests/proxy-groups.spec.ts.
+ */
+async function createRedirectionHostViaUI(page: Page, host: RedirectionHostConfig): Promise<void> {
+  const dialog = await openAddRedirectionHostDialog(page);
+  await fillRedirectionHostDialog(page, dialog, host);
 
   const createPromise = waitForAPIResponse(page, '/api/v1/redirection-hosts', { status: 201 });
   await dialog.getByRole('button', { name: /^save$/i }).click();
   await createPromise;
+}
+
+/**
+ * Create a redirection host through the API and return its uuid. Asserts the
+ * 201 so callers can rely on the row existing.
+ */
+async function createRedirectionHostViaAPI(request: APIRequestContext, host: RedirectionHostConfig): Promise<string> {
+  const response = await request.post('/api/v1/redirection-hosts', {
+    data: {
+      name: host.name,
+      domain_names: host.domain,
+      target_url: host.targetUrl,
+      status_code: host.statusCode,
+      preserve_path: host.preservePath,
+    },
+  });
+  expect(response.status()).toBe(201);
+  const body = (await response.json()) as { uuid: string };
+  return body.uuid;
 }
 
 test.describe('Redirection Hosts', () => {
@@ -439,6 +466,115 @@ test.describe('Redirection Hosts', () => {
       await test.step('The conflict is rejected with a clear 400 error (spec §4.3 CheckDomainConflict, §4.4: "domain already in use by another host")', async () => {
         const dialog = page.getByRole('dialog', { name: /add redirection host/i });
         await expect(dialog.getByText(/domain already in use by another host/i)).toBeVisible();
+      });
+    });
+  });
+
+  test.describe('Redirect Target Safety', () => {
+    /** Uuids of rows created through the API by the current test; removed in afterEach so the suite leaves nothing behind. */
+    const createdUuids: string[] = [];
+
+    test.beforeEach(async ({ page }) => {
+      await page.goto('/redirection-hosts');
+      await waitForLoadingComplete(page);
+    });
+
+    test.afterEach(async ({ request }) => {
+      for (const uuid of createdUuids.splice(0)) {
+        const response = await request.delete(`/api/v1/redirection-hosts/${uuid}`);
+        expect(response.ok(), `cleanup of redirection host ${uuid}`).toBeTruthy();
+      }
+    });
+
+    test('refuses a target URL containing curly braces in the form and keeps the dialog open', async ({ page }) => {
+      const host = generateRedirectionHost({ targetUrl: 'https://example.com/{http.request.uri}' });
+      const dialog = await openAddRedirectionHostDialog(page);
+
+      await test.step('Fill the form with a target URL that contains braces', async () => {
+        await fillRedirectionHostDialog(page, dialog, host);
+      });
+
+      await test.step('Save; the API rejects the target with a 400', async () => {
+        const rejectedPromise = waitForAPIResponse(page, '/api/v1/redirection-hosts', { status: 400 });
+        await dialog.getByRole('button', { name: /^save$/i }).click();
+        await rejectedPromise;
+      });
+
+      await test.step('The translated message is shown and the dialog stays open', async () => {
+        await expect(
+          dialog.getByText('The target address cannot contain curly braces. Use a plain web address.', { exact: true }),
+        ).toBeVisible();
+        await expect(dialog).toBeVisible();
+      });
+    });
+
+    test('refuses curly braces in a target URL through the API and creates no row', async ({ request }) => {
+      const domain = generateDomain('redirect');
+      const refusedTargets = ['https://example.com/{http.request.uri}', 'https://example.com/a}b'];
+
+      for (const targetUrl of refusedTargets) {
+        await test.step(`Refuse target ${targetUrl} with error_code redirect_target_invalid`, async () => {
+          const response = await request.post('/api/v1/redirection-hosts', {
+            data: {
+              name: `E2E Brace Target ${Date.now()}`,
+              domain_names: domain,
+              target_url: targetUrl,
+              status_code: 301,
+              preserve_path: true,
+            },
+          });
+          expect(response.status()).toBe(400);
+          expect(await response.json()).toMatchObject({ error_code: 'redirect_target_invalid' });
+        });
+      }
+
+      await test.step('No redirection host was created for the domain', async () => {
+        const listResponse = await request.get('/api/v1/redirection-hosts');
+        expect(listResponse.ok()).toBeTruthy();
+        expect(JSON.stringify(await listResponse.json())).not.toContain(domain);
+      });
+    });
+
+    test('a normal target with Preserve Path still redirects and appends the original path', async ({ request }) => {
+      const host = generateRedirectionHost({ statusCode: 302, preservePath: true });
+
+      await test.step('Create the redirection host through the API', async () => {
+        createdUuids.push(await createRedirectionHostViaAPI(request, host));
+      });
+
+      await test.step('A request for a nested path is redirected to the target with that path appended', async () => {
+        let response = await fetchThroughProxy(request, host.domain, '/docs/start');
+        // Caddy applies the new route asynchronously after the save, so poll until the redirect is live.
+        await expect
+          .poll(async () => {
+            response = await fetchThroughProxy(request, host.domain, '/docs/start');
+            return response.status();
+          })
+          .toBe(302);
+        expect(response.headers()['location']).toBe(`${host.targetUrl}/docs/start`);
+      });
+    });
+
+    test('accepts a percent-encoded target and keeps %7B and %7D unexpanded in the Location header', async ({ request }) => {
+      const host = generateRedirectionHost({
+        targetUrl: 'https://example.com/a%7Bb%7D',
+        statusCode: 301,
+        preservePath: false,
+      });
+
+      await test.step('The API accepts the already percent-encoded target (201)', async () => {
+        createdUuids.push(await createRedirectionHostViaAPI(request, host));
+      });
+
+      await test.step('The Location header carries the encoded braces verbatim', async () => {
+        let response = await fetchThroughProxy(request, host.domain, '/');
+        await expect
+          .poll(async () => {
+            response = await fetchThroughProxy(request, host.domain, '/');
+            return response.status();
+          })
+          .toBe(301);
+        expect(response.headers()['location']).toBe('https://example.com/a%7Bb%7D');
       });
     });
   });
