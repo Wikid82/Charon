@@ -24,11 +24,11 @@ concurrency:
 env:
   SYFT_VERSION: 'v1.57.1'
 
+# The scan job runs on PR code with read scopes only. Comment and SARIF writes live in
+# the publish-results job, which consumes the scan artifact and never checks out PR code.
 permissions:
   contents: read
   packages: read
-  pull-requests: write
-  security-events: write
   actions: read
 
 jobs:
@@ -42,6 +42,10 @@ jobs:
       github.event_name == 'pull_request' ||
       github.event_name == 'push' ||
       github.event_name == 'schedule'
+    outputs:
+      pr_number: ${{ steps.pr-number.outputs.pr_number }}
+      artifact_name: ${{ steps.publish-inputs.outputs.artifact_name }}
+      publish_comment: ${{ steps.publish-inputs.outputs.publish_comment }}
 
     steps:
       - name: Harden the runner (Audit all outbound calls)
@@ -450,40 +454,144 @@ jobs:
             echo "::warning::${MEDIUM_COUNT} medium vulnerabilities found. Non-blocking by policy; create/maintain triage issue with SLA per .github/security-severity-policy.yml"
           fi
 
-      - name: Upload SARIF to GitHub Security
+      - name: Write publish inputs
+        id: publish-inputs
         if: steps.set-target.outputs.image_name != ''
-        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
-        continue-on-error: true
-        with:
-          sarif_file: grype-results.sarif
-          category: supply-chain-pr
+        env:
+          IS_PUSH: ${{ steps.pr-number.outputs.is_push }}
+          PR_NUMBER: ${{ steps.pr-number.outputs.pr_number }}
+          BRANCH: ${{ steps.sanitize.outputs.branch }}
+          COMPONENT_COUNT: ${{ steps.sbom-count.outputs.component_count }}
+          CRITICAL_COUNT: ${{ steps.vuln-summary.outputs.critical_count }}
+          HIGH_COUNT: ${{ steps.vuln-summary.outputs.high_count }}
+          MEDIUM_COUNT: ${{ steps.vuln-summary.outputs.medium_count }}
+          LOW_COUNT: ${{ steps.vuln-summary.outputs.low_count }}
+          TOTAL_COUNT: ${{ steps.vuln-summary.outputs.total_count }}
+        run: |
+          # The publish-results job reads supply-chain-summary.json from the artifact.
+          # The file holds counts only; the publish job validates each one.
+          if [[ "${IS_PUSH}" == "true" ]]; then
+            ARTIFACT_NAME="supply-chain-${BRANCH}"
+          else
+            ARTIFACT_NAME="supply-chain-pr-${PR_NUMBER}"
+          fi
+
+          PUBLISH_COMMENT=false
+          if [[ "${IS_PUSH}" != "true" && -n "${PR_NUMBER}" ]]; then
+            PUBLISH_COMMENT=true
+          fi
+
+          jq -n \
+            --arg component_count "${COMPONENT_COUNT}" \
+            --arg critical "${CRITICAL_COUNT}" \
+            --arg high "${HIGH_COUNT}" \
+            --arg medium "${MEDIUM_COUNT}" \
+            --arg low "${LOW_COUNT}" \
+            --arg total "${TOTAL_COUNT}" \
+            '{component_count: $component_count, critical: $critical, high: $high, medium: $medium, low: $low, total: $total}' \
+            > supply-chain-summary.json
+
+          {
+            echo "artifact_name=${ARTIFACT_NAME}"
+            echo "publish_comment=${PUBLISH_COMMENT}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Upload supply chain artifacts
         if: steps.set-target.outputs.image_name != ''
         # actions/upload-artifact v4.6.0
         uses: actions/upload-artifact@bbbca2ddaa5d8feaa63e36b76fdaad77386f024f
         with:
-          name: ${{ steps.pr-number.outputs.is_push == 'true' && format('supply-chain-{0}', steps.sanitize.outputs.branch) || format('supply-chain-pr-{0}', steps.pr-number.outputs.pr_number) }}
+          name: ${{ steps.publish-inputs.outputs.artifact_name }}
           path: |
             sbom.cyclonedx.json
             grype-results.json
+            grype-results.sarif
+            supply-chain-summary.json
           retention-days: 14
 
+      - name: Fail on Critical/High vulnerabilities
+        if: steps.set-target.outputs.image_name != ''
+        run: |
+          CRITICAL_COUNT="${{ steps.vuln-summary.outputs.critical_count }}"
+          HIGH_COUNT="${{ steps.vuln-summary.outputs.high_count }}"
+
+          if [[ "${CRITICAL_COUNT}" -gt 0 ]]; then
+            echo "🚨 Found ${CRITICAL_COUNT} CRITICAL vulnerabilities!"
+            echo "Please review the vulnerability report and address critical issues before merging."
+            exit 1
+          fi
+
+          if [[ "${HIGH_COUNT}" -gt 0 ]]; then
+            echo "🚨 Found ${HIGH_COUNT} HIGH vulnerabilities!"
+            echo "Please review the vulnerability report and address high severity issues before merging."
+            exit 1
+          fi
+
+          echo "✅ No Critical/High vulnerabilities found"
+
+  # Publishes the scan results. This job holds the write scopes and never checks out
+  # repository code: it only downloads the scan artifact and posts the PR comment and SARIF.
+  publish-results:
+    name: Publish Supply Chain Results
+    needs: verify-supply-chain
+    if: ${{ always() && needs.verify-supply-chain.outputs.artifact_name != '' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      actions: read
+      pull-requests: write
+      security-events: write
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+
+      - name: Download supply chain artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: ${{ needs.verify-supply-chain.outputs.artifact_name }}
+          path: supply-chain
+
+      - name: Upload SARIF to GitHub Security
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        continue-on-error: true
+        with:
+          sarif_file: supply-chain/grype-results.sarif
+          category: supply-chain-pr
+
       - name: Comment on PR
-        if: steps.set-target.outputs.image_name != '' && steps.pr-number.outputs.is_push != 'true' && steps.pr-number.outputs.pr_number != ''
+        if: needs.verify-supply-chain.outputs.publish_comment == 'true'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.verify-supply-chain.outputs.pr_number }}
+          REPO_NAME: ${{ github.repository }}
+          SERVER_URL: ${{ github.server_url }}
+          RUN_ID: ${{ github.run_id }}
+          SUMMARY_FILE: supply-chain/supply-chain-summary.json
         run: |
           set -euo pipefail
 
-          PR_NUMBER="${{ steps.pr-number.outputs.pr_number }}"
-          COMPONENT_COUNT="${{ steps.sbom-count.outputs.component_count }}"
-          CRITICAL_COUNT="${{ steps.vuln-summary.outputs.critical_count }}"
-          HIGH_COUNT="${{ steps.vuln-summary.outputs.high_count }}"
-          MEDIUM_COUNT="${{ steps.vuln-summary.outputs.medium_count }}"
-          LOW_COUNT="${{ steps.vuln-summary.outputs.low_count }}"
-          TOTAL_COUNT="${{ steps.vuln-summary.outputs.total_count }}"
+          # Counts come from the scan artifact. Accept only non-negative integers.
+          count_from_summary() {
+            local value
+            value=$(jq -r --arg key "$1" '.[$key]' "${SUMMARY_FILE}")
+            if [[ ! "${value}" =~ ^[0-9]+$ ]]; then
+              echo "::error::supply-chain summary field '$1' is not a count" >&2
+              exit 1
+            fi
+            printf '%s' "${value}"
+          }
+
+          COMPONENT_COUNT=$(count_from_summary component_count)
+          CRITICAL_COUNT=$(count_from_summary critical)
+          HIGH_COUNT=$(count_from_summary high)
+          MEDIUM_COUNT=$(count_from_summary medium)
+          LOW_COUNT=$(count_from_summary low)
+          TOTAL_COUNT=$(count_from_summary total)
 
           # Determine status emoji
           if [[ "${CRITICAL_COUNT}" -gt 0 ]]; then
@@ -518,7 +626,7 @@ jobs:
           - SBOM (CycloneDX JSON) and Grype results available in workflow artifacts
 
           ---
-          <sub>Generated by Supply Chain Verification workflow • [View Details](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})</sub>
+          <sub>Generated by Supply Chain Verification workflow • [View Details](${SERVER_URL}/${REPO_NAME}/actions/runs/${RUN_ID})</sub>
           EOF
           )
 
@@ -527,7 +635,7 @@ jobs:
           if ! COMMENTS_JSON=$(gh api \
             -H "Accept: application/vnd.github+json" \
             -H "X-GitHub-Api-Version: 2022-11-28" \
-            "/repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" 2>/dev/null); then
+            "/repos/${REPO_NAME}/issues/${PR_NUMBER}/comments" 2>/dev/null); then
             echo "⚠️ Cannot access PR comments (likely token permissions / fork / event context). Skipping PR comment."
             exit 0
           fi
@@ -539,7 +647,7 @@ jobs:
             if ! gh api --method PATCH \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
-              "/repos/${{ github.repository }}/issues/comments/${COMMENT_ID}" \
+              "/repos/${REPO_NAME}/issues/comments/${COMMENT_ID}" \
               -f body="${COMMENT_BODY}"; then
               echo "⚠️ Failed to update comment (permissions?). Skipping."
               exit 0
@@ -549,7 +657,7 @@ jobs:
             if ! gh api --method POST \
               -H "Accept: application/vnd.github+json" \
               -H "X-GitHub-Api-Version: 2022-11-28" \
-              "/repos/${{ github.repository }}/issues/${PR_NUMBER}/comments" \
+              "/repos/${REPO_NAME}/issues/${PR_NUMBER}/comments" \
               -f body="${COMMENT_BODY}"; then
               echo "⚠️ Failed to create comment (permissions?). Skipping."
               exit 0
@@ -557,23 +665,3 @@ jobs:
           fi
 
           echo "✅ PR comment posted"
-
-      - name: Fail on Critical/High vulnerabilities
-        if: steps.set-target.outputs.image_name != ''
-        run: |
-          CRITICAL_COUNT="${{ steps.vuln-summary.outputs.critical_count }}"
-          HIGH_COUNT="${{ steps.vuln-summary.outputs.high_count }}"
-
-          if [[ "${CRITICAL_COUNT}" -gt 0 ]]; then
-            echo "🚨 Found ${CRITICAL_COUNT} CRITICAL vulnerabilities!"
-            echo "Please review the vulnerability report and address critical issues before merging."
-            exit 1
-          fi
-
-          if [[ "${HIGH_COUNT}" -gt 0 ]]; then
-            echo "🚨 Found ${HIGH_COUNT} HIGH vulnerabilities!"
-            echo "Please review the vulnerability report and address high severity issues before merging."
-            exit 1
-          fi
-
-          echo "✅ No Critical/High vulnerabilities found"
