@@ -126,7 +126,7 @@ ARG CADDY_RATELIMIT_VERSION=0.1.0
 # renovate: datasource=go depName=github.com/caddy-dns/cloudflare
 ARG CADDY_DNS_CLOUDFLARE_VERSION=0.2.4
 # renovate: datasource=go depName=github.com/caddy-dns/route53
-ARG CADDY_DNS_ROUTE53_VERSION=1.6.2
+ARG CADDY_DNS_ROUTE53_VERSION=1.6.3
 # renovate: datasource=go depName=github.com/caddy-dns/digitalocean
 ARG CADDY_DNS_DIGITALOCEAN_VERSION=0.0.0-20250606074528-04bde2867106
 # renovate: datasource=go depName=github.com/caddy-dns/googleclouddns
