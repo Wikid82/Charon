@@ -48,7 +48,8 @@ jobs:
           ci: 'true'
           # Fork PRs cannot pull the private toolchain image -> compile inline.
           builder-src: ${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'inline' || 'prebuilt' }}
-          ghcr-token: ${{ secrets.GITHUB_TOKEN }}
+          # Registry token only for same-repository builds; fork PRs build inline and get none.
+          ghcr-token: ${{ (github.event.pull_request.head.repo.full_name == '' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.GITHUB_TOKEN || '' }}
 
       - name: Save Charon image
         run: docker save charon:local -o /tmp/charon-image.tar
