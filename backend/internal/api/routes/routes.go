@@ -268,6 +268,9 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	cleanInvalidLetsEncryptCertAssignments(db, "proxy_hosts", func(h models.ProxyHost) string { return h.DomainNames })
 	cleanInvalidLetsEncryptCertAssignments(db, "redirection_hosts", func(h models.RedirectionHost) string { return h.DomainNames })
 
+	// Stored redirect targets that validation now refuses keep working as literals; this warns once per such row.
+	services.WarnRefusedRedirectTargets(db)
+
 	if caddyManager == nil {
 		caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
 		caddyManager = caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)

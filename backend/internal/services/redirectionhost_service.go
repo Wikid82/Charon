@@ -9,6 +9,10 @@ import (
 	"gorm.io/gorm"
 )
 
+// ErrRedirectTargetInvalid rejects a target_url that contains a literal brace.
+// The message is fixed and never echoes the submitted value.
+var ErrRedirectTargetInvalid = errors.New("target_url cannot contain { or } characters; percent-encode them as %7B and %7D")
+
 // RedirectionHostService encapsulates business logic for redirection host
 // management — full CRUD plus validation (§4.1/§4.3/§4.4 of
 // docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md),
@@ -36,6 +40,10 @@ func (s *RedirectionHostService) validateRedirectionHost(host *models.Redirectio
 
 	if host.TargetURL == "" {
 		return errors.New("target_url is required")
+	}
+
+	if strings.ContainsAny(host.TargetURL, "{}") {
+		return ErrRedirectTargetInvalid
 	}
 
 	parsed, err := url.Parse(host.TargetURL)

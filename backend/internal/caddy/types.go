@@ -162,7 +162,7 @@ func ReverseProxyHandler(dial, application string, enableStandardHeaders bool) H
 		"handler":        "reverse_proxy",
 		"flush_interval": -1, // Disable buffering for better streaming performance (Plex, etc.)
 		"upstreams": []map[string]any{
-			{"dial": dial},
+			{"dial": proxyLiteral(dial)},
 		},
 	}
 
