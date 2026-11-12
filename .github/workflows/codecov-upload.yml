@@ -178,7 +178,7 @@ jobs:
 
       # No "Resolve encryption key" step: agent has no encryption-key
       # bootstrapping (consistent with quality-checks.yml's agent-quality
-      # job) — agent's tests don't touch CHARON_ENCRYPTION_KEY_TEST.
+      # job) — agent's tests don't read the backend encryption key.
       # No CGO_ENABLED: 1 either: agent/'s Docker image builds with
       # CGO_ENABLED=0 (FROM scratch), so there is no cgo dependency here.
 

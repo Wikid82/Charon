@@ -352,80 +352,16 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.sha }}
 
-      # SECURITY: Do not switch this workflow to pull_request_target for backend tests.
-      # Untrusted code paths (fork PRs and Dependabot PRs) must never receive repository secrets.
-      - name: Resolve encryption key for backend tests
+      # The backend tests need only a valid 32-byte key. It is generated per run and kept in
+      # this step's output, so no repository secret is read.
+      - name: Generate encryption key for backend tests
+        id: test-key
         shell: bash
-        env:
-          EVENT_NAME: ${{ github.event_name }}
-          ACTOR: ${{ github.actor }}
-          REPO: ${{ github.repository }}
-          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
-          PR_HEAD_FORK: ${{ github.event.pull_request.head.repo.fork }}
-          WORKFLOW_SECRET_KEY: ${{ secrets.CHARON_ENCRYPTION_KEY_TEST }}
         run: |
           set -euo pipefail
-
-          is_same_repo_pr=false
-          if [[ "$EVENT_NAME" == "pull_request" && -n "${PR_HEAD_REPO:-}" && "$PR_HEAD_REPO" == "$REPO" ]]; then
-            is_same_repo_pr=true
-          fi
-
-          is_workflow_dispatch=false
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            is_workflow_dispatch=true
-          fi
-
-          is_push_event=false
-          if [[ "$EVENT_NAME" == "push" ]]; then
-            is_push_event=true
-          fi
-
-          is_dependabot_pr=false
-          if [[ "$EVENT_NAME" == "pull_request" && "$ACTOR" == "dependabot[bot]" ]]; then
-            is_dependabot_pr=true
-          fi
-
-          is_fork_pr=false
-          if [[ "$EVENT_NAME" == "pull_request" && "${PR_HEAD_FORK:-false}" == "true" ]]; then
-            is_fork_pr=true
-          fi
-
-          is_untrusted=false
-          if [[ "$is_fork_pr" == "true" || "$is_dependabot_pr" == "true" ]]; then
-            is_untrusted=true
-          fi
-
-          is_trusted=false
-          if [[ "$is_untrusted" == "false" && ( "$is_same_repo_pr" == "true" || "$is_workflow_dispatch" == "true" || "$is_push_event" == "true" ) ]]; then
-            is_trusted=true
-          fi
-
-          resolved_key=""
-          if [[ "$is_trusted" == "true" ]]; then
-            if [[ -z "${WORKFLOW_SECRET_KEY:-}" ]]; then
-              echo "::error title=Missing required secret::Trusted backend CI context requires CHARON_ENCRYPTION_KEY_TEST. Add repository secret CHARON_ENCRYPTION_KEY_TEST."
-              exit 1
-            fi
-            resolved_key="$WORKFLOW_SECRET_KEY"
-          elif [[ "$is_untrusted" == "true" ]]; then
-            resolved_key="$(openssl rand -base64 32)"
-          else
-            echo "::error title=Unsupported event context::Unable to classify trust for backend key resolution (event=${EVENT_NAME})."
-            exit 1
-          fi
-
-          if [[ -z "$resolved_key" ]]; then
-            echo "::error title=Key resolution failure::Resolved encryption key is empty."
-            exit 1
-          fi
-
-          echo "::add-mask::$resolved_key"
-          {
-            echo "CHARON_ENCRYPTION_KEY<<__CHARON_EOF__"
-            echo "$resolved_key"
-            echo "__CHARON_EOF__"
-          } >> "$GITHUB_ENV"
+          encryption_key="$(openssl rand -base64 32)"
+          echo "::add-mask::${encryption_key}"
+          echo "encryption_key=${encryption_key}" >> "$GITHUB_OUTPUT"
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -455,6 +391,7 @@ jobs:
         id: go-tests
         working-directory: ${{ github.workspace }}
         env:
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-key.outputs.encryption_key }}
           CGO_ENABLED: 1
         run: |
           bash "scripts/go-test-coverage.sh" 2>&1 | tee backend/test-output.txt; exit "${PIPESTATUS[0]}"
@@ -538,6 +475,7 @@ jobs:
       - name: Run Perf Asserts
         working-directory: backend
         env:
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-key.outputs.encryption_key }}
           # Conservative defaults to avoid flakiness on CI; tune as necessary
           PERF_MAX_MS_GETSTATUS_P95: 500ms
           PERF_MAX_MS_GETSTATUS_P95_PARALLEL: 1500ms
@@ -584,7 +522,7 @@ jobs:
           cache-dependency-path: agent/go.sum
 
       # No "Resolve encryption key" step here: unlike backend-quality, agent
-      # has no CHARON_ENCRYPTION_KEY_TEST-dependent tests to bootstrap for
+      # has no encryption-key-dependent tests to bootstrap for
       # (agent is a standalone module with no models/GORM/encryption
       # concerns). No GORM Security Scanner step for the same reason (agent
       # has no models). No Perf Asserts step: agent has no equivalent
