@@ -349,7 +349,7 @@ jobs:
       - name: Load Trivy ignore list from the base branch
         # On pull requests the suppression list comes from the base branch, so a pull request
         # cannot suppress its own findings. Push and schedule runs use the checked-out file.
-        if: github.event_name == 'pull_request'
+        if: github.event_name == 'pull_request' && steps.ref.outputs.scan == 'true'
         id: base-policy
         env:
           BASE_REF: ${{ github.base_ref }}
