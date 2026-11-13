@@ -1084,7 +1084,13 @@
     "invalidEmail": "Please enter a valid email address",
     "passwordLabel": "Password",
     "createAdminButton": "Create Admin Account",
-    "setupFailed": "Setup failed"
+    "setupFailed": "Setup failed",
+    "setupCodeLabel": "Beállítókód",
+    "setupCodeHint": "A Charon naplóiban találja. Például: docker logs charon",
+    "errors": {
+      "setup_code_invalid": "A beállítókód hibás. Ellenőrizze a Charon naplóit, és próbálja újra.",
+      "rate_limited": "Túl sok próbálkozás. Várjon néhány percet, és próbálja újra."
+    }
   },
   "acceptInvite": {
     "title": "Accept Invitation",

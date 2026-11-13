@@ -1084,7 +1084,13 @@
     "invalidEmail": "Please enter a valid email address",
     "passwordLabel": "Password",
     "createAdminButton": "Create Admin Account",
-    "setupFailed": "Setup failed"
+    "setupFailed": "Setup failed",
+    "setupCodeLabel": "Kurulum kodu",
+    "setupCodeHint": "Charon günlüklerinde bulabilirsiniz. Örneğin: docker logs charon",
+    "errors": {
+      "setup_code_invalid": "Kurulum kodu hatalı. Charon günlüklerini kontrol edip tekrar deneyin.",
+      "rate_limited": "Çok fazla deneme yapıldı. Birkaç dakika bekleyip tekrar deneyin."
+    }
   },
   "acceptInvite": {
     "title": "Accept Invitation",

@@ -1084,7 +1084,13 @@
     "invalidEmail": "Please enter a valid email address",
     "passwordLabel": "Password",
     "createAdminButton": "Create Admin Account",
-    "setupFailed": "Setup failed"
+    "setupFailed": "Setup failed",
+    "setupCodeLabel": "Kod za podešavanje",
+    "setupCodeHint": "Pronađite ga u dnevnicima Charon-a. Na primer: docker logs charon",
+    "errors": {
+      "setup_code_invalid": "Kod za podešavanje nije ispravan. Proverite dnevnike Charon-a i pokušajte ponovo.",
+      "rate_limited": "Previše pokušaja. Sačekajte nekoliko minuta i pokušajte ponovo."
+    }
   },
   "acceptInvite": {
     "title": "Accept Invitation",
