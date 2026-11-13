@@ -73,42 +73,52 @@ func (s *OrthrusService) Get(uuid string) (*models.OrthrusAgent, error) {
 	return &agent, nil
 }
 
-// Patch applies a partial update to an agent. Only non-nil fields are written.
+// AgentPatch is a partial update to an agent. Only non-nil fields are written.
+type AgentPatch struct {
+	Name              *string
+	HecateTunnelUUID  *string
+	DeviceID          *string
+	ResolvedAddress   *string
+	ExternalProxyPort *int
+	WriteEnabled      *bool
+}
+
+// Patch applies a partial update to an agent.
 //
-// writeEnabled has no range validation (unlike externalProxyPort) since a
+// WriteEnabled has no range validation (unlike ExternalProxyPort) since a
 // bool has no invalid values; the audit entry for this specific field is
 // emitted by the caller (OrthrusHandler.Patch), not here, matching this
 // codebase's existing convention of logging admin-initiated audit events at
 // the handler layer (see e.g. security_handler.go, crowdsec_handler.go)
 // rather than growing OrthrusService's dependencies to include
 // *services.SecurityService and a *gin.Context-derived actor.
-func (s *OrthrusService) Patch(uuid string, name, hecateTunnelUUID, deviceID, resolvedAddress *string, externalProxyPort *int, writeEnabled *bool) (*models.OrthrusAgent, error) {
+func (s *OrthrusService) Patch(uuid string, p AgentPatch) (*models.OrthrusAgent, error) {
 	updates := map[string]interface{}{}
-	if name != nil {
-		trimmed := strings.TrimSpace(*name)
+	if p.Name != nil {
+		trimmed := strings.TrimSpace(*p.Name)
 		if trimmed == "" {
 			return nil, fmt.Errorf("orthrus: agent name cannot be blank")
 		}
 		updates["name"] = trimmed
 	}
-	if hecateTunnelUUID != nil {
-		updates["hecate_tunnel_uuid"] = *hecateTunnelUUID
+	if p.HecateTunnelUUID != nil {
+		updates["hecate_tunnel_uuid"] = *p.HecateTunnelUUID
 	}
-	if deviceID != nil {
-		updates["device_id"] = *deviceID
+	if p.DeviceID != nil {
+		updates["device_id"] = *p.DeviceID
 	}
-	if resolvedAddress != nil {
-		updates["resolved_address"] = *resolvedAddress
+	if p.ResolvedAddress != nil {
+		updates["resolved_address"] = *p.ResolvedAddress
 	}
-	if externalProxyPort != nil {
-		port := *externalProxyPort
+	if p.ExternalProxyPort != nil {
+		port := *p.ExternalProxyPort
 		if port != 0 && (port < 1024 || port > 65535) {
 			return nil, fmt.Errorf("external_proxy_port must be 0 (disabled) or in range 1024–65535, got %d", port)
 		}
 		updates["external_proxy_port"] = port
 	}
-	if writeEnabled != nil {
-		updates["write_enabled"] = *writeEnabled
+	if p.WriteEnabled != nil {
+		updates["write_enabled"] = *p.WriteEnabled
 	}
 	if len(updates) == 0 {
 		return s.Get(uuid)
@@ -119,9 +129,9 @@ func (s *OrthrusService) Patch(uuid string, name, hecateTunnelUUID, deviceID, re
 	return s.Get(uuid)
 }
 
-// Rename updates the display name of an agent (backward-compat wrapper around Patch).
+// Rename updates the display name of an agent.
 func (s *OrthrusService) Rename(uuid, newName string) (*models.OrthrusAgent, error) {
-	return s.Patch(uuid, &newName, nil, nil, nil, nil, nil)
+	return s.Patch(uuid, AgentPatch{Name: &newName})
 }
 
 // Delete removes an agent from the database (does not revoke/disconnect first).

@@ -138,7 +138,14 @@ func (h *OrthrusHandler) Patch(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	agent, err := h.svc.Patch(uuid, req.Name, req.HecateTunnelUUID, req.DeviceID, req.ResolvedAddress, req.ExternalProxyPort, req.WriteEnabled)
+	agent, err := h.svc.Patch(uuid, services.AgentPatch{
+		Name:              req.Name,
+		HecateTunnelUUID:  req.HecateTunnelUUID,
+		DeviceID:          req.DeviceID,
+		ResolvedAddress:   req.ResolvedAddress,
+		ExternalProxyPort: req.ExternalProxyPort,
+		WriteEnabled:      req.WriteEnabled,
+	})
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
