@@ -261,6 +261,7 @@ describe('Setup Page setup code', () => {
     await user.click(screen.getByRole('button', { name: 'Create Admin Account' }));
 
     expect(await screen.findByText('The setup code is incorrect. Check the Charon logs and try again.')).toBeTruthy();
+    expect(screen.getByRole('alert')).toHaveTextContent('The setup code is incorrect. Check the Charon logs and try again.');
     expect(mockNavigate).not.toHaveBeenCalledWith('/');
   });
 

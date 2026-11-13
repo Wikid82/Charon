@@ -165,7 +165,7 @@ const Setup: FC = () => {
           </div>
 
           {error && (
-            <div className="text-red-500 text-sm text-center">
+            <div role="alert" className="text-red-500 text-sm text-center">
               {error}
             </div>
           )}
