@@ -72,6 +72,19 @@ func TestPermissionRedactForRoleMarshalErrorIsReturned(t *testing.T) {
 	require.Error(t, err)
 }
 
+func TestPermissionRedactForRoleNonObjectItemIsRejected(t *testing.T) {
+	t.Parallel()
+
+	ctx, _ := newTestContextWithRequest()
+	ctx.Set("role", "user")
+
+	// Redaction works on JSON objects only; a value that encodes to anything
+	// else is an error rather than an unredacted pass-through.
+	_, err := redactForRole(ctx, []string{"not", "an", "object"}, []string{"secret"}, nil)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "decode response for redaction")
+}
+
 func TestPermissionRedactListForRoleAdminReceivesItemsUnchanged(t *testing.T) {
 	t.Parallel()
 

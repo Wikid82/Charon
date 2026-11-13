@@ -1,4 +1,4 @@
-import { screen, within } from '@testing-library/react'
+import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
@@ -144,6 +144,31 @@ describe('Notifications page roles', () => {
       expect(screen.getByTestId('provider-url')).not.toBeDisabled()
       expect(screen.getByTestId('provider-test-btn')).toBeInTheDocument()
       expect(screen.getByTestId('provider-preview-btn')).toBeInTheDocument()
+    })
+
+    it('opens the template form from the new template button', async () => {
+      const user = userEvent.setup({ delay: null })
+      setupProviders([redactedProvider])
+      renderWithQueryClient(<Notifications />)
+
+      await user.click(await screen.findByRole('button', { name: 'notificationProviders.newTemplate' }))
+
+      expect(await screen.findByText('notificationProviders.createTemplate')).toBeInTheDocument()
+    })
+
+    it('deletes a provider after the confirmation', async () => {
+      const user = userEvent.setup({ delay: null })
+      setupProviders([redactedProvider])
+      vi.mocked(notificationsApi.deleteProvider).mockResolvedValue(undefined)
+      const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true)
+      renderWithQueryClient(<Notifications />)
+
+      const row = await screen.findByTestId('provider-row-provider-1')
+      await user.click(within(row).getByRole('button', { name: 'common.delete' }))
+
+      await waitFor(() => expect(notificationsApi.deleteProvider).toHaveBeenCalled())
+      expect(vi.mocked(notificationsApi.deleteProvider).mock.calls[0][0]).toBe('provider-1')
+      confirmSpy.mockRestore()
     })
   })
 })

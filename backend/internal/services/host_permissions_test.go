@@ -1,12 +1,15 @@
 package services
 
 import (
+	"errors"
 	"os"
+	"slices"
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"gorm.io/gorm"
 )
 
 const hostPermsAdvancedConfig = `{"handle":[{"handler":"headers"}]}`
@@ -273,4 +276,59 @@ func TestHostPermsAdminListenerRefusedInLocations(t *testing.T) {
 func TestHostPermsCanonicalAdvancedConfigFallsBackOnInvalidStoredJSON(t *testing.T) {
 	assert.Equal(t, "not json", canonicalAdvancedConfig("not json"))
 	assert.Empty(t, canonicalAdvancedConfig(""))
+}
+
+func TestHostPermsAdminAPIPortFrom(t *testing.T) {
+	assert.Equal(t, 2019, adminAPIPortFrom("127.0.0.1:2019"))
+	assert.Zero(t, adminAPIPortFrom("127.0.0.1"), "an address without a port matches no target")
+	assert.Zero(t, adminAPIPortFrom("127.0.0.1:admin"), "a non-numeric port matches no target")
+}
+
+func TestHostPermsRedirectionUpdateMissingRowNonAdmin(t *testing.T) {
+	db := setupRedirectionHostTestDB(t)
+	svc := NewRedirectionHostService(db)
+	host := &models.RedirectionHost{ID: 4242, DomainNames: "ghost-redir.example.com", TargetURL: "https://target.example.net", StatusCode: 301}
+	// No stored row: the stored DNS fields are treated as empty, so an unset
+	// DNS binding is accepted and the write matches nothing.
+	require.NoError(t, svc.UpdateAs(host, false))
+}
+
+// failStoredAdminFieldLoads makes the stored admin-field lookup on table fail
+// while every other query keeps working, so the error path inside the
+// write-locked checkHostWrite can be exercised.
+func failStoredAdminFieldLoads(t *testing.T, db *gorm.DB, table string) {
+	t.Helper()
+	require.NoError(t, db.Callback().Query().Before("gorm:query").Register("test:fail_stored_admin_fields", func(tx *gorm.DB) {
+		if tx.Statement.Table == table && slices.Contains(tx.Statement.Selects, "use_dns_challenge") {
+			_ = tx.AddError(errors.New("injected stored admin field load failure"))
+		}
+	}))
+}
+
+func TestHostPermsProxyUpdateStoredAdminFieldsLoadErrorIsReturned(t *testing.T) {
+	db := setupProxyHostTestDB(t)
+	svc := NewProxyHostService(db)
+	host := &models.ProxyHost{DomainNames: "load-fail.example.com", ForwardHost: "10.0.0.5", ForwardPort: 8080}
+	require.NoError(t, svc.CreateAs(host, true))
+
+	failStoredAdminFieldLoads(t, db, "proxy_hosts")
+	host.Name = "renamed"
+	err := svc.UpdateAs(host, false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "load stored proxy host")
+	assert.NotErrorIs(t, err, ErrAdminOnlyHostField)
+}
+
+func TestHostPermsRedirectionUpdateStoredAdminFieldsLoadErrorIsReturned(t *testing.T) {
+	db := setupRedirectionHostTestDB(t)
+	svc := NewRedirectionHostService(db)
+	host := &models.RedirectionHost{DomainNames: "redir-load-fail.example.com", TargetURL: "https://target.example.net", StatusCode: 301}
+	require.NoError(t, svc.CreateAs(host, true))
+
+	failStoredAdminFieldLoads(t, db, "redirection_hosts")
+	host.Name = "renamed"
+	err := svc.UpdateAs(host, false)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "load stored redirection host")
+	assert.NotErrorIs(t, err, ErrAdminOnlyHostField)
 }

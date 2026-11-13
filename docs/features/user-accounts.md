@@ -38,8 +38,9 @@ Here is what a standard user can and cannot do:
 - **Cannot:** choose a DNS provider or turn on the DNS challenge for a host. Those
   fields are greyed out with a short note. A standard user can still save a host
   as long as those two settings stay as they are.
-- **Cannot:** edit a proxy host's advanced Caddy configuration. The Advanced tab
-  shows a note instead of the editor.
+- **Cannot:** edit a proxy host's advanced Caddy configuration. The proxy host
+  form shows a short note where the editor would be, and saving the host keeps
+  the existing configuration.
 - **Cannot:** add, change, delete, or run a manual check on uptime monitors. They
   can still see the monitor list, each monitor's status and its history.
 - **Cannot see sensitive details:** notification web addresses (webhook URLs) and
