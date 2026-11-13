@@ -76,9 +76,10 @@ const defaultProviderValues: Partial<NotificationProvider> = {
 
 const ProviderForm: FC<{
   initialData?: Partial<NotificationProvider>;
+  isAdmin: boolean;
   onClose: () => void;
   onSubmit: (data: Partial<NotificationProvider>) => void;
-}> = ({ initialData, onClose, onSubmit }) => {
+}> = ({ initialData, isAdmin, onClose, onSubmit }) => {
   const { t } = useTranslation();
   const { register, handleSubmit, control, getValues, setValue, reset, formState: { errors } } = useForm({
     defaultValues: defaultProviderValues,
@@ -400,29 +401,33 @@ const ProviderForm: FC<{
 
       <div className="flex justify-end gap-2 pt-4">
         <Button variant="secondary" onClick={onClose}>{t('common.cancel')}</Button>
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={handlePreview}
-          disabled={testMutation.isPending}
-          data-testid="provider-preview-btn"
-          className="min-w-20"
-        >
-          {t('notificationProviders.preview')}
-        </Button>
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={handleTest}
-          disabled={testMutation.isPending || (isNew && !isEmail)}
-          data-testid="provider-test-btn"
-          className="min-w-20"
-        >
-          {testMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> :
-           testStatus === 'success' ? <Check className="w-4 h-4 text-green-500 mx-auto" /> :
-           testStatus === 'error' ? <X className="w-4 h-4 text-red-500 mx-auto" /> :
-           t('common.test')}
-        </Button>
+        {isAdmin && (
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handlePreview}
+            disabled={testMutation.isPending}
+            data-testid="provider-preview-btn"
+            className="min-w-20"
+          >
+            {t('notificationProviders.preview')}
+          </Button>
+        )}
+        {isAdmin && (
+          <Button
+            type="button"
+            variant="secondary"
+            onClick={handleTest}
+            disabled={testMutation.isPending || (isNew && !isEmail)}
+            data-testid="provider-test-btn"
+            className="min-w-20"
+          >
+            {testMutation.isPending ? <Loader2 className="w-4 h-4 animate-spin mx-auto" /> :
+             testStatus === 'success' ? <Check className="w-4 h-4 text-green-500 mx-auto" /> :
+             testStatus === 'error' ? <X className="w-4 h-4 text-red-500 mx-auto" /> :
+             t('common.test')}
+          </Button>
+        )}
         <Button type="submit" data-testid="provider-save-btn">{t('common.save')}</Button>
       </div>
       {previewError && <div className="mt-2 text-sm text-red-600">{t('notificationProviders.previewError')}: {previewError}</div>}
@@ -795,10 +800,12 @@ const Notifications: FC = () => {
           <Bell className="w-6 h-6" />
           {t('notificationProviders.title')}
         </h1>
-        <Button onClick={() => setIsAdding(true)} data-testid="add-provider-btn">
-          <Plus className="w-4 h-4 mr-2" />
-          {t('notificationProviders.addProvider')}
-        </Button>
+        {isAdmin && (
+          <Button onClick={() => setIsAdding(true)} data-testid="add-provider-btn">
+            <Plus className="w-4 h-4 mr-2" />
+            {t('notificationProviders.addProvider')}
+          </Button>
+        )}
       </div>
 
       <WebPushCard isAdmin={isAdmin} />
@@ -807,16 +814,21 @@ const Notifications: FC = () => {
       <div className="flex justify-between items-center">
         <h2 className="text-xl font-semibold text-gray-900 dark:text-white">{t('notificationProviders.externalTemplates')}</h2>
         <div className="flex items-center gap-2">
-          <Button onClick={() => setManagingTemplates(!managingTemplates)} variant="secondary" size="sm">
-            {managingTemplates ? t('notificationProviders.hideTemplates') : t('notificationProviders.manageTemplates')}
-          </Button>
-          <Button onClick={() => { setEditingTemplateId(null); setManagingTemplates(true); }}>
-            <Plus className="w-4 h-4 mr-2" />{t('notificationProviders.newTemplate')}
-          </Button>
+          {isAdmin && (
+            <Button onClick={() => setManagingTemplates(!managingTemplates)} variant="secondary" size="sm">
+              {managingTemplates ? t('notificationProviders.hideTemplates') : t('notificationProviders.manageTemplates')}
+            </Button>
+          )}
+          {isAdmin && (
+            <Button onClick={() => { setEditingTemplateId(null); setManagingTemplates(true); }}>
+              <Plus className="w-4 h-4 mr-2" />{t('notificationProviders.newTemplate')}
+            </Button>
+          )}
         </div>
       </div>
 
-      {managingTemplates && (
+      {/* Standard users always see the template list; create, edit and delete are administrator-only. */}
+      {(managingTemplates || !isAdmin) && (
         <div className="space-y-4">
           {/* Template Form area */}
           {editingTemplateId !== null && (
@@ -833,7 +845,7 @@ const Notifications: FC = () => {
           )}
 
           {/* Create new when editingTemplateId is null and Manage Templates open -> show form */}
-          {editingTemplateId === null && (
+          {isAdmin && editingTemplateId === null && (
             <Card className="p-4">
               <h3 className="font-medium mb-2">{t('notificationProviders.createTemplate')}</h3>
               <TemplateForm
@@ -861,20 +873,22 @@ const Notifications: FC = () => {
                   <p className="text-sm text-gray-500 mt-1">{t_template.description}</p>
                   <pre className="mt-2 text-xs font-mono bg-gray-50 dark:bg-gray-800 p-2 rounded max-h-44 overflow-auto">{t_template.config}</pre>
                 </div>
-                <div className="flex flex-col gap-2 ml-4">
-                  <Button size="sm" variant="secondary" onClick={() => setEditingTemplateId(t_template.id)} data-testid={`external-template-edit-${t_template.id}`}>
-                    <Edit2 className="w-4 h-4" />
-                  </Button>
-                  {/* Stable test hook for async template list rendering. */}
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    data-testid={`external-template-delete-${t_template.id}`}
-                    onClick={() => { if (confirm(t('notificationProviders.deleteTemplateConfirm'))) deleteTemplateMutation.mutate(t_template.id); }}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
-                </div>
+                {isAdmin && (
+                  <div className="flex flex-col gap-2 ml-4">
+                    <Button size="sm" variant="secondary" onClick={() => setEditingTemplateId(t_template.id)} data-testid={`external-template-edit-${t_template.id}`}>
+                      <Edit2 className="w-4 h-4" />
+                    </Button>
+                    {/* Stable test hook for async template list rendering. */}
+                    <Button
+                      size="sm"
+                      variant="danger"
+                      data-testid={`external-template-delete-${t_template.id}`}
+                      onClick={() => { if (confirm(t('notificationProviders.deleteTemplateConfirm'))) deleteTemplateMutation.mutate(t_template.id); }}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  </div>
+                )}
               </Card>
             ))}
             {externalTemplates?.length === 0 && (
@@ -888,6 +902,7 @@ const Notifications: FC = () => {
         <Card className="p-6 mb-6 border-blue-500 border-2">
           <h3 className="text-lg font-medium mb-4">{t('notificationProviders.addNewProvider')}</h3>
           <ProviderForm
+            isAdmin={isAdmin}
             onClose={() => setIsAdding(false)}
             onSubmit={(data) => createMutation.mutate(data)}
           />
@@ -900,6 +915,7 @@ const Notifications: FC = () => {
             {editingId === provider.id && !isUnsupportedProviderType(provider.type) ? (
               <ProviderForm
                 initialData={provider}
+                isAdmin={isAdmin}
                 onClose={() => setEditingId(null)}
                 onSubmit={(data) => updateMutation.mutate({ id: provider.id, data })}
               />
@@ -944,13 +960,13 @@ const Notifications: FC = () => {
                       <span className="uppercase text-xs font-bold bg-gray-100 dark:bg-gray-700 px-2 py-0.5 rounded">
                         {provider.type}
                       </span>
-                      <span className="truncate max-w-xs opacity-50">{provider.url}</span>
+                      <span className="truncate max-w-xs opacity-50">{provider.url || (provider.has_url ? t('permissions.hiddenForRole') : '')}</span>
                     </div>
                   </div>
                 </div>
 
                 <div className="flex items-center gap-2">
-                  {!isUnsupportedProviderType(provider.type) && (
+                  {isAdmin && !isUnsupportedProviderType(provider.type) && (
                     <Button
                       variant="secondary"
                       size="sm"
@@ -962,21 +978,23 @@ const Notifications: FC = () => {
                       <Send className="w-4 h-4" />
                     </Button>
                   )}
-                  {!isUnsupportedProviderType(provider.type) && (
+                  {isAdmin && !isUnsupportedProviderType(provider.type) && (
                     <Button variant="secondary" size="sm" onClick={() => setEditingId(provider.id)} aria-label={t('common.edit')}>
                       <Edit2 className="w-4 h-4" />
                     </Button>
                   )}
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    onClick={() => {
-                      if (confirm(t('notificationProviders.deleteConfirm'))) deleteMutation.mutate(provider.id);
-                    }}
-                    aria-label={t('common.delete')}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </Button>
+                  {isAdmin && (
+                    <Button
+                      variant="danger"
+                      size="sm"
+                      onClick={() => {
+                        if (confirm(t('notificationProviders.deleteConfirm'))) deleteMutation.mutate(provider.id);
+                      }}
+                      aria-label={t('common.delete')}
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </Button>
+                  )}
                 </div>
               </div>
             )}

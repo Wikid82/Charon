@@ -312,12 +312,16 @@ func setCaddyAdminTestEnv(t *testing.T, adminAPI string) {
 	t.Setenv("CPM_CADDY_ADMIN_API", "")
 }
 
-func TestLoad_CaddyAdminAPIDefaultsToLoopback(t *testing.T) {
+func TestLoad_CaddyAdminAPIDefaultsToSocket(t *testing.T) {
 	setCaddyAdminTestEnv(t, "")
 
 	cfg, err := Load()
 	require.NoError(t, err)
-	assert.Equal(t, "http://127.0.0.1:2019", cfg.CaddyAdminAPI)
+	assert.Equal(t, DefaultCaddyAdminAPI(), cfg.CaddyAdminAPI)
+	path, ok := CaddyAdminSocketPath(cfg.CaddyAdminAPI)
+	require.True(t, ok)
+	assert.True(t, filepath.IsAbs(path), "socket path must be absolute: %q", path)
+	assert.True(t, strings.HasSuffix(path, filepath.Join("data", "run", "caddy-admin.sock")), path)
 }
 
 func TestLoad_CaddyAdminAPIAcceptsLoopbackSpellingsAndNormalizes(t *testing.T) {
@@ -334,7 +338,8 @@ func TestLoad_CaddyAdminAPIAcceptsLoopbackSpellingsAndNormalizes(t *testing.T) {
 
 			cfg, err := Load()
 			require.NoError(t, err)
-			assert.Equal(t, "http://127.0.0.1:2019", cfg.CaddyAdminAPI)
+			assert.Equal(t, DefaultCaddyAdminAPI(), cfg.CaddyAdminAPI)
+			assert.Contains(t, cfg.StartupWarnings, LegacyAdminURLWarning(DefaultCaddyAdminAPI()))
 		})
 	}
 }
@@ -345,12 +350,12 @@ func TestLoad_CaddyAdminAPIAcceptsCPMAlias(t *testing.T) {
 
 	cfg, err := Load()
 	require.NoError(t, err)
-	assert.Equal(t, "http://127.0.0.1:2019", cfg.CaddyAdminAPI)
+	assert.Equal(t, DefaultCaddyAdminAPI(), cfg.CaddyAdminAPI)
 }
 
 // wantCaddyAdminRefusal is the exact startup error for any admin URL that does not
 // name this container's loopback interface.
-const wantCaddyAdminRefusal = "CHARON_CADDY_ADMIN_API must point at this container (localhost); using an external proxy is not supported: set it to http://localhost:2019 or remove it"
+const wantCaddyAdminRefusal = caddyAdminRefusedMessage
 
 func TestLoad_CaddyAdminAPIRefusesAnotherHost(t *testing.T) {
 	cases := []struct {
@@ -442,7 +447,7 @@ func TestLoad_CaddyAdminAPINormalizesHTTPSLoopbackToHTTP(t *testing.T) {
 
 	cfg, err := Load()
 	require.NoError(t, err)
-	assert.Equal(t, "http://127.0.0.1:2019", cfg.CaddyAdminAPI)
+	assert.Equal(t, DefaultCaddyAdminAPI(), cfg.CaddyAdminAPI)
 }
 
 // This test writes the package-level CaddyAdminAPIForTests seam, so it must not

@@ -5,7 +5,8 @@ export interface DNSProviderCredential {
   uuid: string
   dns_provider_id: number
   label: string
-  zone_filter: string
+  /** Omitted for standard users, who cannot read the zone filter. */
+  zone_filter?: string
   enabled: boolean
   propagation_timeout: number
   polling_interval: number
@@ -13,6 +14,7 @@ export interface DNSProviderCredential {
   last_used_at?: string
   success_count: number
   failure_count: number
+  /** Omitted for standard users, who cannot read the last error. */
   last_error?: string
   created_at: string
   updated_at: string

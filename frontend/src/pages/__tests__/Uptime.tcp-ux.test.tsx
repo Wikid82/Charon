@@ -6,6 +6,11 @@ import { renderWithQueryClient } from '../../test-utils/renderWithQueryClient'
 import Uptime from '../Uptime'
 
 // Mock react-i18next
+// Components under test read the caller's role; default to an administrator.
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => ({ user: { user_id: 1, role: 'admin' } }),
+}))
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, options?: Record<string, unknown>) => {

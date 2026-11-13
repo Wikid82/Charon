@@ -30,6 +30,8 @@ import type { DNSProvider } from '../api/dnsProviders'
 
 interface DNSProviderCardProps {
   provider: DNSProvider
+  /** False for standard users, who see the provider but no edit, test or delete controls. */
+  canManage: boolean
   onEdit: (provider: DNSProvider) => void
   onDelete: (uuid: string) => void
   onTest: (uuid: string) => void
@@ -38,6 +40,7 @@ interface DNSProviderCardProps {
 
 export default function DNSProviderCard({
   provider,
+  canManage,
   onEdit,
   onDelete,
   onTest,
@@ -161,37 +164,39 @@ export default function DNSProviderCard({
             </div>
           )}
 
-          {/* Action Buttons */}
-          <div className="flex gap-2 pt-2">
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => onEdit(provider)}
-              className="flex-1"
-            >
-              <Edit className="w-4 h-4 mr-2" />
-              {t('common.edit')}
-            </Button>
-            <Button
-              variant="secondary"
-              size="sm"
-              onClick={() => onTest(provider.uuid)}
-              isLoading={isTesting}
-              disabled={!provider.has_credentials}
-              className="flex-1"
-            >
-              <TestTube className="w-4 h-4 mr-2" />
-              {t('common.test')}
-            </Button>
-            <Button
-              variant="danger"
-              size="sm"
-              onClick={() => setShowDeleteDialog(true)}
-              aria-label={t('dnsProviders.deleteLabel', { name: provider.name, defaultValue: 'Delete provider {{name}}' })}
-            >
-              <Trash2 className="w-4 h-4" />
-            </Button>
-          </div>
+          {/* Action Buttons (administrators only) */}
+          {canManage && (
+            <div className="flex gap-2 pt-2">
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => onEdit(provider)}
+                className="flex-1"
+              >
+                <Edit className="w-4 h-4 mr-2" />
+                {t('common.edit')}
+              </Button>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => onTest(provider.uuid)}
+                isLoading={isTesting}
+                disabled={!provider.has_credentials}
+                className="flex-1"
+              >
+                <TestTube className="w-4 h-4 mr-2" />
+                {t('common.test')}
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                onClick={() => setShowDeleteDialog(true)}
+                aria-label={t('dnsProviders.deleteLabel', { name: provider.name, defaultValue: 'Delete provider {{name}}' })}
+              >
+                <Trash2 className="w-4 h-4" />
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 

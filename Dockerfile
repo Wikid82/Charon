@@ -1191,7 +1191,8 @@ ENV CHARON_ENV=production \
     CHARON_CROWDSEC_CONFIG_DIR=/app/data/crowdsec \
     CHARON_PLUGINS_DIR=/app/plugins
 # Create necessary directories
-RUN mkdir -p /app/data /app/data/caddy /config /app/data/crowdsec
+RUN mkdir -p /app/data /app/data/caddy /app/data/run /config /app/data/crowdsec && \
+    chmod 700 /app/data/run
 
 # Security: Create plugins directory with secure permissions
 # Mode 0755: owner rwx, group rx, other rx (NOT world-writable)
@@ -1205,7 +1206,7 @@ RUN mkdir -p /app/plugins && chmod 755 /app/plugins
 # Note: /etc/crowdsec will be created as a symlink at runtime, not owned directly
 # Note: /app/plugins has 755 permissions (NOT world-writable) for security
 RUN chown charon:charon /app/data && \
-    chown -R charon:charon /app/data/caddy /app/data/crowdsec /app/plugins /app/frontend /config /var/log/crowdsec /var/log/caddy && \
+    chown -R charon:charon /app/data/caddy /app/data/run /app/data/crowdsec /app/plugins /app/frontend /config /var/log/crowdsec /var/log/caddy && \
     chown -R charon:charon /etc/crowdsec.dist 2>/dev/null || true && \
     chown -R charon:charon /var/lib/crowdsec 2>/dev/null || true
 
@@ -1226,7 +1227,7 @@ LABEL org.opencontainers.image.title="Charon (CPMP legacy)" \
       org.opencontainers.image.licenses="MIT"
 
 # Expose ports
-EXPOSE 80 443 443/udp 2019 8080
+EXPOSE 80 443 443/udp 8080
 
 # Security: Add healthcheck to monitor container health
 # Verifies the Charon API is responding correctly

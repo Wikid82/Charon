@@ -823,7 +823,7 @@ CMD ["/app/charon"]
 | 80 | HTTP | Caddy reverse proxy | 0.0.0.0 |
 | 443 | HTTPS | Caddy reverse proxy (TLS) | 0.0.0.0 |
 | 443 | UDP | HTTP/3 QUIC (optional) | 0.0.0.0 |
-| 2019 | HTTP | Proxy admin interface (used by Charon inside the container; not exposed) | 127.0.0.1 |
+| none | unix socket | Caddy admin API at `/app/data/run/caddy-admin.sock` (inside the container only; no TCP port) | n/a |
 | 2020 | HTTP | Emergency recovery (localhost only) | 127.0.0.1 |
 
 ### Volume Mounts

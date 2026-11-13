@@ -212,6 +212,7 @@ Before marking an implementation task as complete, perform the following in orde
 5. **Staticcheck BLOCKING Validation**: Pre-commit hooks automatically run fast linters including staticcheck.
    - Manual verification: `make lint-fast` or `make lint-staticcheck-only`
    - **Do NOT** use `--no-verify` unless emergency hotfix
+   - **Full lint including gosec (BLOCKING, QA runs it last):** pre-commit runs only `.golangci-fast.yml` (a few critical gosec rules, gosec excluded from `_test.go`), but CI runs the full `backend/.golangci.yml` with gosec on all files. Run `make lint-backend` (and `make lint-agent` if `agent/` changed) after the last code or test edit, including edits made during QA, and fix every finding before approval.
 
 6. **Coverage Testing** (MANDATORY — Non-negotiable):
    - **Overall Coverage**: Minimum 85% coverage — will fail the PR if not met

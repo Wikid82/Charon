@@ -71,6 +71,20 @@ type ProxyHostResponse struct {
 	Warnings                []ProxyHostWarning            `json:"warnings,omitempty"`
 }
 
+// proxyHostRedactedFields are the proxy host fields that only administrators may
+// read. Other callers receive has_advanced_config in their place.
+var proxyHostRedactedFields = []string{"advanced_config", "advanced_config_backup"}
+
+// proxyHostFlags derives the response flags for a proxy host model.
+func proxyHostFlags(host models.ProxyHost) map[string]any {
+	return map[string]any{"has_advanced_config": host.AdvancedConfig != ""}
+}
+
+// proxyHostResponseFlags derives the response flags for a ProxyHostResponse.
+func proxyHostResponseFlags(resp ProxyHostResponse) map[string]any {
+	return map[string]any{"has_advanced_config": resp.AdvancedConfig != ""}
+}
+
 // NewProxyHostResponse creates a ProxyHostResponse from a ProxyHost model.
 func NewProxyHostResponse(host *models.ProxyHost, warnings []ProxyHostWarning) ProxyHostResponse {
 	return ProxyHostResponse{
@@ -427,7 +441,7 @@ func (h *ProxyHostHandler) List(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, hosts)
+	jsonListForRole(c, http.StatusOK, hosts, proxyHostRedactedFields, proxyHostFlags)
 }
 
 // Create creates a new proxy host.
@@ -529,8 +543,8 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 		host.Locations[i].UUID = uuid.NewString()
 	}
 
-	if err := h.service.Create(&host); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := h.service.CreateAs(&host, isAdmin(c)); err != nil {
+		respondHostWriteError(c, err)
 		return
 	}
 
@@ -571,11 +585,11 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 
 	// Return response with warnings if any
 	if len(warnings) > 0 {
-		c.JSON(http.StatusCreated, NewProxyHostResponse(&host, warnings))
+		jsonForRole(c, http.StatusCreated, NewProxyHostResponse(&host, warnings), proxyHostRedactedFields, proxyHostResponseFlags)
 		return
 	}
 
-	c.JSON(http.StatusCreated, host)
+	jsonForRole(c, http.StatusCreated, host, proxyHostRedactedFields, proxyHostFlags)
 }
 
 // Get retrieves a proxy host by UUID.
@@ -588,7 +602,7 @@ func (h *ProxyHostHandler) Get(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, host)
+	jsonForRole(c, http.StatusOK, *host, proxyHostRedactedFields, proxyHostFlags)
 }
 
 // Update updates an existing proxy host.
@@ -765,8 +779,8 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		}
 	}
 
-	if err := h.service.Update(host); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := h.service.UpdateAs(host, isAdmin(c)); err != nil {
+		respondHostWriteError(c, err)
 		return
 	}
 
@@ -790,11 +804,11 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 
 	// Return response with warnings if any
 	if len(warnings) > 0 {
-		c.JSON(http.StatusOK, NewProxyHostResponse(host, warnings))
+		jsonForRole(c, http.StatusOK, NewProxyHostResponse(host, warnings), proxyHostRedactedFields, proxyHostResponseFlags)
 		return
 	}
 
-	c.JSON(http.StatusOK, host)
+	jsonForRole(c, http.StatusOK, *host, proxyHostRedactedFields, proxyHostFlags)
 }
 
 // Delete removes a proxy host.
@@ -907,7 +921,7 @@ func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 		}
 
 		host.AccessListID = req.AccessListID
-		if err := h.service.Update(host); err != nil {
+		if err := h.service.UpdateAs(host, isAdmin(c)); err != nil {
 			failures = append(failures, map[string]string{
 				"uuid":  hostUUID,
 				"error": err.Error(),
@@ -975,7 +989,7 @@ func (h *ProxyHostHandler) BulkUpdateGroup(c *gin.Context) {
 			continue
 		}
 		host.ProxyGroupID = resolvedGroupID
-		if err := h.service.Update(host); err != nil {
+		if err := h.service.UpdateAs(host, isAdmin(c)); err != nil {
 			failures = append(failures, map[string]string{
 				"uuid":  hostUUID,
 				"error": err.Error(),

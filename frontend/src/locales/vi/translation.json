@@ -50,6 +50,11 @@
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
     "score": "Score"
   },
+  "permissions": {
+    "adminOnlyError": "Chỉ quản trị viên mới có thể thay đổi cài đặt này.",
+    "hiddenForRole": "Ẩn đối với vai trò của bạn.",
+    "dnsAdminOnly": "Chỉ quản trị viên mới có thể thay đổi nhà cung cấp DNS và thử thách DNS."
+  },
   "navigation": {
     "dashboard": "Dashboard",
     "proxyHosts": "Proxy Hosts",

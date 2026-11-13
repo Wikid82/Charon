@@ -62,11 +62,11 @@ curl -s -b /tmp/debug-cookie http://localhost:8280/api/v1/security/config | jq .
 
 echo ""
 echo "=== Caddy config (checking for rate_limit handler) ==="
-docker exec charon-debug wget -qO- http://127.0.0.1:2019/config/ | jq '.apps.http.servers.charon_server.routes[0].handle // []' | grep -i rate_limit || echo "No rate_limit handler found"
+docker exec charon-debug /app/charon caddy-admin get /config/ | jq '.apps.http.servers.charon_server.routes[0].handle // []' | grep -i rate_limit || echo "No rate_limit handler found"
 
 echo ""
 echo "=== Full Caddy route handlers ==="
-docker exec charon-debug wget -qO- http://127.0.0.1:2019/config/ | jq '.apps.http.servers.charon_server.routes[0].handle // []'
+docker exec charon-debug /app/charon caddy-admin get /config/ | jq '.apps.http.servers.charon_server.routes[0].handle // []'
 
 echo ""
 echo "=== Container logs (last 50 lines) ==="

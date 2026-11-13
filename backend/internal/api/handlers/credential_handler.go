@@ -91,7 +91,7 @@ func (h *CredentialHandler) List(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, credentials)
+	jsonListForRole(c, http.StatusOK, credentials, credentialRedactedFields, nil)
 }
 
 // Create handles POST /api/v1/dns-providers/:id/credentials
@@ -154,7 +154,7 @@ func (h *CredentialHandler) Get(c *gin.Context) {
 		return
 	}
 
-	c.JSON(http.StatusOK, credential)
+	jsonForRole(c, http.StatusOK, *credential, credentialRedactedFields, nil)
 }
 
 // Update handles PUT /api/v1/dns-providers/:id/credentials/:cred_id
@@ -263,3 +263,7 @@ func (h *CredentialHandler) EnableMultiCredentials(c *gin.Context) {
 
 	c.JSON(http.StatusOK, gin.H{"message": "Multi-credential mode enabled successfully"})
 }
+
+// credentialRedactedFields are the DNS credential metadata fields that only
+// administrators may read: the raw last error and the zone scope.
+var credentialRedactedFields = []string{"last_error", "zone_filter"}

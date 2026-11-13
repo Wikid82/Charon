@@ -1,121 +1,167 @@
-# QA Report: Browser Session Requests
+# QA Report: Management Permissions for Standard Users
 
-- Branch: `fix/browser-session-requests` (5 commits on `origin/development`, up to `90e645514`)
-- Spec: `docs/plans/cerberus_hardening_batch7_spec.md`, section 6
-- Scope: backend (origin check middleware, route wiring, settings refresh, WebSocket origin check), Playwright
-  security spec, docs (`ARCHITECTURE.md`, `docs/configuration/public-url.md`, docs-site nav). No frontend changes
-  (`git diff --stat` confirms), so frontend coverage was not re-run.
-- Image under test: `charon:local` from `docker-rebuild-e2e`.
+- Branch: `fix/management-permissions` (11 commits on `origin/development`, up to `74bfc4fda`)
+- Spec: `docs/plans/cerberus_hardening_batch7_spec.md`, section 7
+- Scope: backend (host write checks, role-aware response helpers, monitor routes, container list, forward target
+  validation, administration interface hardening), frontend (proxy host form, redirection host form, Uptime,
+  Notifications, DNS providers, locales), container image and entrypoint, integration scripts, Playwright specs,
+  docs.
+- Image under test: `charon:local` from `docker-rebuild-e2e`, rebuilt for this round.
 - Date: 2026-11-13
+- This is the second QA round. The first round found one high issue (H1); this round checks the fix and the other
+  changes made since.
 
 ## Verdict
 
-**Approved.** Nothing blocking. QA added tests to bring patch coverage to 100%. Three low findings remain open
-and are recommended as small follow-ups (see Findings). The full E2E matrix runs only in the PR's CI.
+**Approved.** Nothing blocking is left. H1 from the first round is fixed: the proxy's administration interface is
+no longer reachable over the network, and the earlier reproduction now fails. QA found one gap in that fix (the
+socket directory was not private) and fixed it with a one-line change in the entrypoint and the Dockerfile (M1).
+QA also added tests to close the coverage gaps, and fixed one stale script comment. Five low findings remain open;
+each is suggested as a separate follow-up (see Findings).
 
 ## Gates run (all foreground)
 
 | Gate | Result |
 | --- | --- |
-| `docker-rebuild-e2e` | Pass, container healthy |
-| Playwright `authorization-rbac.spec.ts --project=security-tests` | Pass, 98/98 |
-| Playwright `tests/core/authentication.spec.ts` + `tests/core/proxy-hosts.spec.ts --project=firefox` | Pass, 51/51 |
-| Playwright `tests/settings/smtp-settings.spec.ts --project=firefox` (UI settings mutations) | Pass, 21/21 |
-| `scripts/go-test-coverage.sh` (with `-race`) | Pass, 92.6% line coverage (gate 87%), 0 failures |
-| `bash scripts/local-patch-report.sh` | Backend 83.0% before QA tests, **100%** after (88/88 lines); frontend and agent: no changed lines |
+| `docker-rebuild-e2e` | Pass, container healthy (rebuilt for this round, and again after the QA Dockerfile change) |
+| Playwright `authorization-rbac.spec.ts --project=security-tests` | Pass, 116/116 (on the image rebuilt with the QA Dockerfile change) |
+| Playwright `tests/security/self-proxy-requests.spec.ts --project=security-tests` (Firefox locally) | Pass, 8/8. The spec reads the per-process hop value through the new admin path and requires a non-empty 32+ character value, so a failed read fails the test instead of weakening it |
+| Firefox UI pass on the throwaway container (standard user) | Pass (see below) |
+| `scripts/go-test-coverage.sh` (with `-race`, 60m timeout) | Pass, 93.7% statements / 92.7% lines (gate 87%), 0 failures, no races (re-run with the QA tests) |
+| `scripts/frontend-test-coverage.sh` | Pass, 355 files / 4526 tests, 91.8% statements |
+| `bash scripts/local-patch-report.sh` | Before QA tests: backend 392/439 (89.3%), frontend 67/70. After: backend 434/439 (98.9%), frontend 69/70 (the two Notifications lines confirmed with a targeted coverage run). Remaining lines are listed under "Patch coverage" |
 | `make lint-backend` (full golangci-lint) | Pass, 0 issues |
+| `golangci-lint-fast` (backend and agent) after QA tests | Pass, 0 issues |
+| `npm run lint` (max warnings 0), `npm run type-check`, `tsc6 --noEmit` (TypeScript 6.0.3) | Pass |
 | `lefthook run pre-commit --all-files` | Pass, all 20 hooks (semgrep, type-check and lint included) |
-| `./scripts/scan-gorm-security.sh --check` | Pass, 0 critical/high/medium (no model changes; run because a query constant moved) |
-| `lefthook run codeql` (Go and JS) | 0 new. Go: 4 existing suppressed results, all in files this PR does not touch. JS: 0 |
-| `bash docs-site/scripts/sync-docs.sh && zensical build --strict` | Pass, no issues |
-| Trivy | Deferred to CI (fix-scoped change, no dependency or Dockerfile changes) |
+| `lefthook run codeql` (Go and JS) | Pass. Go: 0 blocking (4 existing suppressed results, none in files this PR changes). JS: 0 |
+| `./scripts/scan-gorm-security.sh --check` | Pass, 0 critical/high/medium |
+| `shellcheck` on the entrypoint and every changed script | No new findings compared with `origin/development` (the hook gate is `--severity=error`; existing lower-severity notes are unchanged) |
+| bats | No bats suite covers the changed scripts |
+| actionlint | Not needed: no workflow changes |
+| `docker compose -f .docker/compose/docker-compose.playwright-local.yml config` (with the `.env` values exported, as the file requires) | Valid. Publishes `127.0.0.1:2020` for the emergency server; no admin port anywhere |
+| docs-site `sync-docs.sh` + `zensical build --strict` | Pass, no issues |
+| markdownlint on changed Markdown | Pass (existing issues in a file outside the docs tree are untouched) |
+| Trivy | Deferred to CI |
+
+## Integration scripts (run in their real flow)
+
+The shared E2E container was stopped while scripts that publish its ports ran, then restarted. The dev container
+was not touched. Coraza ran with its port variables moved off ports 80 and 443.
+
+| Script | Result |
+| --- | --- |
+| `rate_limit_integration.sh` | Pass; its readiness step reads the admin socket ("Caddy admin API is ready") |
+| `waf_integration.sh` | Pass |
+| `cerberus_integration.sh` | Pass |
+| `coraza_integration.sh` | Pass |
+| `security_headers_integration.sh` | Pass |
+| `debug_rate_limit.sh` | Runs; it prints the full route list read through the admin socket |
+| `integration-test.sh` | The readiness command works against a running container, but the script stops earlier at setup (L4) |
+| `verify_crowdsec_app_config.sh` | The printed commands use the new path and work when run by hand |
 
 ## Throwaway container gate
 
-A fresh `charon:local` container behind a second throwaway container running Caddy as an outer proxy. The proxy
-rewrote `Host` to the inner address and removed `X-Forwarded-Host`, so the browser address was not visible to
-Charon. Real Firefox (Playwright) drove the UI through the proxy. All throwaway containers and the network were
-removed afterwards; the shared E2E and dev containers were not touched.
+A fresh `charon:local` container on random loopback ports with its own volume, an administrator and a standard
+user, checked with real HTTP calls and a real Firefox session. All throwaway containers, volumes and networks
+were removed afterwards.
 
 | Check | Result |
 | --- | --- |
-| No Application URL: sign in and change a setting from the UI | 200 |
-| No Application URL: live log WebSocket from the UI | Refused (expected: the inner `Host` does not match the browser origin) |
-| Application URL saved through System Settings (UI save request carried same-origin metadata) | 200 |
-| After saving, without a restart: live log WebSocket from the UI | Opened (101) |
-| After saving: session cookie + foreign origin + cross-site metadata | 403, fixed body `cross_origin_refused` |
-| Session cookie + same-site sibling origin | 403 |
-| Session cookie + Application URL host on another port, or with the other scheme | 403 |
-| Session cookie + Application URL origin, no fetch metadata (older browser path) | 200 with the URL set, 403 without |
-| WebSocket handshake with session cookie + foreign origin (with and without fetch metadata) | 403 |
-| Refused responses | Never repeat request headers |
+| Start-up logs | Clean: no refusal, no address-in-use. Caddy logs one generic line about host checking on the socket (L1) |
+| Admin socket | `srw------- charon`. Directory: `drwxr-sr-x` on the image as built (M1); `drwx------ charon` with the QA fix |
+| `caddy-admin get /config/` | JSON with `admin.listen` = `unix//app/data/run/caddy-admin.sock\|0600` |
+| TCP admin listener | None: no port 2019 in the listening sockets, and a request to `127.0.0.1:2019` inside the container fails |
+| Config reload | Creating and editing a proxy host is served at once; the old domain is no longer routed |
+| `docker restart` (same volume) | Clean start, readiness passes |
+| Hard kill, then start on the same volume | The stale socket left on the volume is cleared and Caddy starts; no address-in-use |
+| Legacy setting `CHARON_CADDY_ADMIN_API=http://localhost:2019` | Starts with a warning to remove the setting; still no TCP listener |
+| Setting that names another host or address | Start-up stops with a clear error |
+| First-round H1 reproduction (as a standard user) | Hosts that name local-only targets on the old admin port can still be created, but every request to them gets 502 and the admin interface does not answer on any path |
+| Forward hosts that look like socket paths, or contain `/`, `\`, `@`, `?`, `#` or spaces (hosts and locations) | 400 for every role |
+| Ordinary forward hosts (`10.0.0.5`, service names with `_`) | Accepted |
+| UI as a standard user: Notifications, DNS providers | No add, edit, delete, test or template controls; no secret values |
+| UI as a standard user: proxy host form | No uptime option, no advanced editor; editing and saving works |
 
 ## Security review
 
-- **Construction and refresh.** Each rebuild creates a new standard library check and stores it with one atomic
-  pointer swap; a mutex serialises rebuilds, and each rebuild reads the current setting, so the last one wins.
-  Requests only load the pointer: no database read per request (verified in code and by the concurrent test under
-  `-race`).
-- **Fail closed.** A stored value the standard library rejects leaves no extra origin trusted, both at startup and
-  on refresh. QA added a startup test for this.
-- **Exact match.** The trusted origin is the normalised scheme, host and port of the Application URL. Port and
-  scheme mismatches were refused in the container gate.
-- **Header-authenticated requests.** Requests with an `Authorization` header skip the check. Charon has no CORS
-  configuration, so a page on another site cannot add that header without a preflight that is never granted.
-  A credential a browser attaches by itself for an outer proxy (Basic) is not accepted as a Charon session, so it
-  cannot be used to skip the check. See L1 for a hardening note.
-- **Requests without browser metadata.** Current browsers always send fetch metadata, and a page cannot remove it.
-  Without it, the standard library falls back to comparing `Origin` with `Host`, and refuses a mismatch unless the
-  origin is the Application URL (verified in the container gate). Requests with neither header are treated as
-  non-browser clients, as before.
-- **WebSockets.** The handshake is checked like a state-changing request by the middleware, and the handler's own
-  origin check additionally accepts the Application URL. Both refused foreign origins in the gate.
-- **Route coverage.** The check applies to the whole authenticated route tree (`protected` and every subgroup),
-  the session routes (logout, refresh, change password) and the import routes. Login, first-run setup, invite
-  acceptance, the emergency routes, the security event intake and the backup OAuth callback (a GET) stay outside
-  it. No route that legitimately receives cross-site browser posts is inside the guarded groups. Certificate
-  challenges are served by Caddy, not by these routes.
-- **Settings refresh.** Both write paths (single setting and bulk configuration) refresh the check after the write
-  is stored; a failed refresh is logged and the saved value is kept.
+- **Administration interface.** The proxy's admin API is now a unix socket inside the container. No TCP listener
+  is opened, even when an older loopback URL is configured, and other addresses are refused at start-up. The
+  socket is mode 0600 and owned by the charon user, so only Charon and Caddy can connect. With the QA fix (M1)
+  the directory is 0700 as documented. No proxy target, user setting or published port can reach it.
+- **Forward target validation.** Forward hosts are now limited to a host, an optional port and an optional
+  `http://` or `https://` prefix, for proxy hosts and their locations, for every role. Values that a later step
+  would shorten into a different target are refused instead. An existing host could not have used the refused
+  characters, because Caddy would not load such a target, so the stricter check does not break working hosts.
+- **Write checks and read redaction** (unchanged since the first round). Every user-facing write path goes through
+  the service-level admin-only field check. All responses that carry the sensitive fields are redacted for
+  non-admin callers. Imports are administrator-only. Roles fail closed.
+- **Other users of the old port.** The image no longer exposes it. Health checks use the application port.
+  Workflows, the agent and the docs-site do not reference the admin API. The integration scripts, compose
+  comments, Playwright helpers and user docs use the new command.
 
 ## Findings
 
-### High / Medium
+### High
 
-None.
+None open. **H1 (first round): fixed** by moving the administration interface off the network (verified above).
+
+### Medium
+
+- **M1 (fixed by QA): the admin socket directory was not private.** The image and the entrypoint both create the
+  socket directory with the default mode before the binary's 0700 setting could apply, so the directory was
+  world-readable on every install. The socket's own 0600 mode still limited who could connect, but the documented
+  directory mode was not in effect. Fix: `chmod 700` in the entrypoint (runs on every start, so it also corrects
+  existing volumes) and in the Dockerfile (fresh volumes copy the image's mode). Verified in a container; a test
+  now checks both files.
 
 ### Low
 
-- **L1 (open, recommend fixing in this PR or a follow-up): align the header exemption with the auth middleware.**
-  The check is skipped whenever an `Authorization` header is present, but the auth middleware only uses that header
-  when it has a value, and otherwise falls back to the session cookie. Browsers cannot send such a request from
-  another site (the header needs a preflight that Charon never grants), so this is defence in depth, not a reachable
-  issue. Suggested approach: skip the check only when the header carries a non-empty value, using the same rule as
-  the auth middleware's credential lookup, and add a unit test.
-- **L2 (open, recommend follow-up): restored backups do not refresh the trusted origin.** A backup restore
-  normally applies the database live, without a restart, but the origin check is only rebuilt when the Application
-  URL is saved or at startup. After a live restore the previous Application URL stays trusted until one of those
-  happens. `ARCHITECTURE.md` and `docs/configuration/public-url.md` say the restored value applies "after the
-  restart that applies the restore", which does not match the live-restore path. Suggested approach: call the
-  guard's refresh after a successful restore (the guard is already exposed as `Registered.BrowserOrigin`), or
-  update both docs to "after the next restart or the next save of the Application URL".
-- **L3 (open, recommend follow-up): Application URL normalisation.** The stored URL keeps the host's letter case
-  and an explicit default port (`:443`, `:80`). Browsers send lowercase hosts and omit default ports, so such a
-  value is not trusted (fail closed). The WebSocket check ignores case but not the default port. Suggested
-  approach: lowercase the host and drop a default port when normalising the configured URL, with tests.
-- **L4 (informational): docs emphasis.** With current browsers, ordinary changes made in the UI are not refused
-  behind a proxy that rewrites `Host`, because the browser reports them as same-origin. What needs the Application
-  URL in that setup is the live views (WebSocket) and older browsers. The troubleshooting text in
-  `docs/configuration/public-url.md` leads with failing saves; suggest also naming live logs and live dashboards
-  that do not connect.
+- **L1 (open, suggest follow-up): misleading Caddy log line.** On every start Caddy logs a warning that host
+  checking is disabled for the admin endpoint. On a 0600 socket this has no effect, but it reads like a problem in
+  operators' logs. Suggested approach: set the admin `origins` value Charon already sends, or document the line in
+  the troubleshooting page.
+- **L2 (open, carried from the first round): a failed proxy host save leaves an unhandled promise.**
+  `ProxyHostForm` shows the error and then re-throws it from the form's submit handler, which nothing awaits.
+  Suggested approach: stop re-throwing and add a test for the refused save.
+- **L3 (open, existing behaviour, suggest an issue): some forward hosts pass validation but fail later.** A forward
+  host with a scheme, a port or a bare IPv6 address passes the service checks, but Caddy then refuses the config,
+  so the API answers 500 and nothing is saved. The UI does not send these forms. Suggested approach: either strip
+  the scheme and port when building the upstream address, or refuse these forms with a 400 at validation.
+- **L4 (open, existing, suggest an issue): `scripts/integration-test.sh` no longer completes.** The deprecated script
+  (still called from the Makefile) sends first-run setup without the setup code that is now required, so it stops
+  before its readiness step. Suggested approach: retire it in favour of the skill it points to, or pass the code.
+- **L5 (open, cosmetic): template empty state for standard users.** When there are no templates, a standard user
+  sees "Use the form above to create one", but the form is administrator-only.
+- **Informational.** Some historical design notes under `docs/implementation/` and `docs/security/` still describe
+  the old TCP admin port. They are not published to the docs site.
+- **Informational.** The CodeQL JS hook deletes `frontend/coverage` and `test-results` before it scans, so running
+  it at the same time as frontend coverage breaks the coverage run. Run them one after the other.
+
+## Patch coverage
+
+After the QA tests, the changed lines that are still uncovered are:
+
+- `backend/internal/caddy/client.go:53-54`: a type check on the HTTP transport that cannot fail.
+- `backend/internal/caddy/client.go:119-120`: logging when closing a response body fails.
+- `backend/internal/services/proxyhost_service.go:170`: an error branch on re-encoding JSON that was just parsed.
+- `backend/cmd/api/main.go:96-97`: the `caddy-admin` dispatch, which exits the process. A new subprocess test runs
+  this path, but coverage from the child process is not collected.
+- `frontend/src/components/ProxyHostForm.tsx:623`: the refused-save message; see L2.
 
 ## Changes made by QA (uncommitted, in the working tree)
 
-Tests only; no application code changed.
-
-- `backend/internal/api/middleware/browser_origin_test.go`: a guard that was never built trusts no origin; an
-  invalid value at startup does not stop startup and is not trusted.
-- `backend/internal/api/handlers/websocket_public_origin_test.go`: the WebSocket upgrade uses the public origin
-  source (accepted, refused, and no source); all four WebSocket handlers wire the source.
-- `backend/internal/api/handlers/settings_public_origin_test.go`: saving the Application URL with no guard wired
-  still stores the value.
+- `.docker/docker-entrypoint.sh`, `Dockerfile`: make the admin socket directory 0700 (M1).
+- `backend/internal/caddy/proxy_admin_loopback_test.go`: the entrypoint and Dockerfile restrict the socket
+  directory before Caddy starts.
+- `backend/internal/caddy/admin_socket_test.go`: `caddy-admin` usage and failure paths (extra arguments, a
+  directory that cannot be created, a failed write, an invalid setting); `PrepareAdminSocket` failures
+  (unreadable directory, a socket that cannot be checked, a stale socket that cannot be removed; skipped when
+  running as root); `Fetch` failures (no base address, no context, missing socket, truncated body).
+- `backend/internal/config/caddy_admin_test.go`: path handling when the working directory cannot be resolved.
+- `backend/internal/services/host_permissions_test.go`: the forward target helper's fallbacks.
+- `backend/cmd/api/main_caddy_admin_test.go`: the binary answers `caddy-admin listen` without starting the server.
+- `frontend/src/pages/__tests__/Notifications.roles.test.tsx`: an administrator can open the template form and
+  delete a provider after confirming.
+- `scripts/integration-test.sh`: comment updated to describe the admin socket.
+- `docs/reports/qa_report.md`: this report.

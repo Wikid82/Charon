@@ -7,11 +7,15 @@ import { ManualDNSChallenge } from '../components/dns-providers'
 import DNSProviderCard from '../components/DNSProviderCard'
 import DNSProviderForm from '../components/DNSProviderForm'
 import { Button, Alert, EmptyState, Skeleton } from '../components/ui'
+import { useAuth } from '../hooks/useAuth'
 import { useDNSProviders, useDNSProviderMutations, type DNSProvider } from '../hooks/useDNSProviders'
 import { toast } from '../utils/toast'
 
 export default function DNSProviders() {
   const { t } = useTranslation()
+  const { user } = useAuth()
+  // Creating, editing, deleting, testing and manual challenges are administrator-only on the server.
+  const canManage = user?.role === 'admin'
   const { data: providers = [], isLoading, refetch } = useDNSProviders()
   const { deleteMutation, testMutation } = useDNSProviderMutations()
 
@@ -110,31 +114,30 @@ export default function DNSProviders() {
     refetch()
   }
 
-  // Header actions
-  const headerActions = (
-    <Button onClick={handleAddProvider}>
-      <Plus className="w-4 h-4 mr-2" />
-      {t('dnsProviders.addProvider')}
-    </Button>
-  )
-
   return (
     <div className="space-y-6">
-      {/* Header with Add Button */}
-      <div className="flex justify-end">
-        {headerActions}
-      </div>
+      {/* Header with Add Button (administrators only) */}
+      {canManage && (
+        <div className="flex justify-end">
+          <Button onClick={handleAddProvider}>
+            <Plus className="w-4 h-4 mr-2" />
+            {t('dnsProviders.addProvider')}
+          </Button>
+        </div>
+      )}
 
       {/* Info Alert */}
       <Alert variant="info" icon={Cloud}>
         <strong>{t('dnsProviders.note')}:</strong> {t('dnsProviders.noteText')}
       </Alert>
 
-      <div className="flex justify-end">
-        <Button variant="secondary" onClick={() => void handleManualChallengeClick()}>
-          {t('dnsProvider.manual.title')}
-        </Button>
-      </div>
+      {canManage && (
+        <div className="flex justify-end">
+          <Button variant="secondary" onClick={() => void handleManualChallengeClick()}>
+            {t('dnsProvider.manual.title')}
+          </Button>
+        </div>
+      )}
 
       {showManualChallenge && manualChallenge && manualChallengeProviderId !== null && (
         <ManualDNSChallenge
@@ -171,10 +174,10 @@ export default function DNSProviders() {
           icon={<Cloud className="w-10 h-10" />}
           title={t('dnsProviders.noProviders')}
           description={t('dnsProviders.noProvidersDescription')}
-          action={{
+          action={canManage ? {
             label: t('dnsProviders.addFirstProvider'),
             onClick: handleAddProvider,
-          }}
+          } : undefined}
         />
       )}
 
@@ -185,6 +188,7 @@ export default function DNSProviders() {
             <DNSProviderCard
               key={provider.uuid}
               provider={provider}
+              canManage={canManage}
               onEdit={handleEditProvider}
               onDelete={handleDeleteProvider}
               onTest={handleTestProvider}

@@ -167,7 +167,7 @@ func (h *NotificationProviderHandler) List(c *gin.Context) {
 		providers[i].HasToken = providers[i].Token != ""
 		providers[i].Token = ""
 	}
-	c.JSON(http.StatusOK, providers)
+	jsonListForRole(c, http.StatusOK, providers, notificationProviderRedactedFields, notificationProviderFlags)
 }
 
 func (h *NotificationProviderHandler) Create(c *gin.Context) {
@@ -438,4 +438,13 @@ func (h *NotificationProviderHandler) Preview(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"rendered": rendered, "parsed": parsed})
+}
+
+// notificationProviderRedactedFields are the provider fields that can carry a
+// webhook secret or a destination. Only administrators receive them.
+var notificationProviderRedactedFields = []string{"url", "config", "service_config", "legacy_url"}
+
+// notificationProviderFlags tells non-admin callers whether a URL is set without revealing it.
+func notificationProviderFlags(p models.NotificationProvider) map[string]any {
+	return map[string]any{"has_url": p.URL != ""}
 }

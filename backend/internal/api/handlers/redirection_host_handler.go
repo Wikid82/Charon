@@ -157,6 +157,9 @@ const redirectTargetInvalidCode = "redirect_target_invalid"
 // respondRedirectionHostWriteError writes a 400 for a rejected create or update.
 // Refused target URLs also carry a stable error_code.
 func respondRedirectionHostWriteError(c *gin.Context, err error) {
+	if respondAdminOnlyHostError(c, err) {
+		return
+	}
 	if errors.Is(err, services.ErrRedirectTargetInvalid) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "error_code": redirectTargetInvalidCode})
 		return
@@ -219,7 +222,7 @@ func (h *RedirectionHostHandler) Create(c *gin.Context) {
 
 	host.UUID = uuid.NewString()
 
-	if err := h.service.Create(&host); err != nil {
+	if err := h.service.CreateAs(&host, isAdmin(c)); err != nil {
 		respondRedirectionHostWriteError(c, err)
 		return
 	}
@@ -322,7 +325,7 @@ func (h *RedirectionHostHandler) Update(c *gin.Context) {
 		host.DNSProviderID = resolvedDNSProviderID
 	}
 
-	if err := h.service.Update(host); err != nil {
+	if err := h.service.UpdateAs(host, isAdmin(c)); err != nil {
 		respondRedirectionHostWriteError(c, err)
 		return
 	}

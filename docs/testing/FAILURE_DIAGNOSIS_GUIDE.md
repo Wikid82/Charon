@@ -311,7 +311,7 @@ docker compose logs --tail=50
 ```bash
 # From inside Docker, check if ports are accessible
 docker exec charon curl -v http://localhost:8080
-docker exec charon curl -v http://localhost:2019
+docker exec charon /app/charon caddy-admin get /config/
 docker exec charon curl -v http://localhost:2020
 ```
 

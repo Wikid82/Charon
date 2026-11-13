@@ -48,7 +48,7 @@ verify_waf_config() {
     for i in $(seq 1 $retries); do
         # Fetch Caddy config via admin API
         local caddy_config
-        caddy_config=$(docker exec charon-debug wget -qO- http://127.0.0.1:2019/config/ 2>/dev/null || echo "")
+        caddy_config=$(docker exec charon-debug /app/charon caddy-admin get /config/ 2>/dev/null || echo "")
 
         if [ -z "$caddy_config" ]; then
             echo "  Attempt $i/$retries: Caddy admin API not responding, retrying..."
@@ -92,7 +92,7 @@ on_failure() {
     echo ""
 
     echo "=== Caddy Admin API Config ==="
-    docker exec charon-debug wget -qO- http://127.0.0.1:2019/config/ 2>/dev/null | head -300 || echo "Could not retrieve Caddy config"
+    docker exec charon-debug /app/charon caddy-admin get /config/ 2>/dev/null | head -300 || echo "Could not retrieve Caddy config"
     echo ""
 
     echo "=== Ruleset Files in Container ==="
@@ -249,7 +249,7 @@ echo "Apply rules and test payload..."
 # create minimal proxy host if needed; omitted here for brevity; test will target local Caddy root
 
 echo "Verifying Caddy config has WAF handler..."
-docker exec charon-debug wget -qO- http://127.0.0.1:2019/config/ | grep -E '"handler":"waf"' || echo "WARNING: WAF handler not found in initial config check"
+docker exec charon-debug /app/charon caddy-admin get /config/ | grep -E '"handler":"waf"' || echo "WARNING: WAF handler not found in initial config check"
 
 echo "Inspecting ruleset file inside container..."
 docker exec charon-debug sh -c 'cat /app/data/caddy/coraza/rulesets/integration-xss-*.conf' || echo "WARNING: Could not read ruleset file"

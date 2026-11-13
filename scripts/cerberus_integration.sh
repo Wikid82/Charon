@@ -99,7 +99,7 @@ on_failure() {
     echo ""
 
     echo "=== Caddy Admin API Config ==="
-    docker exec "${CONTAINER_NAME}" wget -qO- http://127.0.0.1:2019/config/ 2>/dev/null | head -300 || echo "Could not retrieve Caddy config"
+    docker exec "${CONTAINER_NAME}" /app/charon caddy-admin get /config/ 2>/dev/null | head -300 || echo "Could not retrieve Caddy config"
     echo ""
 
     echo "=== Security Config in API ==="
@@ -397,7 +397,7 @@ fi
 # Fetch Caddy config with timeout and retry
 CADDY_CONFIG=""
 for attempt in 1 2 3; do
-    CADDY_CONFIG=$(docker exec "${CONTAINER_NAME}" wget -T 10 -qO- http://127.0.0.1:2019/config/ 2>/dev/null || echo "")
+    CADDY_CONFIG=$(docker exec "${CONTAINER_NAME}" /app/charon caddy-admin get /config/ 2>/dev/null || echo "")
     if [ -n "$CADDY_CONFIG" ]; then
         break
     fi

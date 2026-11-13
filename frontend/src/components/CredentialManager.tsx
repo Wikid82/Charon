@@ -2,6 +2,7 @@ import { Plus, Edit, Trash2, CheckCircle, XCircle, TestTube } from 'lucide-react
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { useAuth } from '../hooks/useAuth'
 import {
   useCredentials,
   useCreateCredential,
@@ -41,6 +42,9 @@ export default function CredentialManager({
   providerTypeInfo,
 }: CredentialManagerProps) {
   const { t } = useTranslation()
+  const { user } = useAuth()
+  // Credential create, edit, delete and test are administrator-only on the server; standard users keep the read view.
+  const canManage = user?.role === 'admin'
   const { data: credentials = [], isLoading, refetch } = useCredentials(provider.uuid)
   const deleteMutation = useDeleteCredential()
   const testMutation = useTestCredential()
@@ -125,13 +129,15 @@ export default function CredentialManager({
         </DialogHeader>
 
         <div className="space-y-4">
-          {/* Add Button */}
-          <div className="flex justify-between items-center">
-            <Button onClick={handleAddCredential} size="sm">
-              <Plus className="w-4 h-4 mr-2" />
-              {t('credentials.addCredential', 'Add Credential')}
-            </Button>
-          </div>
+          {/* Add Button (administrators only) */}
+          {canManage && (
+            <div className="flex justify-between items-center">
+              <Button onClick={handleAddCredential} size="sm">
+                <Plus className="w-4 h-4 mr-2" />
+                {t('credentials.addCredential', 'Add Credential')}
+              </Button>
+            </div>
+          )}
 
           {/* Loading State */}
           {isLoading && (
@@ -149,10 +155,10 @@ export default function CredentialManager({
                 'credentials.noCredentialsDescription',
                 'Add credentials to enable zone-specific DNS challenge configuration'
               )}
-              action={{
+              action={canManage ? {
                 label: t('credentials.addFirst', 'Add First Credential'),
                 onClick: handleAddCredential,
-              }}
+              } : undefined}
             />
           )}
 
@@ -188,7 +194,11 @@ export default function CredentialManager({
                         )}
                       </td>
                       <td className="px-4 py-3 text-sm">
-                        {credential.zone_filter || (
+                        {credential.zone_filter === undefined ? (
+                          <span className="text-muted-foreground italic" data-testid="credential-zone-hidden">
+                            {t('permissions.hiddenForRole')}
+                          </span>
+                        ) : credential.zone_filter || (
                           <span className="text-muted-foreground italic">
                             {t('credentials.allZones', 'All zones (catch-all)')}
                           </span>
@@ -218,31 +228,33 @@ export default function CredentialManager({
                         )}
                       </td>
                       <td className="px-4 py-3">
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleTestCredential(credential.uuid)}
-                            disabled={testingId === credential.uuid}
-                          >
-                            <TestTube className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleEditCredential(credential)}
-                          >
-                            <Edit className="w-4 h-4" />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => handleDeleteClick(credential.uuid)}
-                            className="text-destructive hover:text-destructive"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </Button>
-                        </div>
+                        {canManage && (
+                          <div className="flex justify-end gap-2">
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleTestCredential(credential.uuid)}
+                              disabled={testingId === credential.uuid}
+                            >
+                              <TestTube className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleEditCredential(credential)}
+                            >
+                              <Edit className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => handleDeleteClick(credential.uuid)}
+                              className="text-destructive hover:text-destructive"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </Button>
+                          </div>
+                        )}
                       </td>
                     </tr>
                   ))}

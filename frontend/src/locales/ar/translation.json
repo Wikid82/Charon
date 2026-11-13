@@ -50,6 +50,11 @@
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
     "score": "Score"
   },
+  "permissions": {
+    "adminOnlyError": "يمكن للمسؤولين فقط تغيير هذا الإعداد.",
+    "hiddenForRole": "مخفي لدورك.",
+    "dnsAdminOnly": "يمكن للمسؤولين فقط تغيير مزوّد DNS وتحدي DNS."
+  },
   "navigation": {
     "dashboard": "Dashboard",
     "proxyHosts": "Proxy Hosts",

@@ -821,16 +821,18 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		// to share in-memory state (mutexes, notification batching) between
 		// background checker, ProxyHostHandler, and API handlers.
 		uptimeHandler := handlers.NewUptimeHandler(uptimeService)
+		// Monitor reads stay available to every management user. Monitor
+		// changes (targets are probed from the server) are administrator-only.
 		management.GET("/uptime/monitors", uptimeHandler.List)
-		management.POST("/uptime/monitors", uptimeHandler.Create)
 		// Static /summary is registered alongside the /:id/history param route
 		// on the same segment; gin resolves the literal first (N4 smoke test).
 		management.GET("/uptime/monitors/summary", uptimeHandler.Summary)
 		management.GET("/uptime/monitors/:id/history", uptimeHandler.GetHistory)
-		management.PUT("/uptime/monitors/:id", uptimeHandler.Update)
-		management.DELETE("/uptime/monitors/:id", uptimeHandler.Delete)
-		management.POST("/uptime/monitors/:id/check", uptimeHandler.CheckMonitor)
-		management.POST("/uptime/sync", uptimeHandler.Sync)
+		managementAdmin.POST("/uptime/monitors", uptimeHandler.Create)
+		managementAdmin.PUT("/uptime/monitors/:id", uptimeHandler.Update)
+		managementAdmin.DELETE("/uptime/monitors/:id", uptimeHandler.Delete)
+		managementAdmin.POST("/uptime/monitors/:id/check", uptimeHandler.CheckMonitor)
+		managementAdmin.POST("/uptime/sync", uptimeHandler.Sync)
 		// Pipeline back-pressure counters (ingester drops, pool enqueue drops,
 		// queue depth, active worker count). Refs live on uptimeService.
 		management.GET("/uptime/health", uptimeHandler.Health)

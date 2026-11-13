@@ -5,7 +5,9 @@ import { useMemo, useState, type FC, type FormEvent } from 'react';
 import { toast } from 'react-hot-toast'
 import { useTranslation } from 'react-i18next';
 
+import { permissionsErrorMessage } from '../api/errorBody';
 import { updateMonitor, deleteMonitor, checkMonitor, createMonitor, syncMonitors, type UptimeMonitor, type MonitorSummary, type BeatDTO } from '../api/uptime';
+import { useAuth } from '../hooks/useAuth';
 import { useUptimeSummary } from '../hooks/useUptimeSummary';
 
 import type { TFunction } from 'i18next';
@@ -32,7 +34,15 @@ const normalizeMonitorStatus = (status: string | undefined): BaseMonitorStatus =
   return normalized === 'up' || normalized === 'down' || normalized === 'pending' ? normalized : 'down';
 };
 
-const MonitorCard: FC<{ monitor: MonitorSummary; onEdit: (monitor: MonitorSummary) => void; t: TFunction }> = ({ monitor, onEdit, t }) => {
+/** Props of a monitor card. `canManage` is false for standard users, who see status but no controls. */
+interface MonitorCardProps {
+  monitor: MonitorSummary
+  onEdit: (monitor: MonitorSummary) => void
+  t: TFunction
+  canManage: boolean
+}
+
+const MonitorCard: FC<MonitorCardProps> = ({ monitor, onEdit, t, canManage }) => {
   const queryClient = useQueryClient()
 
   const deleteMutation = useMutation({
@@ -44,7 +54,7 @@ const MonitorCard: FC<{ monitor: MonitorSummary; onEdit: (monitor: MonitorSummar
       toast.success(t('uptime.monitorDeleted'))
     },
     onError: (err: unknown) => {
-      toast.error(err instanceof Error ? err.message : t('uptime.failedToDeleteMonitor'))
+      toast.error(permissionsErrorMessage(err, t) ?? (err instanceof Error ? err.message : t('uptime.failedToDeleteMonitor')))
     }
   })
 
@@ -56,7 +66,7 @@ const MonitorCard: FC<{ monitor: MonitorSummary; onEdit: (monitor: MonitorSummar
       queryClient.invalidateQueries({ queryKey: ['uptimeSummary'] })
     },
     onError: (err: unknown) => {
-      toast.error(err instanceof Error ? err.message : t('uptime.failedToUpdateMonitor'))
+      toast.error(permissionsErrorMessage(err, t) ?? (err instanceof Error ? err.message : t('uptime.failedToUpdateMonitor')))
     }
   })
 
@@ -76,7 +86,7 @@ const MonitorCard: FC<{ monitor: MonitorSummary; onEdit: (monitor: MonitorSummar
         toast.error(t('uptime.checkQueueFull'))
         return
       }
-      toast.error(err instanceof Error ? err.message : t('uptime.failedToTriggerCheck'))
+      toast.error(permissionsErrorMessage(err, t) ?? (err instanceof Error ? err.message : t('uptime.failedToTriggerCheck')))
     }
   })
 
@@ -115,72 +125,76 @@ const MonitorCard: FC<{ monitor: MonitorSummary; onEdit: (monitor: MonitorSummar
             {effectiveStatus === 'paused' ? <Pause className="w-4 h-4 mr-1" /> : effectiveStatus === 'pending' ? <Loader className="w-4 h-4 mr-1 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : effectiveStatus === 'up' ? <ArrowUp className="w-4 h-4 mr-1" /> : <ArrowDown className="w-4 h-4 mr-1" />}
             {effectiveStatus === 'paused' ? t('uptime.paused') : effectiveStatus === 'pending' ? t('uptime.pending') : effectiveStatus.toUpperCase()}
           </div>
-          <button
-            onClick={async () => {
-              try {
-                await checkMutation.mutateAsync(monitor.id)
-              } catch {
-                // handled in onError
-              }
-            }}
-            disabled={checkMutation.isPending}
-            className="p-1 text-gray-400 hover:text-blue-400 transition-colors disabled:opacity-50"
-            title={t('uptime.triggerHealthCheck')}
-          >
-            <RefreshCw size={16} className={checkMutation.isPending ? 'animate-spin' : ''} />
-          </button>
-          <div className="relative">
+          {canManage && (
             <button
-              onClick={() => setShowMenu(prev => !prev)}
-              className="p-1 text-gray-400 hover:text-gray-200 transition-colors"
-              title={t('uptime.monitorSettings')}
-              aria-haspopup="menu"
-              aria-expanded={showMenu}
+              onClick={async () => {
+                try {
+                  await checkMutation.mutateAsync(monitor.id)
+                } catch {
+                  // handled in onError
+                }
+              }}
+              disabled={checkMutation.isPending}
+              className="p-1 text-gray-400 hover:text-blue-400 transition-colors disabled:opacity-50"
+              title={t('uptime.triggerHealthCheck')}
             >
-              <Settings size={16} />
+              <RefreshCw size={16} className={checkMutation.isPending ? 'animate-spin' : ''} />
             </button>
+          )}
+          {canManage && (
+            <div className="relative">
+              <button
+                onClick={() => setShowMenu(prev => !prev)}
+                className="p-1 text-gray-400 hover:text-gray-200 transition-colors"
+                title={t('uptime.monitorSettings')}
+                aria-haspopup="menu"
+                aria-expanded={showMenu}
+              >
+                <Settings size={16} />
+              </button>
 
-            {showMenu && (
-              <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded shadow-lg z-20">
-                <button
-                  onClick={() => { setShowMenu(false); onEdit(monitor) }}
-                  className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-900"
-                >
-                  {t('common.configure')}
-                </button>
-                <button
-                  onClick={async () => {
-                    setShowMenu(false)
-                    try {
-                      await toggleMutation.mutateAsync({ id: monitor.id, enabled: !monitor.enabled })
-                      toast.success(monitor.enabled ? t('uptime.paused') : t('uptime.unpaused'))
-                    } catch {
-                      // handled in onError
-                    }
-                  }}
-                  className="w-full text-left px-4 py-2 text-sm text-yellow-600 hover:bg-gray-100 dark:hover:bg-gray-900 flex items-center gap-2"
-                >
-                  <Pause className="w-4 h-4 mr-1" />
-                  {monitor.enabled ? t('uptime.pause') : t('uptime.unpause')}
-                </button>
-                <button
-                  onClick={async () => {
-                    setShowMenu(false)
-                    const confirmDelete = confirm(t('uptime.deleteConfirmation'))
-                    if (!confirmDelete) return
-                    try {
-                      await deleteMutation.mutateAsync(monitor.id)
-                    } catch {
-                      // handled in onError
-                    }
-                  }}
-                  className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 dark:hover:bg-gray-900"
-                >
-                  {t('common.delete')}
-                </button>
-              </div>
-            )}
-          </div>
+              {showMenu && (
+                <div className="absolute right-0 mt-2 w-48 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded shadow-lg z-20">
+                  <button
+                    onClick={() => { setShowMenu(false); onEdit(monitor) }}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-900"
+                  >
+                    {t('common.configure')}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setShowMenu(false)
+                      try {
+                        await toggleMutation.mutateAsync({ id: monitor.id, enabled: !monitor.enabled })
+                        toast.success(monitor.enabled ? t('uptime.paused') : t('uptime.unpaused'))
+                      } catch {
+                        // handled in onError
+                      }
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-yellow-600 hover:bg-gray-100 dark:hover:bg-gray-900 flex items-center gap-2"
+                  >
+                    <Pause className="w-4 h-4 mr-1" />
+                    {monitor.enabled ? t('uptime.pause') : t('uptime.unpause')}
+                  </button>
+                  <button
+                    onClick={async () => {
+                      setShowMenu(false)
+                      const confirmDelete = confirm(t('uptime.deleteConfirmation'))
+                      if (!confirmDelete) return
+                      try {
+                        await deleteMutation.mutateAsync(monitor.id)
+                      } catch {
+                        // handled in onError
+                      }
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-red-600 hover:bg-gray-100 dark:hover:bg-gray-900"
+                  >
+                    {t('common.delete')}
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       </div>
 
@@ -558,6 +572,9 @@ const Uptime: FC = () => {
   const queryClient = useQueryClient();
   const { data: monitors, isLoading } = useUptimeSummary();
 
+  const { user } = useAuth();
+  // Create, edit, pause, delete, manual check and sync are administrator-only on the server.
+  const canManage = user?.role === 'admin';
   const [editingMonitor, setEditingMonitor] = useState<MonitorSummary | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
 
@@ -576,7 +593,7 @@ const Uptime: FC = () => {
         toast.error(t('uptime.checkQueueFull'));
         return;
       }
-      toast.error(err instanceof Error ? err.message : t('errors.genericError'));
+      toast.error(permissionsErrorMessage(err, t) ?? (err instanceof Error ? err.message : t('errors.genericError')));
     },
   });
 
@@ -604,23 +621,27 @@ const Uptime: FC = () => {
           {t('uptime.title')}
         </h1>
         <div className="flex items-center gap-2">
-          <button
-            onClick={() => syncMutation.mutate()}
-            disabled={syncMutation.isPending}
-            data-testid="sync-button"
-            className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
-          >
-            <RefreshCw size={16} className={syncMutation.isPending ? 'animate-spin' : ''} />
-            {syncMutation.isPending ? t('uptime.syncing') : t('uptime.syncWithHosts')}
-          </button>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            data-testid="add-monitor-button"
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
-          >
-            <Plus size={16} />
-            {t('uptime.addMonitor')}
-          </button>
+          {canManage && (
+            <button
+              onClick={() => syncMutation.mutate()}
+              disabled={syncMutation.isPending}
+              data-testid="sync-button"
+              className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50 flex items-center gap-2"
+            >
+              <RefreshCw size={16} className={syncMutation.isPending ? 'animate-spin' : ''} />
+              {syncMutation.isPending ? t('uptime.syncing') : t('uptime.syncWithHosts')}
+            </button>
+          )}
+          {canManage && (
+            <button
+              onClick={() => setShowCreateModal(true)}
+              data-testid="add-monitor-button"
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors flex items-center gap-2"
+            >
+              <Plus size={16} />
+              {t('uptime.addMonitor')}
+            </button>
+          )}
           <span className="text-sm text-gray-500">{t('uptime.autoRefreshing')}</span>
         </div>
       </div>
@@ -636,7 +657,7 @@ const Uptime: FC = () => {
               <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">{t('uptime.proxyHosts')}</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {proxyHostMonitors.map((monitor) => (
-                  <MonitorCard key={monitor.id} monitor={monitor} onEdit={setEditingMonitor} t={t} />
+                  <MonitorCard key={monitor.id} monitor={monitor} onEdit={setEditingMonitor} t={t} canManage={canManage} />
                 ))}
               </div>
             </div>
@@ -647,7 +668,7 @@ const Uptime: FC = () => {
               <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">{t('uptime.remoteServers')}</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {remoteServerMonitors.map((monitor) => (
-                  <MonitorCard key={monitor.id} monitor={monitor} onEdit={setEditingMonitor} t={t} />
+                  <MonitorCard key={monitor.id} monitor={monitor} onEdit={setEditingMonitor} t={t} canManage={canManage} />
                 ))}
               </div>
             </div>
@@ -658,7 +679,7 @@ const Uptime: FC = () => {
               <h2 className="text-xl font-semibold text-gray-800 dark:text-gray-200 mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">{t('uptime.otherMonitors')}</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 {otherMonitors.map((monitor) => (
-                  <MonitorCard key={monitor.id} monitor={monitor} onEdit={setEditingMonitor} t={t} />
+                  <MonitorCard key={monitor.id} monitor={monitor} onEdit={setEditingMonitor} t={t} canManage={canManage} />
                 ))}
               </div>
             </div>

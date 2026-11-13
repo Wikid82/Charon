@@ -7,6 +7,11 @@ import Uptime from '../Uptime'
 
 import type { MonitorSummary } from '../../api/uptime'
 
+// Components under test read the caller's role; default to an administrator.
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => ({ user: { user_id: 1, role: 'admin' } }),
+}))
+
 vi.mock('react-hot-toast', () => ({
   toast: { success: vi.fn(), error: vi.fn(), loading: vi.fn(), dismiss: vi.fn() },
 }))

@@ -50,6 +50,11 @@
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
     "score": "Score"
   },
+  "permissions": {
+    "adminOnlyError": "Doar administratorii pot modifica această setare.",
+    "hiddenForRole": "Ascuns pentru rolul dumneavoastră.",
+    "dnsAdminOnly": "Doar administratorii pot modifica furnizorul DNS și provocarea DNS."
+  },
   "navigation": {
     "dashboard": "Dashboard",
     "proxyHosts": "Proxy Hosts",

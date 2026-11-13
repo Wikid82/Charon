@@ -10,43 +10,49 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"github.com/Wikid82/charon/backend/internal/config"
 )
 
-// adminBootstrapPattern matches the bootstrap config the entrypoint writes before
-// the bundled Caddy starts. The listen address is a literal, so the first apply
-// does not rebind the admin interface.
-var adminBootstrapPattern = regexp.MustCompile(`"admin":\{"listen":"127\.0\.0\.1:2019"\}`)
-
-// adminDisallowedLiteral is the admin bind on every interface. No shipped file
-// may contain it.
-const adminDisallowedLiteral = "0.0.0.0:2019"
+// adminDisallowedPatterns are admin listeners that would expose the admin API on
+// every interface. No shipped file may contain them.
+var adminDisallowedPatterns = []*regexp.Regexp{
+	regexp.MustCompile(regexp.QuoteMeta("0.0.0.0:2019")),
+	regexp.MustCompile(`"listen"\s*:\s*":2019"`),
+}
 
 // adminURLVariablePattern matches a shipped file that sets the admin URL variable.
 var adminURLVariablePattern = regexp.MustCompile(`(CHARON|CPM)_CADDY_ADMIN_API`)
 
-// TestGenerateConfigAdminListensOnLoopbackOnly pins the generated admin bind to
-// the loopback address that the entrypoint bootstrap also uses.
-func TestGenerateConfigAdminListensOnLoopbackOnly(t *testing.T) {
-	cfg, err := GenerateConfig(nil, "/data/caddy/data", "", "", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
-	require.NoError(t, err)
-	require.NotNil(t, cfg.Admin)
-	assert.Equal(t, "127.0.0.1:2019", cfg.Admin.Listen)
-	assert.Equal(t, config.CaddyAdminAddress, cfg.Admin.Listen)
-}
-
-// TestProxyAdminAddressIsLoopbackOnly is a repository scan. The entrypoint
-// bootstrap must bind the loopback address, and no shipped Go, container or
-// compose file may bind the admin interface on every interface.
-func TestProxyAdminAddressIsLoopbackOnly(t *testing.T) {
+// TestEntrypointBootstrapUsesAdminSocket pins the entrypoint to the admin socket:
+// the bootstrap listener comes from the binary, the stale socket is cleared before
+// Caddy starts, and readiness uses the binary instead of a TCP probe.
+func TestEntrypointBootstrapUsesAdminSocket(t *testing.T) {
 	root := repoRoot(t)
-
 	entrypoint, err := os.ReadFile(filepath.Clean(filepath.Join(root, ".docker", "docker-entrypoint.sh")))
 	require.NoError(t, err)
-	assert.Regexp(t, adminBootstrapPattern, string(entrypoint), "entrypoint bootstrap must bind the loopback address")
+	script := string(entrypoint)
 
-	var violations []string
+	assert.Contains(t, script, "caddy-admin listen", "bootstrap must take admin.listen from the binary")
+	assert.Contains(t, script, "caddy-admin prepare", "stale socket must be cleared before Caddy starts")
+	assert.Contains(t, script, "caddy-admin get /config/", "readiness must read the admin socket")
+	assert.NotContains(t, script, "127.0.0.1:2019", "entrypoint must not reference the TCP admin listener")
+	assert.NotContains(t, script, "wget", "readiness must not use a TCP probe")
+	// The image and the mkdir -p above create the directory with the default mode,
+	// so the entrypoint has to restrict it before Caddy creates the socket.
+	assert.Contains(t, script, "chmod 700 /app/data/run", "the admin socket directory must be private to the charon user")
+	assert.Less(t, strings.Index(script, "chmod 700 /app/data/run"), strings.Index(script, `"$CHARON_BIN" caddy-admin prepare`),
+		"the socket directory must be restricted before Caddy starts")
+
+	dockerfile, err := os.ReadFile(filepath.Clean(filepath.Join(root, "Dockerfile")))
+	require.NoError(t, err)
+	assert.Contains(t, string(dockerfile), "chmod 700 /app/data/run", "a fresh volume copies the image's directory mode")
+}
+
+// TestAdminListenerNeverBindsAllInterfaces is a repository scan. No shipped Go,
+// container, compose or configs file may bind the admin API on every interface.
+func TestAdminListenerNeverBindsAllInterfaces(t *testing.T) {
+	root := repoRoot(t)
+
+	var files []string
 	walkErr := filepath.WalkDir(filepath.Join(root, "backend"), func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -54,7 +60,7 @@ func TestProxyAdminAddressIsLoopbackOnly(t *testing.T) {
 		if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
-		violations = append(violations, scanFileLines(t, path, root, regexp.MustCompile(regexp.QuoteMeta(adminDisallowedLiteral)))...)
+		files = append(files, path)
 		return nil
 	})
 	require.NoError(t, walkErr)
@@ -62,32 +68,34 @@ func TestProxyAdminAddressIsLoopbackOnly(t *testing.T) {
 	shipped := []string{filepath.Join(root, "Dockerfile"), filepath.Join(root, ".docker", "docker-entrypoint.sh")}
 	composes, err := filepath.Glob(filepath.Join(root, ".docker", "compose", "*.yml"))
 	require.NoError(t, err)
-	shipped = append(shipped, composes...)
-	for _, path := range shipped {
-		violations = append(violations, scanFileLines(t, path, root, regexp.MustCompile(regexp.QuoteMeta(adminDisallowedLiteral)))...)
-	}
+	files = append(files, shipped...)
+	files = append(files, composes...)
 
-	// Every file under configs/ ships in the repository, so each one is scanned.
 	configsErr := filepath.WalkDir(filepath.Join(root, "configs"), func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		if d.IsDir() {
-			return nil
+		if !d.IsDir() {
+			files = append(files, path)
 		}
-		violations = append(violations, scanFileLines(t, path, root, regexp.MustCompile(regexp.QuoteMeta(adminDisallowedLiteral)))...)
 		return nil
 	})
 	require.NoError(t, configsErr)
 
+	var violations []string
+	for _, path := range files {
+		for _, pattern := range adminDisallowedPatterns {
+			violations = append(violations, scanFileLines(t, path, root, pattern)...)
+		}
+	}
 	if len(violations) > 0 {
-		t.Errorf("the admin interface must listen on the loopback address only; found:\n  %s",
+		t.Errorf("the admin interface must not listen on every interface; found:\n  %s",
 			strings.Join(violations, "\n  "))
 	}
 }
 
 // TestShippedFilesDoNotSetAdminAPIVariable is a repository scan. Charon's own
-// files rely on the default admin URL; none of them may set the variable.
+// files rely on the default admin socket; none of them may set the variable.
 func TestShippedFilesDoNotSetAdminAPIVariable(t *testing.T) {
 	root := repoRoot(t)
 

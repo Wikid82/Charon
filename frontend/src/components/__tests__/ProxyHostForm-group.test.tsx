@@ -11,6 +11,11 @@ import type { ProxyHost } from '../../api/proxyHosts'
 
 // Mock all hooks ProxyHostForm depends on so only the group-selector behavior
 // under test is exercised.
+// Components under test read the caller's role; default to an administrator.
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => ({ user: { user_id: 1, role: 'admin' } }),
+}))
+
 vi.mock('../../hooks/useRemoteServers', () => ({
   useRemoteServers: vi.fn(() => ({
     servers: [],

@@ -90,6 +90,12 @@ func loadConfigForDatabase() (config.Config, error) {
 }
 
 func main() {
+	// caddy-admin talks to the bundled Caddy admin API and prints its output on stdout.
+	// It runs before the logging setup below, which also writes to stdout.
+	if len(os.Args) > 1 && os.Args[1] == "caddy-admin" {
+		os.Exit(caddy.RunAdminCommand(os.Args[2:], os.Stdout, os.Stderr))
+	}
+
 	// Setup logging with rotation
 	logDir := "/app/data/logs"
 	// #nosec G301 -- Log directory with standard permissions

@@ -116,7 +116,7 @@ func TestDockerHandler_ListContainers_ServerIDResolvesToTCPHost(t *testing.T) {
 	router := gin.New()
 
 	dockerSvc := &fakeDockerService{ret: []services.DockerContainer{}}
-	remoteSvc := &fakeRemoteServerService{server: &models.RemoteServer{Host: "example.internal", Port: 2375}}
+	remoteSvc := &fakeRemoteServerService{server: &models.RemoteServer{Host: "example.internal", Port: 2375, Enabled: true}}
 	h := NewDockerHandler(dockerSvc, remoteSvc)
 
 	api := router.Group("/api/v1")
@@ -206,10 +206,11 @@ func TestDockerHandler_ListContainers_RemoteServerSuccess(t *testing.T) {
 	}
 	remoteSvc := &fakeRemoteServerService{
 		server: &models.RemoteServer{
-			UUID: "server-uuid-123",
-			Name: "Production Server",
-			Host: "192.168.1.100",
-			Port: 2376,
+			UUID:    "server-uuid-123",
+			Name:    "Production Server",
+			Host:    "192.168.1.100",
+			Port:    2376,
+			Enabled: true,
 		},
 	}
 	h := NewDockerHandler(dockerSvc, remoteSvc)
@@ -440,6 +441,7 @@ func TestDockerHandler_ListContainers_OrthrusAgentConnected(t *testing.T) {
 	agentUUID := "agent-uuid-123"
 	dockerSvc := &fakeDockerService{ret: []services.DockerContainer{}}
 	remoteSvc := &fakeRemoteServerService{server: &models.RemoteServer{
+		Enabled:          true,
 		ConnectionType:   models.ConnectionTypeOrthrus,
 		OrthrusAgentUUID: &agentUUID,
 	}}
@@ -463,6 +465,7 @@ func TestDockerHandler_ListContainers_OrthrusAgentOffline(t *testing.T) {
 	agentUUID := "agent-offline-uuid"
 	dockerSvc := &fakeDockerService{}
 	remoteSvc := &fakeRemoteServerService{server: &models.RemoteServer{
+		Enabled:          true,
 		ConnectionType:   models.ConnectionTypeOrthrus,
 		OrthrusAgentUUID: &agentUUID,
 	}}
@@ -486,6 +489,7 @@ func TestDockerHandler_ListContainers_OrthrusSubsystemUnavailable(t *testing.T) 
 	agentUUID := "agent-uuid-svc"
 	dockerSvc := &fakeDockerService{}
 	remoteSvc := &fakeRemoteServerService{server: &models.RemoteServer{
+		Enabled:          true,
 		ConnectionType:   models.ConnectionTypeOrthrus,
 		OrthrusAgentUUID: &agentUUID,
 	}}
@@ -508,6 +512,7 @@ func TestDockerHandler_ListContainers_OrthrusMissingAgentUUID(t *testing.T) {
 	router := gin.New()
 	dockerSvc := &fakeDockerService{}
 	remoteSvc := &fakeRemoteServerService{server: &models.RemoteServer{
+		Enabled:          true,
 		ConnectionType:   models.ConnectionTypeOrthrus,
 		OrthrusAgentUUID: nil,
 	}}
@@ -541,6 +546,7 @@ func TestDockerHandler_ListContainers_OrthrusEmptyAgentUUID(t *testing.T) {
 	emptyUUID := ""
 	dockerSvc := &fakeDockerService{}
 	remoteSvc := &fakeRemoteServerService{server: &models.RemoteServer{
+		Enabled:          true,
 		ConnectionType:   models.ConnectionTypeOrthrus,
 		OrthrusAgentUUID: &emptyUUID,
 	}}
@@ -571,6 +577,7 @@ func TestDockerHandler_SetOrthrusResolver_TypedNil(t *testing.T) {
 	var typedNil *orthrus.OrthrusServer
 	uuid := "test-agent-uuid"
 	remoteSvc := &fakeRemoteServerService{server: &models.RemoteServer{
+		Enabled:          true,
 		ConnectionType:   models.ConnectionTypeOrthrus,
 		OrthrusAgentUUID: &uuid,
 	}}

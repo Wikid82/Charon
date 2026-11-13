@@ -50,6 +50,11 @@
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
     "score": "Score"
   },
+  "permissions": {
+    "adminOnlyError": "Alleen beheerders kunnen deze instelling wijzigen.",
+    "hiddenForRole": "Verborgen voor uw rol.",
+    "dnsAdminOnly": "Alleen beheerders kunnen de DNS-provider en DNS-uitdaging wijzigen."
+  },
   "navigation": {
     "dashboard": "Dashboard",
     "proxyHosts": "Proxy Hosts",

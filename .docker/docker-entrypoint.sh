@@ -90,6 +90,16 @@ start_as_charon() {
     eval "$_pid_var=\$!"
 }
 
+# Run a short command in the foreground as the charon user when running as root.
+# Usage: run_as_charon <command> [args...]
+run_as_charon() {
+    if is_root; then
+        gosu charon "$@"
+    else
+        "$@"
+    fi
+}
+
 # Run a slow startup command (cscli hub update/upgrade, install script) as an interruptible
 # child: a foreground command would hold off the stop trap until it finished, and `docker stop`
 # would then run into its grace period. Returns the command's exit status, so callers keep their
@@ -177,6 +187,8 @@ mkdir -p /app/data/caddy 2>/dev/null || true
 mkdir -p /app/data/crowdsec 2>/dev/null || true
 # Operators can place a GeoLite2-Country.mmdb here to override the database bundled in /app/geoip.
 mkdir -p /app/data/geoip 2>/dev/null || true
+# Directory of the Caddy admin socket (CHARON_CADDY_ADMIN_API). Only the charon user may enter it.
+mkdir -p /app/data/run 2>/dev/null || true
 
 # Fix ownership for the data volume and required subdirectories when running as root.
 # This handles rootless Docker environments where the host volume may be owned by the
@@ -187,7 +199,11 @@ if is_root; then
     chown -R charon:charon /app/data/caddy 2>/dev/null || true
     chown -R charon:charon /app/data/crowdsec 2>/dev/null || true
     chown -R charon:charon /app/data/geoip 2>/dev/null || true
+    chown -R charon:charon /app/data/run 2>/dev/null || true
 fi
+# mkdir -p above and the image both create the socket directory with the default mode, so the
+# 0700 that `caddy-admin prepare` applies to a new directory never takes effect; set it here.
+chmod 700 /app/data/run 2>/dev/null || true
 
 # ============================================================================
 # Plugin Directory Permission Verification
@@ -562,8 +578,13 @@ fi
 echo "CrowdSec configuration initialized. Agent lifecycle is GUI-controlled."
 
 # Start Caddy in the background with initial empty config
-# Run Caddy as charon user for security
-echo '{"admin":{"listen":"127.0.0.1:2019"},"apps":{}}' > /config/caddy.json
+# The admin API is a unix socket, not a TCP port. The binary supplies the admin.listen value
+# (CHARON_CADDY_ADMIN_API, default unix socket) and clears a socket left by an earlier run.
+# Caddy runs as the charon user for security.
+CHARON_BIN=/app/charon
+ADMIN_LISTEN="$(run_as_charon "$CHARON_BIN" caddy-admin listen)"
+run_as_charon "$CHARON_BIN" caddy-admin prepare
+echo "{\"admin\":{\"listen\":\"$ADMIN_LISTEN\"},\"apps\":{}}" > /config/caddy.json
 # Use JSON config directly; no adapter needed
 start_as_charon CADDY_PID caddy run --config /config/caddy.json
 echo "Caddy started (PID: $CADDY_PID)"
@@ -572,7 +593,7 @@ echo "Caddy started (PID: $CADDY_PID)"
 echo "Waiting for Caddy admin API..."
 i=1
 while [ "$i" -le 30 ]; do
-    if wget -qO /dev/null http://127.0.0.1:2019/config/ 2>/dev/null; then
+    if run_as_charon "$CHARON_BIN" caddy-admin get /config/ >/dev/null 2>&1; then
         echo "Caddy is ready!"
         break
     fi
@@ -630,7 +651,7 @@ echo "Charon started (PID: $APP_PID)"
 echo "Charon is running!"
 echo "  - Management UI: http://localhost:8080"
 echo "  - Caddy Proxy: http://localhost:80, https://localhost:443"
-echo "  - Caddy Admin API: http://localhost:2019"
+echo "  - Caddy Admin API: unix socket inside the container (not exposed over TCP)"
 
 # Wait loop: exit when either process dies, then shut down the other.
 while kill -0 "$APP_PID" 2>/dev/null && kill -0 "$CADDY_PID" 2>/dev/null; do
