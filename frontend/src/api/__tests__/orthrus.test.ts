@@ -12,6 +12,7 @@ import {
   renameAgent,
   getAgentProxyStatus,
   rotateAgentKey,
+  getLocalNetworks,
 } from '../orthrus'
 
 vi.mock('../client', () => ({
@@ -175,6 +176,26 @@ describe('orthrus API', () => {
     it('propagates errors', async () => {
       vi.mocked(client.get).mockRejectedValue(new Error('snippets failed'))
       await expect(getInstallSnippets('agent-uuid')).rejects.toThrow('snippets failed')
+    })
+  })
+
+  describe('getLocalNetworks', () => {
+    it('calls the local-networks endpoint and returns the automatic address and networks', async () => {
+      const payload = {
+        auto: { address: '172.18.0.4', source: 'default_route' },
+        networks: [{ interface: 'eth0', address: '172.18.0.4', cidr: '172.18.0.0/16', primary: true }],
+      }
+      vi.mocked(client.get).mockResolvedValue({ data: payload })
+
+      const result = await getLocalNetworks()
+
+      expect(client.get).toHaveBeenCalledWith('/orthrus/local-networks')
+      expect(result).toEqual(payload)
+    })
+
+    it('propagates errors', async () => {
+      vi.mocked(client.get).mockRejectedValue(new Error('network error'))
+      await expect(getLocalNetworks()).rejects.toThrow('network error')
     })
   })
 

@@ -4,6 +4,7 @@ import {
   deleteAgent,
   getAgentProxyStatus,
   getInstallSnippets,
+  getLocalNetworks,
   listAgents,
   patchAgent,
   provisionAgent,
@@ -11,6 +12,7 @@ import {
   revokeAgent,
   rotateAgentKey,
   type ExternalProxyStatus,
+  type LocalNetworks,
   type OrthrusAgent,
   type PatchAgentRequest,
   type ProvisionAgentRequest,
@@ -81,6 +83,15 @@ export const useAgentProxyStatus = (agentUUID: string, enabled: boolean) =>
     queryFn: () => getAgentProxyStatus(agentUUID),
     enabled,
     staleTime: 10_000,
+  });
+
+/** Host networks the external proxy can listen on. Only fetched while `enabled` (the dialog is open). */
+export const useLocalNetworks = (enabled: boolean) =>
+  useQuery<LocalNetworks>({
+    queryKey: ['orthrus', 'local-networks'],
+    queryFn: getLocalNetworks,
+    enabled,
+    staleTime: 30_000,
   });
 
 export const useOrthrus = () => {

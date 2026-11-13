@@ -4,7 +4,9 @@ import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import * as api from '../../api/orthrus'
-import { useOrthrus, useAgentList, useProvisionAgent, useRenameAgent, useDeleteAgent, useAgentProxyStatus, useRotateAgentKey, AGENTS_QUERY_KEY } from '../useOrthrus'
+import { useOrthrus, useAgentList, useProvisionAgent, useRenameAgent, useDeleteAgent, useAgentProxyStatus, useRotateAgentKey, useLocalNetworks, AGENTS_QUERY_KEY } from '../useOrthrus'
+
+import type { ExternalProxyStatus } from '../../api/orthrus'
 
 vi.mock('../../api/orthrus', () => ({
   listAgents: vi.fn(),
@@ -15,6 +17,7 @@ vi.mock('../../api/orthrus', () => ({
   rotateAgentKey: vi.fn(),
   getInstallSnippets: vi.fn(),
   getAgentProxyStatus: vi.fn(),
+  getLocalNetworks: vi.fn(),
 }))
 
 const createWrapper = () => {
@@ -228,7 +231,7 @@ describe('useOrthrus', () => {
 
 describe('useAgentProxyStatus', () => {
   it('fetches proxy status when enabled', async () => {
-    const status = {
+    const status: ExternalProxyStatus = {
       agent_uuid: 'agent-1',
       agent_online: true,
       configured_port: 2375,
@@ -238,6 +241,10 @@ describe('useAgentProxyStatus', () => {
       connection_string: 'tcp://charon:2375',
       configured_write_enabled: false,
       active_write_enabled: false,
+      configured_bind: '',
+      active_bind: '',
+      bind_mode: '',
+      bind_fallback: false,
       error: '',
     }
     vi.mocked(api.getAgentProxyStatus).mockResolvedValue(status)
@@ -279,5 +286,26 @@ describe('useRotateAgentKey', () => {
 
     expect(api.rotateAgentKey).toHaveBeenCalledWith('agent-1')
     expect(response).toEqual({ auth_key: 'ch_orthrus_new' })
+  })
+})
+
+describe('useLocalNetworks', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('loads the local networks when enabled', async () => {
+    const payload = { auto: { address: '127.0.0.1', source: 'loopback_fallback' as const }, networks: [] }
+    vi.mocked(api.getLocalNetworks).mockResolvedValue(payload)
+
+    const { result } = renderHook(() => useLocalNetworks(true), { wrapper: createWrapper() })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.data).toEqual(payload)
+    expect(api.getLocalNetworks).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not request the networks while disabled', () => {
+    renderHook(() => useLocalNetworks(false), { wrapper: createWrapper() })
+
+    expect(api.getLocalNetworks).not.toHaveBeenCalled()
   })
 })

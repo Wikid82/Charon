@@ -16,6 +16,7 @@ import {
 import { Input } from '../ui/Input';
 import { AgentExternalProxyDialog } from './AgentExternalProxyDialog';
 import { AgentProviderAssignDialog } from './AgentProviderAssignDialog';
+import { AgentProxyNote } from './AgentProxyNote';
 import { AgentWriteModeDialog } from './AgentWriteModeDialog';
 import { RotateAgentKeyDialog } from './RotateAgentKeyDialog';
 
@@ -160,6 +161,7 @@ const AgentRow = ({
             </Badge>
           )}
         </div>
+        <AgentProxyNote agent={agent} />
       </td>
 
       {/* Provider */}

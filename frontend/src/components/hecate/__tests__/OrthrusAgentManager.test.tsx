@@ -11,6 +11,7 @@ const mockRename = vi.fn();
 vi.mock('../../../hooks/useOrthrus', () => ({
   useDeleteAgent: () => ({ mutate: mockDelete, isPending: false }),
   useRenameAgent: () => ({ mutate: mockRename, isPending: false }),
+  useAgentProxyStatus: () => ({ data: undefined }),
 }));
 
 vi.mock('../AgentProviderAssignDialog', () => ({
