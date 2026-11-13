@@ -85,6 +85,11 @@ func (h *DockerHandler) ListContainers(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Remote server not found"})
 			return
 		}
+		if !server.Enabled {
+			log.WithFields(map[string]any{"server_id": util.SanitizeForLog(serverID)}).Warn("remote server is disabled")
+			c.JSON(http.StatusBadRequest, gin.H{"error": "Remote server is disabled"})
+			return
+		}
 
 		// Construct Docker host string
 		switch server.ConnectionType {
