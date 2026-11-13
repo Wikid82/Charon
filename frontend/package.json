@@ -106,7 +106,7 @@
     "jsdom": "^31.0.1",
     "knip": "^6.45.1",
     "playwright": "^1.65.1",
-    "postcss": "^8.5.32",
+    "postcss": "^8.5.33",
     "tailwindcss": "^4.3.5",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "typescript-eslint": "^8.72.2",
