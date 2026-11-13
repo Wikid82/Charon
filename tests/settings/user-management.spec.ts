@@ -12,7 +12,8 @@
  * @see /projects/Charon/frontend/src/pages/UsersPage.tsx
  */
 
-import { test, expect, loginUser, logoutUser, TEST_PASSWORD } from '../fixtures/auth-fixtures';
+import type { Page } from '@playwright/test';
+import { test, expect, loginUser, logoutUser, TEST_PASSWORD, type TestUser } from '../fixtures/auth-fixtures';
 import {
   waitForLoadingComplete,
   waitForToast,
@@ -1505,6 +1506,65 @@ test.describe('User Management', () => {
           });
         }
       });
+    });
+  });
+});
+
+/**
+ * Standard-user management controls (PR 32, batch 7).
+ *
+ * A standard user can read uptime monitors but cannot add or sync them, and can open the proxy host form but cannot
+ * change the DNS provider there. The API enforces the same rules (see authorization-rbac.spec.ts); these checks
+ * confirm the controls a standard user sees match them.
+ */
+test.describe('Standard user management controls', () => {
+  /**
+   * Signs the standard user in with the "What's New" modal already acknowledged. The regularUser fixture opts out of
+   * changelog suppression, so the modal would otherwise cover the page.
+   */
+  async function signInStandardUser(page: Page, user: TestUser): Promise<void> {
+    // suppressChangelogModal derives its API origin from page.url(), which is about:blank on a fresh page, so load
+    // the app first. The fixture's TestUser carries no password; regularUser is created with TEST_PASSWORD.
+    await page.goto('/');
+    await suppressChangelogModal(page, user.email, TEST_PASSWORD);
+    await loginUser(page, user);
+  }
+
+  test('standard user sees uptime monitors without add or sync controls', async ({ page, regularUser }) => {
+    await signInStandardUser(page, regularUser);
+
+    await test.step('Open the Uptime page', async () => {
+      await page.goto('/uptime');
+      await waitForLoadingComplete(page);
+      await expect(page.getByRole('heading', { name: 'Uptime Monitoring' })).toBeVisible();
+    });
+
+    await test.step('Add and sync controls are not offered', async () => {
+      await expect(page.getByRole('button', { name: /add monitor/i })).toHaveCount(0);
+      await expect(page.getByRole('button', { name: /sync with hosts/i })).toHaveCount(0);
+    });
+  });
+
+  test('standard user cannot change the DNS provider in the proxy host form', async ({ page, regularUser }) => {
+    await signInStandardUser(page, regularUser);
+
+    await test.step('Open the Add Proxy Host form', async () => {
+      await page.goto('/proxy-hosts');
+      await waitForLoadingComplete(page);
+      await page.getByRole('button', { name: 'Add Proxy Host' }).click();
+    });
+
+    const dialog = page.getByRole('dialog');
+
+    await test.step('Enter a wildcard domain so the DNS provider section appears', async () => {
+      await dialog.getByLabel(/domain names/i).fill('*.standard-user-ui.example.test');
+    });
+
+    await test.step('DNS provider selector is disabled and explains why', async () => {
+      await expect(dialog.getByRole('combobox', { name: /dns providers/i })).toBeDisabled();
+      await expect(
+        dialog.getByText('Only administrators can change the DNS provider and DNS challenge.')
+      ).toBeVisible();
     });
   });
 });

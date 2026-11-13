@@ -670,3 +670,417 @@ test.describe('Browser session request origin checks (PR 31)', () => {
     });
   });
 });
+
+/**
+ * Standard-user management permissions (PR 32, batch 7).
+ *
+ * A standard (`role=user`) caller can create and edit hosts, but the DNS provider, the DNS challenge flag and the
+ * advanced configuration are administrator-only. Reads hide those fields, and the DNS credential and notification
+ * provider secrets, from standard users. Uptime monitor writes are administrator-only, a forward target at the
+ * proxy's own admin listener is refused for every role, and a disabled remote server is not a container source.
+ * Administrators keep full access throughout.
+ *
+ * Runs only under `--project=security-tests`.
+ */
+
+const ADMIN_ONLY_ERROR_CODE = 'permissions_admin_only';
+/** Port of the Caddy admin listener Charon dials (config.CaddyAdminAddress). */
+const CADDY_ADMIN_PORT = 2019;
+/** Documentation address (RFC 5737). The tests only store host rows, so nothing is dialled. */
+const DOCUMENTATION_TARGET = '198.51.100.10';
+const ADVANCED_CONFIG = JSON.stringify({ handler: 'headers', response: { set: { 'X-Charon-Probe': ['standard-user'] } } });
+
+type JsonObject = Record<string, unknown>;
+
+test.describe('Standard user management permissions (PR 32)', () => {
+  let storageApi: APIRequestContext;
+  let testData: TestDataManager;
+  let adminApi: APIRequestContext;
+  let userApi: APIRequestContext;
+  /** Provider reference: the API resolves a UUID for the DNS provider fields and routes. */
+  let dnsProviderRef: string;
+  let domainCounter = 0;
+  const createdHostUuids: string[] = [];
+  const createdNotificationIds: string[] = [];
+  const createdMonitorIds: string[] = [];
+  const createdRemoteServerUuids: string[] = [];
+  const roles = [
+    { label: 'administrator', api: () => adminApi },
+    { label: 'standard user', api: () => userApi },
+  ];
+
+  function uniqueDomain(): string {
+    domainCounter += 1;
+    return `standard-user-${Date.now()}-${domainCounter}.example.test`;
+  }
+
+  function hostPayload(overrides: JsonObject = {}): JsonObject {
+    return {
+      name: 'Standard user host',
+      domain_names: uniqueDomain(),
+      forward_scheme: 'http',
+      forward_host: DOCUMENTATION_TARGET,
+      forward_port: 8080,
+      enabled: true,
+      ...overrides,
+    };
+  }
+
+  async function createHostAsAdmin(overrides: JsonObject = {}): Promise<JsonObject> {
+    const response = await adminApi.post('/api/v1/proxy-hosts', { data: hostPayload(overrides) });
+    expect(response.status(), 'administrator creates proxy host').toBe(201);
+    const host = (await response.json()) as JsonObject;
+    createdHostUuids.push(String(host.uuid));
+    return host;
+  }
+
+  async function getHost(api: APIRequestContext, uuid: string): Promise<JsonObject> {
+    const response = await api.get(`/api/v1/proxy-hosts/${uuid}`);
+    expect(response.status(), `GET proxy host ${uuid}`).toBe(200);
+    return (await response.json()) as JsonObject;
+  }
+
+  async function listBy(api: APIRequestContext, path: string): Promise<JsonObject[]> {
+    const response = await api.get(path);
+    expect(response.status(), `GET ${path}`).toBe(200);
+    return (await response.json()) as JsonObject[];
+  }
+
+  test.beforeAll(async () => {
+    // The shared setup session is the administrator used to mint fixtures; the helper also handles cleanup.
+    storageApi = await playwrightRequest.newContext({ baseURL: BASE_URL, storageState: STORAGE_STATE });
+    testData = new TestDataManager(storageApi, 'standard-user-permissions');
+
+    const admin = await testData.createUser({
+      name: `Standard Permissions Admin ${Date.now()}`,
+      email: 'standard-permissions-admin@test.local',
+      password: TEST_PASSWORD,
+      role: 'admin',
+    });
+    const standard = await testData.createUser({
+      name: `Standard Permissions User ${Date.now()}`,
+      email: 'standard-permissions-user@test.local',
+      password: TEST_PASSWORD,
+      role: 'user',
+    });
+    expect(admin.token, 'role=admin fixture token').toBeTruthy();
+    expect(standard.token, 'role=user fixture token').toBeTruthy();
+
+    adminApi = await playwrightRequest.newContext({
+      baseURL: BASE_URL,
+      extraHTTPHeaders: { Authorization: `Bearer ${admin.token}` },
+    });
+    userApi = await playwrightRequest.newContext({
+      baseURL: BASE_URL,
+      extraHTTPHeaders: { Authorization: `Bearer ${standard.token}` },
+    });
+
+    const provider = await testData.createDNSProvider({
+      name: `standard-user-dns-${Date.now()}`,
+      providerType: 'cloudflare',
+      credentials: { api_token: 'standard-user-probe-token' },
+    });
+    dnsProviderRef = provider.id;
+    expect(dnsProviderRef, 'DNS provider reference').toBeTruthy();
+  });
+
+  test.afterAll(async () => {
+    for (const uuid of createdHostUuids) await adminApi?.delete(`/api/v1/proxy-hosts/${uuid}`);
+    for (const id of createdNotificationIds) await adminApi?.delete(`/api/v1/notifications/providers/${id}`);
+    for (const id of createdMonitorIds) await adminApi?.delete(`/api/v1/uptime/monitors/${id}`);
+    for (const uuid of createdRemoteServerUuids) await adminApi?.delete(`/api/v1/remote-servers/${uuid}`);
+    await testData?.cleanup();
+    await storageApi?.dispose();
+    await adminApi?.dispose();
+    await userApi?.dispose();
+  });
+
+  test.describe('Admin-only host fields', () => {
+    test('standard user cannot set a DNS provider on a host (403, value unchanged)', async () => {
+      const uuid = String((await createHostAsAdmin()).uuid);
+      const before = await getHost(adminApi, uuid);
+
+      await test.step('Standard user edit that sets dns_provider_id is refused', async () => {
+        const current = await getHost(userApi, uuid);
+        const response = await userApi.put(`/api/v1/proxy-hosts/${uuid}`, {
+          data: { ...current, dns_provider_id: dnsProviderRef },
+        });
+        expect(response.status()).toBe(403);
+        expect((await errorBody(response)).error_code).toBe(ADMIN_ONLY_ERROR_CODE);
+      });
+
+      await test.step('Stored host is unchanged for the administrator', async () => {
+        expect(await getHost(adminApi, uuid)).toEqual(before);
+      });
+    });
+
+    test('standard user cannot enable the DNS challenge on a host (403, value unchanged)', async () => {
+      // A challenge flag needs a provider to validate, so the host is bound to one first; only the flag changes.
+      const uuid = String((await createHostAsAdmin({ dns_provider_id: dnsProviderRef })).uuid);
+      const before = await getHost(adminApi, uuid);
+      expect(before.use_dns_challenge).toBe(false);
+
+      await test.step('Standard user edit that enables use_dns_challenge is refused', async () => {
+        const current = await getHost(userApi, uuid);
+        const response = await userApi.put(`/api/v1/proxy-hosts/${uuid}`, {
+          data: { ...current, use_dns_challenge: true },
+        });
+        expect(response.status()).toBe(403);
+        expect((await errorBody(response)).error_code).toBe(ADMIN_ONLY_ERROR_CODE);
+      });
+
+      await test.step('Stored host is unchanged for the administrator', async () => {
+        expect(await getHost(adminApi, uuid)).toEqual(before);
+      });
+    });
+
+    test('standard user cannot change or clear advanced config (403, value unchanged)', async () => {
+      const plainUuid = String((await createHostAsAdmin()).uuid);
+      const advancedUuid = String((await createHostAsAdmin({ advanced_config: ADVANCED_CONFIG })).uuid);
+      const advancedBefore = await getHost(adminApi, advancedUuid);
+
+      await test.step('Standard user cannot add advanced config to a host without it', async () => {
+        const current = await getHost(userApi, plainUuid);
+        const response = await userApi.put(`/api/v1/proxy-hosts/${plainUuid}`, {
+          data: { ...current, advanced_config: ADVANCED_CONFIG },
+        });
+        expect(response.status()).toBe(403);
+        expect((await errorBody(response)).error_code).toBe(ADMIN_ONLY_ERROR_CODE);
+        expect((await getHost(adminApi, plainUuid)).advanced_config ?? '').toBe('');
+      });
+
+      await test.step('Standard user cannot clear advanced config on a host that has it', async () => {
+        const response = await userApi.put(`/api/v1/proxy-hosts/${advancedUuid}`, {
+          data: { advanced_config: '' },
+        });
+        expect(response.status()).toBe(403);
+        expect((await errorBody(response)).error_code).toBe(ADMIN_ONLY_ERROR_CODE);
+        expect(await getHost(adminApi, advancedUuid)).toEqual(advancedBefore);
+      });
+    });
+
+    test('standard user edit that leaves the admin-only fields unchanged still succeeds', async () => {
+      const uuid = String((await createHostAsAdmin({ dns_provider_id: dnsProviderRef })).uuid);
+      const storedProvider = (await getHost(adminApi, uuid)).dns_provider_id;
+      expect(storedProvider, 'administrator stores the DNS provider').toEqual(expect.anything());
+
+      await test.step('Standard user changes the forward port and sends the DNS fields back unchanged', async () => {
+        const current = await getHost(userApi, uuid);
+        expect(current.dns_provider_id).toBe(storedProvider);
+        const response = await userApi.put(`/api/v1/proxy-hosts/${uuid}`, {
+          data: { ...current, forward_port: 8181 },
+        });
+        expect(response.status()).toBe(200);
+      });
+
+      await test.step('Administrator sees the new port and the unchanged DNS provider', async () => {
+        const after = await getHost(adminApi, uuid);
+        expect(after.forward_port).toBe(8181);
+        expect(after.dns_provider_id).toBe(storedProvider);
+      });
+    });
+
+    test('standard user can create a host that sets no admin-only fields', async () => {
+      const payload = hostPayload({ name: 'Standard user created host' });
+      const response = await userApi.post('/api/v1/proxy-hosts', { data: payload });
+      expect(response.status()).toBe(201);
+      const host = (await response.json()) as JsonObject;
+      createdHostUuids.push(String(host.uuid));
+      expect(host.domain_names).toBe(payload.domain_names);
+    });
+  });
+
+  test.describe('Redacted reads by role', () => {
+    test('standard user reads hide advanced config, administrator sees it', async () => {
+      const uuid = String((await createHostAsAdmin({ advanced_config: ADVANCED_CONFIG })).uuid);
+
+      await test.step('Administrator reads the advanced config', async () => {
+        const admin = await getHost(adminApi, uuid);
+        expect(admin.advanced_config).toEqual(expect.any(String));
+        expect(admin.advanced_config).not.toBe('');
+      });
+
+      await test.step('Standard user single-host read omits it and reports that it is set', async () => {
+        const user = await getHost(userApi, uuid);
+        expect(user).not.toHaveProperty('advanced_config');
+        expect(user).not.toHaveProperty('advanced_config_backup');
+        expect(user.has_advanced_config).toBe(true);
+      });
+
+      await test.step('Standard user list omits it for the same host', async () => {
+        const entry = (await listBy(userApi, '/api/v1/proxy-hosts')).find((host) => host.uuid === uuid);
+        expect(entry).toBeDefined();
+        expect(entry).not.toHaveProperty('advanced_config');
+        expect(entry?.has_advanced_config).toBe(true);
+      });
+    });
+
+    test('standard user credential reads hide zone filter, administrator sees it', async () => {
+      const enable = await adminApi.post(`/api/v1/dns-providers/${dnsProviderRef}/enable-multi-credentials`);
+      expect(enable.ok(), 'enable multi-credential mode for the probe provider').toBe(true);
+
+      const label = `standard-user-credential-${Date.now()}`;
+      const created = await adminApi.post(`/api/v1/dns-providers/${dnsProviderRef}/credentials`, {
+        data: {
+          label,
+          zone_filter: 'example.test',
+          credentials: { api_token: 'standard-user-probe-token' },
+          enabled: true,
+        },
+      });
+      expect(created.ok(), 'administrator creates a DNS credential').toBe(true);
+
+      const path = `/api/v1/dns-providers/${dnsProviderRef}/credentials`;
+
+      await test.step('Standard user credential list omits zone filter and last error', async () => {
+        const entry = (await listBy(userApi, path)).find((credential) => credential.label === label);
+        expect(entry).toBeDefined();
+        expect(entry).not.toHaveProperty('zone_filter');
+        expect(entry).not.toHaveProperty('last_error');
+      });
+
+      await test.step('Administrator credential list includes the zone filter', async () => {
+        const entry = (await listBy(adminApi, path)).find((credential) => credential.label === label);
+        expect(entry?.zone_filter).toBe('example.test');
+      });
+    });
+
+    test('standard user notification reads hide URL and config, administrator sees them', async () => {
+      const name = `standard-user-webhook-${Date.now()}`;
+      const url = 'https://hooks.example.test/standard-user-probe';
+      const created = await adminApi.post('/api/v1/notifications/providers', {
+        data: { name, type: 'webhook', url, enabled: true },
+      });
+      expect(created.ok(), 'administrator creates a webhook provider').toBe(true);
+      createdNotificationIds.push(String(((await created.json()) as JsonObject).id));
+
+      await test.step('Standard user provider list hides the URL and reports that one is set', async () => {
+        const entry = (await listBy(userApi, '/api/v1/notifications/providers')).find((p) => p.name === name);
+        expect(entry).toBeDefined();
+        for (const hidden of ['url', 'config', 'service_config', 'legacy_url']) {
+          expect(entry).not.toHaveProperty(hidden);
+        }
+        expect(entry?.has_url).toBe(true);
+      });
+
+      await test.step('Administrator provider list includes the URL', async () => {
+        const entry = (await listBy(adminApi, '/api/v1/notifications/providers')).find((p) => p.name === name);
+        expect(entry?.url).toBe(url);
+      });
+    });
+  });
+
+  test.describe('Uptime monitor permissions', () => {
+    test('standard user cannot create, update, check, sync or delete uptime monitors (403)', async () => {
+      const created = await adminApi.post('/api/v1/uptime/monitors', {
+        data: { name: `standard-user-monitor-${Date.now()}`, url: 'https://uptime-probe.example.test/', type: 'https' },
+      });
+      expect(created.status()).toBe(201);
+      const monitor = (await created.json()) as JsonObject;
+      const monitorId = String(monitor.id);
+      createdMonitorIds.push(monitorId);
+
+      await test.step('Standard user cannot create a monitor', async () => {
+        const response = await userApi.post('/api/v1/uptime/monitors', {
+          data: { name: 'standard user monitor', url: 'https://uptime-denied.example.test/', type: 'https' },
+        });
+        expect(response.status()).toBe(403);
+      });
+
+      await test.step('Standard user cannot update the monitor', async () => {
+        const response = await userApi.put(`/api/v1/uptime/monitors/${monitorId}`, {
+          data: { name: 'changed by standard user' },
+        });
+        expect(response.status()).toBe(403);
+      });
+
+      await test.step('Standard user cannot trigger a manual check', async () => {
+        const response = await userApi.post(`/api/v1/uptime/monitors/${monitorId}/check`);
+        expect(response.status()).toBe(403);
+      });
+
+      await test.step('Standard user cannot sync monitors with hosts', async () => {
+        const response = await userApi.post('/api/v1/uptime/sync');
+        expect(response.status()).toBe(403);
+      });
+
+      await test.step('Standard user cannot delete the monitor', async () => {
+        const response = await userApi.delete(`/api/v1/uptime/monitors/${monitorId}`);
+        expect(response.status()).toBe(403);
+      });
+
+      await test.step('Administrator still sees the monitor with its original name', async () => {
+        const entry = (await listBy(adminApi, '/api/v1/uptime/monitors')).find((m) => String(m.id) === monitorId);
+        expect(entry?.name).toBe(monitor.name);
+      });
+    });
+
+    test('standard user can still read uptime list, summary, history and health (200)', async () => {
+      const created = await adminApi.post('/api/v1/uptime/monitors', {
+        data: { name: `standard-user-read-${Date.now()}`, url: 'https://uptime-read.example.test/', type: 'https' },
+      });
+      expect(created.status()).toBe(201);
+      const monitorId = String(((await created.json()) as JsonObject).id);
+      createdMonitorIds.push(monitorId);
+
+      const list = await listBy(userApi, '/api/v1/uptime/monitors');
+      expect(list.some((m) => String(m.id) === monitorId)).toBe(true);
+
+      const summary = await userApi.get('/api/v1/uptime/monitors/summary');
+      expect(summary.status()).toBe(200);
+
+      const history = await userApi.get(`/api/v1/uptime/monitors/${monitorId}/history`);
+      expect(history.status()).toBe(200);
+
+      const health = await userApi.get('/api/v1/uptime/health');
+      expect(health.status()).toBe(200);
+    });
+  });
+
+  test.describe('Proxy admin listener as a forward target', () => {
+    const adminListenerHosts = ['127.0.0.1', 'localhost', '::1'];
+
+    for (const role of roles) {
+      for (const forwardHost of adminListenerHosts) {
+        test(`${role.label} cannot forward to the proxy admin listener at ${forwardHost} (400, nothing created)`, async () => {
+          const domain = uniqueDomain();
+          const response = await role.api().post('/api/v1/proxy-hosts', {
+            data: hostPayload({ domain_names: domain, forward_host: forwardHost, forward_port: CADDY_ADMIN_PORT }),
+          });
+          expect(response.status()).toBe(400);
+          expect((await errorBody(response)).error).toMatch(/admin API/i);
+
+          const hosts = await listBy(adminApi, '/api/v1/proxy-hosts');
+          expect(hosts.some((host) => host.domain_names === domain)).toBe(false);
+        });
+      }
+    }
+  });
+
+  test.describe('Container list for a disabled remote server', () => {
+    let disabledServerUuid: string;
+
+    test.beforeAll(async () => {
+      const response = await adminApi.post('/api/v1/remote-servers', {
+        data: { name: `standard-user-disabled-${Date.now()}`, host: '198.51.100.40', port: 2376 },
+      });
+      expect(response.ok(), 'administrator creates a remote server').toBe(true);
+      disabledServerUuid = String(((await response.json()) as JsonObject).uuid);
+      createdRemoteServerUuids.push(disabledServerUuid);
+
+      // Create ignores enabled:false (the model's gorm default:true applies to a false value), so disable via update.
+      const disable = await adminApi.put(`/api/v1/remote-servers/${disabledServerUuid}`, { data: { enabled: false } });
+      expect(disable.ok(), 'administrator disables the remote server').toBe(true);
+      const stored = (await listBy(adminApi, '/api/v1/remote-servers')).find((s) => s.uuid === disabledServerUuid);
+      expect(stored?.enabled, 'remote server is disabled before the container list is requested').toBe(false);
+    });
+
+    for (const role of roles) {
+      test(`${role.label} gets 400 when listing containers of a disabled remote server`, async () => {
+        const response = await role.api().get(`/api/v1/docker/containers?server_id=${disabledServerUuid}`);
+        expect(response.status()).toBe(400);
+        expect((await errorBody(response)).error).toMatch(/disabled/i);
+      });
+    }
+  });
+});
