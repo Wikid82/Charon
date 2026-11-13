@@ -267,8 +267,8 @@ func TestPrepareAdminSocketReportsUnreadableDirectory(t *testing.T) {
 	dir := t.TempDir()
 	socketDir := filepath.Join(dir, "run")
 	require.NoError(t, os.Mkdir(socketDir, 0o700))
-	require.NoError(t, os.Chmod(socketDir, 0o000))
-	t.Cleanup(func() { _ = os.Chmod(socketDir, 0o700) })
+	require.NoError(t, os.Chmod(socketDir, 0o000))       //nolint:gosec // G302: test-only mode on a directory or socket to simulate an access failure
+	t.Cleanup(func() { _ = os.Chmod(socketDir, 0o700) }) //nolint:gosec // G302: test-only mode on a directory or socket to simulate an access failure
 
 	err := PrepareAdminSocket(filepath.Join(socketDir, "admin.sock"))
 	require.Error(t, err)
@@ -291,7 +291,7 @@ func TestPrepareAdminSocketReportsUncheckableSocket(t *testing.T) {
 	leaveStaleSocket(t, socketPath)
 	// Without write permission on the socket file, connecting fails with a
 	// permission error rather than "connection refused", so the file is kept.
-	require.NoError(t, os.Chmod(socketPath, 0o000))
+	require.NoError(t, os.Chmod(socketPath, 0o000)) //nolint:gosec // G302: test-only mode on a directory or socket to simulate an access failure
 
 	err := PrepareAdminSocket(socketPath)
 	require.Error(t, err)
@@ -308,8 +308,8 @@ func TestPrepareAdminSocketReportsUnremovableStaleSocket(t *testing.T) {
 	socketPath := filepath.Join(socketDir, "admin.sock")
 	leaveStaleSocket(t, socketPath)
 	// A read-only directory keeps the stale socket from being unlinked.
-	require.NoError(t, os.Chmod(socketDir, 0o500))
-	t.Cleanup(func() { _ = os.Chmod(socketDir, 0o700) })
+	require.NoError(t, os.Chmod(socketDir, 0o500))       //nolint:gosec // G302: test-only mode on a directory or socket to simulate an access failure
+	t.Cleanup(func() { _ = os.Chmod(socketDir, 0o700) }) //nolint:gosec // G302: test-only mode on a directory or socket to simulate an access failure
 
 	err := PrepareAdminSocket(socketPath)
 	require.Error(t, err)
