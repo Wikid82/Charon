@@ -1,0 +1,55 @@
+name: Merge backend coverage shards
+description: >-
+  Downloads every backend coverage shard, merges the profiles into
+  backend/coverage.txt, enforces the line-coverage gate once across all shards,
+  and concatenates the per-shard test output into backend/test-output.txt. Pair
+  with the go-coverage-shard action. The caller must check out the repository.
+inputs:
+  expected-shards:
+    description: Number of coverage profiles that must be present. Fails when fewer are found.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      with:
+        go-version-file: backend/go.mod
+        cache-dependency-path: backend/go.sum
+
+    - name: Download shard coverage profiles
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+      with:
+        pattern: backend-coverage-shard-*
+        path: backend/.shards/coverage
+
+    - name: Download shard test output
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+      with:
+        pattern: backend-test-output-shard-*
+        path: backend/.shards/output
+
+    - name: Merge coverage profiles and enforce the gate
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        EXPECTED_SHARDS: ${{ inputs.expected-shards }}
+      run: |
+        set -euo pipefail
+        mapfile -t profiles < <(find backend/.shards/coverage -type f -name coverage.txt | sort)
+        if [ "${#profiles[@]}" -ne "$EXPECTED_SHARDS" ]; then
+          echo "::error title=Missing backend coverage shard::Expected ${EXPECTED_SHARDS} coverage profiles, found ${#profiles[@]}"
+          exit 1
+        fi
+        bash scripts/ci/merge-go-coverage.sh backend/coverage.txt "${profiles[@]}"
+        bash scripts/ci/go-coverage-gate.sh backend/coverage.txt
+
+    - name: Merge shard test output
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: |
+        set -euo pipefail
+        : > backend/test-output.txt
+        while IFS= read -r output; do
+          cat "$output" >> backend/test-output.txt
+        done < <(find backend/.shards/output -type f -name test-output.txt | sort)

@@ -11,10 +11,35 @@ sleep 1
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BACKEND_DIR="$ROOT_DIR/backend"
 COVERAGE_FILE="$BACKEND_DIR/coverage.txt"
-MIN_COVERAGE="${CHARON_MIN_COVERAGE:-${CPM_MIN_COVERAGE:-87}}"
+# Optional overrides used by the sharded CI jobs (see scripts/ci/shard-go-packages.sh
+# and scripts/ci/merge-go-coverage.sh):
+#   CHARON_TEST_PACKAGES  space-separated package list to test (default: ./...).
+#                         Set but empty is an error, so a bad shard never silently
+#                         runs the whole suite.
+#   CHARON_COVERAGE_GATE  1 (default) enforces the minimum line coverage here;
+#                         0 still writes the profile but skips the gate, leaving
+#                         it to the merge job that sees every shard.
 # Per-package `go test` timeout. Go's 10m default is too tight for the slowest
 # packages (internal/services takes ~9.5m under -race on CI runners).
 TEST_TIMEOUT="${CHARON_TEST_TIMEOUT:-30m}"
+COVERAGE_GATE="${CHARON_COVERAGE_GATE:-1}"
+
+case "$COVERAGE_GATE" in
+    0|1) ;;
+    *)
+        echo "Error: CHARON_COVERAGE_GATE must be 0 or 1 (got '${COVERAGE_GATE}')" >&2
+        exit 2
+        ;;
+esac
+
+TEST_PACKAGES=("./...")
+if [[ -n "${CHARON_TEST_PACKAGES+x}" ]]; then
+    read -r -a TEST_PACKAGES <<< "$CHARON_TEST_PACKAGES"
+    if (( ${#TEST_PACKAGES[@]} == 0 )); then
+        echo "Error: CHARON_TEST_PACKAGES is set but empty" >&2
+        exit 2
+    fi
+fi
 
 generate_test_encryption_key() {
     if command -v openssl >/dev/null 2>&1; then
@@ -134,12 +159,12 @@ trap 'rm -f "$TEST_OUTPUT_FILE"' EXIT
 
 if command -v gotestsum &> /dev/null; then
     set +e
-    gotestsum --format pkgname -- -race -timeout="$TEST_TIMEOUT" -mod=readonly -coverprofile="$COVERAGE_FILE" ./... 2>&1 | tee "$TEST_OUTPUT_FILE"
+    gotestsum --format pkgname -- -race -timeout="$TEST_TIMEOUT" -mod=readonly -coverprofile="$COVERAGE_FILE" "${TEST_PACKAGES[@]}" 2>&1 | tee "$TEST_OUTPUT_FILE"
     GO_TEST_STATUS=$?
     set -e
 else
     set +e
-    go test -race -timeout="$TEST_TIMEOUT" -mod=readonly -coverprofile="$COVERAGE_FILE" ./... 2>&1 | tee "$TEST_OUTPUT_FILE"
+    go test -race -timeout="$TEST_TIMEOUT" -mod=readonly -coverprofile="$COVERAGE_FILE" "${TEST_PACKAGES[@]}" 2>&1 | tee "$TEST_OUTPUT_FILE"
     GO_TEST_STATUS=$?
     set -e
 fi
@@ -212,126 +237,12 @@ else
 fi
 rm -rf "$HARNESS_COVDIR"
 
-# Generate coverage report once with timeout protection
-# NOTE: Large repos can produce big coverage profiles; allow more time for parsing.
-COVERAGE_OUTPUT=$(timeout 180 go tool cover -func="$COVERAGE_FILE" 2>&1) || {
-    echo "Error: go tool cover failed or timed out after 180 seconds"
-    echo "This may indicate corrupted coverage data or memory issues"
-    exit 1
-}
-
-# Extract and display the summary line (total coverage)
-TOTAL_LINE=$(echo "$COVERAGE_OUTPUT" | awk '/^total:/ {line=$0} END {print line}')
-
-if [ -z "$TOTAL_LINE" ]; then
-    echo "Error: Coverage report missing 'total:' line"
-    echo "Coverage output:"
-    echo "$COVERAGE_OUTPUT"
-    exit 1
+# Enforce the line-coverage gate (shared with the sharded CI merge job).
+if [ "$COVERAGE_GATE" = "1" ]; then
+    bash "$ROOT_DIR/scripts/ci/go-coverage-gate.sh" "$COVERAGE_FILE"
+else
+    echo "Coverage gate skipped (CHARON_COVERAGE_GATE=0); the merge job enforces it across shards"
 fi
-
-echo "$TOTAL_LINE"
-
-# Extract statement coverage percentage from go tool cover summary line
-STATEMENT_PERCENT=$(echo "$TOTAL_LINE" | awk '{
-    if (NF < 3) {
-        print "ERROR: Invalid coverage line format" > "/dev/stderr"
-        exit 1
-    }
-    # Extract last field and remove trailing %
-    last_field = $NF
-    if (last_field !~ /^[0-9]+(\.[0-9]+)?%$/) {
-        printf "ERROR: Last field is not a valid percentage: %s\n", last_field > "/dev/stderr"
-        exit 1
-    }
-    # Remove trailing %
-    gsub(/%$/, "", last_field)
-    print last_field
-}')
-
-if [ -z "$STATEMENT_PERCENT" ] || [ "$STATEMENT_PERCENT" = "ERROR" ]; then
-    echo "Error: Could not extract coverage percentage from: $TOTAL_LINE"
-    exit 1
-fi
-
-# Validate that extracted value is numeric (allows decimals and integers)
-if ! echo "$STATEMENT_PERCENT" | grep -qE '^[0-9]+(\.[0-9]+)?$'; then
-    echo "Error: Extracted coverage value is not numeric: '$STATEMENT_PERCENT'"
-    echo "Source line: $TOTAL_LINE"
-    exit 1
-fi
-
-# Compute line coverage directly from coverprofile blocks (authoritative gate in this script)
-# Format per line:
-#   file:startLine.startCol,endLine.endCol numStatements count
-LINE_PERCENT=$(awk '
-BEGIN {
-    total_lines = 0
-    covered_lines = 0
-}
-NR == 1 {
-    next
-}
-{
-    split($1, pos, ":")
-    if (length(pos) < 2) {
-        next
-    }
-
-    file = pos[1]
-    split(pos[2], ranges, ",")
-    split(ranges[1], start_parts, ".")
-    split(ranges[2], end_parts, ".")
-
-    start_line = start_parts[1] + 0
-    end_line = end_parts[1] + 0
-    count = $3 + 0
-
-    if (start_line <= 0 || end_line <= 0 || end_line < start_line) {
-        next
-    }
-
-    for (line = start_line; line <= end_line; line++) {
-        key = file ":" line
-        if (!(key in seen_total)) {
-            seen_total[key] = 1
-            total_lines++
-        }
-        if (count > 0 && !(key in seen_covered)) {
-            seen_covered[key] = 1
-            covered_lines++
-        }
-    }
-}
-END {
-    if (total_lines == 0) {
-        print "0.0"
-        exit 0
-    }
-    printf "%.1f", (covered_lines * 100.0) / total_lines
-}
-' "$COVERAGE_FILE")
-
-if [ -z "$LINE_PERCENT" ]; then
-    echo "Error: Could not compute line coverage from $COVERAGE_FILE"
-    exit 1
-fi
-
-if ! echo "$LINE_PERCENT" | grep -qE '^[0-9]+(\.[0-9]+)?$'; then
-    echo "Error: Computed line coverage is not numeric: '$LINE_PERCENT'"
-    exit 1
-fi
-
-echo "Statement coverage: ${STATEMENT_PERCENT}%"
-echo "Line coverage: ${LINE_PERCENT}%"
-echo "Coverage gate (line coverage): minimum required ${MIN_COVERAGE}%"
-
-if awk -v current="$LINE_PERCENT" -v minimum="$MIN_COVERAGE" 'BEGIN { exit !(current + 0 < minimum + 0) }'; then
-    echo "Coverage ${LINE_PERCENT}% is below required ${MIN_COVERAGE}% (set CHARON_MIN_COVERAGE or CPM_MIN_COVERAGE to override)"
-    exit 1
-fi
-
-echo "Coverage requirement met"
 
 # Bubble up real test failures (after printing coverage info) so pre-commit
 # reflects the actual test status.

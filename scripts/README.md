@@ -43,6 +43,27 @@ Or use the VS Code task: `Ctrl+Shift+P` → `Tasks: Run Task` → `Coraza: Run I
 - **Go Test Coverage**: `bash ./scripts/go-test-coverage.sh`
 - **Frontend Test Coverage**: `bash ./scripts/frontend-test-coverage.sh`
 
+## Coverage Sharding Scripts (CI)
+
+The backend and frontend unit tests run as parallel shards in
+`quality-checks.yml` and `codecov-upload.yml`, then merge. The local scripts
+above still run everything in one pass.
+
+| Script | Used by | What it does |
+| --- | --- | --- |
+| `ci/shard-go-packages.sh <index> <total>` | `go-coverage-shard` action | Prints the Go packages for one 1-based shard. `internal/services` and `internal/api/handlers` each get a dedicated shard. Every package appears in exactly one shard. |
+| `ci/merge-go-coverage.sh <out> <in>...` | `go-coverage-merge` action | Merges `mode: atomic` coverprofiles from the shards into one profile. Fails on a missing header or a mode mismatch. |
+| `ci/go-coverage-gate.sh <profile>` | `go-coverage-merge` action, `go-test-coverage.sh` | Enforces the backend line-coverage minimum (`CHARON_MIN_COVERAGE`, default 87). |
+
+`go-test-coverage.sh` takes two optional variables for shards:
+`CHARON_TEST_PACKAGES` (space-separated package list, default `./...`) and
+`CHARON_COVERAGE_GATE=0` (write the profile but skip the gate). Frontend shards
+use `npm run test:coverage:shard` and merge with `npm run test:coverage:merge`;
+the 87% threshold is enforced only on the merged result.
+
+Shell tests for these scripts are `scripts/tests/shard-go-packages.bats`,
+`scripts/tests/go-coverage-scripts.bats` and `scripts/tests/go-test-coverage.bats`.
+
 ## What's New and Build Version Scripts (CI)
 
 These scripts make the image build decide the What's New data and the version

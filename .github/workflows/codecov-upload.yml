@@ -30,16 +30,65 @@ concurrency:
 env:
   NODE_VERSION: '26.13.1'
   GOTOOLCHAIN: auto
+  # Shard counts for the unit-test matrices; keep in sync with the matrix lists.
+  BACKEND_TEST_SHARDS: '3'
+  FRONTEND_TEST_SHARDS: '4'
 
 permissions:
   contents: read
   pull-requests: write
 
 jobs:
+  # The Go suite runs as parallel shards (scripts/ci/shard-go-packages.sh). Each
+  # shard uploads its coverage profile; `backend-codecov` merges them, enforces
+  # the coverage gate once, and stages the merged profile for upload-codecov.
+  backend-codecov-shards:
+    name: Backend Codecov Shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_backend }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Keep this list in sync with BACKEND_TEST_SHARDS below.
+        shard: [1, 2, 3]
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      # The backend tests need only a valid 32-byte key. It is generated per run and kept in
+      # this step's output, so no repository secret is read, which keeps fork and Dependabot PRs
+      # and same-repository PRs on the same path.
+      - name: Generate encryption key for backend coverage
+        id: test-key
+        shell: bash
+        run: |
+          set -euo pipefail
+          encryption_key="$(openssl rand -base64 32)"
+          echo "::add-mask::${encryption_key}"
+          echo "encryption_key=${encryption_key}" >> "$GITHUB_OUTPUT"
+
+      - name: Run backend coverage shard
+        uses: ./.github/actions/go-coverage-shard
+        with:
+          shard-index: ${{ matrix.shard }}
+          shard-total: ${{ env.BACKEND_TEST_SHARDS }}
+          encryption-key: ${{ steps.test-key.outputs.encryption_key }}
+
   backend-codecov:
     name: Backend Codecov Upload
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 15
+    needs: [backend-codecov-shards]
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_backend }}
     steps:
       - name: Harden the runner (Audit all outbound calls)
@@ -54,46 +103,10 @@ jobs:
           fetch-depth: 0
           ref: ${{ github.sha }}
 
-      - name: Set up Go
-        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      - name: Merge backend coverage shards and enforce the gate
+        uses: ./.github/actions/go-coverage-merge
         with:
-          go-version-file: backend/go.mod
-
-          cache-dependency-path: backend/go.sum
-
-      # The backend tests need only a valid 32-byte key, so it is generated per run and kept in
-      # this step's output. No repository secret is read, which keeps fork and Dependabot PRs
-      # and same-repository PRs on the same path.
-      - name: Generate encryption key for backend coverage
-        id: test-key
-        shell: bash
-        run: |
-          set -euo pipefail
-          encryption_key="$(openssl rand -base64 32)"
-          echo "::add-mask::${encryption_key}"
-          echo "encryption_key=${encryption_key}" >> "$GITHUB_OUTPUT"
-
-      - name: Install gotestsum
-        run: |
-          for attempt in 1 2 3; do
-            go install gotest.tools/gotestsum@v1.13.0 && break
-            if [ "$attempt" -lt 3 ]; then
-              echo "Attempt ${attempt}/3 failed; retrying in $((attempt * 15))s..." >&2
-              sleep $((attempt * 15))
-            else
-              echo "ERROR: go install gotest.tools/gotestsum failed after 3 attempts" >&2
-              exit 1
-            fi
-          done
-
-      - name: Run Go tests with coverage
-        working-directory: ${{ github.workspace }}
-        env:
-          CGO_ENABLED: 1
-          CHARON_ENCRYPTION_KEY: ${{ steps.test-key.outputs.encryption_key }}
-        run: |
-          bash scripts/go-test-coverage.sh 2>&1 | tee backend/test-output.txt
-          exit "${PIPESTATUS[0]}"
+          expected-shards: ${{ env.BACKEND_TEST_SHARDS }}
 
       - name: Upload test output artifact
         if: always()
@@ -111,10 +124,54 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
+  # The Vitest suite runs as parallel shards, each uploading a blob report.
+  # `frontend-codecov` merges them, enforces the coverage threshold once, and
+  # stages lcov.info for upload-codecov.
+  frontend-codecov-shards:
+    name: Frontend Codecov Shard ${{ matrix.shard }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_frontend }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # Keep this list in sync with FRONTEND_TEST_SHARDS below.
+        shard: [1, 2, 3, 4]
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci --ignore-scripts
+
+      - name: Run frontend coverage shard
+        uses: ./.github/actions/vitest-coverage-shard
+        with:
+          shard-index: ${{ matrix.shard }}
+          shard-total: ${{ env.FRONTEND_TEST_SHARDS }}
+
   frontend-codecov:
     name: Frontend Codecov Upload
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 15
+    needs: [frontend-codecov-shards]
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_frontend }}
     steps:
       - name: Harden the runner (Audit all outbound calls)
@@ -140,11 +197,10 @@ jobs:
         working-directory: frontend
         run: npm ci --ignore-scripts
 
-      - name: Run frontend tests and coverage
-        working-directory: ${{ github.workspace }}
-        run: |
-          bash scripts/frontend-test-coverage.sh 2>&1 | tee frontend/test-output.txt
-          exit "${PIPESTATUS[0]}"
+      - name: Merge frontend coverage shards and enforce the threshold
+        uses: ./.github/actions/vitest-coverage-merge
+        with:
+          expected-shards: ${{ env.FRONTEND_TEST_SHARDS }}
 
       - name: Stage frontend coverage for upload
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -221,7 +277,7 @@ jobs:
     name: Codecov Upload
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    needs: [backend-codecov, frontend-codecov, agent-codecov]
+    needs: [backend-codecov-shards, backend-codecov, frontend-codecov-shards, frontend-codecov, agent-codecov]
     if: >-
       ${{ !cancelled()
       && !contains(needs.*.result, 'failure')

@@ -1,7 +1,7 @@
 # E2E Tests Workflow (Reorganized: Security Isolation + Parallel Sharding)
 #
-# Architecture: 15 Total Jobs
-#   - 3 Security Enforcement Jobs (1 shard per browser, serial execution, 30min timeout)
+# Architecture: 21 Total Jobs
+#   - 9 Security Enforcement Jobs (3 browsers x 3 shards, serial within each shard, 60min timeout)
 #   - 12 Non-Security Jobs (4 shards per browser, parallel execution, 20min timeout)
 #
 # Problem Solved: Cross-shard contamination from security middleware state changes
@@ -279,14 +279,19 @@ jobs:
           retention-days: 1
 
   # ==================================================================================
-  # SECURITY ENFORCEMENT TESTS (3 jobs: 1 per browser, serial execution)
+  # SECURITY ENFORCEMENT TESTS (9 jobs: 3 browsers x 3 shards, serial within each shard)
   # ==================================================================================
   # These tests enable Cerberus middleware and verify security enforcement
-  # Run serially to avoid cross-test contamination from global state changes
+  # Each shard is a separate job with its own compose stack, so state changes never cross shards.
+  # Within a shard, specs run serially to avoid cross-test contamination from global state changes.
+  # Specs are assigned to shards by scripts/ci/shard-security-specs.sh from the committed manifest
+  # (scripts/ci/security-shard-manifest.txt), not by Playwright --shard. The break-glass chain
+  # (emergency-reset, zzz-*, zzzz-break-glass-recovery, and the bypass-dependent tests/security specs)
+  # stays in one shard so its ordering holds. See the shard-1 note in the multi-feature step.
   # ==================================================================================
 
   e2e-chromium-security:
-    name: E2E Chromium (Security Enforcement)
+    name: E2E Chromium (Security Enforcement, Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
     runs-on: ubuntu-latest
     needs: build
     if: |
@@ -294,6 +299,11 @@ jobs:
       ((inputs.browser || 'all') == 'chromium' || (inputs.browser || 'all') == 'all') &&
       ((inputs.test_category || 'all') == 'security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+        total-shards: [3]
     env:
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "true"  # Cerberus ON for enforcement tests
@@ -421,14 +431,14 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Run Chromium Security Enforcement Tests
+      - name: Run Chromium Security Enforcement Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
           set -euo pipefail
           STATUS=0
           echo "════════════════════════════════════════════"
           echo "Chromium Security Enforcement Tests"
           echo "Cerberus: ENABLED"
-          echo "Execution: SERIAL (no sharding)"
+          echo "Execution: SERIAL within shard ${{ matrix.shard }}/${{ matrix.total-shards }} (manifest-pinned spec lists)"
           echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "════════════════════════════════════════════"
 
@@ -455,11 +465,25 @@ jobs:
           # the same workflow a second time with Cerberus not yet touched,
           # complementing the Cerberus-OFF run already covered by
           # tests/integration in the non-security sharded chromium job.
-          echo "--- chromium project: tests/integration/multi-feature-workflows.spec.ts ---"
-          PLAYWRIGHT_HTML_REPORT=playwright-report/multi-feature-workflows bash scripts/ci/run-playwright-container.sh \
-            --project=chromium \
-            --output=playwright-output/security-chromium/multi-feature-workflows \
-            tests/integration/multi-feature-workflows.spec.ts || STATUS=$?
+          # Shard 1 only: the pre-step must run in the same container as, and before, the
+          # security-tests invocation below. Shards 2 and 3 run security-tests alone, each in a
+          # fresh container, so the pre-step is not repeated there.
+          if [[ "${{ matrix.shard }}" == "1" ]]; then
+            echo "--- chromium project: tests/integration/multi-feature-workflows.spec.ts ---"
+            PLAYWRIGHT_HTML_REPORT=playwright-report/multi-feature-workflows-shard-${{ matrix.shard }} bash scripts/ci/run-playwright-container.sh \
+              --project=chromium \
+              --output=playwright-output/security-chromium-shard-${{ matrix.shard }}/multi-feature-workflows \
+              tests/integration/multi-feature-workflows.spec.ts || STATUS=$?
+          fi
+
+          # Explicit spec list for this shard, from the committed manifest. The bucketing script
+          # keeps the break-glass chain in one shard and fails the step if any spec under
+          # tests/security-enforcement/ or tests/security/ is unassigned or listed twice.
+          SHARD_SPEC_LIST="$RUNNER_TEMP/security-specs-shard-${{ matrix.shard }}.txt"
+          bash scripts/ci/shard-security-specs.sh "${{ matrix.shard }}" "${{ matrix.total-shards }}" > "$SHARD_SPEC_LIST"
+          mapfile -t SECURITY_SPECS < "$SHARD_SPEC_LIST"
+          echo "Security specs assigned to shard ${{ matrix.shard }}/${{ matrix.total-shards }}: ${#SECURITY_SPECS[@]}"
+          printf '  %s\n' "${SECURITY_SPECS[@]}"
 
           # tests/security-enforcement/ and tests/security/ are ONLY ever
           # collected by the dedicated `security-tests` project in
@@ -469,11 +493,10 @@ jobs:
           # directories, so `--project=chromium` here always matched 0 tests
           # in them. Run them under their correct project, last (see above).
           echo "--- security-tests project: tests/security-enforcement/, tests/security/ ---"
-          PLAYWRIGHT_HTML_REPORT=playwright-report/security-tests bash scripts/ci/run-playwright-container.sh \
+          PLAYWRIGHT_HTML_REPORT=playwright-report/security-tests-shard-${{ matrix.shard }} bash scripts/ci/run-playwright-container.sh \
             --project=security-tests \
-            --output=playwright-output/security-chromium/security-tests \
-            tests/security-enforcement/ \
-            tests/security/ || STATUS=$?
+            --output=playwright-output/security-chromium-shard-${{ matrix.shard }}/security-tests \
+            "${SECURITY_SPECS[@]}" || STATUS=$?
 
           SHARD_END=$(date +%s)
           echo "SHARD_END=$SHARD_END" >> "$GITHUB_ENV"
@@ -496,7 +519,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: playwright-report-chromium-security
+          name: playwright-report-chromium-security-shard-${{ matrix.shard }}
           path: playwright-report/
           retention-days: 14
 
@@ -504,7 +527,7 @@ jobs:
         if: always() && (inputs.playwright_coverage == 'true' || vars.PLAYWRIGHT_COVERAGE == '1')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: e2e-coverage-chromium-security
+          name: e2e-coverage-chromium-security-shard-${{ matrix.shard }}
           path: coverage/e2e/
           retention-days: 7
 
@@ -512,7 +535,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: traces-chromium-security
+          name: traces-chromium-security-shard-${{ matrix.shard }}
           path: test-results/**/*.zip
           retention-days: 7
 
@@ -531,7 +554,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: e2e-diagnostics-chromium-security
+          name: e2e-diagnostics-chromium-security-shard-${{ matrix.shard }}
           path: diagnostics/
           retention-days: 7
 
@@ -543,14 +566,14 @@ jobs:
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
         if: failure()
         run: |
-          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-chromium-security.txt 2>&1
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-chromium-security-shard-${{ matrix.shard }}.txt 2>&1
 
       - name: Upload Docker logs on failure
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: docker-logs-chromium-security
-          path: docker-logs-chromium-security.txt
+          name: docker-logs-chromium-security-shard-${{ matrix.shard }}
+          path: docker-logs-chromium-security-shard-${{ matrix.shard }}.txt
           retention-days: 7
 
       - name: Cleanup
@@ -563,13 +586,18 @@ jobs:
         run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
 
   e2e-firefox-security:
-    name: E2E Firefox (Security Enforcement)
+    name: E2E Firefox (Security Enforcement, Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
     runs-on: ubuntu-latest
     needs: build
     if: |
       (github.event_name == 'pull_request' || (inputs.browser || 'all') == 'firefox' || (inputs.browser || 'all') == 'all') &&
       ((inputs.test_category || 'all') == 'security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+        total-shards: [3]
     env:
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "true"  # Cerberus ON for enforcement tests
@@ -697,14 +725,14 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Run Firefox Security Enforcement Tests
+      - name: Run Firefox Security Enforcement Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
           set -euo pipefail
           STATUS=0
           echo "════════════════════════════════════════════"
           echo "Firefox Security Enforcement Tests"
           echo "Cerberus: ENABLED"
-          echo "Execution: SERIAL (no sharding)"
+          echo "Execution: SERIAL within shard ${{ matrix.shard }}/${{ matrix.total-shards }} (manifest-pinned spec lists)"
           echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "════════════════════════════════════════════"
 
@@ -731,11 +759,25 @@ jobs:
           # the same workflow a second time with Cerberus not yet touched,
           # complementing the Cerberus-OFF run already covered by
           # tests/integration in the non-security sharded firefox job.
-          echo "--- firefox project: tests/integration/multi-feature-workflows.spec.ts ---"
-          PLAYWRIGHT_HTML_REPORT=playwright-report/multi-feature-workflows bash scripts/ci/run-playwright-container.sh \
-            --project=firefox \
-            --output=playwright-output/security-firefox/multi-feature-workflows \
-            tests/integration/multi-feature-workflows.spec.ts || STATUS=$?
+          # Shard 1 only: the pre-step must run in the same container as, and before, the
+          # security-tests invocation below. Shards 2 and 3 run security-tests alone, each in a
+          # fresh container, so the pre-step is not repeated there.
+          if [[ "${{ matrix.shard }}" == "1" ]]; then
+            echo "--- firefox project: tests/integration/multi-feature-workflows.spec.ts ---"
+            PLAYWRIGHT_HTML_REPORT=playwright-report/multi-feature-workflows-shard-${{ matrix.shard }} bash scripts/ci/run-playwright-container.sh \
+              --project=firefox \
+              --output=playwright-output/security-firefox-shard-${{ matrix.shard }}/multi-feature-workflows \
+              tests/integration/multi-feature-workflows.spec.ts || STATUS=$?
+          fi
+
+          # Explicit spec list for this shard, from the committed manifest. The bucketing script
+          # keeps the break-glass chain in one shard and fails the step if any spec under
+          # tests/security-enforcement/ or tests/security/ is unassigned or listed twice.
+          SHARD_SPEC_LIST="$RUNNER_TEMP/security-specs-shard-${{ matrix.shard }}.txt"
+          bash scripts/ci/shard-security-specs.sh "${{ matrix.shard }}" "${{ matrix.total-shards }}" > "$SHARD_SPEC_LIST"
+          mapfile -t SECURITY_SPECS < "$SHARD_SPEC_LIST"
+          echo "Security specs assigned to shard ${{ matrix.shard }}/${{ matrix.total-shards }}: ${#SECURITY_SPECS[@]}"
+          printf '  %s\n' "${SECURITY_SPECS[@]}"
 
           # tests/security-enforcement/ and tests/security/ are ONLY ever
           # collected by the dedicated `security-tests` project in
@@ -748,11 +790,10 @@ jobs:
           # browser, so this invocation still needs Chromium. The Playwright image
           # ships Chromium, so no separate install step is needed.)
           echo "--- security-tests project: tests/security-enforcement/, tests/security/ ---"
-          PLAYWRIGHT_HTML_REPORT=playwright-report/security-tests bash scripts/ci/run-playwright-container.sh \
+          PLAYWRIGHT_HTML_REPORT=playwright-report/security-tests-shard-${{ matrix.shard }} bash scripts/ci/run-playwright-container.sh \
             --project=security-tests \
-            --output=playwright-output/security-firefox/security-tests \
-            tests/security-enforcement/ \
-            tests/security/ || STATUS=$?
+            --output=playwright-output/security-firefox-shard-${{ matrix.shard }}/security-tests \
+            "${SECURITY_SPECS[@]}" || STATUS=$?
 
           SHARD_END=$(date +%s)
           echo "SHARD_END=$SHARD_END" >> "$GITHUB_ENV"
@@ -775,7 +816,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: playwright-report-firefox-security
+          name: playwright-report-firefox-security-shard-${{ matrix.shard }}
           path: playwright-report/
           retention-days: 14
 
@@ -783,7 +824,7 @@ jobs:
         if: always() && (inputs.playwright_coverage == 'true' || vars.PLAYWRIGHT_COVERAGE == '1')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: e2e-coverage-firefox-security
+          name: e2e-coverage-firefox-security-shard-${{ matrix.shard }}
           path: coverage/e2e/
           retention-days: 7
 
@@ -791,7 +832,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: traces-firefox-security
+          name: traces-firefox-security-shard-${{ matrix.shard }}
           path: test-results/**/*.zip
           retention-days: 7
 
@@ -810,7 +851,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: e2e-diagnostics-firefox-security
+          name: e2e-diagnostics-firefox-security-shard-${{ matrix.shard }}
           path: diagnostics/
           retention-days: 7
 
@@ -822,14 +863,14 @@ jobs:
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
         if: failure()
         run: |
-          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-firefox-security.txt 2>&1
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-firefox-security-shard-${{ matrix.shard }}.txt 2>&1
 
       - name: Upload Docker logs on failure
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: docker-logs-firefox-security
-          path: docker-logs-firefox-security.txt
+          name: docker-logs-firefox-security-shard-${{ matrix.shard }}
+          path: docker-logs-firefox-security-shard-${{ matrix.shard }}.txt
           retention-days: 7
 
       - name: Cleanup
@@ -842,7 +883,7 @@ jobs:
         run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
 
   e2e-webkit-security:
-    name: E2E WebKit (Security Enforcement)
+    name: E2E WebKit (Security Enforcement, Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
     runs-on: ubuntu-latest
     needs: build
     if: |
@@ -850,6 +891,11 @@ jobs:
       ((inputs.browser || 'all') == 'webkit' || (inputs.browser || 'all') == 'all') &&
       ((inputs.test_category || 'all') == 'security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+        total-shards: [3]
     env:
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "true"  # Cerberus ON for enforcement tests
@@ -977,14 +1023,14 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Run WebKit Security Enforcement Tests
+      - name: Run WebKit Security Enforcement Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
           set -euo pipefail
           STATUS=0
           echo "════════════════════════════════════════════"
           echo "WebKit Security Enforcement Tests"
           echo "Cerberus: ENABLED"
-          echo "Execution: SERIAL (no sharding)"
+          echo "Execution: SERIAL within shard ${{ matrix.shard }}/${{ matrix.total-shards }} (manifest-pinned spec lists)"
           echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "════════════════════════════════════════════"
 
@@ -1011,11 +1057,25 @@ jobs:
           # the same workflow a second time with Cerberus not yet touched,
           # complementing the Cerberus-OFF run already covered by
           # tests/integration in the non-security sharded webkit job.
-          echo "--- webkit project: tests/integration/multi-feature-workflows.spec.ts ---"
-          PLAYWRIGHT_HTML_REPORT=playwright-report/multi-feature-workflows bash scripts/ci/run-playwright-container.sh \
-            --project=webkit \
-            --output=playwright-output/security-webkit/multi-feature-workflows \
-            tests/integration/multi-feature-workflows.spec.ts || STATUS=$?
+          # Shard 1 only: the pre-step must run in the same container as, and before, the
+          # security-tests invocation below. Shards 2 and 3 run security-tests alone, each in a
+          # fresh container, so the pre-step is not repeated there.
+          if [[ "${{ matrix.shard }}" == "1" ]]; then
+            echo "--- webkit project: tests/integration/multi-feature-workflows.spec.ts ---"
+            PLAYWRIGHT_HTML_REPORT=playwright-report/multi-feature-workflows-shard-${{ matrix.shard }} bash scripts/ci/run-playwright-container.sh \
+              --project=webkit \
+              --output=playwright-output/security-webkit-shard-${{ matrix.shard }}/multi-feature-workflows \
+              tests/integration/multi-feature-workflows.spec.ts || STATUS=$?
+          fi
+
+          # Explicit spec list for this shard, from the committed manifest. The bucketing script
+          # keeps the break-glass chain in one shard and fails the step if any spec under
+          # tests/security-enforcement/ or tests/security/ is unassigned or listed twice.
+          SHARD_SPEC_LIST="$RUNNER_TEMP/security-specs-shard-${{ matrix.shard }}.txt"
+          bash scripts/ci/shard-security-specs.sh "${{ matrix.shard }}" "${{ matrix.total-shards }}" > "$SHARD_SPEC_LIST"
+          mapfile -t SECURITY_SPECS < "$SHARD_SPEC_LIST"
+          echo "Security specs assigned to shard ${{ matrix.shard }}/${{ matrix.total-shards }}: ${#SECURITY_SPECS[@]}"
+          printf '  %s\n' "${SECURITY_SPECS[@]}"
 
           # tests/security-enforcement/ and tests/security/ are ONLY ever
           # collected by the dedicated `security-tests` project in
@@ -1028,11 +1088,10 @@ jobs:
           # browser, so this invocation still needs Chromium. The Playwright image
           # ships Chromium, so no separate install step is needed.)
           echo "--- security-tests project: tests/security-enforcement/, tests/security/ ---"
-          PLAYWRIGHT_HTML_REPORT=playwright-report/security-tests bash scripts/ci/run-playwright-container.sh \
+          PLAYWRIGHT_HTML_REPORT=playwright-report/security-tests-shard-${{ matrix.shard }} bash scripts/ci/run-playwright-container.sh \
             --project=security-tests \
-            --output=playwright-output/security-webkit/security-tests \
-            tests/security-enforcement/ \
-            tests/security/ || STATUS=$?
+            --output=playwright-output/security-webkit-shard-${{ matrix.shard }}/security-tests \
+            "${SECURITY_SPECS[@]}" || STATUS=$?
 
           SHARD_END=$(date +%s)
           echo "SHARD_END=$SHARD_END" >> "$GITHUB_ENV"
@@ -1055,7 +1114,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: playwright-report-webkit-security
+          name: playwright-report-webkit-security-shard-${{ matrix.shard }}
           path: playwright-report/
           retention-days: 14
 
@@ -1063,7 +1122,7 @@ jobs:
         if: always() && (inputs.playwright_coverage == 'true' || vars.PLAYWRIGHT_COVERAGE == '1')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: e2e-coverage-webkit-security
+          name: e2e-coverage-webkit-security-shard-${{ matrix.shard }}
           path: coverage/e2e/
           retention-days: 7
 
@@ -1071,7 +1130,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: traces-webkit-security
+          name: traces-webkit-security-shard-${{ matrix.shard }}
           path: test-results/**/*.zip
           retention-days: 7
 
@@ -1090,7 +1149,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: e2e-diagnostics-webkit-security
+          name: e2e-diagnostics-webkit-security-shard-${{ matrix.shard }}
           path: diagnostics/
           retention-days: 7
 
@@ -1102,14 +1161,14 @@ jobs:
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
         if: failure()
         run: |
-          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-webkit-security.txt 2>&1
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-webkit-security-shard-${{ matrix.shard }}.txt 2>&1
 
       - name: Upload Docker logs on failure
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: docker-logs-webkit-security
-          path: docker-logs-webkit-security.txt
+          name: docker-logs-webkit-security-shard-${{ matrix.shard }}
+          path: docker-logs-webkit-security-shard-${{ matrix.shard }}.txt
           retention-days: 7
 
       - name: Cleanup
@@ -2009,14 +2068,14 @@ jobs:
           {
             echo "## 📊 E2E Test Results (Split: Security + Sharded)"
             echo ""
-            echo "### Architecture: 15 Total Jobs"
+            echo "### Architecture: 21 Total Jobs"
             echo ""
-            echo "#### Security Enforcement (3 jobs)"
+            echo "#### Security Enforcement (9 jobs)"
             echo "| Browser | Status | Shards | Timeout | Cerberus |"
             echo "|---------|--------|--------|---------|----------|"
-            echo "| Chromium | ${{ needs.e2e-chromium-security.result }} | 1 | 30min | ON |"
-            echo "| Firefox | ${{ needs.e2e-firefox-security.result }} | 1 | 30min | ON |"
-            echo "| WebKit | ${{ needs.e2e-webkit-security.result }} | 1 | 30min | ON |"
+            echo "| Chromium | ${{ needs.e2e-chromium-security.result }} | 3 | 60min | ON |"
+            echo "| Firefox | ${{ needs.e2e-firefox-security.result }} | 3 | 60min | ON |"
+            echo "| WebKit | ${{ needs.e2e-webkit-security.result }} | 3 | 60min | ON |"
             echo ""
             echo "#### Non-Security Tests (12 jobs)"
             echo "| Browser | Status | Shards | Timeout | Cerberus |"
