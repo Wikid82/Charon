@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/base32"
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -60,8 +61,8 @@ func (g *SetupCodeGuard) Active() bool {
 	return g.digest != nil
 }
 
-// Verify reports whether candidate matches the active code. The comparison runs
-// over fixed-size digests in constant time.
+// Verify reports whether candidate matches the active code. Surrounding whitespace on
+// the candidate is ignored. The comparison runs over fixed-size digests in constant time.
 func (g *SetupCodeGuard) Verify(candidate string) bool {
 	if g == nil {
 		return false
@@ -71,7 +72,7 @@ func (g *SetupCodeGuard) Verify(candidate string) bool {
 	if g.digest == nil {
 		return false
 	}
-	sum := sha256.Sum256([]byte(candidate))
+	sum := sha256.Sum256([]byte(normalizeSetupCode(candidate)))
 	return subtle.ConstantTimeCompare(g.digest, sum[:]) == 1
 }
 
@@ -88,10 +89,17 @@ func (g *SetupCodeGuard) Discard() {
 // ResolveSetupCode returns the operator preset when one is given, after checking
 // its length, and otherwise a newly generated code.
 func ResolveSetupCode(preset string) (string, error) {
+	preset = normalizeSetupCode(preset)
 	if err := validateSetupPreset(preset); err != nil {
 		return "", err
 	}
 	return pickSetupCode(preset), nil
+}
+
+// normalizeSetupCode strips the surrounding whitespace that pasting or secret files
+// add. The minimum length and the comparison both apply to the trimmed value.
+func normalizeSetupCode(code string) string {
+	return strings.TrimSpace(code)
 }
 
 // IssueStartupSetupCode decides the first-run setup code for this start. While the
@@ -101,6 +109,7 @@ func ResolveSetupCode(preset string) (string, error) {
 // a zero SetupCodeIssue. An invalid preset is rejected in both cases so a
 // misconfiguration fails at boot.
 func IssueStartupSetupCode(db *gorm.DB, preset string) (*SetupCodeGuard, SetupCodeIssue, error) {
+	preset = normalizeSetupCode(preset)
 	if err := validateSetupPreset(preset); err != nil {
 		return nil, SetupCodeIssue{}, err
 	}

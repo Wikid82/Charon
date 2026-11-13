@@ -68,7 +68,7 @@ const Setup: FC = () => {
     e.preventDefault();
     setError(null);
     // The code is sent only when the server asks for it, and is never kept anywhere else.
-    const payload: SetupRequest = status?.setup_code_required ? { ...formData, setup_code: setupCode } : formData;
+    const payload: SetupRequest = status?.setup_code_required ? { ...formData, setup_code: setupCode.trim() } : formData;
     mutation.mutate(payload);
   };
 
@@ -149,6 +149,8 @@ const Setup: FC = () => {
                   label={t('setup.setupCodeLabel')}
                   type="text"
                   required
+                  // `required` alone accepts whitespace, so the pattern rejects a code with no visible characters.
+                  pattern=".*\S.*"
                   autoComplete="off"
                   autoCapitalize="off"
                   autoCorrect="off"

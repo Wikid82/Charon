@@ -195,7 +195,9 @@ func Load() (Config, error) {
 		cfg.JWTSecret = os.Getenv("CPM_JWT_SECRET")
 	}
 
-	cfg.SetupToken = getEnvAny("", "CHARON_SETUP_TOKEN")
+	// Secret files and .env lines often end with a newline or padding; trim it so the
+	// token matches what the operator sees in the setup form.
+	cfg.SetupToken = strings.TrimSpace(getEnvAny("", "CHARON_SETUP_TOKEN"))
 
 	loopbackAdminAPI, err := resolveCaddyAdminAPI(cfg.CaddyAdminAPI)
 	if err != nil {

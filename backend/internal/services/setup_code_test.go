@@ -166,3 +166,37 @@ func TestIssueStartupSetupCode_CountFailureIsReturned(t *testing.T) {
 	_, _, err := IssueStartupSetupCode(db, "")
 	require.Error(t, err)
 }
+
+func TestResolveSetupCode_PresetWithSurroundingWhitespaceIsTrimmed(t *testing.T) {
+	core := strings.Repeat("w", SetupCodeMinLength)
+	code, err := ResolveSetupCode(" \n" + core + "\r\n\t")
+	require.NoError(t, err)
+	assert.Equal(t, core, code)
+}
+
+func TestResolveSetupCode_PresetTooShortOnceTrimmedIsRejected(t *testing.T) {
+	// Padding does not count toward the minimum: 31 real characters plus whitespace is still too short.
+	_, err := ResolveSetupCode("  " + strings.Repeat("a", SetupCodeMinLength-1) + "\n")
+	require.Error(t, err)
+}
+
+func TestSetupCodeGuard_VerifyIgnoresSurroundingWhitespace(t *testing.T) {
+	code := strings.Repeat("g", SetupCodeMinLength)
+	guard := NewSetupCodeGuard(code)
+
+	assert.True(t, guard.Verify("  "+code+"\n"))
+	assert.True(t, guard.Verify("\r\n"+code+" \t"))
+	assert.False(t, guard.Verify(" "+code[:SetupCodeMinLength-1]+" "))
+	assert.False(t, guard.Verify("   "), "whitespace-only input must not match")
+}
+
+func TestIssueStartupSetupCode_PaddedPresetVerifiesTrimmedCode(t *testing.T) {
+	db := newSetupCodeTestDB(t, true)
+	core := strings.Repeat("q", SetupCodeMinLength)
+
+	guard, issue, err := IssueStartupSetupCode(db, core+"\n")
+	require.NoError(t, err)
+	assert.False(t, issue.Generated)
+	assert.True(t, guard.Verify(core))
+	assert.True(t, guard.Verify(" "+core+" "))
+}

@@ -281,4 +281,44 @@ describe('Setup Page setup code', () => {
 
     expect(await screen.findByText('Too many attempts. Wait a few minutes and try again.')).toBeTruthy();
   });
+
+  it('trims surrounding whitespace from a pasted setup code before sending it', async () => {
+    vi.mocked(setupApi.getSetupStatus).mockResolvedValue(codeStatus);
+    vi.mocked(setupApi.performSetup).mockResolvedValue();
+
+    renderWithProviders(<Setup />);
+
+    const user = userEvent.setup();
+    await screen.findByLabelText('Setup code');
+    await fillAdminForm(user);
+    await user.type(screen.getByLabelText('Setup code'), '  ABC123 ');
+    await user.click(screen.getByRole('button', { name: 'Create Admin Account' }));
+
+    await waitFor(() => {
+      expect(setupApi.performSetup).toHaveBeenCalledWith({
+        name: 'Admin',
+        email: 'admin@example.com',
+        password: 'password123',
+        setup_code: 'ABC123',
+      });
+    });
+  });
+
+  it('does not submit a whitespace-only setup code', async () => {
+    vi.mocked(setupApi.getSetupStatus).mockResolvedValue(codeStatus);
+    vi.mocked(setupApi.performSetup).mockResolvedValue();
+
+    renderWithProviders(<Setup />);
+
+    const user = userEvent.setup();
+    await screen.findByLabelText('Setup code');
+    await fillAdminForm(user);
+    await user.type(screen.getByLabelText('Setup code'), '   ');
+    await user.click(screen.getByRole('button', { name: 'Create Admin Account' }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Setup code')).toBeInvalid();
+    });
+    expect(setupApi.performSetup).not.toHaveBeenCalled();
+  });
 });

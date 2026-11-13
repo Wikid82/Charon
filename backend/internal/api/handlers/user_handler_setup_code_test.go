@@ -212,3 +212,23 @@ func countUsers(t *testing.T, db *gorm.DB) int64 {
 	require.NoError(t, db.Model(&models.User{}).Count(&n).Error)
 	return n
 }
+
+func TestUserHandler_Setup_SurroundingWhitespaceInCodeIsIgnored(t *testing.T) {
+	handler, db := setupUserHandler(t)
+	r := newSetupRouter(handler)
+
+	w := postSetupFrom(r, "192.0.2.40:1000", setupBody("  "+testSetupCode+"\r\n", nil))
+
+	require.Equal(t, http.StatusCreated, w.Code, w.Body.String())
+	assert.Equal(t, int64(1), countUsers(t, db))
+}
+
+func TestUserHandler_Setup_WhitespaceOnlyCodeIsForbidden(t *testing.T) {
+	handler, db := setupUserHandler(t)
+	r := newSetupRouter(handler)
+
+	w := postSetupFrom(r, "192.0.2.41:1000", setupBody(" \n\t ", nil))
+
+	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Equal(t, int64(0), countUsers(t, db))
+}

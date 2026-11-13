@@ -632,3 +632,17 @@ func TestConfigLoad_SetupTokenDefaultsEmpty(t *testing.T) {
 	require.NoError(t, err)
 	assert.Empty(t, cfg.SetupToken)
 }
+
+func TestConfigLoad_TrimsSurroundingWhitespaceFromSetupToken(t *testing.T) {
+	t.Setenv("CHARON_SETUP_TOKEN", " \t preset-setup-code-0123456789abcdef\r\n")
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, "preset-setup-code-0123456789abcdef", cfg.SetupToken)
+}
+
+func TestConfigLoad_WhitespaceOnlySetupTokenBecomesEmpty(t *testing.T) {
+	t.Setenv("CHARON_SETUP_TOKEN", " \n\t ")
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Empty(t, cfg.SetupToken)
+}
