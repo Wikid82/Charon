@@ -41,6 +41,7 @@ nav = [
   ] },
   { "Configuration" = [
     "configuration/trusted-proxies.md",
+    "configuration/public-url.md",
     "configuration/emergency-setup.md",
   ] },
   { "Troubleshooting" = [
