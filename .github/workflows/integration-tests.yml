@@ -413,8 +413,17 @@ jobs:
       - name: Load Charon image
         run: docker load -i /tmp/charon-image.tar
 
+      - name: Generate per-run setup code
+        id: setup-code
+        run: |
+          setup_token="$(openssl rand -hex 32)"
+          echo "::add-mask::${setup_token}"
+          echo "setup_token=${setup_token}" >> "$GITHUB_OUTPUT"
+
       - name: Run security headers integration tests
         id: secheaders-test
+        env:
+          CHARON_SETUP_TOKEN: ${{ steps.setup-code.outputs.setup_token }}
         run: |
           chmod +x scripts/security_headers_integration.sh
           scripts/security_headers_integration.sh 2>&1 | tee secheaders-test-output.txt
