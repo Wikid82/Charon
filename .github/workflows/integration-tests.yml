@@ -631,3 +631,60 @@ jobs:
           docker volume rm charon_crowdsec_persist_data 2>/dev/null || true
           docker rm -f crowdsec || true
           docker network rm containers_default || true
+
+  setup-code:
+    name: First-Run Setup Code Integration
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 12 # test-only work; image is built upstream in `build`.
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Download Charon image artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: charon-integration-image
+          path: /tmp
+      - name: Load Charon image
+        run: docker load -i /tmp/charon-image.tar
+
+      - name: Run first-run setup code tests
+        id: setup-code-test
+        run: |
+          chmod +x scripts/setup_code_integration.sh
+          scripts/setup_code_integration.sh 2>&1 | tee setup-code-test-output.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Setup Code Integration Summary
+        if: always()
+        run: |
+          {
+            echo "## 🔑 First-Run Setup Code Test Results"
+            if [ "${{ steps.setup-code-test.outcome }}" == "success" ]; then
+              echo "✅ **All first-run setup code tests passed**"
+              echo ""
+              echo '```'
+              grep -E "✓|TC-[0-9]|=== ALL" setup-code-test-output.txt || echo "See logs for details"
+              echo '```'
+            else
+              echo "❌ **First-run setup code tests failed**"
+              echo ""
+              echo '```'
+              grep -E "✗|FAIL|Error|failed" setup-code-test-output.txt | head -30 || echo "See logs for details"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          # The script removes its own containers and volumes; this catches a run aborted before its trap ran.
+          docker ps -aq --filter "name=charon-setup-" | xargs -r docker rm -f -v || true
+          docker volume ls -q --filter "name=charon-setup-" | xargs -r docker volume rm || true

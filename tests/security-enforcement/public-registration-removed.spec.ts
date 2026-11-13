@@ -70,6 +70,8 @@ test.describe('Public registration endpoint removed (GHSA-3gc6-295r-xm5m)', () =
     expect(statusResponse.status()).toBe(200);
     const status = await statusResponse.json();
     expect(typeof status.setupRequired).toBe('boolean');
+    // Present in every status body; false once bootstrapped (no code is needed).
+    expect(typeof status.setup_code_required).toBe('boolean');
 
     if (status.setupRequired) {
       const setupResponse = await anonContext.post('/api/v1/setup', {
@@ -95,6 +97,7 @@ test.describe('Public registration endpoint removed (GHSA-3gc6-295r-xm5m)', () =
       expect(setupResponse.status()).toBe(403);
       const body = await setupResponse.json();
       expect(String(body.error)).toMatch(/already completed/i);
+      expect(status.setup_code_required).toBe(false);
     }
   });
 

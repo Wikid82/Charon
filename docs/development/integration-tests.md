@@ -18,6 +18,7 @@ Local runs should follow the same entrypoints used in CI workflows.
 - Cerberus full stack: `scripts/cerberus_integration.sh` (skill: `integration-test-cerberus`, wrapper: `.github/skills/integration-test-cerberus-scripts/run.sh`)
 - Coraza WAF: `scripts/coraza_integration.sh` (skill: `integration-test-coraza`, wrapper: `.github/skills/integration-test-coraza-scripts/run.sh`)
 - Rate limiting: `scripts/rate_limit_integration.sh` (skill: `integration-test-rate-limit`, wrapper: `.github/skills/integration-test-rate-limit-scripts/run.sh`)
+- First-run setup code: `scripts/setup_code_integration.sh` (skill: `integration-test-setup-code`, wrapper: `.github/skills/integration-test-setup-code-scripts/run.sh`)
 - CrowdSec bouncer: `scripts/crowdsec_integration.sh` (skill: `integration-test-crowdsec`, wrapper: `.github/skills/integration-test-crowdsec-scripts/run.sh`)
 - CrowdSec startup: `scripts/crowdsec_startup_test.sh` (skill: `integration-test-crowdsec-startup`, wrapper: `.github/skills/integration-test-crowdsec-startup-scripts/run.sh`)
 - Run all (CI-aligned): `scripts/integration-test-all.sh` (skill: `integration-test-all`, wrapper: `.github/skills/integration-test-all-scripts/run.sh`)
