@@ -64,16 +64,16 @@ function containerFile(container: string, path: string): string {
 /**
  * Extract the live hop value from the proxy's loaded configuration.
  *
- * The admin interface listens on loopback inside the container, so the read
- * runs there with docker exec. Returns '' when the read fails; the caller
- * asserts on the result, so a failed read cannot silently weaken the checks.
+ * The admin API is a unix socket inside the container, so the read runs there
+ * with docker exec and the bundled binary. Returns '' when the read fails; the
+ * caller asserts on the result, so a failed read cannot silently weaken the checks.
  */
 function readLiveHopValue(container: string): string {
   let config: string;
   try {
     config = execFileSync(
       'docker',
-      ['exec', container, 'wget', '-qO-', 'http://127.0.0.1:2019/config/'],
+      ['exec', container, '/app/charon', 'caddy-admin', 'get', '/config/'],
       { stdio: 'pipe', encoding: 'utf8', maxBuffer: 256 * 1024 * 1024 }
     ) as string;
   } catch {

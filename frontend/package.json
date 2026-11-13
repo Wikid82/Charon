@@ -58,7 +58,7 @@
     "react-router-hash-link": "^2.4.3",
     "recharts": "^3.10.1",
     "tailwind-merge": "^3.7.0",
-    "tldts": "^7.5.1",
+    "tldts": "^7.5.2",
     "translate": "^3.1.1"
   },
   "devDependencies": {
@@ -81,7 +81,7 @@
     "@typescript-eslint/eslint-plugin": "^8.72.2",
     "@typescript-eslint/parser": "^8.72.2",
     "@typescript-eslint/utils": "^8.72.2",
-    "@typescript/native": "npm:typescript@^7.1.0-dev.20261112.1",
+    "@typescript/native": "npm:typescript@^7.1.0-dev.20261113.1",
     "@vitejs/plugin-react": "^6.3.0",
     "@vitest/coverage-istanbul": "^5.1.0",
     "@vitest/coverage-v8": "^5.1.0",
@@ -103,7 +103,7 @@
     "eslint-plugin-testing-library": "^7.16.2",
     "eslint-plugin-unicorn": "^79.0.0",
     "eslint-plugin-unused-imports": "^4.4.1",
-    "jsdom": "^31.0.0",
+    "jsdom": "^31.0.1",
     "knip": "^6.45.1",
     "playwright": "^1.65.0",
     "postcss": "^8.5.32",

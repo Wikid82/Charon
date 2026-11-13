@@ -40,6 +40,7 @@ func setupUpdateTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	h := NewProxyHostHandler(db, nil, ns, nil)
 
 	r := gin.New()
+	attachTestAdminRole(r)
 	api := r.Group("/api/v1")
 	h.RegisterRoutes(api)
 

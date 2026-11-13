@@ -96,7 +96,7 @@ on_failure() {
     echo ""
 
     echo "=== Caddy Admin API Config ==="
-    docker exec "${CONTAINER_NAME}" wget -qO- http://127.0.0.1:2019/config/ 2>/dev/null | head -300 || echo "Could not retrieve Caddy config"
+    docker exec "${CONTAINER_NAME}" /app/charon caddy-admin get /config/ 2>/dev/null | head -300 || echo "Could not retrieve Caddy config"
     echo ""
 
     echo "=== Security Config in API ==="
@@ -130,7 +130,7 @@ verify_waf_config() {
 
     for i in $(seq 1 $retries); do
         local caddy_config
-        caddy_config=$(docker exec "${CONTAINER_NAME}" wget -qO- http://127.0.0.1:2019/config/ 2>/dev/null || echo "")
+        caddy_config=$(docker exec "${CONTAINER_NAME}" /app/charon caddy-admin get /config/ 2>/dev/null || echo "")
 
         if [ -z "$caddy_config" ]; then
             echo "  Attempt $i/$retries: Caddy admin API not responding, retrying..."
@@ -570,7 +570,7 @@ assert_http "200" "$RESP" "Combined - Legitimate request passes"
 log_test "TC-9: Verify Caddy Config has WAF Handler"
 
 # Note: the Caddy admin API requires a trailing slash
-CADDY_CONFIG=$(docker exec "${CONTAINER_NAME}" wget -qO- http://127.0.0.1:2019/config/ 2>/dev/null || echo "")
+CADDY_CONFIG=$(docker exec "${CONTAINER_NAME}" /app/charon caddy-admin get /config/ 2>/dev/null || echo "")
 
 if echo "$CADDY_CONFIG" | grep -q '"handler":"waf"'; then
     log_info "  ✓ WAF handler found in Caddy config"

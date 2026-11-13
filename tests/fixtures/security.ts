@@ -30,7 +30,7 @@ export const EMERGENCY_TOKEN = process.env.CHARON_EMERGENCY_TOKEN ?? '';
 
 /**
  * Emergency server configuration for E2E tests
- * Port 2020 is used to avoid conflict with Caddy admin API (port 2019).
+ * Port 2020 is the emergency server. Caddy's admin API is a unix socket inside the container.
  * Credentials are read lazily so importing this module never fails.
  */
 export const EMERGENCY_SERVER = {

@@ -12,6 +12,12 @@ import {
 } from '../../hooks/useCredentials'
 import CredentialManager from '../CredentialManager'
 
+const roleState = vi.hoisted(() => ({ role: 'admin' as 'admin' | 'user' }))
+
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => ({ user: { user_id: 1, role: roleState.role } }),
+}))
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string, defaultValue?: string) => defaultValue || key,
@@ -664,6 +670,27 @@ describe('CredentialManager', () => {
     expect(screen.getByText('API rate limit exceeded')).toBeInTheDocument()
   })
 
+  it('shows a hidden-for-role note instead of the zone filter when the server omits it', () => {
+    const redactedCred: DNSProviderCredential = { ...mockCredentials[0], zone_filter: undefined }
+
+    vi.mocked(useCredentials).mockReturnValue(
+      createCredentialsQueryResult({ data: [redactedCred] })
+    )
+
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={mockOnOpenChange}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
+
+    expect(screen.getByTestId('credential-zone-hidden')).toBeInTheDocument()
+    expect(screen.queryByText('example.com')).not.toBeInTheDocument()
+    expect(screen.queryByText(/All zones/)).not.toBeInTheDocument()
+  })
+
   // 16. Create Credential Error
   it('shows error toast when create fails', async () => {
     const user = userEvent.setup()
@@ -1026,5 +1053,43 @@ describe('CredentialManager', () => {
         })
       })
     })
+  })
+})
+
+describe('CredentialManager roles', () => {
+  beforeEach(() => {
+    roleState.role = 'admin'
+    vi.mocked(useCredentials).mockReturnValue(createCredentialsQueryResult())
+  })
+
+  it('shows add and per-credential action buttons to an administrator', () => {
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={vi.fn()}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
+
+    expect(screen.getByText('Add Credential')).toBeInTheDocument()
+    expect(within(screen.getByRole('table')).getAllByRole('button')).toHaveLength(3)
+  })
+
+  it('shows the credential list read-only to a standard user', () => {
+    roleState.role = 'user'
+    renderWithClient(
+      <CredentialManager
+        open={true}
+        onOpenChange={vi.fn()}
+        provider={mockProvider}
+        providerTypeInfo={mockProviderTypeInfo}
+      />
+    )
+
+    expect(screen.queryByText('Add Credential')).not.toBeInTheDocument()
+    expect(within(screen.getByRole('table')).queryAllByRole('button')).toHaveLength(0)
+    expect(screen.getByText('Main Zone')).toBeInTheDocument()
+    expect(screen.getByText('example.com')).toBeInTheDocument()
   })
 })

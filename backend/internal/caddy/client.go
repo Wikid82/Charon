@@ -5,12 +5,15 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"time"
 
+	charonconfig "github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/Wikid82/charon/backend/internal/security"
@@ -24,16 +27,37 @@ type Client struct {
 	baseURL    *url.URL
 	httpClient *http.Client
 	initErr    error
+	// listen is the admin.listen value that makes Caddy serve the endpoint this client dials.
+	listen string
 }
 
-// NewClient creates a Caddy API client.
-func NewClient(adminAPIURL string) *Client {
-	return NewClientWithExpectedPort(adminAPIURL, defaultCaddyAdminPort)
+// socketRequestBaseURL is the base of request URLs sent over the admin socket.
+// The transport never resolves or dials this host, and Caddy does not check the
+// Host header on unix sockets.
+var socketRequestBaseURL = &url.URL{Scheme: "http", Host: "localhost"}
+
+// NewClient creates a Caddy API client for adminAPI. A "unix://" value dials the
+// admin socket. Any other value is a loopback URL checked against the TCP admin port.
+func NewClient(adminAPI string) *Client {
+	if socketPath, ok := charonconfig.CaddyAdminSocketPath(adminAPI); ok {
+		return newSocketClient(socketPath, charonconfig.CaddyAdminListen(adminAPI))
+	}
+	return NewClientWithExpectedPort(adminAPI, charonconfig.CaddyAdminTCPPort)
 }
 
-const (
-	defaultCaddyAdminPort = 2019
-)
+// newSocketClient creates a client whose every connection goes to the unix socket at socketPath.
+func newSocketClient(socketPath, listen string) *Client {
+	httpClient := network.NewInternalServiceHTTPClient(30 * time.Second)
+	transport, ok := httpClient.Transport.(*http.Transport)
+	if !ok {
+		return &Client{initErr: errors.New("admin socket transport is not an http.Transport")}
+	}
+	var dialer net.Dialer
+	transport.DialContext = func(ctx context.Context, _, _ string) (net.Conn, error) {
+		return dialer.DialContext(ctx, "unix", socketPath)
+	}
+	return &Client{baseURL: socketRequestBaseURL, httpClient: httpClient, listen: listen}
+}
 
 // NewClientWithExpectedPort creates a Caddy API client with an explicit expected port.
 //
@@ -46,12 +70,68 @@ func NewClientWithExpectedPort(adminAPIURL string, expectedPort int) *Client {
 	client := &Client{
 		httpClient: network.NewInternalServiceHTTPClient(30 * time.Second),
 		initErr:    err,
+		listen:     charonconfig.CaddyAdminTCPAddress,
 	}
 	if err == nil {
 		client.baseURL = validatedBase
 	}
 	return client
 }
+
+// AdminListen returns the admin.listen value that makes Caddy serve the endpoint this client dials.
+func (c *Client) AdminListen() string {
+	return c.listen
+}
+
+// adminListener is implemented by clients that report the admin endpoint they dial.
+type adminListener interface {
+	AdminListen() string
+}
+
+// adminListenOf returns the admin.listen value for client, or "" when the client
+// does not report one. An empty value makes GenerateConfig use the default socket.
+func adminListenOf(client CaddyClient) string {
+	if l, ok := client.(adminListener); ok {
+		return l.AdminListen()
+	}
+	return ""
+}
+
+// Fetch returns the body of a GET request to path on the admin API. It is the
+// read-only diagnostic used by the caddy-admin command. Non-200 responses are errors.
+func (c *Client) Fetch(ctx context.Context, path string) ([]byte, error) {
+	urlStr, err := c.endpoint(path)
+	if err != nil {
+		return nil, err
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("create request: %w", err)
+	}
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("execute request: %w", err)
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			logger.Log().WithError(closeErr).Warn("Failed to close response body")
+		}
+	}()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxFetchBytes))
+	if err != nil {
+		return nil, fmt.Errorf("read response: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("caddy returned status %d: %s", resp.StatusCode, string(body))
+	}
+	return body, nil
+}
+
+// maxFetchBytes bounds the body Fetch reads. A generated Caddy config is far smaller.
+const maxFetchBytes = 64 << 20
 
 func (c *Client) endpoint(path string) (string, error) {
 	if c.initErr != nil {

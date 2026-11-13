@@ -358,6 +358,7 @@ fork/offline fallback.
 - **Handlers:** Process HTTP requests, validate input, return responses
 - **Middleware:** CORS, GZIP, authentication, logging, metrics, panic recovery
 - **Request origin:** The `SelfHop` middleware is first in the engine's chain. For proxy hosts whose upstream is Charon itself, Caddy attaches an authenticated per-boot header (`internal/caddy/self_upstream.go`); the middleware verifies it and records the client address, scheme and host (`RequestOrigin`) for later handlers. Shared helpers live in `internal/security/selfhop`.
+- **Caddy admin API:** Caddy serves its admin API on a unix socket (`CHARON_CADDY_ADMIN_API`, default `data/run/caddy-admin.sock`; `/app/data/run/caddy-admin.sock` in the container), created with mode 0600 inside a 0700 directory. No TCP admin listener exists by default, so traffic proxied through a host cannot reach it. The Go client dials the socket (`internal/caddy/client.go`); `charon caddy-admin listen|prepare|get <path>` is the in-container diagnostic. Loopback TCP URLs from older configs are ignored with a startup warning.
 - **Caller identity:** Handlers read the signed-in caller through shared accessors in `backend/internal/api/middleware/ctxkeys.go`, enforced by a guard test
 - **Routes:** Route registration and grouping (public, authenticated, and admin-only — see [Management API Authentication & Authorization](#management-api-authentication--authorization))
 
@@ -1094,6 +1095,36 @@ pattern.
 token receives `403` unless the route is on an explicit, commented allowlist, so a
 newly added privileged route cannot silently land on an under-guarded group.
 
+**Role matrix for management permissions** (standard user = `role=user`):
+
+| Area | Standard user | Admin | Enforced in |
+| ------ | --------------- | ------- | ------------- |
+| Proxy and redirection hosts: create, edit, delete | Allowed | Allowed | Handlers under `management` |
+| Host DNS provider (`dns_provider_id`) and DNS challenge (`use_dns_challenge`) | Write refused (403 `permissions_admin_only`); unchanged values accepted | Allowed | Service layer (`services/host_admin_policy.go`), so single, bulk and location paths are all covered |
+| Proxy host advanced config (`advanced_config`, backup) | Write refused; read redacted (`has_advanced_config` flag instead) | Allowed | Service layer plus response redaction |
+| Notification `url`, `config`, `service_config`, `legacy_url` | Read redacted (`has_url` flag instead) | Visible | Response redaction |
+| Credential `last_error`, `zone_filter` | Read redacted | Visible | Response redaction |
+| Uptime monitor list, summary, history, health | Allowed | Allowed | `management` group |
+| Uptime monitor create, update, delete, manual check, sync | 403 | Allowed | `managementAdmin` group (`routes.go`) |
+| Docker container list for a disabled remote server | Refused (400) | Refused (400) | `docker_handler.go` |
+| Forward target that names a local host on the admin TCP port (2019) | Refused | Refused | Shared helper `refuseAdminListenerTarget`, used by proxy host and location validation. The admin API is a socket by default, so this is defense in depth |
+
+**Role-aware response helpers** (`backend/internal/api/handlers/permission_helpers.go`):
+`redactForRole` and `redactListForRole` return the item unchanged for administrators.
+For any other caller they convert the item to a JSON object, remove the keys listed
+for that resource (`proxyHostRedactedFields`, `notificationProviderRedactedFields`,
+`credentialRedactedFields`) and add derived flags such as `has_url`. Numbers are
+decoded as `json.Number` so IDs and counters keep their exact values. `jsonForRole`
+and `jsonListForRole` write the result; list responses for non-admins always encode
+as `[]`, never `null`.
+
+**Admin-only host fields** are checked in the service layer, not only by the route
+group, so bulk endpoints and any future caller get the same rule. A non-admin write is
+compared with the stored row; any difference returns `ErrAdminOnlyHostField`, which
+`respondHostWriteError` maps to 403 with `error_code: permissions_admin_only`. Stored
+advanced configs are compared in canonical form, so older rows do not block unrelated
+edits.
+
 **Account creation:** there is no public self-registration route. The first
 administrator is bootstrapped through `POST /api/v1/setup` on an instance with no
 users; every subsequent account is created by an existing admin — directly
@@ -1454,7 +1485,7 @@ Operator runbook: `docs/ci/toolchain-image.md`.
 | 80 | HTTP | Caddy reverse proxy | 0.0.0.0 |
 | 443 | HTTPS | Caddy reverse proxy (TLS) | 0.0.0.0 |
 | 443 | UDP | HTTP/3 QUIC (optional) | 0.0.0.0 |
-| 2019 | HTTP | Proxy admin interface (used by Charon inside the container; not exposed) | 127.0.0.1 |
+| none | unix socket | Caddy admin API at `/app/data/run/caddy-admin.sock` (inside the container only; no TCP port) | n/a |
 | 2020 | HTTP | Emergency recovery (localhost only) | 127.0.0.1 |
 
 ### Volume Mounts

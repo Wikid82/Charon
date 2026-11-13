@@ -69,8 +69,8 @@ func (s *RedirectionHostService) validateRedirectionHost(host *models.Redirectio
 // checkHostWrite runs the validation and uniqueness checks shared by Create
 // and Update. It must run inside the write-locked transaction so the checks
 // and the subsequent write are atomic. A non-nil certificate_id must reference
-// an existing certificate.
-func (s *RedirectionHostService) checkHostWrite(tx *gorm.DB, host *models.RedirectionHost, excludeID uint) error {
+// an existing certificate. When admin is false, the DNS binding must not change.
+func (s *RedirectionHostService) checkHostWrite(tx *gorm.DB, host *models.RedirectionHost, excludeID uint, admin bool) error {
 	if err := s.validateRedirectionHost(host); err != nil {
 		return err
 	}
@@ -80,27 +80,52 @@ func (s *RedirectionHostService) checkHostWrite(tx *gorm.DB, host *models.Redire
 	if err := checkCrossTableDomainConflict(tx, host.DomainNames, &models.ProxyHost{}); err != nil {
 		return err
 	}
-	return ensureCertificateExists(tx, host.CertificateID)
+	if err := ensureCertificateExists(tx, host.CertificateID); err != nil {
+		return err
+	}
+	stored, err := storedRedirectionAdminFields(tx, excludeID)
+	if err != nil {
+		return err
+	}
+	next := hostAdminFields{dnsProviderID: host.DNSProviderID, useDNSChallenge: host.UseDNSChallenge}
+	return ensureAdminOnlyFieldsUnchanged(admin, stored, next)
 }
 
-// Create validates and creates a new redirection host. The uniqueness checks
-// and the insert run in one write-locked transaction. The lock is database
-// wide, so it also serializes against concurrent ProxyHostService writes
-// (see WithWriteLock).
+// Create validates and creates a new redirection host. It is the trusted
+// internal entry point and applies no admin-only field restriction. HTTP
+// handlers acting for a user must call CreateAs.
 func (s *RedirectionHostService) Create(host *models.RedirectionHost) error {
+	return s.CreateAs(host, true)
+}
+
+// CreateAs validates and creates a new redirection host on behalf of a caller.
+// When admin is false, the DNS provider binding and the DNS challenge flag must
+// stay unset. The uniqueness checks and the insert run in one write-locked
+// transaction. The lock is database wide, so it also serializes against
+// concurrent ProxyHostService writes (see WithWriteLock).
+func (s *RedirectionHostService) CreateAs(host *models.RedirectionHost, admin bool) error {
 	return WithWriteLock(s.db, &models.RedirectionHost{}, func(tx *gorm.DB) error {
-		if err := s.checkHostWrite(tx, host, 0); err != nil {
+		if err := s.checkHostWrite(tx, host, 0, admin); err != nil {
 			return err
 		}
 		return tx.Create(host).Error
 	})
 }
 
-// Update validates and updates an existing redirection host. The uniqueness
-// checks and the write run in one write-locked transaction (see WithWriteLock).
+// Update validates and updates an existing redirection host. It is the trusted
+// internal entry point and applies no admin-only field restriction. HTTP
+// handlers acting for a user must call UpdateAs.
 func (s *RedirectionHostService) Update(host *models.RedirectionHost) error {
+	return s.UpdateAs(host, true)
+}
+
+// UpdateAs validates and updates an existing redirection host on behalf of a
+// caller. When admin is false, the DNS binding must match the stored row. The
+// uniqueness checks and the write run in one write-locked transaction (see
+// WithWriteLock).
+func (s *RedirectionHostService) UpdateAs(host *models.RedirectionHost, admin bool) error {
 	return WithWriteLock(s.db, &models.RedirectionHost{}, func(tx *gorm.DB) error {
-		if err := s.checkHostWrite(tx, host, host.ID); err != nil {
+		if err := s.checkHostWrite(tx, host, host.ID, admin); err != nil {
 			return err
 		}
 		// Use Updates+Select("*") to handle nullable foreign keys properly,

@@ -50,6 +50,11 @@
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
     "score": "Score"
   },
+  "permissions": {
+    "adminOnlyError": "Bu ayarı yalnızca yöneticiler değiştirebilir.",
+    "hiddenForRole": "Rolünüz için gizlendi.",
+    "dnsAdminOnly": "DNS sağlayıcısını ve DNS mücadelesini yalnızca yöneticiler değiştirebilir."
+  },
   "navigation": {
     "dashboard": "Dashboard",
     "proxyHosts": "Proxy Hosts",

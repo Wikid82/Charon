@@ -101,7 +101,7 @@ export default function Login() {
           <div className="flex items-center justify-center">
           <picture>
             <source srcSet="/banner.webp" type="image/webp" />
-            <img src="/banner.png" alt="Charon" className="h-32 w-auto max-w-full object-contain" />
+            <img src="/banner.png" alt="Charon" className="h-48 w-auto max-w-full object-contain" />
           </picture>
           </div>
           <Card className="w-full" title={t('auth.login')}>

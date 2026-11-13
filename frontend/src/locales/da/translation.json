@@ -50,6 +50,11 @@
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
     "score": "Score"
   },
+  "permissions": {
+    "adminOnlyError": "Kun administratorer kan ændre denne indstilling.",
+    "hiddenForRole": "Skjult for din rolle.",
+    "dnsAdminOnly": "Kun administratorer kan ændre DNS-udbyderen og DNS-udfordringen."
+  },
   "navigation": {
     "dashboard": "Dashboard",
     "proxyHosts": "Proxy Hosts",

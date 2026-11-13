@@ -45,7 +45,7 @@ verify_rate_limit_config() {
     for i in $(seq 1 $retries); do
         # Fetch Caddy config via admin API
         local caddy_config
-        caddy_config=$(docker exec "${CONTAINER_NAME}" wget -qO- http://127.0.0.1:2019/config/ 2>/dev/null || echo "")
+        caddy_config=$(docker exec "${CONTAINER_NAME}" /app/charon caddy-admin get /config/ 2>/dev/null || echo "")
 
         if [ -z "$caddy_config" ]; then
             echo "  Attempt $i/$retries: Caddy admin API not responding, retrying..."
@@ -82,7 +82,7 @@ on_failure() {
     echo ""
 
     echo "=== Caddy Admin API Config ==="
-    docker exec "${CONTAINER_NAME}" wget -qO- http://127.0.0.1:2019/config/ 2>/dev/null | head -300 || echo "Could not retrieve Caddy config"
+    docker exec "${CONTAINER_NAME}" /app/charon caddy-admin get /config/ 2>/dev/null | head -300 || echo "Could not retrieve Caddy config"
     echo ""
 
     echo "=== Security Config in API ==="
@@ -277,7 +277,7 @@ EOF
 
 echo "Waiting for Caddy admin API to be ready..."
 for i in {1..20}; do
-    if docker exec "${CONTAINER_NAME}" wget -qO /dev/null http://127.0.0.1:2019/config/ >/dev/null 2>&1; then
+    if docker exec "${CONTAINER_NAME}" /app/charon caddy-admin get /config/ >/dev/null 2>&1; then
         echo "✓ Caddy admin API is ready"
         break
     fi
@@ -313,7 +313,7 @@ if ! verify_rate_limit_config; then
     echo "  The handler must be present in Caddy config before enforcement can be tested."
     echo ""
     echo "=== Caddy admin API full config ==="
-    docker exec "${CONTAINER_NAME}" wget -qO- http://127.0.0.1:2019/config/ 2>/dev/null | head -200 || echo "Admin API not responding"
+    docker exec "${CONTAINER_NAME}" /app/charon caddy-admin get /config/ 2>/dev/null | head -200 || echo "Admin API not responding"
     echo ""
     echo "=== Security config from API ==="
     curl -s -b "${TMP_COOKIE}" http://localhost:8280/api/v1/security/config 2>/dev/null || echo "API not responding"
@@ -388,7 +388,7 @@ else
     curl -s -b "${TMP_COOKIE}" http://localhost:8280/api/v1/security/status | jq .
     echo ""
     echo "=== DEBUG: Caddy config (first proxy route handlers) ==="
-    docker exec "${CONTAINER_NAME}" wget -qO- http://127.0.0.1:2019/config/ | jq '.apps.http.servers.charon_server.routes[0].handle // []'
+    docker exec "${CONTAINER_NAME}" /app/charon caddy-admin get /config/ | jq '.apps.http.servers.charon_server.routes[0].handle // []'
     echo ""
     echo "=== DEBUG: Container logs (last 100 lines) ==="
     docker logs ${CONTAINER_NAME} 2>&1 | tail -100

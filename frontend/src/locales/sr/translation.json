@@ -50,6 +50,11 @@
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
     "score": "Score"
   },
+  "permissions": {
+    "adminOnlyError": "Samo administratori mogu da promene ovo podešavanje.",
+    "hiddenForRole": "Sakriveno za vašu ulogu.",
+    "dnsAdminOnly": "Samo administratori mogu da menjaju DNS provajdera i DNS izazov."
+  },
   "navigation": {
     "dashboard": "Dashboard",
     "proxyHosts": "Proxy Hosts",

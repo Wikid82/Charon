@@ -13,6 +13,11 @@ const mockCreateMutateAsync = vi.fn()
 const mockUpdateMutateAsync = vi.fn()
 const mockDeleteMutateAsync = vi.fn()
 
+// Components under test read the caller's role; default to an administrator.
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => ({ user: { user_id: 1, role: 'admin' } }),
+}))
+
 vi.mock('../../hooks/useRedirectionHosts', () => ({
   useRedirectionHosts: () => mockUseRedirectionHosts(),
   useCreateRedirectionHost: () => ({ mutateAsync: mockCreateMutateAsync, isPending: false }),

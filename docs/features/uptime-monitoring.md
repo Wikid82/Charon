@@ -140,7 +140,21 @@ expect about 15 MB per monitor per 30 days at 60-second checks.
   days, and older history is then trimmed hourly. If you want longer history,
   raise the setting in **System Settings**.
 
+## Who Can Change Monitors
+
+- **Administrators** can add, edit, delete, pause, and run a manual check on any
+  monitor, and can use **Sync with Hosts** to create monitors for existing hosts.
+- **Standard users** can view the monitor list, each monitor's status, and its
+  history. They cannot add, change, delete, or check monitors. If a standard user
+  asks for one of these changes, Charon refuses it.
+
+Monitors are checked by Charon itself, so only administrators can point them at
+new targets.
+
 ## Enabling Uptime Monitoring
+
+Turning monitoring on is an administrator task. The steps below are for an
+administrator account.
 
 ### For a Single Host
 

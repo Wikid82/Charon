@@ -1,12 +1,13 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
-import { redirectionErrorMessage } from '../api/errorBody'
+import { permissionsErrorMessage, redirectionErrorMessage } from '../api/errorBody'
 import {
   REDIRECT_STATUS_CODES,
   type RedirectionHost,
   type RedirectStatusCode,
 } from '../api/redirectionHosts'
+import { useAuth } from '../hooks/useAuth'
 import { useCertificates } from '../hooks/useCertificates'
 import DNSProviderSelector from './DNSProviderSelector'
 import {
@@ -112,6 +113,9 @@ export default function RedirectionHostForm({ host, onSubmit, onCancel }: Redire
   const [loading, setLoading] = useState(false)
   const { certificates } = useCertificates()
   const { t } = useTranslation()
+  const { user } = useAuth()
+  // Standard users keep the rest of a redirection host but cannot change its DNS provider or DNS challenge.
+  const isAdmin = user?.role === 'admin'
 
   // Re-seed when the parent passes a different host (adjust-during-render, no effect).
   const [seenHost, setSeenHost] = useState(host)
@@ -145,7 +149,7 @@ export default function RedirectionHostForm({ host, onSubmit, onCancel }: Redire
 
     setLoading(true)
     try {
-      await onSubmit({
+      const payload = {
         name: formData.name.trim(),
         domain_names: domainNames,
         target_url: targetUrl,
@@ -156,13 +160,18 @@ export default function RedirectionHostForm({ host, onSubmit, onCancel }: Redire
         hsts_enabled: formData.hsts_enabled,
         hsts_subdomains: formData.hsts_subdomains,
         certificate_id: formData.certificate_id,
-        dns_provider_id: formData.dns_provider_id,
-        use_dns_challenge: formData.use_dns_challenge,
-      })
+      }
+      // A standard user's save leaves the DNS fields out so the server keeps the stored binding.
+      await onSubmit(
+        isAdmin
+          ? { ...payload, dns_provider_id: formData.dns_provider_id, use_dns_challenge: formData.use_dns_challenge }
+          : payload,
+      )
       onCancel()
     } catch (err) {
       setError(
-        redirectionErrorMessage(err, t) ??
+        permissionsErrorMessage(err, t) ??
+          redirectionErrorMessage(err, t) ??
           (err instanceof Error ? err.message : 'Failed to save redirection host'),
       )
     } finally {
@@ -314,6 +323,7 @@ export default function RedirectionHostForm({ host, onSubmit, onCancel }: Redire
             <Switch
               id="redirection-host-use-dns-challenge"
               checked={formData.use_dns_challenge}
+              disabled={!isAdmin}
               onCheckedChange={(checked) =>
                 setFormData((prev) => ({
                   ...prev,
@@ -325,10 +335,17 @@ export default function RedirectionHostForm({ host, onSubmit, onCancel }: Redire
             <Label htmlFor="redirection-host-use-dns-challenge">Use DNS Challenge</Label>
           </div>
 
+          {!isAdmin && (
+            <p className="text-xs text-content-secondary" data-testid="redirection-dns-admin-only">
+              {t('permissions.dnsAdminOnly')}
+            </p>
+          )}
+
           {formData.use_dns_challenge && (
             <DNSProviderSelector
               label="DNS Provider"
               required
+              disabled={!isAdmin}
               value={formData.dns_provider_id ?? undefined}
               onChange={(id) => setFormData((prev) => ({ ...prev, dns_provider_id: id ?? null }))}
             />

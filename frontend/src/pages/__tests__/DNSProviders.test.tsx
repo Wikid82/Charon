@@ -11,6 +11,12 @@ import DNSProviders from '../DNSProviders'
 
 import type { ReactNode } from 'react'
 
+const roleState = vi.hoisted(() => ({ role: 'admin' as 'admin' | 'user' }))
+
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => ({ user: { user_id: 1, role: roleState.role } }),
+}))
+
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string) => key,
@@ -209,5 +215,40 @@ describe('DNSProviders page state behavior', () => {
 
     expect(toast.error).toHaveBeenCalledWith('dnsProviders.noProviders')
     expect(getChallenge).not.toHaveBeenCalled()
+  })
+})
+
+describe('DNSProviders page roles', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    roleState.role = 'admin'
+    vi.mocked(useDNSProviderMutations).mockReturnValue({
+      deleteMutation: { mutateAsync: vi.fn() },
+      testMutation: { mutateAsync: vi.fn() },
+      createMutation: { mutateAsync: vi.fn() },
+      updateMutation: { mutateAsync: vi.fn() },
+      testCredentialsMutation: { mutateAsync: vi.fn() },
+    } as unknown as ReturnType<typeof useDNSProviderMutations>)
+    vi.mocked(useDNSProviders).mockReturnValue({
+      data: [buildProvider()],
+      isLoading: false,
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useDNSProviders>)
+  })
+
+  it('shows the add provider and manual challenge actions to an administrator', () => {
+    renderWithQueryClient(<DNSProviders />)
+
+    expect(screen.getByText('dnsProviders.addProvider')).toBeInTheDocument()
+    expect(screen.getByText('dnsProvider.manual.title')).toBeInTheDocument()
+  })
+
+  it('hides the add provider and manual challenge actions from a standard user but keeps the provider list', () => {
+    roleState.role = 'user'
+    renderWithQueryClient(<DNSProviders />)
+
+    expect(screen.queryByText('dnsProviders.addProvider')).not.toBeInTheDocument()
+    expect(screen.queryByText('dnsProvider.manual.title')).not.toBeInTheDocument()
+    expect(screen.getByTestId('provider-card')).toHaveTextContent('Seeded Provider')
   })
 })

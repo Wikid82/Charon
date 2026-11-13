@@ -25,8 +25,12 @@ export interface NotificationProvider {
   id: string;
   name: string;
   type: string;
-  url: string;
+  /** Omitted for standard users; `has_url` tells them whether a URL is set. */
+  url?: string;
+  has_url?: boolean;
   config?: string;
+  service_config?: string;
+  legacy_url?: string;
   template?: string;
   gotify_token?: string;
   token?: string;

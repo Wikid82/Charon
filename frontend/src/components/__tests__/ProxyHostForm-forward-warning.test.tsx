@@ -4,6 +4,11 @@ import userEvent from '@testing-library/user-event'
 
 import ProxyHostForm from '../ProxyHostForm'
 
+// Components under test read the caller's role; default to an administrator.
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => ({ user: { user_id: 1, role: 'admin' } }),
+}))
+
 vi.mock('../../api/uptime', () => ({
   syncMonitors: vi.fn(() => Promise.resolve({})),
 }))

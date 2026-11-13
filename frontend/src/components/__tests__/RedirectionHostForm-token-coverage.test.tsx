@@ -5,6 +5,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 import RedirectionHostForm from '../RedirectionHostForm'
 
+// Components under test read the caller's role; default to an administrator.
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => ({ user: { user_id: 1, role: 'admin' } }),
+}))
+
 vi.mock('../../hooks/useCertificates', () => ({
   useCertificates: vi.fn(() => ({
     certificates: [

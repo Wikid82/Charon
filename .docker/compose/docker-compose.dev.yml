@@ -13,7 +13,7 @@ services:
       - "443:443"
       - "443:443/udp"
       - "8080:8080"
-      # Caddy admin API stays inside the container: docker compose exec app wget -qO- http://127.0.0.1:2019/config/
+      # Caddy admin API stays inside the container: docker compose exec app /app/charon caddy-admin get /config/
     environment:
       - CHARON_ENV=development
       - CPM_ENV=development

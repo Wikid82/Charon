@@ -147,9 +147,10 @@ func (c *uptimeChecker) probe(ctx context.Context, monitor models.UptimeMonitor)
 
 	case "tcp":
 		// TCP monitors dial the configured host:port directly without URL
-		// validation. RFC 1918 addresses are intentionally permitted: TCP
-		// monitors are only created for RemoteServer entries, which are
-		// admin-configured and whose target is built from trusted fields.
+		// validation. RFC 1918 addresses are intentionally permitted: monitor
+		// creation and changes are administrator-only, and TCP monitors come
+		// from administrator-managed RemoteServer entries or administrator
+		// monitor requests, so the target is admin-configured.
 		addr := strings.TrimPrefix(monitor.URL, "tcp://")
 		conn, err := c.hostDialer.DialContext(ctx, "tcp", addr)
 		if err != nil {

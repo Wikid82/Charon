@@ -4,8 +4,10 @@ import { toast } from 'react-hot-toast'
 import { useTranslation } from 'react-i18next'
 import { parse } from 'tldts'
 
+import { permissionsErrorMessage } from '../api/errorBody'
 import { testProxyHostConnection, type ProxyHost, type ApplicationPreset  } from '../api/proxyHosts'
 import { syncMonitors } from '../api/uptime'
+import { useAuth } from '../hooks/useAuth'
 import { useCertificates } from '../hooks/useCertificates'
 import { useDetectDNSProvider } from '../hooks/useDNSDetection'
 import { useDocker } from '../hooks/useDocker'
@@ -98,6 +100,21 @@ const PRESET_ADVANCED_CONFIG: Record<ApplicationPreset, string> = {
     { handler: 'headers', request: { set: { 'X-Real-IP': '{http.request.remote.host}' } } },
   ], null, 2),
 }
+
+// Host fields that only administrators may change. The server reads a sent value as a change, so a
+// standard user's save leaves these out. Their read values are redacted or blank for that role.
+const ADMIN_ONLY_HOST_FIELDS = ['dns_provider_id', 'advanced_config'] as const
+
+function withoutAdminOnlyFields(payload: Partial<ProxyHost>): Partial<ProxyHost> {
+  const copy: Partial<ProxyHost> = { ...payload }
+  for (const field of ADMIN_ONLY_HOST_FIELDS) {
+    delete copy[field]
+  }
+  return copy
+}
+
+// Presets whose Caddy snippet needs WebSocket support enabled.
+const WEBSOCKET_PRESETS: readonly ApplicationPreset[] = ['plex', 'jellyfin', 'emby', 'homeassistant', 'vaultwarden']
 
 interface ProxyHostFormProps {
   host?: ProxyHost
@@ -270,6 +287,9 @@ function readDontAskDomainPreference(): boolean {
 
 export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFormProps) {
   const { t } = useTranslation()
+  const { user } = useAuth()
+  // Standard users can edit the rest of a host but not its DNS provider or advanced Caddy config.
+  const isAdmin = user?.role === 'admin'
   const idPrefix = useId()
   const fieldId = (name: string) => `${idPrefix}-${name}`
   type ProxyHostFormState = Omit<Partial<ProxyHost>, 'access_list_id' | 'security_header_profile_id' | 'certificate_id' | 'proxy_group_id'> & {
@@ -316,8 +336,8 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
       detectionTimeoutRef.current = null
     }
 
-    // Reset detection if domain is cleared or manual selection is active
-    if (!formData.domain_names || manualProviderSelection) {
+    // Reset detection if domain is cleared, manual selection is active, or the user cannot change the DNS provider
+    if (!isAdmin || !formData.domain_names || manualProviderSelection) {
       resetDetection()
       return
     }
@@ -351,7 +371,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
         clearTimeout(detectionTimeoutRef.current)
       }
     }
-  }, [formData.domain_names, formData.dns_provider_id, detectProvider, resetDetection, detectionResult, manualProviderSelection])
+  }, [formData.domain_names, formData.dns_provider_id, detectProvider, resetDetection, detectionResult, manualProviderSelection, isAdmin])
 
   // Auto-select suggested provider if confidence is high
   useEffect(() => {
@@ -584,11 +604,10 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
         security_header_profile_id: normalizeReferenceID(payloadWithoutUptime.security_header_profile_id),
         certificate_id: normalizeReferenceID(payloadWithoutUptime.certificate_id),
       }
+      const res = await onSubmit(isAdmin ? submitPayload : withoutAdminOnlyFields(submitPayload))
 
-      const res = await onSubmit(submitPayload)
-
-      // if user asked to add uptime, request server to sync monitors
-      if (addUptime) {
+      // if user asked to add uptime, request server to sync monitors (never for standard users)
+      if (isAdmin && addUptime) {
         try {
           await syncMonitors({ interval: uptimeInterval, max_retries: uptimeMaxRetries })
           toast.success('Requested uptime monitor creation')
@@ -601,7 +620,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
       onCancel()
       return res
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to save host'
+      const message = permissionsErrorMessage(err, t) ?? (err instanceof Error ? err.message : 'Failed to save host')
       setError(message)
       toast.error(message)
       throw err
@@ -612,9 +631,14 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
 
   const tryApplyPreset = (preset: ApplicationPreset) => {
     const presetConfig = PRESET_ADVANCED_CONFIG[preset] || ''
+    const needsWebsockets = WEBSOCKET_PRESETS.includes(preset)
+    // Standard users cannot change the advanced config, so a preset only sets the application and WebSocket flag.
+    if (!isAdmin) {
+      setFormData(prev => ({ ...prev, application: preset, websocket_support: needsWebsockets || prev.websocket_support }))
+      return
+    }
     // Auto-apply if no advanced config is present
     if (!formData.advanced_config || formData.advanced_config.trim() === '') {
-      const needsWebsockets = ['plex', 'jellyfin', 'emby', 'homeassistant', 'vaultwarden'].includes(preset)
       setFormData(prev => ({ ...prev, application: preset, websocket_support: needsWebsockets || prev.websocket_support, advanced_config: presetConfig }))
       return
     }
@@ -1009,7 +1033,9 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
                   }
                 }}
                 required={true}
+                disabled={!isAdmin}
                 label={t('dnsProviders.title')}
+                helperText={isAdmin ? undefined : t('permissions.dnsAdminOnly')}
               />
             </div>
           )}
@@ -1430,45 +1456,53 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
             </div>
           )}
 
-          {/* Advanced Config */}
-          <div>
-            <label htmlFor="advanced-config" className="block text-sm font-medium text-gray-300 mb-2">
-              Advanced Caddy Config (Optional)
-            </label>
-            <div className="relative">
-              {host?.advanced_config_backup && (
-                <div className="absolute right-0 top-0 -translate-y-8">
-                  <button
-                    type="button"
-                    onClick={handleRestoreBackup}
-                    className="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-white rounded text-xs"
-                  >
-                    Restore previous config
-                  </button>
-                </div>
-              )}
-              <textarea
-              id="advanced-config"
-              value={formData.advanced_config}
-              onChange={e => setFormData(prev => ({ ...prev, advanced_config: e.target.value }))}
-              placeholder='{"handler": "headers", "request": {"set": {"X-Custom": ["value"]}}}'
-              rows={4}
-              className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
+          {/* Advanced Config: administrators only; standard users see a note instead of the editor */}
+          {!isAdmin && (
+            <div className="text-sm text-gray-400" data-testid="advanced-config-hidden">
+              <p className="font-medium text-gray-300">Advanced Caddy Config</p>
+              <p>{t('permissions.hiddenForRole')}</p>
             </div>
-            <p className="mt-1.5 text-xs text-gray-500">
-              Accepts{' '}
-              <a
-                href="https://caddyserver.com/docs/json/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-400 hover:underline"
-              >
-                Caddy JSON
-              </a>
-              {' '}format only — not Caddyfile syntax.
-            </p>
-          </div>
+          )}
+          {isAdmin && (
+            <div>
+              <label htmlFor="advanced-config" className="block text-sm font-medium text-gray-300 mb-2">
+                Advanced Caddy Config (Optional)
+              </label>
+              <div className="relative">
+                {host?.advanced_config_backup && (
+                  <div className="absolute right-0 top-0 -translate-y-8">
+                    <button
+                      type="button"
+                      onClick={handleRestoreBackup}
+                      className="px-3 py-1 bg-gray-800 hover:bg-gray-700 text-white rounded text-xs"
+                    >
+                      Restore previous config
+                    </button>
+                  </div>
+                )}
+                <textarea
+                id="advanced-config"
+                value={formData.advanced_config}
+                onChange={e => setFormData(prev => ({ ...prev, advanced_config: e.target.value }))}
+                placeholder='{"handler": "headers", "request": {"set": {"X-Custom": ["value"]}}}'
+                rows={4}
+                className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white font-mono text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              </div>
+              <p className="mt-1.5 text-xs text-gray-500">
+                Accepts{' '}
+                <a
+                  href="https://caddyserver.com/docs/json/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-blue-400 hover:underline"
+                >
+                  Caddy JSON
+                </a>
+                {' '}format only — not Caddyfile syntax.
+              </p>
+            </div>
+          )}
 
           {/* Enabled Toggle */}
           <div className="flex items-center justify-end pb-2">
@@ -1483,43 +1517,45 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
             </label>
           </div>
 
-          {/* Uptime option */}
-          <div className="border-t border-gray-800 pt-4">
-            <label className="flex items-center gap-3">
-              <input
-                type="checkbox"
-                checked={addUptime}
-                onChange={e => setAddUptime(e.target.checked)}
-                className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
-              />
-              <span className="text-sm text-gray-300">Add Uptime monitoring for this host</span>
-            </label>
+          {/* Uptime option: administrators only, because monitor sync is an admin-only endpoint */}
+          {isAdmin && (
+            <div className="border-t border-gray-800 pt-4">
+              <label className="flex items-center gap-3">
+                <input
+                  type="checkbox"
+                  checked={addUptime}
+                  onChange={e => setAddUptime(e.target.checked)}
+                  className="w-4 h-4 text-blue-600 bg-gray-900 border-gray-700 rounded focus:ring-blue-500"
+                />
+                <span className="text-sm text-gray-300">Add Uptime monitoring for this host</span>
+              </label>
 
-            {addUptime && (
-              <div className="grid grid-cols-2 gap-4 mt-3">
-                <div>
-                  <label htmlFor={fieldId('uptime-interval')} className="block text-sm text-gray-400 mb-1">Check Interval (seconds)</label>
-                  <input id={fieldId('uptime-interval')}
-                    type="number"
-                    min={10}
-                    value={uptimeInterval}
-                    onChange={e => setUptimeInterval(parseInt(e.target.value || '60'))}
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white"
-                  />
+              {addUptime && (
+                <div className="grid grid-cols-2 gap-4 mt-3">
+                  <div>
+                    <label htmlFor={fieldId('uptime-interval')} className="block text-sm text-gray-400 mb-1">Check Interval (seconds)</label>
+                    <input id={fieldId('uptime-interval')}
+                      type="number"
+                      min={10}
+                      value={uptimeInterval}
+                      onChange={e => setUptimeInterval(parseInt(e.target.value || '60'))}
+                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor={fieldId('uptime-max-retries')} className="block text-sm text-gray-400 mb-1">Max Retries</label>
+                    <input id={fieldId('uptime-max-retries')}
+                      type="number"
+                      min={1}
+                      value={uptimeMaxRetries}
+                      onChange={e => setUptimeMaxRetries(parseInt(e.target.value || '3'))}
+                      className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white"
+                    />
+                  </div>
                 </div>
-                <div>
-                  <label htmlFor={fieldId('uptime-max-retries')} className="block text-sm text-gray-400 mb-1">Max Retries</label>
-                  <input id={fieldId('uptime-max-retries')}
-                    type="number"
-                    min={1}
-                    value={uptimeMaxRetries}
-                    onChange={e => setUptimeMaxRetries(parseInt(e.target.value || '3'))}
-                    className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-white"
-                  />
-                </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
+          )}
 
           {/* Actions */}
           <div className="flex gap-3 justify-end pt-4 border-t border-gray-800">

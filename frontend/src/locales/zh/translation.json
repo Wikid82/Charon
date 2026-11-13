@@ -50,6 +50,11 @@
     "autoRefreshing": "每 {{seconds}} 秒自动刷新",
     "score": "评分"
   },
+  "permissions": {
+    "adminOnlyError": "只有管理员可以更改此设置。",
+    "hiddenForRole": "已为您的角色隐藏。",
+    "dnsAdminOnly": "只有管理员可以更改 DNS 提供商和 DNS 挑战。"
+  },
   "navigation": {
     "dashboard": "仪表板",
     "proxyHosts": "代理主机",

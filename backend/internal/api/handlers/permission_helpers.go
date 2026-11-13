@@ -1,7 +1,9 @@
 package handlers
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -18,11 +20,35 @@ func requireAdmin(c *gin.Context) bool {
 	if isAdmin(c) {
 		return true
 	}
+	respondAdminOnly(c)
+	return false
+}
+
+// respondAdminOnly writes the 403 returned when a caller lacks administrator rights.
+func respondAdminOnly(c *gin.Context) {
 	c.JSON(http.StatusForbidden, gin.H{
 		"error":      "admin privileges required",
 		"error_code": "permissions_admin_only",
 	})
-	return false
+}
+
+// respondAdminOnlyHostError writes the 403 for a rejected admin-only host field
+// and reports whether err was that rejection.
+func respondAdminOnlyHostError(c *gin.Context, err error) bool {
+	if !errors.Is(err, services.ErrAdminOnlyHostField) {
+		return false
+	}
+	respondAdminOnly(c)
+	return true
+}
+
+// respondHostWriteError writes the response for a rejected proxy or redirection
+// host write: 403 for an admin-only field, otherwise 400 with the validation message.
+func respondHostWriteError(c *gin.Context, err error) {
+	if respondAdminOnlyHostError(c, err) {
+		return
+	}
+	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 }
 
 func requireAuthenticatedAdmin(c *gin.Context) bool {
@@ -38,6 +64,80 @@ func requireAuthenticatedAdmin(c *gin.Context) bool {
 
 func isAdmin(c *gin.Context) bool {
 	return middleware.CallerRole(c) == string(models.RoleAdmin)
+}
+
+// redactForRole returns item unchanged for administrators. For any other caller
+// it returns the item as a JSON object without the hidden top-level keys, plus
+// the flags derived from the original item (for example has_url). Clients keep
+// the snake_case names they already read; only the sensitive values are removed.
+func redactForRole[T any](c *gin.Context, item T, hidden []string, flags func(T) map[string]any) (any, error) {
+	if isAdmin(c) {
+		return item, nil
+	}
+	return redactItem(item, hidden, flags)
+}
+
+// redactListForRole applies redactForRole to every element of items. Administrators
+// receive the original slice. Other callers receive a non-nil slice, so an empty
+// result still encodes as [].
+func redactListForRole[T any](c *gin.Context, items []T, hidden []string, flags func(T) map[string]any) (any, error) {
+	if isAdmin(c) {
+		return items, nil
+	}
+	out := make([]map[string]any, 0, len(items))
+	for _, item := range items {
+		redacted, err := redactItem(item, hidden, flags)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, redacted)
+	}
+	return out, nil
+}
+
+// jsonForRole writes item as the response body with the caller's redactions applied.
+func jsonForRole[T any](c *gin.Context, status int, item T, hidden []string, flags func(T) map[string]any) {
+	body, err := redactForRole(c, item, hidden, flags)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build response"})
+		return
+	}
+	c.JSON(status, body)
+}
+
+// jsonListForRole writes items as the response body with the caller's redactions applied.
+func jsonListForRole[T any](c *gin.Context, status int, items []T, hidden []string, flags func(T) map[string]any) {
+	body, err := redactListForRole(c, items, hidden, flags)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build response"})
+		return
+	}
+	c.JSON(status, body)
+}
+
+// redactItem converts item to a JSON object, removes the hidden keys and adds
+// the derived flags. Numbers are kept as json.Number so ids and counters keep
+// their exact values.
+func redactItem[T any](item T, hidden []string, flags func(T) map[string]any) (map[string]any, error) {
+	raw, err := json.Marshal(item)
+	if err != nil {
+		return nil, fmt.Errorf("encode response for redaction: %w", err)
+	}
+	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
+	var fields map[string]any
+	if err := decoder.Decode(&fields); err != nil {
+		return nil, fmt.Errorf("decode response for redaction: %w", err)
+	}
+	for _, key := range hidden {
+		delete(fields, key)
+	}
+	if flags != nil {
+		for key, value := range flags(item) {
+			fields[key] = value
+		}
+	}
+	return fields, nil
 }
 
 func respondPermissionError(c *gin.Context, securityService *services.SecurityService, action string, err error, path string) bool {

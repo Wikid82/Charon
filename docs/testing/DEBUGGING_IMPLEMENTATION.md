@@ -66,8 +66,8 @@ printSummary()                                  // Print colored summary to cons
 **Sample Output**:
 
 ```text
-🔍 Checking Caddy admin API health at http://localhost:2019...
-  ✅ Caddy admin API (port 2019) is healthy [45ms]
+🔍 Checking Caddy admin API health (unix socket)...
+  ✅ Caddy admin API (unix socket) is healthy [45ms]
 
 🔍 Checking emergency tier-2 server health at http://localhost:2020...
   ⏭️  Emergency tier-2 server unavailable (tests will skip tier-2 features) [3002ms]
@@ -382,8 +382,8 @@ Plus existing tasks:
    └─ Localhost: Yes
 
 📊 Port Connectivity Checks:
-🔍 Checking Caddy admin API health at http://localhost:2019...
-  ✅ Caddy admin API (port 2019) is healthy [45ms]
+🔍 Checking Caddy admin API health (unix socket)...
+  ✅ Caddy admin API (unix socket) is healthy [45ms]
 ```
 
 ### Test Execution Output

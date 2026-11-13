@@ -50,6 +50,11 @@
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
     "score": "Score"
   },
+  "permissions": {
+    "adminOnlyError": "この設定を変更できるのは管理者のみです。",
+    "hiddenForRole": "お使いのロールでは非表示です。",
+    "dnsAdminOnly": "DNS プロバイダーと DNS チャレンジを変更できるのは管理者のみです。"
+  },
   "navigation": {
     "dashboard": "Dashboard",
     "proxyHosts": "Proxy Hosts",
