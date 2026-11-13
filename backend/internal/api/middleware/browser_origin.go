@@ -3,6 +3,7 @@ package middleware
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 	"sync/atomic"
 
@@ -61,17 +62,19 @@ func (g *BrowserOriginGuard) Refresh() error {
 // request that carries an Authorization header is header-authenticated, so it passes unchanged: a page on another
 // origin cannot add that header without a CORS preflight, which Charon does not grant. Any other request is checked
 // with the guard's standard library Sec-Fetch-Site and Origin rules, where the configured public address is trusted.
-// Safe methods and non-browser clients pass. A refused request gets 403 cross_origin_refused before the handler runs.
+// Safe methods and non-browser clients pass, except that a WebSocket upgrade (a GET) is checked like a mutation so that
+// another site cannot open an authenticated socket. A refused request gets 403 cross_origin_refused before the handler
+// runs.
 //
-// SameSite cookies alone do not cover same-site sibling origins, so mutating routes that accept cookie sessions use
-// this check.
+// SameSite cookies alone do not cover same-site sibling origins, so the protected route group applies this check to
+// every unsafe method, not only to the routes that need it.
 func RequireSameOriginForBrowserAuth(guard *BrowserOriginGuard) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		if len(c.Request.Header.Values("Authorization")) > 0 {
 			c.Next()
 			return
 		}
-		if err := guard.checker.Load().Check(c.Request); err != nil {
+		if err := guard.check(c.Request); err != nil {
 			logger.Log().
 				WithField("sec_fetch_site", util.SanitizeForLog(c.Request.Header.Get("Sec-Fetch-Site"))).
 				WithField("origin", util.SanitizeForLog(c.Request.Header.Get("Origin"))).
@@ -84,4 +87,21 @@ func RequireSameOriginForBrowserAuth(guard *BrowserOriginGuard) gin.HandlerFunc 
 		}
 		c.Next()
 	}
+}
+
+// check applies the standard library rules to r. The standard library skips safe methods, and a WebSocket handshake
+// is a GET, so an upgrade request is checked as if it were a POST. The probe is a shallow copy and r is not changed.
+func (g *BrowserOriginGuard) check(r *http.Request) error {
+	checker := g.checker.Load()
+	if isWebSocketUpgrade(r) {
+		probe := r.WithContext(r.Context())
+		probe.Method = http.MethodPost
+		return checker.Check(probe)
+	}
+	return checker.Check(r)
+}
+
+// isWebSocketUpgrade reports whether r asks to switch to the WebSocket protocol.
+func isWebSocketUpgrade(r *http.Request) bool {
+	return strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
 }

@@ -201,3 +201,62 @@ func TestBrowserOriginGuard_ConcurrentRefreshAndRequests(t *testing.T) {
 	}
 	<-done
 }
+
+// A WebSocket handshake is a GET, which the standard library never checks. A cookie session must still not open a
+// socket from another origin, so the upgrade is checked as an unsafe method.
+func TestBrowserOriginGuard_WebSocketUpgradeIsChecked(t *testing.T) {
+	guard := NewBrowserOriginGuard(nil)
+	upgrade := map[string]string{"Connection": "Upgrade", "Upgrade": "websocket"}
+	with := func(extra map[string]string) map[string]string {
+		m := map[string]string{}
+		for k, v := range upgrade {
+			m[k] = v
+		}
+		for k, v := range extra {
+			m[k] = v
+		}
+		return m
+	}
+
+	cases := []struct {
+		name    string
+		headers map[string]string
+		want    int
+	}{
+		{
+			name:    "cross-site upgrade is refused",
+			headers: with(map[string]string{"Sec-Fetch-Site": "cross-site", "Origin": "https://evil.example"}),
+			want:    http.StatusForbidden,
+		},
+		{
+			name:    "same-site sibling upgrade is refused",
+			headers: with(map[string]string{"Sec-Fetch-Site": "same-site", "Origin": "https://app.charon.test"}),
+			want:    http.StatusForbidden,
+		},
+		{
+			name:    "same-origin upgrade passes",
+			headers: with(map[string]string{"Sec-Fetch-Site": "same-origin", "Origin": "http://charon.internal:8080"}),
+			want:    http.StatusOK,
+		},
+		{
+			name:    "header-authenticated cross-site upgrade passes",
+			headers: with(map[string]string{"Authorization": "Bearer x", "Sec-Fetch-Site": "cross-site", "Origin": "https://evil.example"}),
+			want:    http.StatusOK,
+		},
+		{
+			name:    "non-browser upgrade without fetch metadata passes",
+			headers: with(nil),
+			want:    http.StatusOK,
+		},
+		{
+			name:    "cross-site request that is not an upgrade stays a safe GET",
+			headers: map[string]string{"Sec-Fetch-Site": "cross-site", "Origin": "https://evil.example", "Connection": "keep-alive"},
+			want:    http.StatusOK,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, serveOriginGuard(t, guard, http.MethodGet, "charon.internal:8080", tc.headers))
+		})
+	}
+}

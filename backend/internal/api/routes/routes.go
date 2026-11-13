@@ -493,6 +493,10 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 	protected := api.Group("/")
 	protected.Use(authMiddleware)
+	// Every unsafe method on this group is checked for cross-origin browser requests. Requests with an Authorization
+	// header and non-browser clients pass, and safe methods are not checked. Registered before any subgroup so that
+	// management, managementAdmin and the security groups inherit it.
+	protected.Use(middleware.RequireSameOriginForBrowserAuth(browserOrigin))
 	{
 		// Self-service routes — accessible to all authenticated users including passthrough
 		protected.GET("/user/profile", userHandler.GetProfile)
@@ -1000,9 +1004,8 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		securityAdmin.DELETE("/rulesets/:id", securityHandler.DeleteRuleSet)
 		securityAdmin.POST("/geoip/reload", securityHandler.ReloadGeoIP)
 		securityAdmin.POST("/geoip/lookup", securityHandler.LookupGeoIP)
-		// Cookie sessions reach these two routes only from the same origin; see middleware.RequireSameOriginForBrowserAuth.
-		securityAdmin.POST("/geoip/database", middleware.RequireSameOriginForBrowserAuth(browserOrigin), securityHandler.ReplaceGeoIPDatabase)
-		securityAdmin.DELETE("/geoip/database", middleware.RequireSameOriginForBrowserAuth(browserOrigin), securityHandler.RemoveGeoIPDatabase)
+		securityAdmin.POST("/geoip/database", securityHandler.ReplaceGeoIPDatabase)
+		securityAdmin.DELETE("/geoip/database", securityHandler.RemoveGeoIPDatabase)
 		securityAdmin.POST("/waf/exclusions", securityHandler.AddWAFExclusion)
 		securityAdmin.DELETE("/waf/exclusions/:rule_id", securityHandler.DeleteWAFExclusion)
 
