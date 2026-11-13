@@ -1,6 +1,7 @@
 package orthrus
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"path"
@@ -250,6 +251,12 @@ func normalizeDockerPath(rawPath string) string {
 func (m *Muzzle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	stripped := normalizeDockerPath(r.URL.Path)
 
+	// Container inspect bodies carry environment values; mark them for redaction
+	// on the way out. Every session type passes through this check.
+	if r.Method == http.MethodGet && isContainerInspect(stripped) {
+		r = withEnvRedaction(r)
+	}
+
 	// HEAD /_ping is permitted alongside GET for Docker client health checks.
 	if r.Method == http.MethodHead && stripped == "/_ping" {
 		m.next.ServeHTTP(w, r)
@@ -299,6 +306,16 @@ func (m *Muzzle) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	logger.Log().WithField("method", util.SanitizeForLog(r.Method)).WithField("path", sanitizePath(r.URL.Path)).
 		Warn("orthrus: muzzle blocked disallowed Docker path")
 	http.Error(w, "Forbidden", http.StatusForbidden)
+}
+
+// withEnvRedaction returns a copy of r whose context asks for environment
+// redaction of the response, with Accept-Encoding removed. The redactor reads
+// plain JSON only, so compression is not requested. The caller's request is
+// not modified.
+func withEnvRedaction(r *http.Request) *http.Request {
+	clone := r.Clone(context.WithValue(r.Context(), redactEnvKey{}, true))
+	clone.Header.Del("Accept-Encoding")
+	return clone
 }
 
 // forwardWrite applies the write-path rate limiter, audits the outcome, and

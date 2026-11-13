@@ -137,7 +137,7 @@ func (s *OrthrusServer) HandleWebSocket(c *gin.Context) {
 	}
 
 	if agent.ExternalProxyPort > 0 {
-		if err := session.StartExternalProxy(agent.ExternalProxyPort); err != nil {
+		if err := session.StartExternalProxy(agent.ExternalProxyPort, agent.ExternalProxyBind); err != nil {
 			logger.Log().WithField("uuid", util.SanitizeForLog(agent.UUID)).
 				WithField("port", agent.ExternalProxyPort).
 				WithError(err).Warn("orthrus: failed to start external proxy")

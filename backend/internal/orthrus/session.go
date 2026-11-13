@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
 	"sync"
 	"time"
 
@@ -44,18 +45,21 @@ func newWSNetConn(ctx context.Context, conn *websocket.Conn) net.Conn {
 }
 
 // ExternalProxyStatus describes the runtime state of the external Docker proxy
-// bound on 0.0.0.0 for this agent session. It intentionally carries no
+// for this agent session. It intentionally carries no
 // connection-string/hostname field: AgentSession is a long-lived per-tunnel
 // object with no request-scoped data (no *gin.Context), so it cannot resolve
 // a caller-appropriate hostname. That resolution happens one layer up, in
 // OrthrusHandler.GetProxyStatus, which does have request context.
 type ExternalProxyStatus struct {
-	ConfiguredPort int    `json:"configured_port"` // port passed to StartExternalProxy
-	ActivePort     int    `json:"active_port"`     // actual bound port (0 if not active)
-	BoundAddress   string `json:"bind_address"`    // e.g. "0.0.0.0:9999"
-	Active         bool   `json:"active"`
-	WriteEnabled   bool   `json:"write_enabled"`   // negotiated value for this live session
-	Error          string `json:"error,omitempty"` // last start error, if any
+	ConfiguredPort int      `json:"configured_port"` // port passed to StartExternalProxy
+	ActivePort     int      `json:"active_port"`     // actual bound port (0 if not active)
+	BoundAddress   string   `json:"bind_address"`    // actual listener address, e.g. "172.18.0.4:9999"
+	ActiveBind     string   `json:"active_bind"`     // listen setting the session was started with
+	BindMode       BindMode `json:"bind_mode"`       // how ActiveBind was interpreted; "" if unresolved
+	BindFallback   bool     `json:"bind_fallback"`   // automatic mode fell back to loopback
+	Active         bool     `json:"active"`
+	WriteEnabled   bool     `json:"write_enabled"`   // negotiated value for this live session
+	Error          string   `json:"error,omitempty"` // last start error, if any
 }
 
 // AgentSession represents a single connected Orthrus agent's active WebSocket
@@ -65,12 +69,18 @@ type AgentSession struct {
 	agentName    string
 	session      *yamux.Session
 	cancel       context.CancelFunc
+	env          netEnv       // host networking view used to resolve the external proxy bind
 	proxyPort    int          // ephemeral port; 0 until StartDockerProxy succeeds
 	listener     net.Listener // nil until StartDockerProxy succeeds; set atomically with proxyPort
 	extServer    *http.Server // nil until StartExternalProxy succeeds
 	extListener  net.Listener // nil until StartExternalProxy succeeds
 	extProxyPort int          // port passed to StartExternalProxy; 0 if never started
-	extErr       error        // last error from StartExternalProxy
+	extBind      string       // listen setting passed to StartExternalProxy; "" if never started
+	extBindMode  BindMode     // mode of the last successfully resolved bind
+	// extBindFallback is true when the last successful resolution was automatic
+	// and fell back to loopback.
+	extBindFallback bool
+	extErr          error // last error from StartExternalProxy
 	// writeEnabled is the write-mode value negotiated at connect time (from
 	// OrthrusAgent.WriteEnabled at the moment HandleWebSocket ran). Fixed for
 	// the life of this session, exactly like extProxyPort — a DB toggle only
@@ -107,6 +117,7 @@ func NewAgentSession(agentUUID, agentName string, writeEnabled bool, auditLogger
 		agentUUID:    agentUUID,
 		agentName:    agentName,
 		session:      session,
+		env:          systemNetEnv(),
 		writeLimiter: writeLimiter,
 		auditLogger:  auditLogger,
 		cancel:       cancel,
@@ -220,13 +231,13 @@ func (s *AgentSession) proxyConn(conn net.Conn) {
 	wg.Wait()
 }
 
-// StartExternalProxy binds an HTTP listener on 0.0.0.0:port that reverse-proxies
-// Docker API requests through the existing loopback proxy to the agent's Docker socket.
-// Requests are filtered by Muzzle to the read-only allowlist.
+// StartExternalProxy binds an HTTP listener on the address selected by bind
+// (see ResolveBind) and port. Requests reverse-proxy through the existing
+// loopback proxy to the agent's Docker socket, filtered by Muzzle.
 // A port of 0 is a no-op (returns nil). Returns an error if the loopback proxy is
 // not yet running, if an external proxy is already active, if the session is closed,
-// or if the OS cannot bind the port.
-func (s *AgentSession) StartExternalProxy(port int) error {
+// if bind cannot be resolved to a local address, or if the OS cannot bind it.
+func (s *AgentSession) StartExternalProxy(port int, bind string) error {
 	if port == 0 {
 		return nil
 	}
@@ -247,13 +258,27 @@ func (s *AgentSession) StartExternalProxy(port int) error {
 	loopbackPort := s.proxyPort
 	s.mu.Unlock()
 
-	ln, err := net.Listen("tcp", fmt.Sprintf("0.0.0.0:%d", port))
+	// Attempt details are recorded before any step can fail, so the status
+	// shows what was tried.
+	s.mu.Lock()
+	s.extProxyPort = port
+	s.extBind = bind
+	s.extBindMode = ""
+	s.extBindFallback = false
+	s.mu.Unlock()
+
+	addr, mode, source, err := s.env.ResolveBind(bind)
 	if err != nil {
-		s.mu.Lock()
-		s.extProxyPort = port // record attempted port for diagnostics
-		s.extErr = fmt.Errorf("orthrus: bind external proxy port %d: %w", port, err)
-		s.mu.Unlock()
-		return s.extErr
+		err = fmt.Errorf("orthrus: resolve external proxy bind: %w", err)
+		s.recordExtErr(err)
+		return err
+	}
+
+	ln, err := net.Listen("tcp", net.JoinHostPort(addr.String(), strconv.Itoa(port)))
+	if err != nil {
+		err = fmt.Errorf("orthrus: bind external proxy port %d: %w", port, err)
+		s.recordExtErr(err)
+		return err
 	}
 
 	loopbackTarget := fmt.Sprintf("127.0.0.1:%d", loopbackPort)
@@ -264,14 +289,21 @@ func (s *AgentSession) StartExternalProxy(port int) error {
 	// open connections to the loopback target longer than a single request.
 	baseTransport := http.DefaultTransport.(*http.Transport).Clone()
 	baseTransport.DisableKeepAlives = true
+	// Do not let the transport request gzip on its own: the redactor reads plain
+	// JSON, and a compressed inspect body must never reach it.
+	baseTransport.DisableCompression = true
 
 	rp := &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
 			pr.SetURL(targetURL)
 			pr.Out.Host = ""
 		},
-		FlushInterval: -1,
-		Transport:     baseTransport,
+		// Environment redaction runs only on flagged container inspects (see
+		// Muzzle.ServeHTTP). A failure there answers 502 via ErrorHandler.
+		ModifyResponse: redactInspectEnv,
+		ErrorHandler:   s.handleExternalProxyError,
+		FlushInterval:  -1,
+		Transport:      baseTransport,
 	}
 
 	srv := &http.Server{
@@ -289,15 +321,35 @@ func (s *AgentSession) StartExternalProxy(port int) error {
 	s.extListener = ln
 	s.extServer = srv
 	s.extProxyPort = port
+	s.extBindMode = mode
+	s.extBindFallback = source == BindSourceLoopbackFallback
 	s.extErr = nil
 	s.mu.Unlock()
 
 	logger.Log().WithField("uuid", s.agentUUID).
 		WithField("port", port).
+		WithField("bind_mode", string(mode)).
+		WithField("bind_address", addr.String()).
 		Info("orthrus: external docker proxy started")
 
 	go func() { _ = srv.Serve(ln) }()
 	return nil
+}
+
+// recordExtErr stores a failed start attempt for GetExternalProxyStatus.
+func (s *AgentSession) recordExtErr(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.extErr = err
+	s.extBindMode = ""
+	s.extBindFallback = false
+}
+
+// handleExternalProxyError answers a failed external proxy request with a bare
+// 502. The error is logged; the response body is never echoed.
+func (s *AgentSession) handleExternalProxyError(w http.ResponseWriter, _ *http.Request, err error) {
+	logger.Log().WithField("uuid", s.agentUUID).WithError(err).Warn("orthrus: external proxy request failed")
+	http.Error(w, http.StatusText(http.StatusBadGateway), http.StatusBadGateway)
 }
 
 // GetExternalProxyStatus returns the runtime state of the external proxy for this session.
@@ -324,6 +376,9 @@ func (s *AgentSession) GetExternalProxyStatus() ExternalProxyStatus {
 		ConfiguredPort: s.extProxyPort,
 		ActivePort:     activePort,
 		BoundAddress:   boundAddr,
+		ActiveBind:     s.extBind,
+		BindMode:       s.extBindMode,
+		BindFallback:   s.extBindFallback,
 		Active:         active,
 		WriteEnabled:   s.writeEnabled,
 		Error:          errStr,

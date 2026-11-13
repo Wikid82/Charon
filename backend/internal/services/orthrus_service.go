@@ -3,6 +3,7 @@ package services
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -15,7 +16,15 @@ import (
 const (
 	authKeyPrefix  = "ch_orthrus_"
 	authKeyRandLen = 32 // bytes of random hex
+
+	// maxExternalProxyBindLen bounds the stored listen setting.
+	maxExternalProxyBindLen = 64
 )
+
+// ErrInvalidExternalProxyBind is returned when a listen setting is neither
+// automatic, all interfaces, an address, nor a subnet. The handler maps it to a
+// fixed operator-facing message and error code.
+var ErrInvalidExternalProxyBind = errors.New("external proxy bind is invalid")
 
 // OrthrusService provides agent lifecycle management on top of OrthrusServer.
 type OrthrusService struct {
@@ -80,6 +89,7 @@ type AgentPatch struct {
 	DeviceID          *string
 	ResolvedAddress   *string
 	ExternalProxyPort *int
+	ExternalProxyBind *string
 	WriteEnabled      *bool
 }
 
@@ -116,6 +126,13 @@ func (s *OrthrusService) Patch(uuid string, p AgentPatch) (*models.OrthrusAgent,
 			return nil, fmt.Errorf("external_proxy_port must be 0 (disabled) or in range 1024–65535, got %d", port)
 		}
 		updates["external_proxy_port"] = port
+	}
+	if p.ExternalProxyBind != nil {
+		bind, err := normalizeExternalProxyBind(*p.ExternalProxyBind)
+		if err != nil {
+			return nil, fmt.Errorf("orthrus: patch external proxy bind: %w", err)
+		}
+		updates["external_proxy_bind"] = bind
 	}
 	if p.WriteEnabled != nil {
 		updates["write_enabled"] = *p.WriteEnabled
@@ -294,4 +311,26 @@ spec:
             type: Socket
 `, serverURL, agentUUID),
 	}, nil
+}
+
+// normalizeExternalProxyBind validates a listen setting and returns its stored
+// form: trimmed, with a subnet masked. Reachability is not checked here,
+// because interfaces can change; the bind result is reported in proxy-status.
+func normalizeExternalProxyBind(raw string) (string, error) {
+	s := strings.TrimSpace(raw)
+	if len(s) > maxExternalProxyBindLen {
+		return "", ErrInvalidExternalProxyBind
+	}
+	mode, addr, prefix, err := orthrus.ParseBindSetting(s)
+	if err != nil {
+		return "", ErrInvalidExternalProxyBind
+	}
+	switch mode {
+	case orthrus.BindModeAuto:
+		return "", nil
+	case orthrus.BindModeSubnet:
+		return prefix.String(), nil
+	default: // all interfaces or one address
+		return addr.String(), nil
+	}
 }
