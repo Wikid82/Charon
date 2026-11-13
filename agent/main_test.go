@@ -81,3 +81,45 @@ func TestCheckDockerSocketPermissionHint(t *testing.T) {
 	assert.Contains(t, err.Error(), "PGID")
 	assert.Contains(t, err.Error(), "docker group")
 }
+
+func TestResolveAuthKeyPrecedence(t *testing.T) {
+	cases := []struct {
+		name       string
+		fileSet    bool
+		fileKey    string
+		envKey     string
+		flagKey    string
+		wantKey    string
+		wantSource authKeySource
+	}{
+		{name: "file wins over flag", fileSet: true, fileKey: "from-file", flagKey: "from-flag", wantKey: "from-file", wantSource: authKeySourceFile},
+		{name: "file alone", fileSet: true, fileKey: "from-file", wantKey: "from-file", wantSource: authKeySourceFile},
+		{name: "env over flag", envKey: "from-env", flagKey: "from-flag", wantKey: "from-env", wantSource: authKeySourceEnv},
+		{name: "env alone", envKey: "from-env", wantKey: "from-env", wantSource: authKeySourceEnv},
+		{name: "flag alone", flagKey: "from-flag", wantKey: "from-flag", wantSource: authKeySourceFlag},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			key, source, err := resolveAuthKey(tc.fileSet, tc.fileKey, tc.envKey, tc.flagKey)
+
+			require.NoError(t, err)
+			assert.Equal(t, tc.wantKey, key)
+			assert.Equal(t, tc.wantSource, source)
+		})
+	}
+}
+
+func TestResolveAuthKeyFileAndEnvBothSetIsFatal(t *testing.T) {
+	_, _, err := resolveAuthKey(true, "from-file", "from-env", "")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "set only one of ORTHRUS_AUTH_KEY_FILE and ORTHRUS_AUTH_KEY")
+	assert.NotContains(t, err.Error(), "from-env")
+}
+
+func TestResolveAuthKeyNoneSetIsFatal(t *testing.T) {
+	_, _, err := resolveAuthKey(false, "", "", "")
+
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "auth key required")
+}

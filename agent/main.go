@@ -23,8 +23,47 @@ import (
 	"github.com/Wikid82/charon/agent/privdrop"
 )
 
+// authKeySource records where the agent key came from. It is logged; the key is not.
+type authKeySource string
+
+const (
+	authKeySourceFile authKeySource = "file"
+	authKeySourceEnv  authKeySource = "env"
+	authKeySourceFlag authKeySource = "flag"
+)
+
+// resolveAuthKey picks the agent key. fileSet reports whether ORTHRUS_AUTH_KEY_FILE
+// was set, and fileKey holds its already-read contents. Setting both the file and
+// ORTHRUS_AUTH_KEY is an error; the file otherwise wins over env and flag.
+func resolveAuthKey(fileSet bool, fileKey, envKey, flagKey string) (string, authKeySource, error) {
+	switch {
+	case fileSet && envKey != "":
+		return "", "", errors.New("orthrus: set only one of ORTHRUS_AUTH_KEY_FILE and ORTHRUS_AUTH_KEY")
+	case fileSet:
+		return fileKey, authKeySourceFile, nil
+	case envKey != "":
+		return envKey, authKeySourceEnv, nil
+	case flagKey != "":
+		return flagKey, authKeySourceFlag, nil
+	default:
+		return "", "", errors.New("orthrus: auth key required — set ORTHRUS_AUTH_KEY_FILE, ORTHRUS_AUTH_KEY env var or --auth-key flag")
+	}
+}
+
 func main() {
 	log := logrus.New()
+
+	// Read the key file before dropping root: a root-owned or 0600 secret is only
+	// readable at this point. Its path is an env var, so no flag parsing is needed.
+	keyFileSet := os.Getenv(authKeyFileEnv) != ""
+	var fileKey string
+	if keyFileSet {
+		k, err := readAuthKeyFile(os.Getenv(authKeyFileEnv))
+		if err != nil {
+			log.WithError(err).Fatal("orthrus: cannot use the auth key file")
+		}
+		fileKey = k
+	}
 
 	// Drop root before any flag, config, or network work. No-op when not root.
 	if err := privdrop.DropPrivileges(log); err != nil {
@@ -33,7 +72,7 @@ func main() {
 
 	var (
 		serverURL  = flag.String("server-url", "", "WebSocket URL of the Charon Orthrus endpoint (wss://...)")
-		authKey    = flag.String("auth-key", "", "Orthrus auth key; env ORTHRUS_AUTH_KEY takes precedence")
+		authKey    = flag.String("auth-key", "", "Orthrus auth key; prefer ORTHRUS_AUTH_KEY_FILE or ORTHRUS_AUTH_KEY")
 		agentID    = flag.String("agent-id", "", "UUID of this agent (from provisioning response)")
 		dockerSock = flag.String("docker-socket", "/var/run/docker.sock", "Path to Docker socket")
 		logLevel   = flag.String("log-level", "info", "Log level: debug, info, warn, error")
@@ -47,13 +86,12 @@ func main() {
 	}
 	log.SetLevel(lvl)
 
-	// Environment variables take precedence over flags for sensitive values.
-	key := os.Getenv("ORTHRUS_AUTH_KEY")
-	if key == "" {
-		key = *authKey
+	key, keySource, err := resolveAuthKey(keyFileSet, fileKey, os.Getenv("ORTHRUS_AUTH_KEY"), *authKey)
+	if err != nil {
+		log.Fatal(err)
 	}
-	if key == "" {
-		log.Fatal("orthrus: auth key required — set ORTHRUS_AUTH_KEY env var or --auth-key flag")
+	if keySource == authKeySourceFlag {
+		log.Warn("orthrus: the auth key flag is visible in process listings; use ORTHRUS_AUTH_KEY_FILE")
 	}
 
 	svrURL := os.Getenv("ORTHRUS_SERVER_URL")
@@ -84,12 +122,13 @@ func main() {
 
 	// NEVER log the auth key value.
 	log.WithFields(logrus.Fields{
-		"server_url":    svrURL,
-		"agent_id":      agentName,
-		"docker_socket": dockSock,
-		"uid":           os.Geteuid(),
-		"gid":           os.Getegid(),
-		"auth_key":      "[REDACTED]",
+		"server_url":      svrURL,
+		"agent_id":        agentName,
+		"docker_socket":   dockSock,
+		"uid":             os.Geteuid(),
+		"gid":             os.Getegid(),
+		"auth_key":        "[REDACTED]",
+		"auth_key_source": string(keySource),
 	}).Info("orthrus agent starting")
 
 	if err := checkDockerSocket(dockSock); err != nil {

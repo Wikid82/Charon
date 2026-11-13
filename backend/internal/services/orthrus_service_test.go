@@ -606,3 +606,62 @@ func TestOrthrusService_Patch_WriteEnabled_NilLeavesUnchanged(t *testing.T) {
 	assert.Equal(t, "renamed-agent", got.Name)
 	assert.True(t, got.WriteEnabled, "write_enabled must be untouched by an unrelated Patch call")
 }
+
+func TestOrthrusService_GetInstallSnippets_ComposeUsesAuthKeyFileSecret(t *testing.T) {
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+
+	agent, _, err := svc.Provision("secret-compose-agent")
+	require.NoError(t, err)
+
+	snippets, err := svc.GetInstallSnippets(agent.UUID, "https://charon.example.com")
+	require.NoError(t, err)
+
+	compose := snippets.DockerCompose
+	assert.NotContains(t, compose, "ORTHRUS_AUTH_KEY=", "the key must not be passed as a plain environment variable")
+	assert.Contains(t, compose, "- ORTHRUS_AUTH_KEY_FILE=/run/secrets/orthrus_auth_key")
+	assert.Contains(t, compose, "file: ./orthrus_auth_key")
+	assert.Contains(t, compose, "printf '%s' '<AUTH_KEY>' > orthrus_auth_key && chmod 600 orthrus_auth_key")
+
+	// The wizard fills only the first <AUTH_KEY> it finds, so the first one must
+	// be the line that writes the key file.
+	assert.Less(t, strings.Index(compose, "<AUTH_KEY>"), strings.Index(compose, "services:"))
+
+	var doc struct {
+		Services map[string]struct {
+			Environment []string `yaml:"environment"`
+			Secrets     []string `yaml:"secrets"`
+		} `yaml:"services"`
+		Secrets map[string]struct {
+			File string `yaml:"file"`
+		} `yaml:"secrets"`
+	}
+	require.NoError(t, yaml.Unmarshal([]byte(compose), &doc))
+	svcDef, ok := doc.Services["secret-compose-agent"]
+	require.True(t, ok)
+	assert.Contains(t, svcDef.Environment, "ORTHRUS_AUTH_KEY_FILE=/run/secrets/orthrus_auth_key")
+	assert.Equal(t, []string{"orthrus_auth_key"}, svcDef.Secrets)
+	assert.Equal(t, "./orthrus_auth_key", doc.Secrets["orthrus_auth_key"].File)
+}
+
+func TestOrthrusService_GetInstallSnippets_KubernetesUsesSecretVolume(t *testing.T) {
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+
+	agent, _, err := svc.Provision("secret-k8s-agent")
+	require.NoError(t, err)
+
+	snippets, err := svc.GetInstallSnippets(agent.UUID, "https://charon.example.com")
+	require.NoError(t, err)
+
+	ds := snippets.KubernetesDaemonSet
+	assert.Contains(t, ds, "kubectl create secret generic orthrus-auth-key --from-literal=auth-key='<AUTH_KEY>'")
+	assert.Less(t, strings.Index(ds, "<AUTH_KEY>"), strings.Index(ds, "apiVersion:"))
+	assert.NotContains(t, ds, "name: ORTHRUS_AUTH_KEY\n")
+	assert.Contains(t, ds, "- name: ORTHRUS_AUTH_KEY_FILE")
+	assert.Contains(t, ds, `value: "/var/run/secrets/orthrus/auth-key"`)
+	assert.Contains(t, ds, "fsGroup: 65532")
+	assert.Contains(t, ds, "defaultMode: 0440")
+	assert.Contains(t, ds, "secretName: orthrus-auth-key")
+	assert.Contains(t, ds, "mountPath: /var/run/secrets/orthrus")
+}

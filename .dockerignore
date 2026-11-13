@@ -266,3 +266,6 @@ VERSION.md
 go.work
 go.work.sum
 .cache
+
+# Orthrus agent key file (Compose secret); must never enter a build context
+orthrus_auth_key

@@ -215,7 +215,12 @@ func (s *OrthrusService) GetInstallSnippets(uuid, charonURL string) (*orthrus.In
 		// The agent drops from root to PUID/PGID at startup (agent/privdrop), so
 		// every snippet starts it as root. PGID must equal the host Docker
 		// socket's group GID: `stat -c %g /var/run/docker.sock`.
-		DockerCompose: fmt.Sprintf(`services:
+		// The key is written to a file secret rather than an environment variable,
+		// so it does not appear in `docker inspect` output or the process environment.
+		// The first <AUTH_KEY> must be the printf line: the wizard fills only the first match.
+		DockerCompose: fmt.Sprintf(`# Save the auth key next to this file first (Charon shows it only once):
+#   printf '%%s' '<AUTH_KEY>' > orthrus_auth_key && chmod 600 orthrus_auth_key
+services:
   %s:
     image: wikid82/orthrus:latest
     restart: always
@@ -227,9 +232,15 @@ func (s *OrthrusService) GetInstallSnippets(uuid, charonURL string) (*orthrus.In
       - TZ=UTC
       - ORTHRUS_SERVER_URL=%s
       - ORTHRUS_AGENT_ID=%s
-      - ORTHRUS_AUTH_KEY=<AUTH_KEY>
+      # The agent reads the key from this file before it drops privileges.
+      - ORTHRUS_AUTH_KEY_FILE=/run/secrets/orthrus_auth_key
+    secrets:
+      - orthrus_auth_key
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
+secrets:
+  orthrus_auth_key:
+    file: ./orthrus_auth_key
 `, name, serverURL, agentUUID),
 
 		Systemd: fmt.Sprintf(`[Unit]
@@ -262,7 +273,11 @@ sudo env PUID=65532 PGID=<DOCKER_GID> ORTHRUS_SERVER_URL=%s ORTHRUS_AGENT_ID=%s 
 sudo env PUID=65532 PGID=<DOCKER_GID> ORTHRUS_SERVER_URL=%s ORTHRUS_AGENT_ID=%s ORTHRUS_AUTH_KEY=<AUTH_KEY> charon-agent
 `, serverURL, agentUUID),
 
-		KubernetesDaemonSet: fmt.Sprintf(`apiVersion: apps/v1
+		// The key lives in a Secret mounted as a file. fsGroup and defaultMode 0440
+		// let the non-root container user read it; the Secret is created separately.
+		KubernetesDaemonSet: fmt.Sprintf(`# Create the Secret first (Charon shows the key only once):
+#   kubectl create secret generic orthrus-auth-key --from-literal=auth-key='<AUTH_KEY>'
+apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: orthrus-agent
@@ -284,6 +299,8 @@ spec:
         runAsGroup: 65532
         supplementalGroups:
           - <DOCKER_GID>
+        # Group ownership of the mounted Secret files (the auth key) for the non-root user.
+        fsGroup: 65532
       containers:
         - name: agent
           image: wikid82/orthrus:latest
@@ -292,8 +309,9 @@ spec:
               value: "%s"
             - name: ORTHRUS_AGENT_ID
               value: "%s"
-            - name: ORTHRUS_AUTH_KEY
-              value: "<AUTH_KEY>"
+            # The agent reads the key from this file before it drops privileges.
+            - name: ORTHRUS_AUTH_KEY_FILE
+              value: "/var/run/secrets/orthrus/auth-key"
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -304,11 +322,18 @@ spec:
             - name: docker-sock
               mountPath: /var/run/docker.sock
               readOnly: true
+            - name: auth-key
+              mountPath: /var/run/secrets/orthrus
+              readOnly: true
       volumes:
         - name: docker-sock
           hostPath:
             path: /var/run/docker.sock
             type: Socket
+        - name: auth-key
+          secret:
+            secretName: orthrus-auth-key
+            defaultMode: 0440
 `, serverURL, agentUUID),
 	}, nil
 }

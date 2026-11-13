@@ -355,3 +355,6 @@ backend/internal/api/routes/keys/hecate-ca.crt
 # the workspace build does not need.
 /plugins/powerdns/powerdns
 /plugins/powerdns/go.sum
+
+# Orthrus agent key file (Compose secret); holds a live agent credential, never commit or ship it
+orthrus_auth_key
