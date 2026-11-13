@@ -191,17 +191,17 @@ func (s *AuthService) ChangePassword(userID uint, oldPassword, newPassword strin
 	}
 
 	if err := s.db.Transaction(func(tx *gorm.DB) error {
-		return applyPasswordChange(tx, userID, user.PasswordHash)
+		return ApplyPasswordChange(tx, userID, user.PasswordHash)
 	}); err != nil {
 		return fmt.Errorf("change password: %w", err)
 	}
 	return nil
 }
 
-// applyPasswordChange stores a new password hash for the user and, in the same
+// ApplyPasswordChange stores a new password hash for the user and, in the same
 // statement, advances the session version and clears failed-attempt and lock state.
 // Every password change (self-service or administrative) goes through it.
-func applyPasswordChange(tx *gorm.DB, userID uint, passwordHash string) error {
+func ApplyPasswordChange(tx *gorm.DB, userID uint, passwordHash string) error {
 	res := tx.Model(&models.User{}).Where("id = ?", userID).Updates(map[string]any{
 		"password_hash":         passwordHash,
 		"session_version":       gorm.Expr("session_version + 1"),
