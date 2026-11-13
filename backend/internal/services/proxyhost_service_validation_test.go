@@ -53,9 +53,9 @@ func TestProxyHostService_ForwardHostValidation(t *testing.T) {
 			wantErr:     false,
 		},
 		{
-			name:        "Host with http scheme (Should be stripped and pass)",
+			name:        "Host with a path is refused",
 			forwardHost: "https://discord.com/api/webhooks/123/abc",
-			wantErr:     false,
+			wantErr:     true,
 		},
 		{
 			name:        "Host with https scheme (Should be stripped and pass)",

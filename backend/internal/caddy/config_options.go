@@ -1,6 +1,7 @@
 package caddy
 
 import (
+	charonconfig "github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -26,9 +27,11 @@ type GenerateConfigOption func(*generateConfigOptions)
 type generateConfigOptions struct {
 	encSvc        *crypto.EncryptionService
 	redirectHosts []models.RedirectionHost
-	selfHop       *selfHopConfig
-	remoteHosts   map[string]struct{}
-	enforcement   func(EnforcementReport)
+	// adminListen is the admin.listen value of the generated config. It is set to the default socket when no option supplies it.
+	adminListen string
+	selfHop     *selfHopConfig
+	remoteHosts map[string]struct{}
+	enforcement func(EnforcementReport)
 	// bouncerKeyPath is the saved CrowdSec bouncer key file the proxy reads.
 	bouncerKeyPath string
 	// geoIPPath is the configured GeoIP database file, and geoIPAvailable says whether the proxy may use it now.
@@ -45,7 +48,17 @@ func resolveGenerateConfigOptions(opts []GenerateConfigOption) *generateConfigOp
 			opt(resolved)
 		}
 	}
+	if resolved.adminListen == "" {
+		resolved.adminListen = charonconfig.CaddyAdminListen(charonconfig.DefaultCaddyAdminAPI())
+	}
 	return resolved
+}
+
+// WithAdminListen sets the admin.listen value of the generated config. Pass the
+// value that matches the admin API endpoint the client dials (see
+// config.CaddyAdminListen). Without it the default admin socket is used.
+func WithAdminListen(listen string) GenerateConfigOption {
+	return func(o *generateConfigOptions) { o.adminListen = listen }
 }
 
 // WithEncryptionService supplies the optional encryption service GenerateConfig

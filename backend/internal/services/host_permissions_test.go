@@ -332,3 +332,11 @@ func TestHostPermsRedirectionUpdateStoredAdminFieldsLoadErrorIsReturned(t *testi
 	assert.Contains(t, err.Error(), "load stored redirection host")
 	assert.NotErrorIs(t, err, ErrAdminOnlyHostField)
 }
+
+// forwardTargetHost is also used for values the form check never sees (location
+// targets and stored rows), so its fallbacks are exercised directly.
+func TestHostPermsForwardTargetHostFallbacks(t *testing.T) {
+	assert.Equal(t, "[::1", forwardTargetHost("http://[::1"), "an unparsable URL falls back to stripping the scheme")
+	assert.Equal(t, "app.internal", forwardTargetHost("app.internal/status"), "a path is removed")
+	assert.Equal(t, "app.internal", forwardTargetHost(" https://app.internal:8443/x "), "scheme, port and path are removed")
+}

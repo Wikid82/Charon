@@ -358,6 +358,7 @@ fork/offline fallback.
 - **Handlers:** Process HTTP requests, validate input, return responses
 - **Middleware:** CORS, GZIP, authentication, logging, metrics, panic recovery
 - **Request origin:** The `SelfHop` middleware is first in the engine's chain. For proxy hosts whose upstream is Charon itself, Caddy attaches an authenticated per-boot header (`internal/caddy/self_upstream.go`); the middleware verifies it and records the client address, scheme and host (`RequestOrigin`) for later handlers. Shared helpers live in `internal/security/selfhop`.
+- **Caddy admin API:** Caddy serves its admin API on a unix socket (`CHARON_CADDY_ADMIN_API`, default `data/run/caddy-admin.sock`; `/app/data/run/caddy-admin.sock` in the container), created with mode 0600 inside a 0700 directory. No TCP admin listener exists by default, so traffic proxied through a host cannot reach it. The Go client dials the socket (`internal/caddy/client.go`); `charon caddy-admin listen|prepare|get <path>` is the in-container diagnostic. Loopback TCP URLs from older configs are ignored with a startup warning.
 - **Caller identity:** Handlers read the signed-in caller through shared accessors in `backend/internal/api/middleware/ctxkeys.go`, enforced by a guard test
 - **Routes:** Route registration and grouping (public, authenticated, and admin-only — see [Management API Authentication & Authorization](#management-api-authentication--authorization))
 
@@ -1106,7 +1107,7 @@ newly added privileged route cannot silently land on an under-guarded group.
 | Uptime monitor list, summary, history, health | Allowed | Allowed | `management` group |
 | Uptime monitor create, update, delete, manual check, sync | 403 | Allowed | `managementAdmin` group (`routes.go`) |
 | Docker container list for a disabled remote server | Refused (400) | Refused (400) | `docker_handler.go` |
-| Forward target that reaches Charon's own Caddy admin listener (local name or address on the admin port) | Refused | Refused | Shared helper `refuseAdminListenerTarget`, used by proxy host and location validation |
+| Forward target that names a local host on the admin TCP port (2019) | Refused | Refused | Shared helper `refuseAdminListenerTarget`, used by proxy host and location validation. The admin API is a socket by default, so this is defense in depth |
 
 **Role-aware response helpers** (`backend/internal/api/handlers/permission_helpers.go`):
 `redactForRole` and `redactListForRole` return the item unchanged for administrators.
@@ -1484,7 +1485,7 @@ Operator runbook: `docs/ci/toolchain-image.md`.
 | 80 | HTTP | Caddy reverse proxy | 0.0.0.0 |
 | 443 | HTTPS | Caddy reverse proxy (TLS) | 0.0.0.0 |
 | 443 | UDP | HTTP/3 QUIC (optional) | 0.0.0.0 |
-| 2019 | HTTP | Proxy admin interface (used by Charon inside the container; not exposed) | 127.0.0.1 |
+| none | unix socket | Caddy admin API at `/app/data/run/caddy-admin.sock` (inside the container only; no TCP port) | n/a |
 | 2020 | HTTP | Emergency recovery (localhost only) | 127.0.0.1 |
 
 ### Volume Mounts

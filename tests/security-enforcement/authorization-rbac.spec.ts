@@ -684,7 +684,7 @@ test.describe('Browser session request origin checks (PR 31)', () => {
  */
 
 const ADMIN_ONLY_ERROR_CODE = 'permissions_admin_only';
-/** Port of the Caddy admin listener Charon dials (config.CaddyAdminAddress). */
+/** TCP port of the Caddy admin listener (config.CaddyAdminTCPPort). Forward targets on it are refused. */
 const CADDY_ADMIN_PORT = 2019;
 /** Documentation address (RFC 5737). The tests only store host rows, so nothing is dialled. */
 const DOCUMENTATION_TARGET = '198.51.100.10';

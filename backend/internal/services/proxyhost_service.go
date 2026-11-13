@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -113,6 +114,10 @@ func (s *ProxyHostService) validateProxyHost(host *models.ProxyHost) error {
 		return err
 	}
 
+	if err := checkForwardHostForm(host.ForwardHost); err != nil {
+		return err
+	}
+
 	// Basic hostname/IP validation
 	target := forwardTargetHost(host.ForwardHost)
 
@@ -208,10 +213,41 @@ func proxyAdminFieldsOf(host *models.ProxyHost) hostAdminFields {
 	}
 }
 
+// errForwardHostForm is returned for a forward host that is not a host, an
+// optional port and an optional http:// or https:// prefix.
+var errForwardHostForm = errors.New("forward host must be a valid IP address or hostname")
+
+// forwardHostSeparators are the characters a forward host may not contain after
+// its optional scheme: path, query, fragment and user-info delimiters. Unix
+// socket style values such as "unix//x" are refused through the path separator.
+const forwardHostSeparators = "/\\@?#"
+
+// checkForwardHostForm refuses any forward host that carries more than a host and
+// an optional port. An optional http:// or https:// prefix is stripped first. The
+// empty string passes, because the required-value check runs separately. The
+// hostname rules run later; this check stops values that a later truncation would
+// quietly shorten to a plausible host.
+func checkForwardHostForm(raw string) error {
+	if raw == "" {
+		return nil
+	}
+	rest := strings.TrimPrefix(raw, "https://")
+	if rest == raw {
+		rest = strings.TrimPrefix(raw, "http://")
+	}
+	if rest == "" || strings.ContainsAny(rest, forwardHostSeparators) || strings.IndexFunc(rest, unicode.IsSpace) >= 0 {
+		return errForwardHostForm
+	}
+	return nil
+}
+
 // validateLocationTargets applies the forward target rules to each location.
 func validateLocationTargets(locations []models.Location) error {
 	for i := range locations {
 		if err := refuseAdminListenerTarget(locations[i].ForwardHost, locations[i].ForwardPort); err != nil {
+			return err
+		}
+		if err := checkForwardHostForm(locations[i].ForwardHost); err != nil {
 			return err
 		}
 	}

@@ -130,7 +130,7 @@ environment:
 **Purpose:** Address and port for emergency server (Tier 2)
 **Format:** `IP:PORT`
 **Default:** `127.0.0.1:2020`
-**Note:** Port 2020 avoids conflict with Caddy admin API (port 2019)
+**Note:** Port 2020 is the emergency server. Caddy's admin API is a unix socket inside the container and uses no TCP port.
 
 **Options:**
 

@@ -63,7 +63,52 @@ func TestTestEnvironmentsUseContainerLocalAdminAccess(t *testing.T) {
 
 	if len(violations) > 0 {
 		t.Errorf("test environments publish the proxy admin port; read it with "+
-			"`docker exec <container> wget -qO- http://127.0.0.1:2019/config/` instead:\n  %s",
+			"`docker exec <container> /app/charon caddy-admin get /config/` instead:\n  %s",
+			strings.Join(violations, "\n  "))
+	}
+}
+
+// adminTCPReadPattern matches a shell or TypeScript line that reads the admin API
+// over TCP on loopback, for example `wget http://127.0.0.1:2019/config/`.
+var adminTCPReadPattern = regexp.MustCompile(`(wget|curl)\b.*(127\.0\.0\.1|localhost):2019\b`)
+
+// TestTestToolingDoesNotReadAdminTCP verifies that no shipped test script, compose
+// file or Playwright spec reads the admin API over TCP. The admin API is a unix
+// socket, so tooling reads it through the binary inside the container.
+func TestTestToolingDoesNotReadAdminTCP(t *testing.T) {
+	root, err := filepath.Abs(repoRootFromCaddyPkg)
+	if err != nil {
+		t.Fatalf("resolve repository root: %v", err)
+	}
+
+	var files []string
+	scripts, err := filepath.Glob(filepath.Join(root, "scripts", "*.sh"))
+	if err != nil {
+		t.Fatalf("glob scripts: %v", err)
+	}
+	for _, path := range scripts {
+		if adminAccessExemptScripts[filepath.Base(path)] {
+			continue
+		}
+		files = append(files, path)
+	}
+	composes, err := filepath.Glob(filepath.Join(root, ".docker", "compose", "*.yml"))
+	if err != nil {
+		t.Fatalf("glob compose files: %v", err)
+	}
+	files = append(files, composes...)
+	specs, err := filepath.Glob(filepath.Join(root, "tests", "security", "*.spec.ts"))
+	if err != nil {
+		t.Fatalf("glob security specs: %v", err)
+	}
+	files = append(files, specs...)
+
+	var violations []string
+	for _, path := range files {
+		violations = append(violations, scanFileLines(t, path, root, adminTCPReadPattern)...)
+	}
+	if len(violations) > 0 {
+		t.Errorf("tooling must read the admin socket through `/app/charon caddy-admin get`, not TCP:\n  %s",
 			strings.Join(violations, "\n  "))
 	}
 }

@@ -690,9 +690,9 @@ environment:
 
 ## Proxy Admin Interface
 
-Charon bundles its own Caddy (the engine that sends traffic to your sites) inside the same container. Caddy has an admin interface on port 2019 that Charon uses to update the proxy's settings.
+Charon bundles its own Caddy (the engine that sends traffic to your sites) inside the same container. Caddy has an admin API that Charon uses to update the proxy's settings. The admin API is a unix socket inside the container, not a TCP port.
 
-The proxy admin interface listens on the loopback address only and is reached from inside the container.
+The admin socket is reachable only from inside the container. Traffic that your sites proxy cannot reach it, because no TCP admin listener exists.
 
 You do not need to set anything up. Charon handles this for you.
 
@@ -704,7 +704,7 @@ You do not need to set anything up. Charon handles this for you.
 
 The emergency server is designed as a **failsafe access mechanism** with minimal security controls. Exposing it to the public internet creates a high-risk attack surface.
 
-**Note:** The emergency server uses port 2020. The proxy admin interface on port 2019 is separate and listens on the loopback address only (see [Proxy Admin Interface](#proxy-admin-interface)).
+**Note:** The emergency server uses port 2020. The proxy admin API is a separate unix socket (see [Proxy Admin Interface](#proxy-admin-interface)).
 
 **Risks of public exposure:**
 

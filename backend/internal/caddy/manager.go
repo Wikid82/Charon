@@ -82,6 +82,8 @@ type Manager struct {
 	orthrusSvc  OrthrusAddrResolver
 	hopSecret   *selfhop.Secret
 	hopPort     string
+	// adminListen is the admin.listen value written into every generated config. It matches the endpoint the client dials.
+	adminListen string
 	// geoIPState reports the GeoIP database path and whether the proxy may use it. It is read at every apply.
 	geoIPState func() (path string, available bool)
 	// enforcement is the report of the last successful apply. It is nil while an apply runs and after any failed one.
@@ -121,6 +123,7 @@ func NewManager(client CaddyClient, db *gorm.DB, configDir, frontendDir string, 
 		frontendDir: frontendDir,
 		acmeStaging: acmeStaging,
 		securityCfg: securityCfg,
+		adminListen: adminListenOf(client),
 	}
 }
 
@@ -512,6 +515,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		WithRemoteHosts(remoteHosts),
 		WithBouncerKeyPath(bouncerkey.PathFor(m.securityCfg.CrowdSecConfigDir)),
 		WithEnforcementSink(func(report EnforcementReport) { generatedReport = &report }),
+		WithAdminListen(m.adminListen),
 	}
 	if m.hopSecret != nil {
 		genOpts = append(genOpts, WithSelfHop(m.hopSecret, m.hopPort))

@@ -25,7 +25,7 @@ import (
 // This server runs on a separate port with minimal security for failsafe access.
 //
 // Port Assignment:
-// - Port 2019: Reserved for Caddy admin API
+// - Port 2019: not used by Charon; the Caddy admin API is a unix socket
 // - Port 2020: Emergency server (tier-2 break glass)
 //
 // Security Philosophy:

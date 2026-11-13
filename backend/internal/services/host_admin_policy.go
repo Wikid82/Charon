@@ -25,8 +25,10 @@ var ErrAdminOnlyHostField = errors.New("admin privileges required to change DNS 
 // proxy's own administrative API. It applies to every caller.
 var ErrAdminListenerTarget = errors.New("forward target cannot point at this proxy's own admin API")
 
-// caddyAdminAPIPort is the port of the Caddy admin listener Charon dials.
-var caddyAdminAPIPort = adminAPIPortFrom(config.CaddyAdminAddress)
+// caddyAdminAPIPort is the port of the Caddy admin TCP listener. The default
+// admin API is a unix socket with no TCP listener, so this refusal is defense in
+// depth for loopback TCP setups and also refuses loopback targets on this port.
+var caddyAdminAPIPort = adminAPIPortFrom(config.CaddyAdminTCPAddress)
 
 // localHostChecker answers whether a dial host names this machine.
 var localHostChecker = selfhop.NewLocalAddrs()

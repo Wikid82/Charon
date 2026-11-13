@@ -63,7 +63,7 @@ This unified architecture simplifies deployment, updates, and data management.
 │  Container (charon / cpmp)               │
 │                                          │
 │  ┌──────────┐   API    ┌──────────────┐  │
-│  │  Caddy   │◄──:2019──┤  Charon App  │  │
+│  │  Caddy   │◄─socket──┤  Charon App  │  │
 │  │ (Proxy)  │          │  (Manager)   │  │
 │  └────┬─────┘          └──────┬───────┘  │
 │       │                       │          │
@@ -94,7 +94,7 @@ Configure the application via `docker-compose.yml`:
 | `CHARON_ENV` | `production` | Set to `development` for verbose logging (`CPM_ENV` supported for backward compatibility). |
 | `CHARON_HTTP_PORT` | `8080` | Port for the Web UI (`CPM_HTTP_PORT` supported for backward compatibility). |
 | `CHARON_DB_PATH` | `/app/data/charon.db` | Path to the SQLite database (`CPM_DB_PATH` supported for backward compatibility). |
-| `CHARON_CADDY_ADMIN_API` | `http://localhost:2019` | Optional. Leave it out, or set it to `http://localhost:2019`. Charon always uses the Caddy built into this container, whose admin interface listens on the loopback address only. Any other address (such as a service name or another server) stops Charon at startup with an error. If a restart policy is set, the container keeps restarting and the error repeats in `docker logs`. (`CPM_CADDY_ADMIN_API` supported for backward compatibility.) |
+| `CHARON_CADDY_ADMIN_API` | `unix:///app/data/run/caddy-admin.sock` | Optional. Leave it out. Charon always uses the admin socket of the Caddy built into this container. The socket is a unix socket, so the admin API has no TCP port. A loopback URL such as `http://localhost:2019` from an older setup is still accepted, but Charon ignores it and logs a warning. Any other address (such as a service name or another server) stops Charon at startup with an error. If a restart policy is set, the container keeps restarting and the error repeats in `docker logs`. (`CPM_CADDY_ADMIN_API` supported for backward compatibility.) |
 | `CHARON_CADDY_CONFIG_ROOT` | `/config` | Path to Caddy autosave configuration directory. |
 | `CHARON_CADDY_LOG_DIR` | `/var/log/caddy` | Directory for Caddy access logs. |
 | `CHARON_CROWDSEC_LOG_DIR` | `/var/log/crowdsec` | Directory for CrowdSec logs. |
@@ -165,7 +165,7 @@ docker compose -f .docker/compose/docker-compose.yml logs app
 
 ```bash
 # View current Caddy config (run inside the container)
-docker exec charon wget -qO- http://127.0.0.1:2019/config/ | jq
+docker exec charon /app/charon caddy-admin get /config/ | jq
 
 # Check Charon logs
 docker compose -f .docker/compose/docker-compose.yml logs app
@@ -204,7 +204,7 @@ make docker-build
 
 ## Security Considerations
 
-1. **Caddy admin interface**: Port 2019 listens on the loopback address only, so it is reachable only from inside the container. Nothing needs to be exposed.
+1. **Caddy admin interface**: The admin API is a unix socket inside the container (`/app/data/run/caddy-admin.sock`). It has no TCP listener, so it cannot be reached over the network or through a proxy host. Nothing needs to be exposed.
 2. **Management UI**: Add authentication (Issue #7) before exposing to internet
 3. **Certificates**: Caddy stores private keys in `caddy_data` - protect this volume
 4. **Database**: SQLite file contains all config - backup regularly
@@ -216,10 +216,10 @@ Charon bundles its own Caddy, so it does not connect to a Caddy running somewher
 If you upgraded and Charon now stops at startup with this message:
 
 ```text
-CHARON_CADDY_ADMIN_API must point at this container (localhost); using an external proxy is not supported: set it to http://localhost:2019 or remove it
+CHARON_CADDY_ADMIN_API must be a unix:// socket path or point at this container (localhost); using an external proxy is not supported: remove the setting to use the default socket
 ```
 
-Open your `docker-compose.yml`, then either set `CHARON_CADDY_ADMIN_API` to `http://localhost:2019` or delete that line. A service name, a container hostname, or `127.1` in that setting is refused, so use `localhost` instead.
+Open your `docker-compose.yml` and delete the `CHARON_CADDY_ADMIN_API` line. Charon uses its admin socket on its own. A service name, a container hostname, or another server address in that setting is refused.
 
 ## Performance Tuning
 

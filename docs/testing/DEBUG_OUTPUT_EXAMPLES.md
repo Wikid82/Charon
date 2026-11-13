@@ -29,7 +29,7 @@ This document explains how the new comprehensive debugging infrastructure helps 
 ✅ Global setup complete
 
 🔍 Health Checks:
-  ✅ Caddy admin API health (port 2019)        [45ms]
+  ✅ Caddy admin API health (unix socket)        [45ms]
   ✅ Emergency tier-2 server health (port 2020) [123ms]
   ✅ Security modules status verified           [89ms]
 

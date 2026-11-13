@@ -113,7 +113,7 @@ on_failure() {
     echo "=== Charon logs (last 100 lines) ==="
     docker logs "${CONTAINER_NAME}" 2>&1 | tail -100 || true
     echo "=== Caddy admin config (first 200 lines) ==="
-    docker exec "${CONTAINER_NAME}" wget -qO- http://127.0.0.1:2019/config/ 2>/dev/null | head -200 || true
+    docker exec "${CONTAINER_NAME}" /app/charon caddy-admin get /config/ 2>/dev/null | head -200 || true
     echo "=== Proxy hosts ==="
     curl -s -b "${TMP_COOKIE}" "${API_URL}/proxy-hosts" 2>/dev/null | head -50 || true
     echo "=============================================="
@@ -399,7 +399,7 @@ echo ""
 echo "=============================================="
 echo "=== Caddy config: headers handlers are non-deferred + deferred pairs ==="
 echo "=============================================="
-CADDY_CONFIG=$(docker exec "${CONTAINER_NAME}" wget -qO- http://127.0.0.1:2019/config/)
+CADDY_CONFIG=$(docker exec "${CONTAINER_NAME}" /app/charon caddy-admin get /config/)
 # The non-deferred set covers Caddy-generated responses (e.g. 502), the deferred
 # set runs after reverse_proxy copied the upstream headers so it replaces them.
 # Count response headers handlers by kind, and count handlers with no partner:

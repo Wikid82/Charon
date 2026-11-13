@@ -47,8 +47,8 @@ Go integration tests under `backend/integration/` are build-tagged and are not e
 
 ## Known Port Bindings
 
-- `scripts/cerberus_integration.sh`: API 8480, HTTP 8481, HTTPS 8444, admin 2319
-- `scripts/waf_integration.sh`: API 8380, HTTP 8180, HTTPS 8143, admin 2119
-- `scripts/coraza_integration.sh`: API 8080, HTTP 80, HTTPS 443, admin 2019
-- `scripts/rate_limit_integration.sh`: API 8280, HTTP 8180, HTTPS 8143, admin 2119
+- `scripts/cerberus_integration.sh`: API 8480, HTTP 8481, HTTPS 8444, admin API via docker exec (unix socket, no port)
+- `scripts/waf_integration.sh`: API 8380, HTTP 8180, HTTPS 8143, admin API via docker exec (unix socket, no port)
+- `scripts/coraza_integration.sh`: API 8080, HTTP 80, HTTPS 443, admin API via docker exec (unix socket, no port)
+- `scripts/rate_limit_integration.sh`: API 8280, HTTP 8180, HTTPS 8143, admin API via docker exec (unix socket, no port)
 - `scripts/crowdsec_*`: API 8280/8580, HTTP 8180/8480, HTTPS 8143/8443, admin 2119 (varies by script)
