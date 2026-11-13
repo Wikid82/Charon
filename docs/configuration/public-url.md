@@ -33,9 +33,22 @@ Example: if you type `https://charon.example.com` into your browser, enter exact
 **Results:**
 
 - Changing the Application URL takes effect **immediately**. You don't need to restart Charon.
-- If you restore a backup, the Application URL inside that backup takes effect **after the restart** that applies the restore.
+- If you restore a backup, the Application URL inside that backup takes effect **immediately** when the restore applies live. If Charon reports that the restore finishes at the next start, the Application URL takes effect after that restart.
 
 ## Troubleshooting
+
+### Live logs or stats don't connect behind a proxy
+
+**What you see:** The live log or live stats view does not start, or keeps reconnecting. Other pages work.
+
+**Why it happens:** Live views use WebSockets. Charon checks these connections the same way it checks changes, so a proxy that rewrites the address makes Charon refuse the connection. Older browsers that do not send the newer request details are checked by comparing the page's address with the address Charon sees, so they hit the same problem.
+
+**How to fix it:**
+
+1. Open System Settings and go to the **Application URL** section.
+2. Enter the exact address shown in your browser's address bar, including `https://` or `http://`.
+3. Click **Validate**, then **Save Changes**.
+4. Reload the page. No restart is needed.
 
 ### Changes fail with 403 behind a proxy
 
@@ -50,7 +63,7 @@ Example: if you type `https://charon.example.com` into your browser, enter exact
 3. Click **Validate**, then **Save Changes**.
 4. Try your change again. No restart is needed.
 
-If the error continues after a restored backup, restart Charon once so the backup's Application URL takes effect.
+If the error continues after a restore that reported it finishes at the next start, restart Charon once so the restored Application URL takes effect.
 
 ## Related
 

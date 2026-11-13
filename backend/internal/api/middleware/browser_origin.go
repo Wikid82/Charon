@@ -76,18 +76,19 @@ func (g *BrowserOriginGuard) Refresh() error {
 }
 
 // RequireSameOriginForBrowserAuth refuses cross-origin requests that a browser would send with ambient credentials. A
-// request that carries an Authorization header is header-authenticated, so it passes unchanged: a page on another
-// origin cannot add that header without a CORS preflight, which Charon does not grant. Any other request is checked
-// with the guard's standard library Sec-Fetch-Site and Origin rules, where the configured public address is trusted.
-// Safe methods and non-browser clients pass, except that a WebSocket upgrade (a GET) is checked like a mutation so that
-// another site cannot open an authenticated socket. A refused request gets 403 cross_origin_refused before the handler
-// runs.
+// request whose Authorization header carries a token (by the same rule the auth middleware uses) is header-
+// authenticated, so it passes unchanged: a page on another origin cannot add that header without a CORS preflight,
+// which Charon does not grant. Any other request, including one whose header is empty or has no token and so falls
+// back to the session cookie, is checked with the guard's standard library Sec-Fetch-Site and Origin rules, where the
+// configured public address is trusted. Safe methods and non-browser clients pass, except that a WebSocket upgrade (a
+// GET) is checked like a mutation so that another site cannot open an authenticated socket. A refused request gets 403
+// cross_origin_refused before the handler runs.
 //
 // SameSite cookies alone do not cover same-site sibling origins, so the protected route group applies this check to
 // every unsafe method, not only to the routes that need it.
 func RequireSameOriginForBrowserAuth(guard *BrowserOriginGuard) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		if len(c.Request.Header.Values("Authorization")) > 0 {
+		if bearerToken(c.GetHeader("Authorization")) != "" {
 			c.Next()
 			return
 		}

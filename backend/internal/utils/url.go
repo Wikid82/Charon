@@ -2,6 +2,7 @@ package utils
 
 import (
 	"errors"
+	"net"
 	"net/url"
 	"strings"
 
@@ -79,8 +80,36 @@ func normalizeConfiguredPublicURL(raw string) (string, error) {
 		return "", errors.New("public URL must not be opaque")
 	}
 
-	normalized := (&url.URL{Scheme: parsed.Scheme, Host: parsed.Host}).String()
-	return normalized, nil
+	return canonicalOrigin(parsed), nil
+}
+
+// canonicalOrigin returns "scheme://host[:port]" in the form a browser sends as Origin: the host is lowercased and a
+// port equal to the scheme's default (443 for https, 80 for http) is dropped. IPv6 hosts keep their brackets.
+func canonicalOrigin(u *url.URL) string {
+	host := strings.ToLower(u.Hostname())
+	port := u.Port()
+	if port == defaultPortForScheme(u.Scheme) {
+		port = ""
+	}
+
+	if port != "" {
+		host = net.JoinHostPort(host, port)
+	} else if strings.Contains(host, ":") {
+		host = "[" + host + "]"
+	}
+	return u.Scheme + "://" + host
+}
+
+// defaultPortForScheme returns the port a browser omits for scheme, or "" when the scheme has none.
+func defaultPortForScheme(scheme string) string {
+	switch scheme {
+	case "https":
+		return "443"
+	case "http":
+		return "80"
+	default:
+		return ""
+	}
 }
 
 // getBaseURL extracts the base URL from the request.

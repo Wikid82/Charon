@@ -218,6 +218,21 @@ type BackupService struct {
 	// rescan self-heal (spec §3.9 / S6). Nilable — satisfied by
 	// *services.UptimeScheduler, wired from routes.go.
 	uptimeRehydrator UptimeRehydrator
+
+	// browserOriginRefresher rebuilds the cross-origin check after a live DB restore, because the check reads the public
+	// address only when it is refreshed. Nilable — satisfied by *middleware.BrowserOriginGuard, wired from routes.go.
+	browserOriginRefresher BrowserOriginRefresher
+}
+
+// BrowserOriginRefresher is the minimal interface RestoreBackupSafe needs from the cross-origin guard: rebuild the
+// trusted public address from the live database.
+type BrowserOriginRefresher interface {
+	Refresh() error
+}
+
+// SetBrowserOriginRefresher wires the post-restore cross-origin check refresh hook.
+func (s *BackupService) SetBrowserOriginRefresher(r BrowserOriginRefresher) {
+	s.browserOriginRefresher = r
 }
 
 // RemoteUploadHook is invoked after CreateBackupWithOptions successfully

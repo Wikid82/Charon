@@ -63,12 +63,18 @@ func extractAuthToken(c *gin.Context) (string, bool) {
 		return "", false
 	}
 
-	tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+	tokenString := bearerToken(authHeader)
 	if tokenString == "" {
 		return "", false
 	}
 
 	return tokenString, true
+}
+
+// bearerToken returns the token an Authorization header value carries: the value without an optional "Bearer " prefix.
+// An empty result means the header carries no token. extractAuthToken and the browser origin check share this rule.
+func bearerToken(authHeader string) string {
+	return strings.TrimPrefix(authHeader, "Bearer ")
 }
 
 func extractAuthCookieToken(c *gin.Context) string {

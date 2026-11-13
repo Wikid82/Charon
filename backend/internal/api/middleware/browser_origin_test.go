@@ -271,4 +271,14 @@ func TestBrowserOriginGuard_TrustedOriginReportsConfiguredValue(t *testing.T) {
 	assert.Empty(t, guard.TrustedOrigin(), "a rejected value must not be reported as trusted")
 
 	assert.Empty(t, NewBrowserOriginGuard(nil).TrustedOrigin())
+	assert.Empty(t, (&BrowserOriginGuard{}).TrustedOrigin(), "a guard that was never built trusts no origin")
+}
+
+func TestNewBrowserOriginGuard_InvalidStartupOriginFailsClosed(t *testing.T) {
+	// A stored value the standard library rejects must not stop startup, and must not be trusted.
+	setting := &originSetting{origin: "charon.example.com", ok: true}
+	guard := NewBrowserOriginGuard(setting.source)
+	assert.Empty(t, guard.TrustedOrigin())
+	assert.Equal(t, http.StatusForbidden, serveOriginGuard(t, guard, http.MethodPost, "inner.test",
+		map[string]string{"Origin": "https://charon.example.com"}))
 }

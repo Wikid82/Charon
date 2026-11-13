@@ -92,3 +92,17 @@ func TestPatchConfig_PublicURLRefreshesBrowserOrigin(t *testing.T) {
 	require.Equal(t, http.StatusOK, w.Code)
 	assert.Equal(t, 1, refresher.calls, "an unrelated key must not refresh the origin guard")
 }
+
+func TestUpdateSetting_PublicURLWithoutRefresherIsSaved(t *testing.T) {
+	db := setupSettingsTestDB(t)
+	handler := handlers.NewSettingsHandler(db) // no origin guard wired
+	router := newAdminRouter()
+	router.POST("/settings", handler.UpdateSetting)
+
+	w := postJSON(t, router, http.MethodPost, "/settings", `{"key":"app.public_url","value":"https://charon.example.com"}`)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	var stored models.Setting
+	require.NoError(t, db.Where("key = ?", "app.public_url").First(&stored).Error)
+	assert.Equal(t, "https://charon.example.com", stored.Value)
+}

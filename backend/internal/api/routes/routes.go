@@ -428,6 +428,8 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	browserOrigin := middleware.NewBrowserOriginGuard(func() (string, bool) {
 		return utils.GetConfiguredPublicURL(db)
 	})
+	// A live backup restore swaps in the restored public address, so the guard is refreshed after it.
+	backupService.SetBrowserOriginRefresher(browserOrigin)
 
 	auth := api.Group("/auth")
 	auth.Use(authRateLimiter.Middleware())
