@@ -95,6 +95,26 @@ func redactListForRole[T any](c *gin.Context, items []T, hidden []string, flags 
 	return out, nil
 }
 
+// jsonForRole writes item as the response body with the caller's redactions applied.
+func jsonForRole[T any](c *gin.Context, status int, item T, hidden []string, flags func(T) map[string]any) {
+	body, err := redactForRole(c, item, hidden, flags)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build response"})
+		return
+	}
+	c.JSON(status, body)
+}
+
+// jsonListForRole writes items as the response body with the caller's redactions applied.
+func jsonListForRole[T any](c *gin.Context, status int, items []T, hidden []string, flags func(T) map[string]any) {
+	body, err := redactListForRole(c, items, hidden, flags)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build response"})
+		return
+	}
+	c.JSON(status, body)
+}
+
 // redactItem converts item to a JSON object, removes the hidden keys and adds
 // the derived flags. Numbers are kept as json.Number so ids and counters keep
 // their exact values.
