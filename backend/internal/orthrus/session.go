@@ -16,6 +16,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/coder/websocket"
 	"github.com/hashicorp/yamux"
+	"golang.org/x/net/netutil"
 	"golang.org/x/time/rate"
 )
 
@@ -36,6 +37,25 @@ const (
 // streamTypeDocker identifies Docker socket proxy streams opened toward the agent.
 // Must match the constant in the Orthrus agent (agent/leash/leash.go).
 const streamTypeDocker = byte(0x01)
+
+const (
+	// yamuxAcceptBacklog is the yamux accept queue depth for agent sessions.
+	yamuxAcceptBacklog = 8
+
+	// maxExternalProxyConns caps simultaneous connections to one external
+	// Docker proxy listener. Extra connections wait at the listener.
+	maxExternalProxyConns = 256
+)
+
+// listenExternal opens the external Docker proxy listener at addr, limiting it
+// to maxExternalProxyConns concurrent connections.
+func listenExternal(addr string) (net.Listener, error) {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("listen: %w", err)
+	}
+	return netutil.LimitListener(ln, maxExternalProxyConns), nil
+}
 
 // newWSNetConn adapts a WebSocket connection to net.Conn so that yamux can use
 // it as a byte-stream transport. Each Write sends one binary message. ctx bounds
@@ -95,11 +115,20 @@ type AgentSession struct {
 	mu          sync.Mutex
 }
 
+// newYamuxServerConfig returns the yamux configuration for one agent session.
+// Charon only opens streams toward the agent and never accepts agent-opened
+// ones, so the accept backlog is kept small.
+func newYamuxServerConfig() *yamux.Config {
+	cfg := yamux.DefaultConfig()
+	cfg.LogOutput = io.Discard
+	cfg.AcceptBacklog = yamuxAcceptBacklog
+	return cfg
+}
+
 // NewAgentSession wraps the WebSocket connection in a Yamux server session.
 // The session owns conn: Close tears the WebSocket down.
 func NewAgentSession(agentUUID, agentName string, writeEnabled bool, auditLogger AuditLogger, conn *websocket.Conn) (*AgentSession, error) {
-	cfg := yamux.DefaultConfig()
-	cfg.LogOutput = io.Discard
+	cfg := newYamuxServerConfig()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	session, err := yamux.Server(newWSNetConn(ctx, conn), cfg)
@@ -274,7 +303,7 @@ func (s *AgentSession) StartExternalProxy(port int, bind string) error {
 		return err
 	}
 
-	ln, err := net.Listen("tcp", net.JoinHostPort(addr.String(), strconv.Itoa(port)))
+	ln, err := listenExternal(net.JoinHostPort(addr.String(), strconv.Itoa(port)))
 	if err != nil {
 		err = fmt.Errorf("orthrus: bind external proxy port %d: %w", port, err)
 		s.recordExtErr(err)

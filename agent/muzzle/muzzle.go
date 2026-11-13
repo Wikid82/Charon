@@ -18,6 +18,7 @@ import (
 	"path"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/distribution/reference"
 )
@@ -141,6 +142,19 @@ var allowedDockerPrefixSuffixPatterns = []struct {
 // full rationale.
 type Filter struct {
 	writeEnabled bool
+	// headerTimeout bounds how long ServeProxy waits for the complete request
+	// header. The deadline is cleared once the header is read, so bodies and
+	// long-lived responses are not affected.
+	headerTimeout time.Duration
+}
+
+// defaultHeaderTimeout is the request header deadline New applies.
+const defaultHeaderTimeout = 10 * time.Second
+
+// readDeadliner is implemented by streams that support read deadlines
+// (yamux streams and net.Conn values).
+type readDeadliner interface {
+	SetReadDeadline(t time.Time) error
 }
 
 // New returns a new Muzzle filter. writeEnabled governs whether this
@@ -148,7 +162,7 @@ type Filter struct {
 // default for any caller not yet passing the negotiated handshake value)
 // preserves the unconditional read-only allowlist behavior.
 func New(writeEnabled bool) *Filter {
-	return &Filter{writeEnabled: writeEnabled}
+	return &Filter{writeEnabled: writeEnabled, headerTimeout: defaultHeaderTimeout}
 }
 
 // Allow returns true if method+reqPath is permitted, after
@@ -288,7 +302,19 @@ func isAllDigits(s string) bool {
 func (f *Filter) ServeProxy(dst string, r io.Reader, w io.Writer) error {
 	bufr := bufio.NewReader(r)
 
+	// Bound the request header only. The deadline is cleared as soon as the
+	// header is parsed, so a body that arrives later, or a long-lived response
+	// such as /events or /logs?follow=1, is never cut by it.
+	dl, hasDeadline := r.(readDeadliner)
+	if hasDeadline {
+		if err := dl.SetReadDeadline(time.Now().Add(f.headerTimeout)); err != nil {
+			return fmt.Errorf("muzzle: set header deadline: %w", err)
+		}
+	}
 	req, err := http.ReadRequest(bufr)
+	if hasDeadline {
+		_ = dl.SetReadDeadline(time.Time{})
+	}
 	if err != nil {
 		return fmt.Errorf("muzzle: read request: %w", err)
 	}

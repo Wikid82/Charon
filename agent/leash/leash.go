@@ -33,7 +33,22 @@ const (
 	reconnectResetAfter   = 60 * time.Second
 
 	wsDialTimeout = 10 * time.Second
+
+	// maxConcurrentStreams caps how many streams one connection serves at once.
+	maxConcurrentStreams = 256
+
+	// streamAcceptBacklog is the yamux accept queue depth. yamux resets streams
+	// that arrive while the queue is full.
+	streamAcceptBacklog = 64
+
+	// streamMaxWindowSize bounds the per-stream receive buffer (yamux minimum).
+	streamMaxWindowSize = uint32(256 << 10)
 )
+
+// streamHeaderTimeout bounds how long a new stream may take to send its type
+// byte and, for Docker streams, its HTTP request header. It is a variable so
+// tests can shorten it.
+var streamHeaderTimeout = 10 * time.Second
 
 // Config holds the configuration for a Leash connection.
 type Config struct {
@@ -145,11 +160,8 @@ func (l *Leash) connect(ctx context.Context) error {
 	// any value other than the literal string "true" is treated as false —
 	// fail closed, matching this package's existing "unknown stream type,
 	// closing" posture elsewhere in this file.
-	cfg := yamux.DefaultConfig()
-	cfg.LogOutput = io.Discard
-
 	netConn := NewWSNetConn(wsConn)
-	session, err := yamux.Client(netConn, cfg)
+	session, err := yamux.Client(netConn, newSessionConfig())
 	if err != nil {
 		_ = netConn.Close()
 		return fmt.Errorf("leash: yamux client: %w", err)
@@ -170,24 +182,63 @@ func (l *Leash) connect(ctx context.Context) error {
 	defer hbCancel()
 	go newHeartbeat(session, l.log).Run(hbCtx)
 
+	return acceptStreams(session, func(stream *yamux.Stream) {
+		l.handleStream(stream, filter)
+	})
+}
+
+// newSessionConfig returns the yamux configuration for one agent connection,
+// with the backlog and per-stream window bounded as described on the constants.
+func newSessionConfig() *yamux.Config {
+	cfg := yamux.DefaultConfig()
+	cfg.LogOutput = io.Discard
+	cfg.AcceptBacklog = streamAcceptBacklog
+	cfg.MaxStreamWindowSize = streamMaxWindowSize
+	return cfg
+}
+
+// streamAcceptor is the part of a yamux session the accept loop needs.
+type streamAcceptor interface {
+	AcceptStream() (*yamux.Stream, error)
+}
+
+// acceptStreams accepts streams from session and runs handle on each in its
+// own goroutine, with at most maxConcurrentStreams running at once. A slot is
+// taken before the next stream is accepted, so while every slot is busy the
+// remaining streams wait in the yamux accept backlog. It returns when
+// AcceptStream fails, which happens when the session closes.
+func acceptStreams(session streamAcceptor, handle func(*yamux.Stream)) error {
+	slots := make(chan struct{}, maxConcurrentStreams)
 	for {
+		slots <- struct{}{}
 		stream, err := session.AcceptStream()
 		if err != nil {
 			return fmt.Errorf("leash: accept stream: %w", err)
 		}
-		go l.handleStream(stream, filter)
+		go func() {
+			defer func() { <-slots }()
+			handle(stream)
+		}()
 	}
 }
 
 // handleStream reads the leading type byte from a yamux stream and dispatches accordingly.
+// The type byte must arrive within streamHeaderTimeout; the deadline is cleared as soon
+// as it is read, so a long-lived proxied stream is not cut by it.
 func (l *Leash) handleStream(stream *yamux.Stream, filter *muzzle.Filter) {
 	defer func() { _ = stream.Close() }()
 
+	if err := stream.SetReadDeadline(time.Now().Add(streamHeaderTimeout)); err != nil {
+		l.log.WithError(err).Error("leash: failed to set stream type deadline")
+		return
+	}
 	typeBuf := make([]byte, 1)
 	if _, err := io.ReadFull(stream, typeBuf); err != nil {
 		l.log.WithError(err).Error("leash: failed to read stream type byte")
 		return
 	}
+	// yamux stream deadlines never fail once set; clearing is best-effort.
+	_ = stream.SetReadDeadline(time.Time{})
 
 	switch typeBuf[0] {
 	case streamTypeDocker:
