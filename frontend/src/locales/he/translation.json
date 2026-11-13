@@ -50,6 +50,11 @@
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
     "score": "Score"
   },
+  "permissions": {
+    "adminOnlyError": "רק מנהלים יכולים לשנות הגדרה זו.",
+    "hiddenForRole": "מוסתר עבור התפקיד שלך.",
+    "dnsAdminOnly": "רק מנהלים יכולים לשנות את ספק ה-DNS ואת אתגר ה-DNS."
+  },
   "navigation": {
     "dashboard": "Dashboard",
     "proxyHosts": "Proxy Hosts",

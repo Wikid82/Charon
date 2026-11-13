@@ -50,6 +50,11 @@
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
     "score": "Score"
   },
+  "permissions": {
+    "adminOnlyError": "Μόνο οι διαχειριστές μπορούν να αλλάξουν αυτή τη ρύθμιση.",
+    "hiddenForRole": "Κρυφό για τον ρόλο σας.",
+    "dnsAdminOnly": "Μόνο οι διαχειριστές μπορούν να αλλάξουν τον πάροχο DNS και το DNS challenge."
+  },
   "navigation": {
     "dashboard": "Dashboard",
     "proxyHosts": "Proxy Hosts",

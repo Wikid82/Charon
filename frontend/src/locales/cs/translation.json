@@ -50,6 +50,11 @@
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
     "score": "Score"
   },
+  "permissions": {
+    "adminOnlyError": "Toto nastavení mohou měnit jen správci.",
+    "hiddenForRole": "Pro vaši roli skryto.",
+    "dnsAdminOnly": "Poskytovatele DNS a DNS výzvu mohou měnit jen správci."
+  },
   "navigation": {
     "dashboard": "Dashboard",
     "proxyHosts": "Proxy Hosts",

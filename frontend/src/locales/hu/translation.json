@@ -50,6 +50,11 @@
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
     "score": "Score"
   },
+  "permissions": {
+    "adminOnlyError": "Csak adminisztrátorok módosíthatják ezt a beállítást.",
+    "hiddenForRole": "A szerepköre számára rejtve.",
+    "dnsAdminOnly": "Csak adminisztrátorok módosíthatják a DNS-szolgáltatót és a DNS-kihívást."
+  },
   "navigation": {
     "dashboard": "Dashboard",
     "proxyHosts": "Proxy Hosts",

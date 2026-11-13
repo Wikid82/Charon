@@ -11,6 +11,11 @@ import type { ProxyHost } from '../../api/proxyHosts'
 
 
 // Mock the hooks
+// Components under test read the caller's role; default to an administrator.
+vi.mock('../../hooks/useAuth', () => ({
+  useAuth: () => ({ user: { user_id: 1, role: 'admin' } }),
+}))
+
 vi.mock('../../hooks/useRemoteServers', () => ({
   useRemoteServers: vi.fn(() => ({
     servers: mockRemoteServers,

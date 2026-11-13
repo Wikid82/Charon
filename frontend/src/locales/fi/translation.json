@@ -50,6 +50,11 @@
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
     "score": "Score"
   },
+  "permissions": {
+    "adminOnlyError": "Vain ylläpitäjät voivat muuttaa tätä asetusta.",
+    "hiddenForRole": "Piilotettu roolillesi.",
+    "dnsAdminOnly": "Vain ylläpitäjät voivat muuttaa DNS-palveluntarjoajaa ja DNS-haastetta."
+  },
   "navigation": {
     "dashboard": "Dashboard",
     "proxyHosts": "Proxy Hosts",

@@ -199,3 +199,25 @@ export function setupErrorMessage(err: unknown, t: TFunction): string | null {
   const code = getApiErrorCode(err, SETUP_CODED_MESSAGES)
   return code ? t(SETUP_CODE_MESSAGE_KEYS[code]) : null
 }
+
+/**
+ * Coded permission refusals with a translated text of their own, keyed by the server's `error_code`.
+ */
+const PERMISSIONS_CODE_MESSAGE_KEYS = {
+  permissions_admin_only: 'permissions.adminOnlyError',
+} as const
+
+type PermissionsCodedMessage = keyof typeof PERMISSIONS_CODE_MESSAGE_KEYS
+
+const PERMISSIONS_CODED_MESSAGES = Object.keys(PERMISSIONS_CODE_MESSAGE_KEYS) as PermissionsCodedMessage[]
+
+/**
+ * Translated text for a refusal because the caller is not an administrator.
+ * @param err - The value thrown by the request
+ * @param t - The translation function of the calling component or hook
+ * @returns The text, or null when the refusal is not a permission refusal
+ */
+export function permissionsErrorMessage(err: unknown, t: TFunction): string | null {
+  const code = getApiErrorCode(err, PERMISSIONS_CODED_MESSAGES)
+  return code ? t(PERMISSIONS_CODE_MESSAGE_KEYS[code]) : null
+}

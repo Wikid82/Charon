@@ -37,8 +37,10 @@ export interface ProxyHost {
   waf_disabled?: boolean;
   application: ApplicationPreset;
   locations: Location[];
+  /** Caddy config. Omitted for standard users; `has_advanced_config` tells them whether one is set. */
   advanced_config?: string;
   advanced_config_backup?: string;
+  has_advanced_config?: boolean;
   enabled: boolean;
   certificate_id?: number | string | null;
   certificate?: Certificate | null;

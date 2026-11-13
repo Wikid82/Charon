@@ -50,6 +50,11 @@
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
     "score": "Score"
   },
+  "permissions": {
+    "adminOnlyError": "Лише адміністратори можуть змінити це налаштування.",
+    "hiddenForRole": "Приховано для вашої ролі.",
+    "dnsAdminOnly": "Лише адміністратори можуть змінити постачальника DNS і DNS-перевірку."
+  },
   "navigation": {
     "dashboard": "Dashboard",
     "proxyHosts": "Proxy Hosts",

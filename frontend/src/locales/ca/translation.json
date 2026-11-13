@@ -50,6 +50,11 @@
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
     "score": "Score"
   },
+  "permissions": {
+    "adminOnlyError": "Només els administradors poden canviar aquesta configuració.",
+    "hiddenForRole": "Amagat per al vostre rol.",
+    "dnsAdminOnly": "Només els administradors poden canviar el proveïdor DNS i el repte DNS."
+  },
   "navigation": {
     "dashboard": "Dashboard",
     "proxyHosts": "Proxy Hosts",

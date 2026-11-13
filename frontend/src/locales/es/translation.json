@@ -50,6 +50,11 @@
     "autoRefreshing": "Actualizando cada {{seconds}}s",
     "score": "Puntuación"
   },
+  "permissions": {
+    "adminOnlyError": "Solo los administradores pueden cambiar este ajuste.",
+    "hiddenForRole": "Oculto para su rol.",
+    "dnsAdminOnly": "Solo los administradores pueden cambiar el proveedor de DNS y el desafío DNS."
+  },
   "navigation": {
     "dashboard": "Panel de Control",
     "proxyHosts": "Hosts Proxy",
