@@ -26,11 +26,34 @@ administrator.
 
 **Standard user**
 
-A day-to-day account for adding and managing proxy hosts. A standard user can
-still *open* most settings pages and see how things are configured — the
-certificates list, the access lists, the DNS providers, and so on — but the
-buttons that change security-sensitive configuration are for admins only. If a
-standard user tries one anyway, Charon simply refuses it.
+A day-to-day account for adding and managing proxy hosts and redirection hosts.
+A standard user can still *open* most settings pages and see how things are
+configured — the certificates list, the access lists, the DNS providers, and so
+on — but the buttons that change security-sensitive configuration are for admins
+only. If a standard user tries one anyway, Charon simply refuses it.
+
+Here is what a standard user can and cannot do:
+
+- **Can:** add, edit and delete proxy hosts and redirection hosts.
+- **Cannot:** choose a DNS provider or turn on the DNS challenge for a host. Those
+  fields are greyed out with a short note. A standard user can still save a host
+  as long as those two settings stay as they are.
+- **Cannot:** edit a proxy host's advanced Caddy configuration. The Advanced tab
+  shows a note instead of the editor.
+- **Cannot:** add, change, delete, or run a manual check on uptime monitors. They
+  can still see the monitor list, each monitor's status and its history.
+- **Cannot see sensitive details:** notification web addresses (webhook URLs) and
+  their settings, a proxy host's advanced configuration, and DNS credential
+  details such as the last error message and zone filter. Charon hides these on
+  the page and leaves them out of the information it sends to a standard user's
+  browser. Charon still shows whether a notification address is set.
+
+Some limits apply to every account, administrators included:
+
+- Charon will not list the containers on a remote server that has been switched
+  off. Turn the server back on first.
+- Charon will not send a proxy target to its own internal admin port. Point the
+  target at your app's address instead.
 
 A few areas are admin-only even to look at, because they show sensitive detail:
 the CrowdSec control panel, the audit log, the remote agent management page, and

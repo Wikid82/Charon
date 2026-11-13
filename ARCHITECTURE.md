@@ -1094,6 +1094,36 @@ pattern.
 token receives `403` unless the route is on an explicit, commented allowlist, so a
 newly added privileged route cannot silently land on an under-guarded group.
 
+**Role matrix for management permissions** (standard user = `role=user`):
+
+| Area | Standard user | Admin | Enforced in |
+| ------ | --------------- | ------- | ------------- |
+| Proxy and redirection hosts: create, edit, delete | Allowed | Allowed | Handlers under `management` |
+| Host DNS provider (`dns_provider_id`) and DNS challenge (`use_dns_challenge`) | Write refused (403 `permissions_admin_only`); unchanged values accepted | Allowed | Service layer (`services/host_admin_policy.go`), so single, bulk and location paths are all covered |
+| Proxy host advanced config (`advanced_config`, backup) | Write refused; read redacted (`has_advanced_config` flag instead) | Allowed | Service layer plus response redaction |
+| Notification `url`, `config`, `service_config`, `legacy_url` | Read redacted (`has_url` flag instead) | Visible | Response redaction |
+| Credential `last_error`, `zone_filter` | Read redacted | Visible | Response redaction |
+| Uptime monitor list, summary, history, health | Allowed | Allowed | `management` group |
+| Uptime monitor create, update, delete, manual check, sync | 403 | Allowed | `managementAdmin` group (`routes.go`) |
+| Docker container list for a disabled remote server | Refused (400) | Refused (400) | `docker_handler.go` |
+| Forward target that reaches Charon's own Caddy admin listener (local name or address on the admin port) | Refused | Refused | Shared helper `refuseAdminListenerTarget`, used by proxy host and location validation |
+
+**Role-aware response helpers** (`backend/internal/api/handlers/permission_helpers.go`):
+`redactForRole` and `redactListForRole` return the item unchanged for administrators.
+For any other caller they convert the item to a JSON object, remove the keys listed
+for that resource (`proxyHostRedactedFields`, `notificationProviderRedactedFields`,
+`credentialRedactedFields`) and add derived flags such as `has_url`. Numbers are
+decoded as `json.Number` so IDs and counters keep their exact values. `jsonForRole`
+and `jsonListForRole` write the result; list responses for non-admins always encode
+as `[]`, never `null`.
+
+**Admin-only host fields** are checked in the service layer, not only by the route
+group, so bulk endpoints and any future caller get the same rule. A non-admin write is
+compared with the stored row; any difference returns `ErrAdminOnlyHostField`, which
+`respondHostWriteError` maps to 403 with `error_code: permissions_admin_only`. Stored
+advanced configs are compared in canonical form, so older rows do not block unrelated
+edits.
+
 **Account creation:** there is no public self-registration route. The first
 administrator is bootstrapped through `POST /api/v1/setup` on an instance with no
 users; every subsequent account is created by an existing admin — directly
