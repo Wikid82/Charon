@@ -296,6 +296,7 @@ setup('authenticate', async ({ request, baseURL }) => {
         name: TEST_NAME,
         email: TEST_EMAIL,
         password: TEST_PASSWORD,
+        setup_code: process.env.CHARON_SETUP_TOKEN,
       },
     });
 

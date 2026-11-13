@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# First-run setup code: passed to the container and sent with the setup request.
+export CHARON_SETUP_TOKEN="${CHARON_SETUP_TOKEN:-$(openssl rand -hex 32)}"
+
 # ⚠️  DEPRECATED: This script is deprecated and will be removed in v2.0.0
 #    Please use: .github/skills/scripts/skill-runner.sh integration-test-coraza
 #    For more info: docs/AGENT_SKILLS_MIGRATION.md
@@ -140,7 +143,7 @@ fi
 # Mounting a non-existent directory would override the built frontend with an empty dir.
 # For local development with hot-reload, use .docker/compose/docker-compose.local.yml instead.
 docker run -d --name charon-debug --cap-add=SYS_PTRACE --security-opt seccomp=unconfined --network containers_default -p "${CORAZA_HTTP_PORT}":80 -p "${CORAZA_HTTPS_PORT}":443 -p "${CORAZA_API_PORT}":8080 -p "${CORAZA_DEBUG_PORT}":2345 \
-  -e CHARON_ENV=development -e CHARON_DEBUG=1 -e CHARON_HTTP_PORT=8080 -e CHARON_DB_PATH=/app/data/charon.db -e CHARON_FRONTEND_DIR=/app/frontend/dist \
+  -e CHARON_ENV=development -e CHARON_DEBUG=1 -e CHARON_SETUP_TOKEN -e CHARON_HTTP_PORT=8080 -e CHARON_DB_PATH=/app/data/charon.db -e CHARON_FRONTEND_DIR=/app/frontend/dist \
   -e CHARON_CADDY_CONFIG_DIR=/app/data/caddy -e CHARON_CADDY_BINARY=caddy -e CHARON_IMPORT_CADDYFILE=/import/Caddyfile \
   -e CHARON_IMPORT_DIR=/app/data/imports -e CHARON_ACME_STAGING=false -e CHARON_SECURITY_WAF_MODE=block \
   -v charon_data:/app/data -v caddy_data:/data -v caddy_config:/config -v /var/run/docker.sock:/var/run/docker.sock:ro charon:local
@@ -187,7 +190,7 @@ done
 
 echo "Setting up admin user and logging in to retrieve session cookie..."
 TMP_COOKIE=$(mktemp)
-curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123","name":"Integration Tester"}' "http://localhost:${CORAZA_API_PORT}/api/v1/setup" >/dev/null || true
+curl -s -X POST -H "Content-Type: application/json" -d "{\"email\":\"integration@example.local\",\"password\":\"password123\",\"name\":\"Integration Tester\",\"setup_code\":\"${CHARON_SETUP_TOKEN}\"}" "http://localhost:${CORAZA_API_PORT}/api/v1/setup" >/dev/null || true
 curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123"}' -c "${TMP_COOKIE}" "http://localhost:${CORAZA_API_PORT}/api/v1/auth/login" >/dev/null
 
 echo "Creating proxy host 'integration.local' pointing to backend..."

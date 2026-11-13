@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# First-run setup code: passed to the container and sent with the setup request.
+export CHARON_SETUP_TOKEN="${CHARON_SETUP_TOKEN:-$(openssl rand -hex 32)}"
+
 # ⚠️  DEPRECATED: This script is deprecated and will be removed in v2.0.0
 #    Please use: .github/skills/scripts/skill-runner.sh integration-test-crowdsec-decisions
 #    For more info: docs/AGENT_SKILLS_MIGRATION.md
@@ -166,6 +169,7 @@ docker run -d --name ${CONTAINER_NAME} \
     --network containers_default \
     -p ${HTTP_PORT}:80 -p ${HTTPS_PORT}:443 -p ${API_PORT}:8080 \
     -e CHARON_ENV=development \
+    -e CHARON_SETUP_TOKEN \
     -e CHARON_DEBUG=1 \
     -e CHARON_HTTP_PORT=8080 \
     -e CHARON_DB_PATH=/app/data/charon.db \
@@ -201,7 +205,7 @@ log_info "Setting up admin user and logging in..."
 TMP_COOKIE=$(mktemp)
 
 curl -s -X POST -H "Content-Type: application/json" \
-    -d '{"email":"crowdsec@example.local","password":"password123","name":"CrowdSec Tester"}' \
+    -d "{\"email\":\"crowdsec@example.local\",\"password\":\"password123\",\"name\":\"CrowdSec Tester\",\"setup_code\":\"${CHARON_SETUP_TOKEN}\"}" \
     "http://localhost:${API_PORT}/api/v1/setup" >/dev/null 2>&1 || true
 
 curl -s -X POST -H "Content-Type: application/json" \

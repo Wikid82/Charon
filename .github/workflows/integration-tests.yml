@@ -85,8 +85,17 @@ jobs:
       - name: Load Charon image
         run: docker load -i /tmp/charon-image.tar
 
+      - name: Generate per-run setup code
+        id: setup-code
+        run: |
+          setup_token="$(openssl rand -hex 32)"
+          echo "::add-mask::${setup_token}"
+          echo "setup_token=${setup_token}" >> "$GITHUB_OUTPUT"
+
       - name: Run Cerberus integration tests
         id: cerberus-test
+        env:
+          CHARON_SETUP_TOKEN: ${{ steps.setup-code.outputs.setup_token }}
         run: |
           chmod +x scripts/cerberus_integration.sh
           scripts/cerberus_integration.sh 2>&1 | tee cerberus-test-output.txt
@@ -193,8 +202,17 @@ jobs:
       - name: Load Charon image
         run: docker load -i /tmp/charon-image.tar
 
+      - name: Generate per-run setup code
+        id: setup-code
+        run: |
+          setup_token="$(openssl rand -hex 32)"
+          echo "::add-mask::${setup_token}"
+          echo "setup_token=${setup_token}" >> "$GITHUB_OUTPUT"
+
       - name: Run WAF integration tests
         id: waf-test
+        env:
+          CHARON_SETUP_TOKEN: ${{ steps.setup-code.outputs.setup_token }}
         run: |
           chmod +x scripts/waf_integration.sh
           scripts/waf_integration.sh 2>&1 | tee waf-test-output.txt
@@ -283,8 +301,17 @@ jobs:
       - name: Load Charon image
         run: docker load -i /tmp/charon-image.tar
 
+      - name: Generate per-run setup code
+        id: setup-code
+        run: |
+          setup_token="$(openssl rand -hex 32)"
+          echo "::add-mask::${setup_token}"
+          echo "setup_token=${setup_token}" >> "$GITHUB_OUTPUT"
+
       - name: Run rate limit integration tests
         id: ratelimit-test
+        env:
+          CHARON_SETUP_TOKEN: ${{ steps.setup-code.outputs.setup_token }}
         run: |
           chmod +x scripts/rate_limit_integration.sh
           scripts/rate_limit_integration.sh 2>&1 | tee ratelimit-test-output.txt
@@ -476,8 +503,17 @@ jobs:
       - name: Load Charon image
         run: docker load -i /tmp/charon-image.tar
 
+      - name: Generate per-run setup code
+        id: setup-code
+        run: |
+          setup_token="$(openssl rand -hex 32)"
+          echo "::add-mask::${setup_token}"
+          echo "setup_token=${setup_token}" >> "$GITHUB_OUTPUT"
+
       - name: Run CrowdSec integration tests
         id: crowdsec-test
+        env:
+          CHARON_SETUP_TOKEN: ${{ steps.setup-code.outputs.setup_token }}
         run: |
           chmod +x .github/skills/scripts/skill-runner.sh
           .github/skills/scripts/skill-runner.sh integration-test-crowdsec 2>&1 | tee crowdsec-test-output.txt

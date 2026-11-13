@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# First-run setup code: passed to the container and sent with the setup request.
+export CHARON_SETUP_TOKEN="${CHARON_SETUP_TOKEN:-$(openssl rand -hex 32)}"
+
 # Debug script to check rate limit configuration
 
 echo "=== Starting debug container ==="
@@ -9,6 +12,7 @@ docker run -d --name charon-debug \
     --network containers_default \
     -p 8180:80 -p 8280:8080 \
     -e CHARON_ENV=development \
+    -e CHARON_SETUP_TOKEN \
     charon:local
 
 sleep 10
@@ -16,7 +20,7 @@ sleep 10
 echo ""
 echo "=== Setting up admin user ==="
 curl -s -X POST -H "Content-Type: application/json" \
-    -d '{"email":"debug@test.local","password":"pass1234","name":"Debug"}' \
+    -d "{\"email\":\"debug@test.local\",\"password\":\"pass1234\",\"name\":\"Debug\",\"setup_code\":\"${CHARON_SETUP_TOKEN}\"}" \
     http://localhost:8280/api/v1/setup >/dev/null || true
 
 echo "=== Logging in ==="

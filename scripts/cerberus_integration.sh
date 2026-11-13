@@ -34,6 +34,9 @@ HTTPS_PORT=8444
 RATE_LIMIT_REQUESTS=5
 RATE_LIMIT_WINDOW_SEC=30
 
+# First-run setup code: passed to the container and sent with the setup request.
+export CHARON_SETUP_TOKEN="${CHARON_SETUP_TOKEN:-$(openssl rand -hex 32)}"
+
 # ============================================================================
 # Colors for output
 # ============================================================================
@@ -196,6 +199,7 @@ docker run -d --name ${CONTAINER_NAME} \
     -e CHARON_SECURITY_WAF_MODE=block \
     -e CERBERUS_SECURITY_RATELIMIT_MODE=enabled \
     -e CERBERUS_SECURITY_ACL_ENABLED=true \
+    -e CHARON_SETUP_TOKEN \
     -v charon_cerberus_test_data:/app/data \
     -v caddy_cerberus_test_data:/data \
     -v caddy_cerberus_test_config:/config \
@@ -238,7 +242,7 @@ log_info "Setting up admin user and logging in..."
 TMP_COOKIE=$(mktemp)
 
 curl -s -X POST -H "Content-Type: application/json" \
-    -d '{"email":"cerberus-test@example.local","password":"password123","name":"Cerberus Tester"}' \
+    -d "{\"email\":\"cerberus-test@example.local\",\"password\":\"password123\",\"name\":\"Cerberus Tester\",\"setup_code\":\"${CHARON_SETUP_TOKEN}\"}" \
     "http://localhost:${API_PORT}/api/v1/setup" >/dev/null 2>&1 || true
 
 curl -s -X POST -H "Content-Type: application/json" \

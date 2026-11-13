@@ -618,3 +618,17 @@ func TestLoad_ManagementCIDRsFromEnv(t *testing.T) {
 		assert.Equal(t, []string{"203.0.113.0/24", "10.0.0.5"}, cfg.Security.ManagementCIDRs)
 	})
 }
+
+func TestConfigLoad_ReadsSetupToken(t *testing.T) {
+	t.Setenv("CHARON_SETUP_TOKEN", "preset-setup-code-0123456789abcdef")
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Equal(t, "preset-setup-code-0123456789abcdef", cfg.SetupToken)
+}
+
+func TestConfigLoad_SetupTokenDefaultsEmpty(t *testing.T) {
+	t.Setenv("CHARON_SETUP_TOKEN", "")
+	cfg, err := Load()
+	require.NoError(t, err)
+	assert.Empty(t, cfg.SetupToken)
+}

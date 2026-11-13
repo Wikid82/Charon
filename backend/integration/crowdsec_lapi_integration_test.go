@@ -53,9 +53,10 @@ func (tc *testConfig) authenticate(t *testing.T) error {
 	// Bootstrap the first admin via /setup (idempotent for our purposes: a
 	// "setup already completed" 403 just means the admin already exists).
 	setupPayload := map[string]string{
-		"email":    "lapi-test@example.local",
-		"password": "testpassword123",
-		"name":     "LAPI Tester",
+		"email":      "lapi-test@example.local",
+		"password":   "testpassword123",
+		"name":       "LAPI Tester",
+		"setup_code": os.Getenv("CHARON_SETUP_TOKEN"),
 	}
 	payloadBytes, _ := json.Marshal(setupPayload)
 	_, _ = tc.Client.Post(tc.BaseURL+"/api/v1/setup", "application/json", bytes.NewReader(payloadBytes))

@@ -314,7 +314,8 @@ jobs:
           encryption_key="$(openssl rand -base64 32)"
           emergency_username="e2e-$(openssl rand -hex 4)"
           emergency_password="$(openssl rand -hex 24)"
-          for value in "$emergency_token" "$encryption_key" "$emergency_username" "$emergency_password"; do
+          setup_token="$(openssl rand -hex 32)"
+          for value in "$emergency_token" "$encryption_key" "$emergency_username" "$emergency_password" "$setup_token"; do
             echo "::add-mask::${value}"
           done
           {
@@ -322,6 +323,7 @@ jobs:
             echo "encryption_key=${encryption_key}"
             echo "emergency_username=${emergency_username}"
             echo "emergency_password=${emergency_password}"
+            echo "setup_token=${setup_token}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Checkout repository
@@ -364,6 +366,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           echo "🔐 Validating emergency token configuration..."
           if [ -z "$CHARON_EMERGENCY_TOKEN" ]; then
@@ -390,6 +393,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml --profile security-tests up -d
           echo "✅ Container started for Chromium security enforcement tests"
@@ -400,6 +404,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
           MAX_ATTEMPTS=60
@@ -488,6 +493,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           PLAYWRIGHT_SETUP_BROWSER: chromium
           CI: true
@@ -541,6 +547,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: failure()
         run: |
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-chromium-security.txt 2>&1
@@ -559,6 +566,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: always()
         run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
 
@@ -590,7 +598,8 @@ jobs:
           encryption_key="$(openssl rand -base64 32)"
           emergency_username="e2e-$(openssl rand -hex 4)"
           emergency_password="$(openssl rand -hex 24)"
-          for value in "$emergency_token" "$encryption_key" "$emergency_username" "$emergency_password"; do
+          setup_token="$(openssl rand -hex 32)"
+          for value in "$emergency_token" "$encryption_key" "$emergency_username" "$emergency_password" "$setup_token"; do
             echo "::add-mask::${value}"
           done
           {
@@ -598,6 +607,7 @@ jobs:
             echo "encryption_key=${encryption_key}"
             echo "emergency_username=${emergency_username}"
             echo "emergency_password=${emergency_password}"
+            echo "setup_token=${setup_token}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Checkout repository
@@ -640,6 +650,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           echo "🔐 Validating emergency token configuration..."
           if [ -z "$CHARON_EMERGENCY_TOKEN" ]; then
@@ -666,6 +677,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml --profile security-tests up -d
           echo "✅ Container started for Firefox security enforcement tests"
@@ -676,6 +688,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
           MAX_ATTEMPTS=60
@@ -767,6 +780,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           PLAYWRIGHT_SETUP_BROWSER: firefox
           CI: true
@@ -820,6 +834,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: failure()
         run: |
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-firefox-security.txt 2>&1
@@ -838,6 +853,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: always()
         run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
 
@@ -870,7 +886,8 @@ jobs:
           encryption_key="$(openssl rand -base64 32)"
           emergency_username="e2e-$(openssl rand -hex 4)"
           emergency_password="$(openssl rand -hex 24)"
-          for value in "$emergency_token" "$encryption_key" "$emergency_username" "$emergency_password"; do
+          setup_token="$(openssl rand -hex 32)"
+          for value in "$emergency_token" "$encryption_key" "$emergency_username" "$emergency_password" "$setup_token"; do
             echo "::add-mask::${value}"
           done
           {
@@ -878,6 +895,7 @@ jobs:
             echo "encryption_key=${encryption_key}"
             echo "emergency_username=${emergency_username}"
             echo "emergency_password=${emergency_password}"
+            echo "setup_token=${setup_token}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Checkout repository
@@ -920,6 +938,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           echo "🔐 Validating emergency token configuration..."
           if [ -z "$CHARON_EMERGENCY_TOKEN" ]; then
@@ -946,6 +965,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml --profile security-tests up -d
           echo "✅ Container started for WebKit security enforcement tests"
@@ -956,6 +976,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
           MAX_ATTEMPTS=60
@@ -1047,6 +1068,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           PLAYWRIGHT_SETUP_BROWSER: webkit
           CI: true
@@ -1100,6 +1122,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: failure()
         run: |
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-webkit-security.txt 2>&1
@@ -1118,6 +1141,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: always()
         run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
 
@@ -1162,7 +1186,8 @@ jobs:
           encryption_key="$(openssl rand -base64 32)"
           emergency_username="e2e-$(openssl rand -hex 4)"
           emergency_password="$(openssl rand -hex 24)"
-          for value in "$emergency_token" "$encryption_key" "$emergency_username" "$emergency_password"; do
+          setup_token="$(openssl rand -hex 32)"
+          for value in "$emergency_token" "$encryption_key" "$emergency_username" "$emergency_password" "$setup_token"; do
             echo "::add-mask::${value}"
           done
           {
@@ -1170,6 +1195,7 @@ jobs:
             echo "encryption_key=${encryption_key}"
             echo "emergency_username=${emergency_username}"
             echo "emergency_password=${emergency_password}"
+            echo "setup_token=${setup_token}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Free disk space
@@ -1261,6 +1287,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml up -d
           echo "✅ Container started for Chromium non-security tests (Cerberus OFF)"
@@ -1271,6 +1298,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
           MAX_ATTEMPTS=60
@@ -1333,6 +1361,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           PLAYWRIGHT_SETUP_BROWSER: chromium
           CI: true
@@ -1395,6 +1424,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: failure()
         run: |
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-chromium-shard-${{ matrix.shard }}.txt 2>&1
@@ -1413,6 +1443,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: always()
         run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
 
@@ -1449,7 +1480,8 @@ jobs:
           encryption_key="$(openssl rand -base64 32)"
           emergency_username="e2e-$(openssl rand -hex 4)"
           emergency_password="$(openssl rand -hex 24)"
-          for value in "$emergency_token" "$encryption_key" "$emergency_username" "$emergency_password"; do
+          setup_token="$(openssl rand -hex 32)"
+          for value in "$emergency_token" "$encryption_key" "$emergency_username" "$emergency_password" "$setup_token"; do
             echo "::add-mask::${value}"
           done
           {
@@ -1457,6 +1489,7 @@ jobs:
             echo "encryption_key=${encryption_key}"
             echo "emergency_username=${emergency_username}"
             echo "emergency_password=${emergency_password}"
+            echo "setup_token=${setup_token}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Free disk space
@@ -1548,6 +1581,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml up -d
           echo "✅ Container started for Firefox non-security tests (Cerberus OFF)"
@@ -1558,6 +1592,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
           MAX_ATTEMPTS=60
@@ -1620,6 +1655,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           PLAYWRIGHT_SETUP_BROWSER: firefox
           CI: true
@@ -1682,6 +1718,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: failure()
         run: |
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-firefox-shard-${{ matrix.shard }}.txt 2>&1
@@ -1700,6 +1737,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: always()
         run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
 
@@ -1737,7 +1775,8 @@ jobs:
           encryption_key="$(openssl rand -base64 32)"
           emergency_username="e2e-$(openssl rand -hex 4)"
           emergency_password="$(openssl rand -hex 24)"
-          for value in "$emergency_token" "$encryption_key" "$emergency_username" "$emergency_password"; do
+          setup_token="$(openssl rand -hex 32)"
+          for value in "$emergency_token" "$encryption_key" "$emergency_username" "$emergency_password" "$setup_token"; do
             echo "::add-mask::${value}"
           done
           {
@@ -1745,6 +1784,7 @@ jobs:
             echo "encryption_key=${encryption_key}"
             echo "emergency_username=${emergency_username}"
             echo "emergency_password=${emergency_password}"
+            echo "setup_token=${setup_token}"
           } >> "$GITHUB_OUTPUT"
 
       - name: Free disk space
@@ -1836,6 +1876,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml up -d
           echo "✅ Container started for WebKit non-security tests (Cerberus OFF)"
@@ -1846,6 +1887,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
           MAX_ATTEMPTS=60
@@ -1908,6 +1950,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           PLAYWRIGHT_SETUP_BROWSER: webkit
           CI: true
@@ -1970,6 +2013,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: failure()
         run: |
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-webkit-shard-${{ matrix.shard }}.txt 2>&1
@@ -1988,6 +2032,7 @@ jobs:
           CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
           CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
           CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: always()
         run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
 

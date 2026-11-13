@@ -167,9 +167,10 @@ This skill uses `.docker/compose/docker-compose.playwright-ci.yml` which include
 
 ### Emergency-Test Values in `.env`
 
-The compose files require `CHARON_ENCRYPTION_KEY`, `CHARON_EMERGENCY_TOKEN`,
-`CHARON_EMERGENCY_USERNAME` and `CHARON_EMERGENCY_PASSWORD`. There are no committed
-defaults. Before any compose command, this skill writes each missing value once into the
+The compose files require `CHARON_ENCRYPTION_KEY`, `CHARON_EMERGENCY_TOKEN`, `CHARON_SETUP_TOKEN`,
+`CHARON_EMERGENCY_USERNAME` and `CHARON_EMERGENCY_PASSWORD`. `CHARON_SETUP_TOKEN` is the
+first-run setup code (at least 32 characters) that the bootstrap requests send. There are no
+committed defaults. Before any compose command, this skill writes each missing value once into the
 git-ignored `.env` in the project root and reuses it on later runs. Existing values are
 never changed. The values are then exported so `docker compose` can interpolate them.
 

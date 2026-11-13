@@ -3201,3 +3201,32 @@ func TestUserHandler_Setup_TransactionErrorPaths(t *testing.T) {
 		assert.Equal(t, int64(1), n)
 	})
 }
+
+func TestSetupRequest_ParsesOptionalSetupCode(t *testing.T) {
+	var withCode SetupRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"name":"A","email":"a@example.com","password":"password123","setup_code":"code-value"}`), &withCode))
+	assert.Equal(t, "code-value", withCode.SetupCode)
+
+	var withoutCode SetupRequest
+	require.NoError(t, json.Unmarshal([]byte(`{"name":"A","email":"a@example.com","password":"password123"}`), &withoutCode))
+	assert.Empty(t, withoutCode.SetupCode)
+}
+
+func TestUserHandler_Setup_AcceptsSetupCodeWhileUnchecked(t *testing.T) {
+	handler, _ := setupUserHandler(t)
+	r := gin.New()
+	r.POST("/setup", handler.Setup)
+
+	jsonBody, _ := json.Marshal(map[string]string{
+		"name":       "Admin",
+		"email":      "admin@example.com",
+		"password":   "password123",
+		"setup_code": "any-code-while-unchecked",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBuffer(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusCreated, w.Code)
+}

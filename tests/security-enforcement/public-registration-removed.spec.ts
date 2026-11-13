@@ -73,14 +73,24 @@ test.describe('Public registration endpoint removed (GHSA-3gc6-295r-xm5m)', () =
 
     if (status.setupRequired) {
       const setupResponse = await anonContext.post('/api/v1/setup', {
-        data: { name: 'First Admin', email: 'first-admin@test.local', password: 'FirstAdminPass123!' },
+        data: {
+          name: 'First Admin',
+          email: 'first-admin@test.local',
+          password: 'FirstAdminPass123!',
+          setup_code: process.env.CHARON_SETUP_TOKEN,
+        },
       });
       expect(setupResponse.status()).toBe(201);
     } else {
       // Already bootstrapped (the E2E setup fixture created the first admin):
       // the endpoint stays closed.
       const setupResponse = await anonContext.post('/api/v1/setup', {
-        data: { name: 'Second Admin', email: 'second-admin@test.local', password: 'SecondAdminPass123!' },
+        data: {
+          name: 'Second Admin',
+          email: 'second-admin@test.local',
+          password: 'SecondAdminPass123!',
+          setup_code: process.env.CHARON_SETUP_TOKEN,
+        },
       });
       expect(setupResponse.status()).toBe(403);
       const body = await setupResponse.json();

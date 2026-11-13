@@ -43,6 +43,8 @@ services:
       # exported in the shell, so the explicit ${VAR:?} entries below resolve to the same values.
       # Emergency server (Tier 2 break glass) - separate port bypassing all security
       - CHARON_ENCRYPTION_KEY=${CHARON_ENCRYPTION_KEY:?CHARON_ENCRYPTION_KEY is required (see .env)}
+      # First-run setup code (32+ chars); the docker-rebuild-e2e skill writes it to .env.
+      - CHARON_SETUP_TOKEN=${CHARON_SETUP_TOKEN:?CHARON_SETUP_TOKEN is required (see .env)}
       - CHARON_EMERGENCY_TOKEN=${CHARON_EMERGENCY_TOKEN:?CHARON_EMERGENCY_TOKEN is required (see .env)}
       - CHARON_EMERGENCY_SERVER_ENABLED=true
       - CHARON_EMERGENCY_BIND=0.0.0.0:2020  # Bind to all interfaces in container (avoid Caddy's 2019)

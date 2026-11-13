@@ -412,7 +412,7 @@ ensure_env_value() {
     log_info "Wrote ${name} to .env (generated once, reused on later runs)"
 }
 
-# ensure_test_secrets: make the per-run emergency-test values available to docker compose.
+# ensure_test_secrets: make the per-run test values (emergency and first-run setup) available to docker compose.
 # The compose file interpolates ${VAR:?} references, and compose reads .env from its own
 # directory, not the project root, so the values are exported from the root .env here.
 # This runs before any compose command, including the cleanup in stop_containers.
@@ -424,6 +424,7 @@ ensure_test_secrets() {
     ensure_env_value "${env_file}" CHARON_EMERGENCY_TOKEN "$(openssl rand -hex 32)"
     ensure_env_value "${env_file}" CHARON_EMERGENCY_USERNAME "admin"
     ensure_env_value "${env_file}" CHARON_EMERGENCY_PASSWORD "$(openssl rand -hex 16)"
+    ensure_env_value "${env_file}" CHARON_SETUP_TOKEN "$(openssl rand -hex 32)"
 
     set -a
     # shellcheck source=/dev/null
