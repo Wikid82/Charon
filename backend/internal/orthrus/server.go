@@ -100,10 +100,9 @@ func (s *OrthrusServer) HandleWebSocket(c *gin.Context) {
 	// leash.go:connect) and uses it to construct a connection-scoped
 	// muzzle.Filter for the life of this one connection. This is Option A
 	// from Section 3.3.1 of the write-mode spec: no new yamux control-stream
-	// type is introduced, avoiding a third hand-maintained stream-type
-	// constant on top of the two (streamTypeDocker, streamTypePortForward)
-	// that already have to be kept in sync between this package and
-	// agent/leash/leash.go.
+	// type is introduced, avoiding a second hand-maintained stream-type
+	// constant next to streamTypeDocker that would have to be kept in sync
+	// between this package and agent/leash/leash.go.
 	// websocket.Accept writes the handshake response from the writer's headers, so
 	// the flag is set on the header before the upgrade.
 	c.Writer.Header().Set("X-Orthrus-Write-Enabled", strconv.FormatBool(agent.WriteEnabled))

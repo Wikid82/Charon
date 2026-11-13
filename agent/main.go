@@ -1,7 +1,7 @@
 // Command orthrus-agent is the Charon Orthrus reverse-proxy agent.
 //
 // The agent dials out to a Charon server over a secure WebSocket connection and
-// multiplexes Docker socket and TCP port-forward streams back using yamux.
+// multiplexes Docker socket streams back using yamux.
 package main
 
 import (

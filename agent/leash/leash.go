@@ -1,15 +1,13 @@
 // Package leash implements the Orthrus agent's reverse WebSocket tunnel.
 //
 // The Leash maintains a persistent connection from the agent to the Charon server,
-// multiplexing Docker socket and TCP port-forward streams over a single WebSocket
-// connection using yamux.
+// multiplexing Docker socket streams over a single WebSocket connection using yamux.
 package leash
 
 import (
 	"context"
 	"fmt"
 	"io"
-	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -24,9 +22,6 @@ import (
 const (
 	// streamTypeDocker identifies a yamux data stream carrying Docker socket proxy traffic.
 	streamTypeDocker = byte(0x01)
-
-	// streamTypePortForward identifies a yamux data stream for TCP port-forwarding.
-	streamTypePortForward = byte(0x02)
 
 	reconnectDelayDefault = 5 * time.Second
 	reconnectDelayMax     = 60 * time.Second
@@ -243,8 +238,6 @@ func (l *Leash) handleStream(stream *yamux.Stream, filter *muzzle.Filter) {
 	switch typeBuf[0] {
 	case streamTypeDocker:
 		l.handleDockerStream(stream, filter)
-	case streamTypePortForward:
-		l.handlePortForward(stream)
 	default:
 		l.log.WithField("type_byte", fmt.Sprintf("0x%02x", typeBuf[0])).Warn("leash: unknown stream type, closing")
 	}
@@ -258,57 +251,10 @@ func (l *Leash) handleDockerStream(stream *yamux.Stream, filter *muzzle.Filter) 
 	}
 }
 
-// handlePortForward proxies the stream to a TCP target specified in the stream header.
-// Header format: 2-byte big-endian uint16 address length, then the address bytes.
-func (l *Leash) handlePortForward(stream *yamux.Stream) {
-	lenBuf := make([]byte, 2)
-	if _, err := io.ReadFull(stream, lenBuf); err != nil {
-		l.log.WithError(err).Error("leash: port forward: failed to read address length")
-		return
-	}
-
-	addrLen := int(lenBuf[0])<<8 | int(lenBuf[1])
-	if addrLen == 0 || addrLen > 255 {
-		l.log.WithField("addr_len", addrLen).Error("leash: port forward: invalid address length")
-		return
-	}
-
-	addrBuf := make([]byte, addrLen)
-	if _, err := io.ReadFull(stream, addrBuf); err != nil {
-		l.log.WithError(err).Error("leash: port forward: failed to read target address")
-		return
-	}
-
-	targetAddr := string(addrBuf)
-
-	conn, err := net.Dial("tcp", targetAddr)
-	if err != nil {
-		l.log.WithError(err).WithField("target", sanitizeLogField(targetAddr)).Error("leash: port forward: dial failed")
-		return
-	}
-	defer func() { _ = conn.Close() }()
-
-	proxyBidirectional(stream, conn)
-}
-
 // sanitizeLogField strips newline and carriage-return characters from a string before
 // it is written to a log entry, preventing CWE-117 log injection.
 func sanitizeLogField(s string) string {
 	s = strings.ReplaceAll(s, "\n", `\n`)
 	s = strings.ReplaceAll(s, "\r", `\r`)
 	return s
-}
-
-// proxyBidirectional copies data between two io.ReadWriters until either side closes.
-func proxyBidirectional(a, b io.ReadWriter) {
-	done := make(chan struct{}, 2)
-	go func() {
-		_, _ = io.Copy(b, a)
-		done <- struct{}{}
-	}()
-	go func() {
-		_, _ = io.Copy(a, b)
-		done <- struct{}{}
-	}()
-	<-done
 }
