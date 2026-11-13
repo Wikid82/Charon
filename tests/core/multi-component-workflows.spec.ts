@@ -1,3 +1,4 @@
+import { requireEmergencyEnv } from '../fixtures/security';
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import type { UserRole } from '../utils/TestDataManager';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
@@ -11,8 +12,8 @@ async function resetSecurityState(page: import('@playwright/test').Page): Promis
     return;
   }
 
-  const username = process.env.CHARON_EMERGENCY_USERNAME || 'admin';
-  const password = process.env.CHARON_EMERGENCY_PASSWORD || 'changeme';
+  const username = requireEmergencyEnv('CHARON_EMERGENCY_USERNAME');
+  const password = requireEmergencyEnv('CHARON_EMERGENCY_PASSWORD');
   const basicAuth = `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`;
 
   const response = await page.request.post('http://localhost:2020/emergency/security-reset', {

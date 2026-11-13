@@ -1,3 +1,4 @@
+import { requireEmergencyEnv } from './fixtures/security';
 import { test as setup, expect, request as playwrightRequest } from '@playwright/test';
 
 const SECURITY_RESET_PROPAGATION_MS = 750;
@@ -34,8 +35,8 @@ async function emergencySecurityReset(baseURL: string, emergencyToken: string): 
   const emergencyContext = await playwrightRequest.newContext({
     baseURL: emergencyBaseURL,
     httpCredentials: {
-      username: process.env.CHARON_EMERGENCY_USERNAME || 'admin',
-      password: process.env.CHARON_EMERGENCY_PASSWORD || 'changeme',
+      username: requireEmergencyEnv('CHARON_EMERGENCY_USERNAME'),
+      password: requireEmergencyEnv('CHARON_EMERGENCY_PASSWORD'),
     },
   });
 

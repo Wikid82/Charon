@@ -72,20 +72,14 @@ jobs:
           MANUAL_FILE: ${{ github.event.inputs.file_path }}
         with:
           script: |
-            const fs = require('fs');
-            const path = require('path');
             const commitSha = process.env.COMMIT_SHA || context.sha;
 
-            // Manual file specification
+            // Manual file specification. The processing step validates the path, so the
+            // same rules apply to manual and commit-derived files.
             const manualFile = process.env.MANUAL_FILE;
             if (manualFile) {
-              if (fs.existsSync(manualFile)) {
-                core.setOutput('files', JSON.stringify([manualFile]));
-                return;
-              } else {
-                core.setFailed(`File not found: ${manualFile}`);
-                return;
-              }
+              core.setOutput('files', JSON.stringify([manualFile]));
+              return;
             }
 
             // Get changed files from commit
@@ -113,6 +107,7 @@ jobs:
         env:
           DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
           FILES_JSON: ${{ steps.changes.outputs.files }}
+          MANUAL_FILE: ${{ github.event.inputs.file_path }}
         with:
           script: |
             const fs = require('fs');
@@ -123,6 +118,43 @@ jobs:
             const isDryRun = process.env.DRY_RUN === 'true';
             const createdIssues = [];
             const errors = [];
+
+            // Returns why a path must not be read, or null when it may be read. Only a
+            // normalised relative markdown path under docs/issues/ passes. It must be a regular
+            // file whose real location is its own literal path under the real docs/issues
+            // directory, so no symbolic link on the way can redirect the read. The same
+            // exclusions apply to manual and commit-derived paths.
+            function rejectIssueFile(filePath) {
+              if (path.posix.normalize(filePath) !== filePath) {
+                return 'path is not a normalised relative path';
+              }
+              if (!filePath.startsWith('docs/issues/') || !filePath.endsWith('.md')) {
+                return 'path is not a markdown file under docs/issues/';
+              }
+              if (filePath.startsWith('docs/issues/created/') || filePath.includes('_TEMPLATE') || filePath.includes('README')) {
+                return 'path is excluded (created/, template or README)';
+              }
+              let stat;
+              let realRoot;
+              let realFile;
+              try {
+                if (fs.lstatSync('docs/issues').isSymbolicLink()) {
+                  return 'docs/issues is a symbolic link';
+                }
+                stat = fs.lstatSync(filePath);
+                realRoot = fs.realpathSync('docs/issues');
+                realFile = fs.realpathSync(filePath);
+              } catch (error) {
+                return 'file does not exist';
+              }
+              if (!stat.isFile()) {
+                return 'entry is a symbolic link or not a regular file';
+              }
+              if (realFile !== path.join(realRoot, filePath.slice('docs/issues/'.length))) {
+                return 'path resolves through a symbolic link';
+              }
+              return null;
+            }
 
             if (files.length === 0) {
               console.log('No issue files to process');
@@ -254,6 +286,13 @@ jobs:
             for (const filePath of files) {
               console.log(`\nProcessing: ${filePath}`);
 
+              const rejection = rejectIssueFile(filePath);
+              if (rejection) {
+                console.error(`  Refused: ${rejection}`);
+                errors.push({ file: filePath, error: rejection });
+                continue;
+              }
+
               try {
                 const parsed = parseIssueFile(filePath);
                 console.log(`  Title: ${parsed.title}`);
@@ -333,6 +372,11 @@ jobs:
 
             if (errors.length > 0) {
               core.warning(`${errors.length} file(s) had errors`);
+            }
+
+            // A manually requested file that is refused or fails is a failed run, as before.
+            if (process.env.MANUAL_FILE && errors.length > 0) {
+              core.setFailed(`Manual file ${process.env.MANUAL_FILE} was not processed: ${errors[0].error}`);
             }
 
       - name: Move processed files

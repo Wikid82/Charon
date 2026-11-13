@@ -396,6 +396,41 @@ show_summary() {
     echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
 }
 
+# ensure_env_value: write NAME=VALUE to the env file only when NAME has no value yet, so
+# generated secrets are created once and reused by later runs.
+ensure_env_value() {
+    local env_file="$1"
+    local name="$2"
+    local value="$3"
+
+    if grep -q "^${name}=." "${env_file}" 2>/dev/null; then
+        return 0
+    fi
+
+    sed -i.bak "/^${name}=/d" "${env_file}" && rm -f "${env_file}.bak"
+    printf '%s=%s\n' "${name}" "${value}" >> "${env_file}"
+    log_info "Wrote ${name} to .env (generated once, reused on later runs)"
+}
+
+# ensure_test_secrets: make the per-run emergency-test values available to docker compose.
+# The compose file interpolates ${VAR:?} references, and compose reads .env from its own
+# directory, not the project root, so the values are exported from the root .env here.
+# This runs before any compose command, including the cleanup in stop_containers.
+ensure_test_secrets() {
+    local env_file="${PROJECT_ROOT}/.env"
+    touch "${env_file}"
+
+    ensure_env_value "${env_file}" CHARON_ENCRYPTION_KEY "$(openssl rand -base64 32)"
+    ensure_env_value "${env_file}" CHARON_EMERGENCY_TOKEN "$(openssl rand -hex 32)"
+    ensure_env_value "${env_file}" CHARON_EMERGENCY_USERNAME "admin"
+    ensure_env_value "${env_file}" CHARON_EMERGENCY_PASSWORD "$(openssl rand -hex 16)"
+
+    set -a
+    # shellcheck source=/dev/null
+    source "${env_file}"
+    set +a
+}
+
 # Main execution
 main() {
     parse_arguments "$@"
@@ -410,6 +445,9 @@ main() {
     cd "${PROJECT_ROOT}"
     check_file_exists "Dockerfile" "Dockerfile is required"
     check_file_exists "${COMPOSE_FILE}" "Playwright compose file is required"
+
+    log_step "SECRETS" "Ensuring emergency-test values in .env"
+    ensure_test_secrets
 
     # Log configuration
     log_step "CONFIG" "Rebuild configuration"

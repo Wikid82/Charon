@@ -39,6 +39,36 @@ provenance/SBOM attestations (in `docker-build.yml`) are separate and unaffected
 | `pull_request` touching a tracked input | **Skip-if-already-published:** if `:$KEY` already exists in GHCR, reuse that digest and do not rebuild. Same-repo PRs that genuinely moved a pin get the two-line `TAG`/`DIGEST` bump pushed onto the PR branch by `sync-pin-on-pr`; the push uses `TOOLCHAIN_BOT_TOKEN`, so checks (including `verify-toolchain-pin`) start on the new head automatically. Forks build `cacheonly` (recipe-compile validation only). |
 | `workflow_call` (from `security-weekly-rebuild.yml`) | Forced deterministic rebuild + full report. |
 
+## Trust model for pull request builds
+
+Pull requests that change the toolchain recipe (the `pull_request` paths in
+`toolchain-image.yml`) publish the toolchain image. This is deliberate. Publishing from the PR lets the
+required pin check (`scripts/verify-toolchain-pin.sh`) confirm the digest, and
+lets `sync-pin-on-pr` commit the new digest back to the PR branch, so the pin
+change is reviewed with the recipe change.
+
+What limits this:
+
+- **Same repository only.** The publish step, the GHCR login and the pin push run
+  only when the pull request's head repository is this repository. Fork PRs build
+  cache-only, never log in to the registry, and never receive the bot token.
+- **Content-derived tag.** The tag is `:<key>`, and `<key>` is a hash of the
+  recipe (see `scripts/toolchain-key.sh`). A tag therefore names the recipe that
+  produced it. The main and development builds use the digest that is committed
+  in the `Dockerfile`, not a tag lookup.
+- **Pin visible in the diff.** The digest change is a line in the `Dockerfile`
+  inside the PR diff. Merging is the point where the digest becomes what `main`
+  and `development` builds use.
+- **Scoped token.** The bot token is a fine-grained token without Workflows
+  permission, used only for the checkout and push in the pin jobs. It is never in
+  a step that builds or runs code from the pull request.
+
+Residual risk: anyone with write access to this repository can publish a
+`:<key>` image from a branch before review. The image is not used by any build
+until its pin is merged. Revisit this model (for example, publish only after
+merge) if people without write access are ever granted same-repository pull
+request rights.
+
 ## Common tasks
 
 ### Force an immediate refresh (e.g. an urgent upstream fix in a pinned dep)

@@ -1,3 +1,4 @@
+import { EMERGENCY_SERVER } from '../fixtures/security';
 /**
  * Admin Whitelist IP Blocking Enforcement Tests
  *
@@ -39,7 +40,7 @@ test.describe.serial('Admin Whitelist IP Blocking (RUN LAST)', () => {
     try {
       const response = await request.post('http://localhost:2020/emergency/security-reset', {
         headers: {
-          'Authorization': 'Basic ' + Buffer.from('admin:changeme').toString('base64'),
+          'Authorization': 'Basic ' + Buffer.from(`${EMERGENCY_SERVER.username}:${EMERGENCY_SERVER.password}`).toString('base64'),
           'X-Emergency-Token': EMERGENCY_TOKEN,
           'Content-Type': 'application/json',
         },
@@ -136,7 +137,7 @@ test.describe.serial('Admin Whitelist IP Blocking (RUN LAST)', () => {
       // First disable ACL so we can change config
       await request.post('http://localhost:2020/emergency/security-reset', {
         headers: {
-          'Authorization': 'Basic ' + Buffer.from('admin:changeme').toString('base64'),
+          'Authorization': 'Basic ' + Buffer.from(`${EMERGENCY_SERVER.username}:${EMERGENCY_SERVER.password}`).toString('base64'),
           'X-Emergency-Token': EMERGENCY_TOKEN,
         },
         data: { reason: 'Test setup - reset for emergency token test' },
