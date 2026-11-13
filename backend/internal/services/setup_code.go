@@ -91,10 +91,7 @@ func ResolveSetupCode(preset string) (string, error) {
 	if err := validateSetupPreset(preset); err != nil {
 		return "", err
 	}
-	if preset != "" {
-		return preset, nil
-	}
-	return generateSetupCode()
+	return pickSetupCode(preset), nil
 }
 
 // IssueStartupSetupCode decides the first-run setup code for this start. While the
@@ -116,10 +113,8 @@ func IssueStartupSetupCode(db *gorm.DB, preset string) (*SetupCodeGuard, SetupCo
 		return NewSetupCodeGuard(""), SetupCodeIssue{}, nil
 	}
 
-	code, err := ResolveSetupCode(preset)
-	if err != nil {
-		return nil, SetupCodeIssue{}, err
-	}
+	// The preset was validated above, so picking the code cannot fail here.
+	code := pickSetupCode(preset)
 	issue := SetupCodeIssue{Pending: true, Generated: preset == ""}
 	if issue.Generated {
 		issue.Code = code
@@ -134,10 +129,19 @@ func validateSetupPreset(preset string) error {
 	return nil
 }
 
-func generateSetupCode() (string, error) {
-	buf := make([]byte, setupCodeEntropyBytes)
-	if _, err := rand.Read(buf); err != nil {
-		return "", fmt.Errorf("generate setup code: %w", err)
+// pickSetupCode returns a validated preset as is, or a newly generated code.
+func pickSetupCode(preset string) string {
+	if preset != "" {
+		return preset
 	}
-	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(buf), nil
+	return generateSetupCode()
+}
+
+// generateSetupCode returns a random base32 code. crypto/rand.Read never returns an
+// error (it crashes the program instead when the OS source fails), so there is no
+// error to handle.
+func generateSetupCode() string {
+	buf := make([]byte, setupCodeEntropyBytes)
+	_, _ = rand.Read(buf)
+	return base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString(buf)
 }

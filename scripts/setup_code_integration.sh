@@ -328,11 +328,13 @@ request "${LOGGED_NAME}" POST /api/v1/setup "$(setup_payload "${LOGGED_CODE}")"
 assert_status 201 "first account created with the logged code"
 
 # The main container uses a preset token, so it must not log a code.
+# Checks both the log line and the raw value, so a reworded log line cannot hide a leak.
 main_code_lines="$(docker logs "${MAIN_NAME}" 2>&1 | grep -c 'Setup code:' || true)"
-if [ "${main_code_lines}" = "0" ]; then
+main_token_hits="$(docker logs "${MAIN_NAME}" 2>&1 | grep -c -F "${SETUP_TOKEN}" || true)"
+if [ "${main_code_lines}" = "0" ] && [ "${main_token_hits}" = "0" ]; then
     pass "preset token is not written to the log"
 else
-    fail "CHARON_SETUP_TOKEN is written to the startup log (${main_code_lines} 'Setup code:' line(s), expected 0); see routes.go IssueStartupSetupCode path"
+    fail "CHARON_SETUP_TOKEN is written to the log (${main_code_lines} 'Setup code:' line(s), ${main_token_hits} raw value match(es), expected 0); see routes.go IssueStartupSetupCode path"
 fi
 
 # ============================================================================

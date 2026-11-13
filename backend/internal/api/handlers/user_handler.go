@@ -224,7 +224,7 @@ func (h *UserHandler) Setup(c *gin.Context) {
 		return
 	}
 
-	// 4. Create Setting for ACME Email
+	// 6. Create Setting for ACME Email
 	acmeEmailSetting := models.Setting{
 		Key:      "caddy.acme_email",
 		Value:    req.Email,

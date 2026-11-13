@@ -14,6 +14,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -98,4 +99,32 @@ func TestRegister_GeneratedSetupCodeIsLoggedOnce(t *testing.T) {
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusCreated, w.Code, "the logged code must create the first account")
+}
+
+// TestRegister_ShortSetupTokenFailsRegistration verifies that a CHARON_SETUP_TOKEN
+// below the minimum length stops startup, and that the error never repeats it.
+func TestRegister_ShortSetupTokenFailsRegistration(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	dsn := "file:" + filepath.Join(t.TempDir(), "setup_code_short.db") + "?_busy_timeout=5000"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+
+	short := "short-preset"
+	cfg := config.Config{JWTSecret: "test-secret", SetupToken: short}
+	err = Register(context.Background(), gin.New(), db, cfg)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "first-run setup code")
+	assert.NotContains(t, err.Error(), short, "the error must not repeat the preset")
+}
+
+// TestLogStartupSetupCode_NothingPendingLogsNothing verifies that no setup code line
+// is written once an account exists.
+func TestLogStartupSetupCode_NothingPendingLogsNothing(t *testing.T) {
+	var sink syncBuffer
+	logger.Init(false, &sink)
+	t.Cleanup(func() { logger.Init(false, os.Stdout) })
+
+	logStartupSetupCode(services.SetupCodeIssue{})
+
+	assert.Empty(t, sink.String())
 }
