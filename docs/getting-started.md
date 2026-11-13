@@ -125,11 +125,13 @@ The first time Charon starts with no accounts, it asks for a **setup code**. Thi
    docker logs charon | grep "Setup code"
    ```
 
-   You will see a line like this:
+   You will see a log entry that contains this text (the code is the part after `Setup code:`, up to the period):
 
    ```text
    Setup code: <code>. Open Charon and enter it to create the first account.
    ```
+
+   If you see more than one, Charon was restarted before the first account was made. Only the newest code works.
 
 2. **Open <http://localhost:8080>.** The first-run page asks for the code. Enter it, then create your account.
 3. **Done.** The code stops working once the first account exists. You will never need it again.
@@ -140,7 +142,7 @@ The first time Charon starts with no accounts, it asks for a **setup code**. Thi
 
 - **Nothing appears in the log.** An account already exists, so skip this step and sign in instead.
 - **You set `CHARON_SETUP_TOKEN`.** The log will not show the code. Use the value you set.
-- **Still stuck?** Add a `CHARON_SETUP_TOKEN` line (32 or more characters) to your compose file or `docker run` command, then restart Charon with `docker restart charon`. Restarting while no accounts exist also creates a fresh code in the log.
+- **Still stuck?** Add a `CHARON_SETUP_TOKEN` line (32 or more characters) to your compose file or `docker run` command, then recreate the container so it picks up the new setting (`docker compose up -d`, or remove and re-run your `docker run` command; a plain `docker restart` keeps the old settings). Restarting while no accounts exist also creates a fresh code in the log.
 - **Too many wrong codes.** After 5 wrong tries, Charon makes you wait about a minute before each new try. Wait it out, then type the code again.
 
 ### Recommended: Connect Docker with Orthrus

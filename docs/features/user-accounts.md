@@ -82,7 +82,8 @@ doing it.
   its log. Run `docker logs charon | grep "Setup code"` to see it. Full steps are
   in [Create Your First Account](../getting-started.md#create-your-first-account-setup-code).
 - **One code, one use:** The code stops working as soon as the first account
-  exists. A restart while no accounts exist issues a new code.
+  exists. A restart while no accounts exist issues a new code, and only the
+  newest code works.
 - **Wrong codes:** After 5 wrong tries, Charon makes you wait about a minute
   before each new try.
 - **Existing installs:** If you already have accounts, nothing changes and you
