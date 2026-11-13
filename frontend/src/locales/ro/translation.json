@@ -187,7 +187,10 @@
     "noHosts": "No redirection hosts",
     "noHostsDescription": "Create your first redirection host to send visitors from one domain to another.",
     "deleteConfirmTitle": "Delete Redirection Host?",
-    "deleteConfirmMessage": "Are you sure you want to delete {{name}}? This action cannot be undone."
+    "deleteConfirmMessage": "Are you sure you want to delete {{name}}? This action cannot be undone.",
+    "errors": {
+      "redirect_target_invalid": "Adresa de destinație nu poate conține acolade. Folosiți o adresă web simplă."
+    }
   },
   "proxyGroups": {
     "group": "Group",
@@ -376,6 +379,27 @@
     "createFailed": "Failed to create",
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
+  },
+  "notificationCenter": {
+    "title": "Notificări",
+    "bellLabel": "Notificări, {{count}} noi",
+    "markAllRead": "Marchează toate ca citite",
+    "empty": "Nicio notificare nouă",
+    "close": "Renunță",
+    "updateAvailable": "Actualizare disponibilă: {{version}}",
+    "viewChangelog": "Vezi jurnalul de modificări",
+    "alerts": {
+      "label": "Necesită atenție",
+      "clearsItself": "Acest lucru dispare de la sine când problema este rezolvată.",
+      "geoip_unavailable": {
+        "title": "Listele de acces pe țări nu sunt aplicate",
+        "message": "Baza de date GeoIP cu țări lipsește sau nu poate fi utilizată, deci {{count}} listă/liste de țări ({{lists}}) lasă să treacă orice vizitator până devine din nou disponibilă.",
+        "messagePendingApply": "Baza de date GeoIP este din nou disponibilă, dar {{count}} listă/liste de țări ({{lists}}) nu sunt încă aplicate. Apasă Reîncarcă pe cardul Baza de date a țărilor.",
+        "docsLink": "Cum se furnizează baza de date",
+        "issueHint": "Charon include de obicei această bază de date. Deschide un issue pe GitHub ca să putem remedia problema.",
+        "issueLink": "Deschide un issue"
+      }
+    }
   },
   "security": {
     "title": "Security",
@@ -581,7 +605,85 @@
       "loadError": "Login protection status could not be loaded."
     },
     "settingUpdated": "Security setting updated",
-    "settingUpdateFailed": "Failed to update setting: {{error}}"
+    "settingUpdateFailed": "Failed to update setting: {{error}}",
+    "enforcement": {
+      "acl": {
+        "geoip_unavailable": "Listele de țări nu sunt aplicate: baza de date GeoIP lipsește din această instalare. Oricine poate accesa aceste gazde până când aceasta este furnizată. Consultați documentația."
+      }
+    },
+    "geoip": {
+      "title": "Baza de date a țărilor (GeoIP)",
+      "description": "Listele de acces pe țări au nevoie de o bază de date GeoIP a țărilor. Charon folosește copia inclusă, dacă nu furnizezi una proprie.",
+      "loadError": "Starea bazei de date nu a putut fi încărcată.",
+      "unknownValue": "Necunoscut",
+      "status": {
+        "ready": "Pregătit",
+        "unavailable": "Indisponibil"
+      },
+      "source": {
+        "label": "Sursă",
+        "bundled": "Inclus cu Charon",
+        "data": "Folderul tău de date",
+        "custom": "Cale personalizată setată pe server",
+        "none": "Nicio bază de date"
+      },
+      "buildDate": "Data compilării",
+      "size": "Dimensiune",
+      "path": "Fișier",
+      "releaseNote": "Copia inclusă se actualizează odată cu fiecare versiune Charon.",
+      "customPathNote": "Calea bazei de date este setată de server (CHARON_GEOIP_DB_PATH), deci copia nu poate fi înlocuită aici.",
+      "readOnlyNote": "Folderul de date este doar pentru citire, deci baza de date nu poate fi înlocuită aici.",
+      "unavailableReason": "Indisponibil. Listele de țări nu sunt aplicate până când nu este încărcată o bază de date.",
+      "docsLink": "Cum furnizezi o bază de date",
+      "unenforcedLists": "{{count}} listă/liste de țări nu sunt aplicate",
+      "formNote": {
+        "unavailable": "Această listă nu va fi aplicată până când baza de date GeoIP nu este disponibilă.",
+        "wouldRefuseYou": "Pe baza adresei pe care o folosești acum, această listă te-ar bloca. Salvarea este permisă în continuare."
+      },
+      "actions": {
+        "reload": "Reîncarcă",
+        "replace": "Înlocuiește baza de date…",
+        "replaceHint": "Încarcă o bază de date GeoIP a țărilor (.mmdb), de până la {{max}} MiB.",
+        "useIncluded": "Folosește copia inclusă",
+        "useIncludedConfirmTitle": "Folosești copia inclusă?",
+        "useIncludedConfirmBody": "Copia ta din folderul de date va fi eliminată, iar Charon va folosi baza de date inclusă.",
+        "useIncludedConfirmBodyNoBundled": "Copia ta din folderul de date va fi eliminată. Listele de țări nu vor fi aplicate până nu furnizezi o bază de date."
+      },
+      "result": {
+        "reloaded": "Baza de date a fost reîncărcată.",
+        "replaced": "Baza de date a fost înlocuită. Charon folosește acum copia ta.",
+        "removed": "Charon folosește din nou copia inclusă."
+      },
+      "lookup": {
+        "label": "Adresă IP",
+        "placeholder": "De exemplu 203.0.113.7",
+        "useMyAddress": "Folosește adresa mea",
+        "submit": "Caută",
+        "found": "{{ip}} se află în {{country}}.",
+        "notFound": "Nu s-a găsit nicio țară pentru {{ip}}.",
+        "disabled": "Căutarea este disponibilă după ce este încărcată o bază de date.",
+        "invalid": "Introdu o adresă IP validă.",
+        "notLoaded": "Nu este încărcată nicio bază de date, deci adresele nu pot fi căutate.",
+        "myAddressFailed": "Charon nu a putut citi adresa ta."
+      },
+      "errors": {
+        "geoip_file_required": "Alege un fișier de bază de date de încărcat.",
+        "geoip_too_large": "Fișierul depășește 32 MiB.",
+        "geoip_not_mmdb": "Fișierul nu este o bază de date GeoIP.",
+        "geoip_corrupt": "Fișierul bazei de date este deteriorat și nu poate fi citit.",
+        "geoip_wrong_type": "Este o bază de date GeoIP, dar nu una a țărilor.",
+        "geoip_older_than_current": "Această bază de date este mai veche decât cea folosită. Încarcă una mai nouă.",
+        "geoip_build_date_in_future": "Această bază de date are o dată a compilării din viitor.",
+        "geoip_custom_path_set": "Pe server este setată o cale personalizată pentru baza de date, deci copia nu poate fi modificată aici.",
+        "geoip_busy": "Este în curs o altă modificare a bazei de date. Încearcă din nou peste puțin timp.",
+        "geoip_write_failed": "Charon nu a putut salva fișierul bazei de date.",
+        "geoip_reload_failed": "Charon nu a putut încărca fișierul bazei de date.",
+        "geoip_no_data_copy": "Nu există nicio copie în folderul de date de eliminat.",
+        "geoip_service_unavailable": "Serviciul GeoIP nu rulează.",
+        "proxy_apply_failed": "Charon nu a putut aplica configurația proxy.",
+        "generic": "Ceva nu a mers bine. Încearcă din nou."
+      }
+    }
   },
   "accessLists": {
     "title": "Access Lists",
@@ -613,7 +715,10 @@
     "deleteItems": "Delete {{count}} Items",
     "deleting": "Deleting...",
     "noAccessLists": "No Access Lists",
-    "noAccessListsDescription": "Create your first access list to control who can access your services"
+    "noAccessListsDescription": "Create your first access list to control who can access your services",
+    "errors": {
+      "access_list_rules_required": "O listă de permisiuni activată necesită cel puțin o regulă. Adăugați o regulă sau dezactivați lista, apoi salvați din nou."
+    }
   },
   "rateLimiting": {
     "title": "Rate Limiting Configuration",
@@ -1042,6 +1147,7 @@
       "manual": "Manual",
       "scheduled": "Scheduled",
       "preRestore": "Pre-restore",
+      "preDelete": "Pre-delete",
       "uploaded": "Uploaded"
     },
     "schedule": {

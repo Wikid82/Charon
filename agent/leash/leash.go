@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 	"github.com/hashicorp/yamux"
 	"github.com/sirupsen/logrus"
 
@@ -117,24 +117,27 @@ func (l *Leash) Run(ctx context.Context) error {
 // connect performs a single WebSocket dial and yamux session. It blocks until
 // the session is closed or ctx is cancelled.
 func (l *Leash) connect(ctx context.Context) error {
-	dialer := websocket.Dialer{
-		HandshakeTimeout: wsDialTimeout,
-	}
-
 	l.log.WithField("server_url", l.serverURL).Info("leash: connecting to server")
 
-	wsConn, resp, err := dialer.DialContext(ctx, l.serverURL, http.Header{
-		"Authorization":     {"Bearer " + l.authKey},
-		"X-Orthrus-Version": {"1.0.0"},
-		"X-Orthrus-Name":    {l.agentID},
+	// The dial context bounds only the handshake; the established connection
+	// outlives it.
+	dialCtx, cancelDial := context.WithTimeout(ctx, wsDialTimeout)
+	defer cancelDial()
+
+	wsConn, resp, err := websocket.Dial(dialCtx, l.serverURL, &websocket.DialOptions{ //nolint:bodyclose // coder/websocket closes the handshake body itself; resp.Body is nil on success
+		HTTPClient: newDialHTTPClient(),
+		HTTPHeader: http.Header{
+			"Authorization":     {"Bearer " + l.authKey},
+			"X-Orthrus-Version": {"1.0.0"},
+			"X-Orthrus-Name":    {l.agentID},
+		},
+		// Compression has never been negotiated by this agent; keep it off.
+		CompressionMode: websocket.CompressionDisabled,
 	})
 	if err != nil {
 		return fmt.Errorf("leash: websocket dial: %w", err)
 	}
-	writeEnabled := resp != nil && resp.Header.Get("X-Orthrus-Write-Enabled") == "true"
-	if resp != nil && resp.Body != nil {
-		_ = resp.Body.Close()
-	}
+	writeEnabled := resp.Header.Get("X-Orthrus-Write-Enabled") == "true"
 
 	// X-Orthrus-Write-Enabled is delivered atomically in the 101 Switching
 	// Protocols response that completes the handshake (server.go sets it via
@@ -145,9 +148,10 @@ func (l *Leash) connect(ctx context.Context) error {
 	cfg := yamux.DefaultConfig()
 	cfg.LogOutput = io.Discard
 
-	session, err := yamux.Client(NewWSNetConn(wsConn), cfg)
+	netConn := NewWSNetConn(wsConn)
+	session, err := yamux.Client(netConn, cfg)
 	if err != nil {
-		_ = wsConn.Close()
+		_ = netConn.Close()
 		return fmt.Errorf("leash: yamux client: %w", err)
 	}
 	defer func() { _ = session.Close() }()

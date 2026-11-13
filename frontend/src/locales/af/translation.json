@@ -187,7 +187,10 @@
     "noHosts": "No redirection hosts",
     "noHostsDescription": "Create your first redirection host to send visitors from one domain to another.",
     "deleteConfirmTitle": "Delete Redirection Host?",
-    "deleteConfirmMessage": "Are you sure you want to delete {{name}}? This action cannot be undone."
+    "deleteConfirmMessage": "Are you sure you want to delete {{name}}? This action cannot be undone.",
+    "errors": {
+      "redirect_target_invalid": "Die doeladres kan nie krulhakies bevat nie. Gebruik 'n gewone webadres."
+    }
   },
   "proxyGroups": {
     "group": "Group",
@@ -376,6 +379,27 @@
     "createFailed": "Failed to create",
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
+  },
+  "notificationCenter": {
+    "title": "Kennisgewings",
+    "bellLabel": "Kennisgewings, {{count}} nuwe",
+    "markAllRead": "Merk almal as gelees",
+    "empty": "Geen nuwe kennisgewings nie",
+    "close": "Verwerp",
+    "updateAvailable": "Opdatering beskikbaar: {{version}}",
+    "viewChangelog": "Sien veranderinglys",
+    "alerts": {
+      "label": "Benodig aandag",
+      "clearsItself": "Dit verdwyn self sodra die probleem opgelos is.",
+      "geoip_unavailable": {
+        "title": "Landtoegangslyste word nie afgedwing nie",
+        "message": "Die GeoIP-landdatabasis ontbreek of is onbruikbaar, so {{count}} landlys(te) ({{lists}}) laat elke besoeker deur totdat dit weer beskikbaar is.",
+        "messagePendingApply": "Die GeoIP-databasis is weer beskikbaar, maar {{count}} landlys(te) ({{lists}}) word nog nie afgedwing nie. Druk Herlaai op die Landedatabasis-kaart.",
+        "docsLink": "Hoe om die databasis te verskaf",
+        "issueHint": "Charon sluit gewoonlik hierdie databasis in. Maak asseblief ’n GitHub-issue oop sodat ons dit kan regmaak.",
+        "issueLink": "Maak ’n issue oop"
+      }
+    }
   },
   "security": {
     "title": "Security",
@@ -581,7 +605,85 @@
       "loadError": "Login protection status could not be loaded."
     },
     "settingUpdated": "Security setting updated",
-    "settingUpdateFailed": "Failed to update setting: {{error}}"
+    "settingUpdateFailed": "Failed to update setting: {{error}}",
+    "enforcement": {
+      "acl": {
+        "geoip_unavailable": "Landlyste word nie afgedwing nie: die GeoIP-databasis ontbreek in hierdie installasie. Almal kan by daardie gashere uitkom totdat dit verskaf word. Sien die dokumentasie."
+      }
+    },
+    "geoip": {
+      "title": "Landedatabasis (GeoIP)",
+      "description": "Landtoegangslyste benodig 'n GeoIP-landedatabasis. Charon gebruik die kopie wat saam daarmee kom, tensy jy jou eie verskaf.",
+      "loadError": "Die databasisstatus kon nie gelaai word nie.",
+      "unknownValue": "Onbekend",
+      "status": {
+        "ready": "Gereed",
+        "unavailable": "Nie beskikbaar nie"
+      },
+      "source": {
+        "label": "Bron",
+        "bundled": "Saam met Charon ingesluit",
+        "data": "Jou datagids",
+        "custom": "Pasgemaakte pad op die bediener gestel",
+        "none": "Geen databasis nie"
+      },
+      "buildDate": "Boudatum",
+      "size": "Grootte",
+      "path": "Lêer",
+      "releaseNote": "Die ingeslote kopie word met elke Charon-vrystelling opgedateer.",
+      "customPathNote": "Die databasispad word deur die bediener gestel (CHARON_GEOIP_DB_PATH), so die kopie kan nie hier vervang word nie.",
+      "readOnlyNote": "Die datagids is leesalleen, so die databasis kan nie hier vervang word nie.",
+      "unavailableReason": "Nie beskikbaar nie. Landlyste word nie afgedwing totdat 'n databasis gelaai is nie.",
+      "docsLink": "Hoe om 'n databasis te verskaf",
+      "unenforcedLists": "{{count}} landlys(te) word nie afgedwing nie",
+      "formNote": {
+        "unavailable": "Hierdie lys sal nie afgedwing word totdat die GeoIP-databasis beskikbaar is nie.",
+        "wouldRefuseYou": "Op grond van die adres wat jy nou gebruik, sou hierdie lys jou keer. Stoor is steeds toegelaat."
+      },
+      "actions": {
+        "reload": "Herlaai",
+        "replace": "Vervang databasis…",
+        "replaceHint": "Laai 'n GeoIP-landedatabasis (.mmdb) op, tot {{max}} MiB.",
+        "useIncluded": "Gebruik die ingeslote kopie",
+        "useIncludedConfirmTitle": "Gebruik die ingeslote kopie?",
+        "useIncludedConfirmBody": "Jou kopie in die datagids sal verwyder word en Charon sal die ingeslote databasis gebruik.",
+        "useIncludedConfirmBodyNoBundled": "Jou kopie in die datagids sal verwyder word. Landlyste sal nie afgedwing word totdat jy 'n databasis verskaf nie."
+      },
+      "result": {
+        "reloaded": "Databasis herlaai.",
+        "replaced": "Databasis vervang. Charon gebruik nou jou kopie.",
+        "removed": "Charon gebruik weer die ingeslote kopie."
+      },
+      "lookup": {
+        "label": "IP-adres",
+        "placeholder": "Byvoorbeeld 203.0.113.7",
+        "useMyAddress": "Gebruik my adres",
+        "submit": "Soek op",
+        "found": "{{ip}} is in {{country}}.",
+        "notFound": "Geen land gevind vir {{ip}} nie.",
+        "disabled": "Opsoek is beskikbaar sodra 'n databasis gelaai is.",
+        "invalid": "Voer 'n geldige IP-adres in.",
+        "notLoaded": "Geen databasis is gelaai nie, so adresse kan nie opgesoek word nie.",
+        "myAddressFailed": "Charon kon nie jou adres lees nie."
+      },
+      "errors": {
+        "geoip_file_required": "Kies 'n databaslêer om op te laai.",
+        "geoip_too_large": "Daardie lêer is groter as 32 MiB.",
+        "geoip_not_mmdb": "Daardie lêer is nie 'n GeoIP-databasis nie.",
+        "geoip_corrupt": "Daardie databaslêer is beskadig en kan nie gelees word nie.",
+        "geoip_wrong_type": "Dit is 'n GeoIP-databasis, maar nie 'n landedatabasis nie.",
+        "geoip_older_than_current": "Daardie databasis is ouer as die een wat in gebruik is. Laai 'n nuwer een op.",
+        "geoip_build_date_in_future": "Daardie databasis het 'n boudatum in die toekoms.",
+        "geoip_custom_path_set": "'n Pasgemaakte databaspad is op die bediener gestel, so die kopie kan nie hier verander word nie.",
+        "geoip_busy": "Nog 'n databasisverandering is aan die gang. Probeer weer oor 'n oomblik.",
+        "geoip_write_failed": "Charon kon nie die databaslêer stoor nie.",
+        "geoip_reload_failed": "Charon kon nie die databaslêer laai nie.",
+        "geoip_no_data_copy": "Daar is geen kopie in die datagids om te verwyder nie.",
+        "geoip_service_unavailable": "Die GeoIP-diens loop nie.",
+        "proxy_apply_failed": "Charon kon nie die proxy-konfigurasie toepas nie.",
+        "generic": "Iets het verkeerd gegaan. Probeer weer."
+      }
+    }
   },
   "accessLists": {
     "title": "Access Lists",
@@ -613,7 +715,10 @@
     "deleteItems": "Delete {{count}} Items",
     "deleting": "Deleting...",
     "noAccessLists": "No Access Lists",
-    "noAccessListsDescription": "Create your first access list to control who can access your services"
+    "noAccessListsDescription": "Create your first access list to control who can access your services",
+    "errors": {
+      "access_list_rules_required": "'n Geaktiveerde toelatelys benodig ten minste een reël. Voeg 'n reël by, of skakel die lys af, en stoor weer."
+    }
   },
   "rateLimiting": {
     "title": "Rate Limiting Configuration",
@@ -1042,6 +1147,7 @@
       "manual": "Manual",
       "scheduled": "Scheduled",
       "preRestore": "Pre-restore",
+      "preDelete": "Pre-delete",
       "uploaded": "Uploaded"
     },
     "schedule": {

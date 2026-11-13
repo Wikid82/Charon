@@ -100,6 +100,7 @@ Some apps send their own security headers. Here is what happens when a profile i
 - **Report-only CSP keeps your app's own policy.** If your profile uses a "report only" Content-Security-Policy and your app sends its own enforcing one, both reach the browser. Your app's policy keeps working.
 - **HSTS: the profile beats the older per-host setting.** If both are set, the profile's Strict-Transport-Security is the one that is used.
 - **Error pages are covered too.** When Charon shows its own error page (for example a 502 when your app is down), the profile's security headers are included.
+- **Refused requests are covered too.** When an access list or rate limit turns a visitor away (403 or 429), the response includes the profile's security headers.
 
 ## Security Score Calculator
 

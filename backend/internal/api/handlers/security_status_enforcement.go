@@ -1,9 +1,14 @@
 package handlers
 
 import (
+	"context"
+
 	"github.com/gin-gonic/gin"
 
+	"github.com/Wikid82/charon/backend/internal/alerts"
 	"github.com/Wikid82/charon/backend/internal/caddy"
+	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/models"
 )
 
 // enforcementReporter is implemented by the caddy manager. It returns the enforcement report of the last successful
@@ -41,5 +46,90 @@ func addModuleAppliedState(status gin.H, module caddy.ModuleEnforcement) {
 	}
 	if module.Reason != "" {
 		status["reason"] = module.Reason
+	}
+}
+
+// countryListTypes are the access list types that match on the GeoIP country.
+var countryListTypes = []string{"geo_whitelist", "geo_blacklist"}
+
+// appliedReporter is implemented by the caddy manager. It returns the report of the last successful apply.
+type appliedReporter interface {
+	LastAppliedReport() (caddy.EnforcementReport, bool)
+}
+
+// countryListsNotEnforced returns the sorted names of the country lists the proxy is not enforcing because no GeoIP
+// database is usable. The alert and the ACL status reason both come from it, so they never disagree.
+//
+// After a successful apply the last applied report decides, and live database availability is not consulted: the
+// report describes the running config until a newer apply succeeds. Before any successful apply there is no report, so
+// the same rule the config generator uses is evaluated against the database. aclEnabled is the current ACL state and
+// is used only for that fallback.
+func (h *SecurityHandler) countryListsNotEnforced(aclEnabled bool) []string {
+	if reporter, ok := h.caddyManager.(appliedReporter); ok {
+		if report, applied := reporter.LastAppliedReport(); applied {
+			if !report.ACLOn {
+				return nil
+			}
+			return report.CountryListsWithoutDatabase
+		}
+	}
+	return h.pendingCountryLists(aclEnabled)
+}
+
+// pendingCountryLists evaluates, before any apply, the rule the config generator uses: access control is on, no
+// database is available, and an enabled country list is attached to an enabled host with a domain. A failed read
+// counts as none, so the status never reports a reason it cannot confirm.
+func (h *SecurityHandler) pendingCountryLists(aclEnabled bool) []string {
+	if h.db == nil || !aclEnabled || h.geoipSvc.Available() {
+		return nil
+	}
+	var names []string
+	err := h.db.Model(&models.ProxyHost{}).
+		Joins("JOIN access_lists ON access_lists.id = proxy_hosts.access_list_id").
+		Where("proxy_hosts.enabled = ? AND proxy_hosts.domain_names <> ? AND access_lists.enabled = ? AND access_lists.type IN ?",
+			true, "", true, countryListTypes).
+		Distinct("access_lists.name").
+		Order("access_lists.name").
+		Pluck("access_lists.name", &names).Error
+	if err != nil {
+		logger.Log().WithError(err).Warn("Failed to read country access lists for status")
+		return nil
+	}
+	return names
+}
+
+// addACLGeoIPReason adds the geoip_unavailable reason to the ACL status when a country list is not being enforced.
+func (h *SecurityHandler) addACLGeoIPReason(aclStatus gin.H, aclEnabled bool) {
+	if len(h.countryListsNotEnforced(aclEnabled)) > 0 {
+		aclStatus["reason"] = caddy.ReasonGeoIPUnavailable
+	}
+}
+
+// aclEnabledForAlerts reports whether access control is switched on now, from the settings key and the static
+// configuration. It is the fallback input of countryListsNotEnforced before any apply has succeeded.
+func (h *SecurityHandler) aclEnabledForAlerts() bool {
+	res, err := models.ResolveACL(h.db, h.cfg.ACLMode == "enabled")
+	logStatusReadError("acl", err)
+	return res.Enabled
+}
+
+// GeoIPAlertSource returns the notification bell alert for country lists that are not enforced because no GeoIP
+// database is usable. It is active while countryListsNotEnforced names a list, so it follows the last applied config
+// and goes away once a later apply succeeds with a usable database. DatabaseAvailable tells the bell whether a reload
+// can help.
+func (h *SecurityHandler) GeoIPAlertSource() alerts.Source {
+	return func(context.Context) (alerts.Alert, bool, error) {
+		lists := h.countryListsNotEnforced(h.aclEnabledForAlerts())
+		if len(lists) == 0 {
+			return alerts.Alert{}, false, nil
+		}
+		available := h.geoipSvc.Available()
+		return alerts.Alert{
+			Key:                alerts.KeyGeoIPUnavailable,
+			Severity:           models.NotificationTypeError,
+			AffectedLists:      lists[:min(len(lists), alerts.MaxAffectedLists)],
+			AffectedListsTotal: len(lists),
+			DatabaseAvailable:  &available,
+		}, true, nil
 	}
 }

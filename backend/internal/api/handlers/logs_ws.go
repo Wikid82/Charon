@@ -1,48 +1,17 @@
 package handlers
 
 import (
-	"net/http"
-	"net/url"
+	"context"
 	"strings"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/services"
 )
-
-var upgrader = websocket.Upgrader{
-	ReadBufferSize:  1024,
-	WriteBufferSize: 1024,
-	CheckOrigin: func(r *http.Request) bool {
-		origin := r.Header.Get("Origin")
-		if origin == "" {
-			// No Origin header — non-browser client or same-origin request.
-			return true
-		}
-		originURL, err := url.Parse(origin)
-		if err != nil {
-			return false
-		}
-		requestHost := r.Host
-		if forwardedHost := r.Header.Get("X-Forwarded-Host"); forwardedHost != "" {
-			requestHost = forwardedHost
-		}
-		return originURL.Host == requestHost
-	},
-}
-
-// upgradeWebSocket upgrades an HTTP connection to WebSocket using the
-// shared, origin-checked upgrader above. All WS handlers in this package
-// MUST go through this helper rather than calling upgrader.Upgrade
-// directly, so the origin check stays visible to single-file static
-// analysis at every call site.
-func upgradeWebSocket(c *gin.Context) (*websocket.Conn, error) {
-	return upgrader.Upgrade(c.Writer, c.Request, nil)
-}
 
 // LogEntry represents a structured log entry sent over WebSocket.
 type LogEntry struct {
@@ -82,11 +51,15 @@ func (h *LogsWSHandler) HandleWebSocket(c *gin.Context) {
 		logger.Log().WithError(err).Error("Failed to upgrade WebSocket connection")
 		return
 	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	defer func() {
-		if err := conn.Close(); err != nil {
-			logger.Log().WithError(err).Error("Failed to close WebSocket connection")
+		if err := conn.Close(websocket.StatusNormalClosure, ""); err != nil {
+			logger.Log().WithError(err).Debug("Failed to close WebSocket connection")
 		}
 	}()
+
+	configureLogSocket(conn)
 
 	// Generate unique subscriber ID
 	subscriberID := uuid.New().String()
@@ -95,7 +68,7 @@ func (h *LogsWSHandler) HandleWebSocket(c *gin.Context) {
 
 	// Register connection with tracker if available
 	if h.tracker != nil {
-		filters := c.Request.URL.RawQuery
+		filters := trackedFilters(c.Request.URL.Query(), logsTrackedFilterKeys)
 		connInfo := &services.ConnectionInfo{
 			ID:             subscriberID,
 			Type:           "logs",
@@ -118,23 +91,10 @@ func (h *LogsWSHandler) HandleWebSocket(c *gin.Context) {
 	logChan := hook.Subscribe(subscriberID)
 	defer hook.Unsubscribe(subscriberID)
 
-	// Channel to signal when client disconnects
-	done := make(chan struct{})
-
-	// Goroutine to read from WebSocket (detect client disconnect)
-	go func() {
-		defer close(done)
-		for {
-			if _, _, err := conn.ReadMessage(); err != nil {
-				return
-			}
-		}
-	}()
+	// Closes when the client disconnects or stops answering pings
+	done := watchLogSocket(ctx, conn)
 
 	// Main loop: stream logs to client
-	ticker := time.NewTicker(30 * time.Second)
-	defer ticker.Stop()
-
 	for {
 		select {
 		case entry, ok := <-logChan:
@@ -167,7 +127,7 @@ func (h *LogsWSHandler) HandleWebSocket(c *gin.Context) {
 			}
 
 			// Send to WebSocket client
-			if err := conn.WriteJSON(logEntry); err != nil {
+			if err := writeLogSocketJSON(conn, logEntry); err != nil {
 				logger.Log().WithError(err).Debug("Failed to write to WebSocket")
 				return
 			}
@@ -175,12 +135,6 @@ func (h *LogsWSHandler) HandleWebSocket(c *gin.Context) {
 			// Update activity timestamp
 			if h.tracker != nil {
 				h.tracker.UpdateActivity(subscriberID)
-			}
-
-		case <-ticker.C:
-			// Send ping to keep connection alive
-			if err := conn.WriteMessage(websocket.PingMessage, []byte{}); err != nil {
-				return
 			}
 
 		case <-done:

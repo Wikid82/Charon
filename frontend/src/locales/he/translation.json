@@ -187,7 +187,10 @@
     "noHosts": "No redirection hosts",
     "noHostsDescription": "Create your first redirection host to send visitors from one domain to another.",
     "deleteConfirmTitle": "Delete Redirection Host?",
-    "deleteConfirmMessage": "Are you sure you want to delete {{name}}? This action cannot be undone."
+    "deleteConfirmMessage": "Are you sure you want to delete {{name}}? This action cannot be undone.",
+    "errors": {
+      "redirect_target_invalid": "כתובת היעד אינה יכולה להכיל סוגריים מסולסלים. יש להשתמש בכתובת אינטרנט פשוטה."
+    }
   },
   "proxyGroups": {
     "group": "Group",
@@ -376,6 +379,27 @@
     "createFailed": "Failed to create",
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
+  },
+  "notificationCenter": {
+    "title": "התראות",
+    "bellLabel": "התראות, {{count}} חדשות",
+    "markAllRead": "סמן הכול כנקרא",
+    "empty": "אין התראות חדשות",
+    "close": "סגור",
+    "updateAvailable": "עדכון זמין: {{version}}",
+    "viewChangelog": "הצג יומן שינויים",
+    "alerts": {
+      "label": "דורש תשומת לב",
+      "clearsItself": "זה ייעלם מעצמו כשהבעיה תיפתר.",
+      "geoip_unavailable": {
+        "title": "רשימות גישה לפי מדינה אינן נאכפות",
+        "message": "מסד הנתונים של מדינות GeoIP חסר או אינו שמיש, ולכן {{count}} רשימות מדינות ({{lists}}) מתירות לכל מבקר לעבור עד שיהיה זמין שוב.",
+        "messagePendingApply": "מסד הנתונים של GeoIP זמין שוב, אך {{count}} רשימות מדינות ({{lists}}) עדיין לא נאכפות. לחץ על טען מחדש בכרטיס מסד נתוני המדינות.",
+        "docsLink": "כיצד לספק את מסד הנתונים",
+        "issueHint": "Charon כולל בדרך כלל את מסד הנתונים הזה. אנא פתחו issue ב-GitHub כדי שנוכל לתקן זאת.",
+        "issueLink": "פתח issue"
+      }
+    }
   },
   "security": {
     "title": "Security",
@@ -581,7 +605,85 @@
       "loadError": "Login protection status could not be loaded."
     },
     "settingUpdated": "Security setting updated",
-    "settingUpdateFailed": "Failed to update setting: {{error}}"
+    "settingUpdateFailed": "Failed to update setting: {{error}}",
+    "enforcement": {
+      "acl": {
+        "geoip_unavailable": "רשימות מדינות אינן נאכפות: מסד הנתונים של GeoIP חסר בהתקנה זו. כל אחד יכול להגיע למארחים אלה עד שיסופק. ראו את התיעוד."
+      }
+    },
+    "geoip": {
+      "title": "מסד נתונים של מדינות (GeoIP)",
+      "description": "רשימות גישה לפי מדינה דורשות מסד נתונים של מדינות מ-GeoIP. Charon משתמש בעותק המצורף, אלא אם תספק עותק משלך.",
+      "loadError": "לא ניתן היה לטעון את מצב מסד הנתונים.",
+      "unknownValue": "לא ידוע",
+      "status": {
+        "ready": "מוכן",
+        "unavailable": "לא זמין"
+      },
+      "source": {
+        "label": "מקור",
+        "bundled": "כלול ב-Charon",
+        "data": "תיקיית הנתונים שלך",
+        "custom": "נתיב מותאם אישית מוגדר בשרת",
+        "none": "אין מסד נתונים"
+      },
+      "buildDate": "תאריך בנייה",
+      "size": "גודל",
+      "path": "קובץ",
+      "releaseNote": "העותק המצורף מתעדכן עם כל גרסה של Charon.",
+      "customPathNote": "נתיב מסד הנתונים נקבע על ידי השרת (CHARON_GEOIP_DB_PATH), ולכן לא ניתן להחליף את העותק כאן.",
+      "readOnlyNote": "תיקיית הנתונים היא לקריאה בלבד, ולכן לא ניתן להחליף את מסד הנתונים כאן.",
+      "unavailableReason": "לא זמין. רשימות מדינות לא נאכפות עד שייטען מסד נתונים.",
+      "docsLink": "איך לספק מסד נתונים",
+      "unenforcedLists": "{{count}} רשימות מדינות לא נאכפות",
+      "formNote": {
+        "unavailable": "רשימה זו לא תיאכף עד שמסד הנתונים של GeoIP יהיה זמין.",
+        "wouldRefuseYou": "על פי הכתובת שבה אתה משתמש כעת, רשימה זו הייתה חוסמת אותך. שמירה עדיין מותרת."
+      },
+      "actions": {
+        "reload": "טען מחדש",
+        "replace": "החלף מסד נתונים…",
+        "replaceHint": "העלה מסד נתונים של מדינות מ-GeoIP (.mmdb), עד {{max}} MiB.",
+        "useIncluded": "השתמש בעותק המצורף",
+        "useIncludedConfirmTitle": "להשתמש בעותק המצורף?",
+        "useIncludedConfirmBody": "העותק שלך בתיקיית הנתונים יוסר, ו-Charon ישתמש במסד הנתונים הכלול.",
+        "useIncludedConfirmBodyNoBundled": "העותק שלך בתיקיית הנתונים יוסר. רשימות מדינות לא ייאכפו עד שתספק מסד נתונים."
+      },
+      "result": {
+        "reloaded": "מסד הנתונים נטען מחדש.",
+        "replaced": "מסד הנתונים הוחלף. Charon משתמש כעת בעותק שלך.",
+        "removed": "Charon משתמש שוב בעותק המצורף."
+      },
+      "lookup": {
+        "label": "כתובת IP",
+        "placeholder": "לדוגמה 203.0.113.7",
+        "useMyAddress": "השתמש בכתובת שלי",
+        "submit": "חפש",
+        "found": "{{ip}} נמצאת ב{{country}}.",
+        "notFound": "לא נמצאה מדינה עבור {{ip}}.",
+        "disabled": "החיפוש זמין לאחר טעינת מסד נתונים.",
+        "invalid": "הזן כתובת IP תקינה.",
+        "notLoaded": "לא נטען מסד נתונים, ולכן לא ניתן לחפש כתובות.",
+        "myAddressFailed": "Charon לא הצליח לקרוא את הכתובת שלך."
+      },
+      "errors": {
+        "geoip_file_required": "בחר קובץ מסד נתונים להעלאה.",
+        "geoip_too_large": "הקובץ גדול מ-32 MiB.",
+        "geoip_not_mmdb": "הקובץ אינו מסד נתונים של GeoIP.",
+        "geoip_corrupt": "קובץ מסד הנתונים פגום ואי אפשר לקרוא אותו.",
+        "geoip_wrong_type": "זהו מסד נתונים של GeoIP, אבל לא מסד נתונים של מדינות.",
+        "geoip_older_than_current": "מסד נתונים זה ישן מזה שבשימוש. העלה גרסה חדשה יותר.",
+        "geoip_build_date_in_future": "תאריך הבנייה של מסד הנתונים הוא בעתיד.",
+        "geoip_custom_path_set": "נתיב מסד נתונים מותאם אישית מוגדר בשרת, ולכן לא ניתן לשנות את העותק כאן.",
+        "geoip_busy": "שינוי אחר במסד הנתונים מתבצע כעת. נסה שוב בעוד רגע.",
+        "geoip_write_failed": "Charon לא הצליח לשמור את קובץ מסד הנתונים.",
+        "geoip_reload_failed": "Charon לא הצליח לטעון את קובץ מסד הנתונים.",
+        "geoip_no_data_copy": "אין עותק בתיקיית הנתונים להסרה.",
+        "geoip_service_unavailable": "שירות GeoIP אינו פועל.",
+        "proxy_apply_failed": "Charon לא הצליח להחיל את תצורת ה-proxy.",
+        "generic": "משהו השתבש. נסה שוב."
+      }
+    }
   },
   "accessLists": {
     "title": "Access Lists",
@@ -613,7 +715,10 @@
     "deleteItems": "Delete {{count}} Items",
     "deleting": "Deleting...",
     "noAccessLists": "No Access Lists",
-    "noAccessListsDescription": "Create your first access list to control who can access your services"
+    "noAccessListsDescription": "Create your first access list to control who can access your services",
+    "errors": {
+      "access_list_rules_required": "רשימת היתרים פעילה דורשת לפחות כלל אחד. הוסיפו כלל, או כבו את הרשימה, ושמרו שוב."
+    }
   },
   "rateLimiting": {
     "title": "Rate Limiting Configuration",
@@ -1042,6 +1147,7 @@
       "manual": "Manual",
       "scheduled": "Scheduled",
       "preRestore": "Pre-restore",
+      "preDelete": "Pre-delete",
       "uploaded": "Uploaded"
     },
     "schedule": {

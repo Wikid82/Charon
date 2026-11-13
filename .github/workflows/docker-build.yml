@@ -57,7 +57,7 @@ permissions:
   contents: read
 
 env:
-  SYFT_VERSION: 'v1.57.0'
+  SYFT_VERSION: 'v1.57.1'
   GHCR_REGISTRY: ghcr.io
   DOCKERHUB_REGISTRY: docker.io
   IMAGE_NAME: wikid82/charon
@@ -1301,7 +1301,7 @@ jobs:
       - name: Generate SBOM
         id: sbom_primary
         continue-on-error: true
-        uses: step-security/sbom-action@28bb7d0d2869c9ab0e5571c93591747945819d39 # v0.24.2
+        uses: step-security/sbom-action@eb16f44c4d6e93eb081c681c2be26df28c3ad79a # v0.24.3
         if: env.TRIGGER_EVENT != 'pull_request' && needs.setup.outputs.is_feature_push != 'true'
         with:
           image: ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}@${{ steps.merge.outputs.digest }}

@@ -192,7 +192,10 @@
     "noHosts": "No redirection hosts",
     "noHostsDescription": "Create your first redirection host to send visitors from one domain to another.",
     "deleteConfirmTitle": "Delete Redirection Host?",
-    "deleteConfirmMessage": "Are you sure you want to delete {{name}}? This action cannot be undone."
+    "deleteConfirmMessage": "Are you sure you want to delete {{name}}? This action cannot be undone.",
+    "errors": {
+      "redirect_target_invalid": "Die Zieladresse darf keine geschweiften Klammern enthalten. Verwenden Sie eine einfache Webadresse."
+    }
   },
   "proxyGroups": {
     "group": "Gruppe",
@@ -381,6 +384,27 @@
     "createFailed": "Fehler beim Erstellen",
     "updateFailed": "Fehler beim Aktualisieren",
     "partialFailed": "Abgeschlossen mit {{count}} Fehler(n)"
+  },
+  "notificationCenter": {
+    "title": "Benachrichtigungen",
+    "bellLabel": "Benachrichtigungen, {{count}} neu",
+    "markAllRead": "Alle als gelesen markieren",
+    "empty": "Keine neuen Benachrichtigungen",
+    "close": "Verwerfen",
+    "updateAvailable": "Update verfügbar: {{version}}",
+    "viewChangelog": "Changelog anzeigen",
+    "alerts": {
+      "label": "Benötigt Aufmerksamkeit",
+      "clearsItself": "Dies verschwindet automatisch, sobald das Problem behoben ist.",
+      "geoip_unavailable": {
+        "title": "Länderzugriffslisten werden nicht durchgesetzt",
+        "message": "Die GeoIP-Länderdatenbank fehlt oder ist unbrauchbar, daher lassen {{count}} Länderliste(n) ({{lists}}) jeden Besucher durch, bis sie wieder verfügbar ist.",
+        "messagePendingApply": "Die GeoIP-Datenbank ist wieder verfügbar, aber {{count}} Länderliste(n) ({{lists}}) werden noch nicht erzwungen. Drücken Sie auf „Neu laden“ auf der Karte Länderdatenbank.",
+        "docsLink": "So stellst du die Datenbank bereit",
+        "issueHint": "Charon enthält diese Datenbank normalerweise. Bitte ein GitHub-Issue eröffnen, damit wir das beheben können.",
+        "issueLink": "Issue eröffnen"
+      }
+    }
   },
   "security": {
     "title": "Sicherheit",
@@ -607,7 +631,83 @@
       "rate_limit": {
         "thresholds_unset": "Die Ratenbegrenzung ist aktiv, aber es sind noch keine Grenzwerte festgelegt. Lege Anfragen und Zeitfenster auf der Seite Ratenbegrenzung fest."
       },
-      "unknown": "Noch nicht auf alle Hosts angewendet. Prüfe die Einstellungen dieses Moduls."
+      "unknown": "Noch nicht auf alle Hosts angewendet. Prüfe die Einstellungen dieses Moduls.",
+      "acl": {
+        "geoip_unavailable": "Länderlisten werden nicht durchgesetzt: Die GeoIP-Datenbank fehlt in dieser Installation. Alle können diese Hosts erreichen, bis sie bereitgestellt wird. Siehe Dokumentation."
+      }
+    },
+    "geoip": {
+      "title": "Länderdatenbank (GeoIP)",
+      "description": "Länderzugriffslisten benötigen eine GeoIP-Länderdatenbank. Charon verwendet die mitgelieferte Kopie, sofern Sie keine eigene angeben.",
+      "loadError": "Der Datenbankstatus konnte nicht geladen werden.",
+      "unknownValue": "Unbekannt",
+      "status": {
+        "ready": "Bereit",
+        "unavailable": "Nicht verfügbar"
+      },
+      "source": {
+        "label": "Quelle",
+        "bundled": "Im Lieferumfang von Charon enthalten",
+        "data": "Ihr Datenordner",
+        "custom": "Benutzerdefinierter Pfad auf dem Server gesetzt",
+        "none": "Keine Datenbank"
+      },
+      "buildDate": "Erstellungsdatum",
+      "size": "Größe",
+      "path": "Datei",
+      "releaseNote": "Die mitgelieferte Kopie wird mit jeder Charon-Version aktualisiert.",
+      "customPathNote": "Der Datenbankpfad wird vom Server festgelegt (CHARON_GEOIP_DB_PATH), daher kann die Kopie hier nicht ersetzt werden.",
+      "readOnlyNote": "Der Datenordner ist schreibgeschützt, daher kann die Datenbank hier nicht ersetzt werden.",
+      "unavailableReason": "Nicht verfügbar. Länderlisten werden erst erzwungen, wenn eine Datenbank geladen ist.",
+      "docsLink": "Wie Sie eine Datenbank bereitstellen",
+      "unenforcedLists": "{{count}} Länderliste(n) werden nicht erzwungen",
+      "formNote": {
+        "unavailable": "Diese Liste wird erst erzwungen, wenn die GeoIP-Datenbank verfügbar ist.",
+        "wouldRefuseYou": "Basierend auf der Adresse, die Sie gerade verwenden, würde diese Liste Sie sperren. Speichern ist trotzdem erlaubt."
+      },
+      "actions": {
+        "reload": "Neu laden",
+        "replace": "Datenbank ersetzen…",
+        "replaceHint": "Laden Sie eine GeoIP-Länderdatenbank (.mmdb) hoch, bis zu {{max}} MiB.",
+        "useIncluded": "Mitgelieferte Kopie verwenden",
+        "useIncludedConfirmTitle": "Mitgelieferte Kopie verwenden?",
+        "useIncludedConfirmBody": "Ihre Kopie im Datenordner wird entfernt und Charon verwendet die mitgelieferte Datenbank.",
+        "useIncludedConfirmBodyNoBundled": "Ihre Kopie im Datenordner wird entfernt. Länderlisten werden erst erzwungen, wenn Sie eine Datenbank bereitstellen."
+      },
+      "result": {
+        "reloaded": "Datenbank neu geladen.",
+        "replaced": "Datenbank ersetzt. Charon verwendet jetzt Ihre Kopie.",
+        "removed": "Charon verwendet wieder die mitgelieferte Kopie."
+      },
+      "lookup": {
+        "label": "IP-Adresse",
+        "placeholder": "Zum Beispiel 203.0.113.7",
+        "useMyAddress": "Meine Adresse verwenden",
+        "submit": "Suchen",
+        "found": "{{ip}} liegt in {{country}}.",
+        "notFound": "Kein Land für {{ip}} gefunden.",
+        "disabled": "Die Suche ist verfügbar, sobald eine Datenbank geladen ist.",
+        "invalid": "Geben Sie eine gültige IP-Adresse ein.",
+        "notLoaded": "Keine Datenbank geladen, daher können Adressen nicht nachgeschlagen werden.",
+        "myAddressFailed": "Charon konnte Ihre Adresse nicht ermitteln."
+      },
+      "errors": {
+        "geoip_file_required": "Wählen Sie eine Datenbankdatei zum Hochladen aus.",
+        "geoip_too_large": "Die Datei ist größer als 32 MiB.",
+        "geoip_not_mmdb": "Die Datei ist keine GeoIP-Datenbank.",
+        "geoip_corrupt": "Die Datenbankdatei ist beschädigt und kann nicht gelesen werden.",
+        "geoip_wrong_type": "Das ist eine GeoIP-Datenbank, aber keine Länderdatenbank.",
+        "geoip_older_than_current": "Diese Datenbank ist älter als die aktuell verwendete. Laden Sie eine neuere hoch.",
+        "geoip_build_date_in_future": "Diese Datenbank hat ein Erstellungsdatum in der Zukunft.",
+        "geoip_custom_path_set": "Auf dem Server ist ein benutzerdefinierter Datenbankpfad gesetzt, daher kann die Kopie hier nicht geändert werden.",
+        "geoip_busy": "Eine andere Datenbankänderung läuft gerade. Versuchen Sie es in einem Moment erneut.",
+        "geoip_write_failed": "Charon konnte die Datenbankdatei nicht speichern.",
+        "geoip_reload_failed": "Charon konnte die Datenbankdatei nicht laden.",
+        "geoip_no_data_copy": "Im Datenordner gibt es keine Kopie zum Entfernen.",
+        "geoip_service_unavailable": "Der GeoIP-Dienst läuft nicht.",
+        "proxy_apply_failed": "Charon konnte die Proxy-Konfiguration nicht anwenden.",
+        "generic": "Etwas ist schiefgegangen. Versuchen Sie es erneut."
+      }
     }
   },
   "accessLists": {
@@ -640,7 +740,10 @@
     "deleteItems": "{{count}} Elemente löschen",
     "deleting": "Wird gelöscht...",
     "noAccessLists": "Keine Zugriffslisten",
-    "noAccessListsDescription": "Erstellen Sie Ihre erste Zugriffsliste, um zu kontrollieren, wer auf Ihre Dienste zugreifen kann"
+    "noAccessListsDescription": "Erstellen Sie Ihre erste Zugriffsliste, um zu kontrollieren, wer auf Ihre Dienste zugreifen kann",
+    "errors": {
+      "access_list_rules_required": "Eine aktivierte Allowlist benötigt mindestens eine Regel. Füge eine Regel hinzu oder deaktiviere die Liste und speichere erneut."
+    }
   },
   "rateLimiting": {
     "title": "Ratenbegrenzungskonfiguration",
@@ -1084,6 +1187,7 @@
       "manual": "Manuell",
       "scheduled": "Geplant",
       "preRestore": "Vor Wiederherstellung",
+      "preDelete": "Vor Löschung",
       "uploaded": "Hochgeladen"
     },
     "schedule": {

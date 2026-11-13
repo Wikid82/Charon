@@ -179,13 +179,9 @@ func (h *StatsHandler) StatsWS(c *gin.Context) {
 
 	if h.hub == nil {
 		// Hub not wired — close immediately.
-		_ = conn.Close()
+		_ = conn.CloseNow()
 		return
 	}
 
-	client := &statsWSClient{
-		conn: conn,
-		send: make(chan []byte, statsWSWriteBuffer),
-	}
-	h.hub.ServeClient(client)
+	h.hub.ServeClient(newStatsWSClient(conn))
 }

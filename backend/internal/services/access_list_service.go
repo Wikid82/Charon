@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/netip"
 	"regexp"
 	"strings"
 
@@ -19,22 +20,13 @@ var (
 	ErrInvalidIPAddress      = errors.New("invalid IP address or CIDR")
 	ErrInvalidCountryCode    = errors.New("invalid country code")
 	ErrAccessListInUse       = errors.New("access list is in use by proxy hosts")
+	// ErrAccessListRulesRequired rejects an enabled allow-list that would admit nobody. A block-list
+	// with no rules is allowed because it blocks nobody.
+	ErrAccessListRulesRequired = errors.New("an enabled allow-list needs at least one IP rule or the local network option")
 )
 
 // ValidAccessListTypes defines allowed access list types
 var ValidAccessListTypes = []string{"whitelist", "blacklist", "geo_whitelist", "geo_blacklist"}
-
-// RFC1918PrivateNetworks defines private IP ranges
-var RFC1918PrivateNetworks = []string{
-	"10.0.0.0/8",
-	"172.16.0.0/12",
-	"192.168.0.0/16",
-	"127.0.0.0/8",    // localhost
-	"169.254.0.0/16", // link-local
-	"fc00::/7",       // IPv6 ULA
-	"fe80::/10",      // IPv6 link-local
-	"::1/128",        // IPv6 localhost
-}
 
 // ISO 3166-1 alpha-2 country codes (comprehensive list for validation)
 var validCountryCodes = map[string]bool{
@@ -71,6 +63,9 @@ var validCountryCodes = map[string]bool{
 type AccessListService struct {
 	db       *gorm.DB
 	geoipSvc *GeoIPService
+	// lookup is the country lookup Evaluate reads. It is the same service as geoipSvc, behind an interface so tests
+	// can supply a fake. TestIP keeps reading geoipSvc directly.
+	lookup countryLookup
 }
 
 // NewAccessListService creates a new AccessListService.
@@ -82,6 +77,7 @@ func NewAccessListService(db *gorm.DB) *AccessListService {
 // This method allows optional injection of the GeoIP service.
 func (s *AccessListService) SetGeoIPService(geoipSvc *GeoIPService) {
 	s.geoipSvc = geoipSvc
+	s.lookup = geoipSvc
 }
 
 // GetGeoIPService returns the configured GeoIP service (may be nil).
@@ -95,6 +91,7 @@ func (s *AccessListService) Create(acl *models.AccessList) error {
 		return err
 	}
 
+	acl.CountryCodes = models.NormalizeCountryCodes(acl.CountryCodes)
 	acl.UUID = uuid.New().String()
 	return s.db.Create(acl).Error
 }
@@ -155,18 +152,27 @@ func (s *AccessListService) Update(id uint, updates *models.AccessList) error {
 	if err := s.validateAccessList(acl); err != nil {
 		return err
 	}
+	acl.CountryCodes = models.NormalizeCountryCodes(acl.CountryCodes)
 
 	return s.db.Save(acl).Error
 }
 
-// Delete deletes an access list if not in use
-func (s *AccessListService) Delete(id uint) error {
-	// Check if ACL is in use by any proxy hosts
+// InUse reports whether any proxy host uses the access list, so its rules are part of the proxy config.
+func (s *AccessListService) InUse(id uint) (bool, error) {
 	var count int64
 	if err := s.db.Model(&models.ProxyHost{}).Where("access_list_id = ?", id).Count(&count).Error; err != nil {
+		return false, fmt.Errorf("count proxy hosts using access list %d: %w", id, err)
+	}
+	return count > 0, nil
+}
+
+// Delete deletes an access list if not in use
+func (s *AccessListService) Delete(id uint) error {
+	inUse, err := s.InUse(id)
+	if err != nil {
 		return err
 	}
-	if count > 0 {
+	if inUse {
 		return ErrAccessListInUse
 	}
 
@@ -180,7 +186,9 @@ func (s *AccessListService) Delete(id uint) error {
 	return nil
 }
 
-// TestIP tests if an IP address would be allowed/blocked by the access list
+// TestIP reports whether the access list allows ipAddress, with a reason. It is used by the Cerberus middleware on
+// Charon's own API. It is not the proxy model; see Evaluate. Its outcomes are kept as they were: no admin exemption,
+// local network before geo, and a GeoIP service that is missing or not loaded allows.
 func (s *AccessListService) TestIP(aclID uint, ipAddress string) (allowed bool, reason string, err error) {
 	acl, err := s.GetByID(aclID)
 	if err != nil {
@@ -191,14 +199,16 @@ func (s *AccessListService) TestIP(aclID uint, ipAddress string) (allowed bool, 
 		return true, "Access list is disabled - all traffic allowed", nil
 	}
 
-	ip := net.ParseIP(ipAddress)
-	if ip == nil {
+	// A zoned address (for example "fe80::1%eth0") is refused, as net.ParseIP refused it before.
+	addr, err := netip.ParseAddr(ipAddress)
+	if err != nil || addr.Zone() != "" {
 		return false, "", ErrInvalidIPAddress
 	}
+	addr = addr.Unmap()
 
 	// Test local network only
 	if acl.LocalNetworkOnly {
-		if !s.isPrivateIP(ip) {
+		if !localNetworkContains(addr) {
 			return false, "Not a private network IP (RFC1918)", nil
 		}
 		return true, "Allowed by local network only rule", nil
@@ -214,7 +224,7 @@ func (s *AccessListService) TestIP(aclID uint, ipAddress string) (allowed bool, 
 		var rules []models.AccessListRule
 		if err := json.Unmarshal([]byte(acl.IPRules), &rules); err == nil {
 			for _, rule := range rules {
-				if s.ipMatchesCIDR(ip, rule.CIDR) {
+				if addrInEntry(rule.CIDR, addr) {
 					if acl.Type == "whitelist" {
 						return true, fmt.Sprintf("Allowed by whitelist rule: %s", rule.CIDR), nil
 					}
@@ -257,35 +267,25 @@ func (s *AccessListService) testGeoIP(acl *models.AccessList, ipAddress string) 
 		return true, fmt.Sprintf("GeoIP lookup error: %v - allowing by default", err), nil
 	}
 
-	// Parse the country codes from the ACL
-	allowedCountries := s.parseCountryCodes(acl.CountryCodes)
-
-	// Check if the country is in the list
-	countryInList := false
-	for _, code := range allowedCountries {
-		if strings.EqualFold(code, country) {
-			countryInList = true
-			break
-		}
-	}
+	inList := countryInList(acl.CountryCodes, country)
 
 	// Apply whitelist/blacklist logic
 	if acl.Type == "geo_whitelist" {
-		if countryInList {
+		if inList {
 			return true, fmt.Sprintf("Allowed by geo whitelist: IP is from %s", country), nil
 		}
 		return false, fmt.Sprintf("Blocked by geo whitelist: IP is from %s (not in allowed countries)", country), nil
 	}
 
 	// geo_blacklist
-	if countryInList {
+	if inList {
 		return false, fmt.Sprintf("Blocked by geo blacklist: IP is from %s", country), nil
 	}
 	return true, fmt.Sprintf("Allowed: IP is from %s (not in blocked countries)", country), nil
 }
 
 // parseCountryCodes parses a comma-separated list of country codes.
-func (s *AccessListService) parseCountryCodes(codes string) []string {
+func parseCountryCodes(codes string) []string {
 	if codes == "" {
 		return nil
 	}
@@ -302,19 +302,23 @@ func (s *AccessListService) parseCountryCodes(codes string) []string {
 
 // validateAccessList validates access list fields
 func (s *AccessListService) validateAccessList(acl *models.AccessList) error {
-	// Validate name
 	if strings.TrimSpace(acl.Name) == "" {
 		return errors.New("name is required")
 	}
+	return s.ValidateDraft(acl)
+}
 
+// ValidateDraft checks an access list's type, IP rules and country codes exactly as Create does, without the name.
+// An unsaved draft, such as one sent to the self-check, carries no name, so it is checked with this.
+func (s *AccessListService) ValidateDraft(acl *models.AccessList) error {
 	// Validate type
 	if !s.isValidType(acl.Type) {
 		return ErrInvalidAccessListType
 	}
 
 	// Validate IP rules
+	var rules []models.AccessListRule
 	if acl.IPRules != "" {
-		var rules []models.AccessListRule
 		if err := json.Unmarshal([]byte(acl.IPRules), &rules); err != nil {
 			return fmt.Errorf("invalid IP rules JSON: %w", err)
 		}
@@ -326,14 +330,20 @@ func (s *AccessListService) validateAccessList(acl *models.AccessList) error {
 		}
 	}
 
+	// An enabled allow-list with nothing to admit would deny every request. The local-network option counts as a rule.
+	if acl.Enabled && acl.Type == "whitelist" && !acl.LocalNetworkOnly && len(rules) == 0 {
+		return ErrAccessListRulesRequired
+	}
+
 	// Validate country codes for geo types
+	// Codes are checked in the same normalized form that gets stored, so stray spaces, case and empty entries are
+	// not reported as invalid codes.
 	if strings.HasPrefix(acl.Type, "geo_") {
-		if acl.CountryCodes == "" {
+		normalized := models.NormalizeCountryCodes(acl.CountryCodes)
+		if normalized == "" {
 			return errors.New("country codes are required for geo-blocking")
 		}
-		codes := strings.Split(acl.CountryCodes, ",")
-		for _, code := range codes {
-			code = strings.TrimSpace(strings.ToUpper(code))
+		for _, code := range strings.Split(normalized, ",") {
 			if !s.isValidCountryCode(code) {
 				return fmt.Errorf("%w: %s", ErrInvalidCountryCode, code)
 			}
@@ -373,35 +383,6 @@ func (s *AccessListService) isValidCountryCode(code string) bool {
 	}
 	matched, _ := regexp.MatchString("^[A-Z]{2}$", code)
 	return matched && validCountryCodes[code]
-}
-
-// ipMatchesCIDR checks if an IP matches a CIDR block
-func (s *AccessListService) ipMatchesCIDR(ip net.IP, cidr string) bool {
-	// Check if it's a single IP
-	if singleIP := net.ParseIP(cidr); singleIP != nil {
-		return ip.Equal(singleIP)
-	}
-
-	// Check CIDR range
-	_, ipNet, err := net.ParseCIDR(cidr)
-	if err != nil {
-		return false
-	}
-	return ipNet.Contains(ip)
-}
-
-// isPrivateIP checks if an IP is in RFC1918 private ranges
-func (s *AccessListService) isPrivateIP(ip net.IP) bool {
-	for _, cidr := range RFC1918PrivateNetworks {
-		_, ipNet, err := net.ParseCIDR(cidr)
-		if err != nil {
-			continue
-		}
-		if ipNet.Contains(ip) {
-			return true
-		}
-	}
-	return false
 }
 
 // GetTemplates returns predefined ACL templates

@@ -1,5 +1,7 @@
 import { useState } from 'react'
+import { useTranslation } from 'react-i18next'
 
+import { redirectionErrorMessage } from '../api/errorBody'
 import {
   REDIRECT_STATUS_CODES,
   type RedirectionHost,
@@ -109,6 +111,7 @@ export default function RedirectionHostForm({ host, onSubmit, onCancel }: Redire
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const { certificates } = useCertificates()
+  const { t } = useTranslation()
 
   // Re-seed when the parent passes a different host (adjust-during-render, no effect).
   const [seenHost, setSeenHost] = useState(host)
@@ -158,7 +161,10 @@ export default function RedirectionHostForm({ host, onSubmit, onCancel }: Redire
       })
       onCancel()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to save redirection host')
+      setError(
+        redirectionErrorMessage(err, t) ??
+          (err instanceof Error ? err.message : 'Failed to save redirection host'),
+      )
     } finally {
       setLoading(false)
     }

@@ -4,6 +4,7 @@ import toast from 'react-hot-toast';
 
 import { getMyIP } from '../api/system';
 import { SECURITY_PRESETS, calculateTotalIPs, formatIPCount, type SecurityPreset } from '../data/securityPresets';
+import { AccessListGeoNote } from './AccessListGeoNote';
 import { Button } from './ui/Button';
 import { Input } from './ui/Input';
 import { Switch } from './ui/Switch';
@@ -19,6 +20,8 @@ interface AccessListFormProps {
   onDelete?: () => void;
   isLoading?: boolean;
   isDeleting?: boolean;
+  /** Translated text for a refused save, shown above the actions. */
+  saveErrorMessage?: string | null;
 }
 
 export interface AccessListFormData {
@@ -74,7 +77,15 @@ const COUNTRIES = [
   { code: 'VN', name: 'Vietnam' },
 ];
 
-export function AccessListForm({ initialData, onSubmit, onCancel, onDelete, isLoading, isDeleting }: AccessListFormProps) {
+export function AccessListForm({
+  initialData,
+  onSubmit,
+  onCancel,
+  onDelete,
+  isLoading,
+  isDeleting,
+  saveErrorMessage,
+}: AccessListFormProps) {
   const [formData, setFormData] = useState<AccessListFormData>({
     name: initialData?.name || '',
     description: initialData?.description || '',
@@ -527,7 +538,23 @@ export function AccessListForm({ initialData, onSubmit, onCancel, onDelete, isLo
               })}
             </div>
           )}
+
+          <AccessListGeoNote
+            draft={{
+              type: formData.type,
+              country_codes: selectedCountries.join(','),
+              ip_rules: '',
+              local_network_only: formData.local_network_only,
+              enabled: formData.enabled,
+            }}
+          />
         </div>
+      )}
+
+      {saveErrorMessage && (
+        <p className="text-sm text-error" role="alert" data-testid="access-list-save-error">
+          {saveErrorMessage}
+        </p>
       )}
 
       {/* Actions */}

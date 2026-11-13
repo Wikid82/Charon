@@ -7,10 +7,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
+	"github.com/coder/websocket"
 	"github.com/hashicorp/yamux"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
@@ -47,20 +48,21 @@ func newYamuxServerSession(t *testing.T, wsConn *websocket.Conn) *yamux.Session 
 	return session
 }
 
-var testUpgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool { return true },
+// acceptWS upgrades a test request to a WebSocket connection, accepting any origin.
+func acceptWS(w http.ResponseWriter, r *http.Request) (*websocket.Conn, error) {
+	return websocket.Accept(w, r, &websocket.AcceptOptions{InsecureSkipVerify: true})
 }
 
 // TestLeash_Reconnect verifies that the Leash attempts to reconnect after the server
 // closes the connection immediately.
 func TestLeash_Reconnect(t *testing.T) {
-	connectCount := 0
+	var connectCount atomic.Int32
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		connectCount++
-		conn, err := testUpgrader.Upgrade(w, r, nil)
+		connectCount.Add(1)
+		conn, err := acceptWS(w, r)
 		require.NoError(t, err)
-		_ = conn.Close()
+		_ = conn.CloseNow()
 	}))
 	defer srv.Close()
 
@@ -83,28 +85,26 @@ func TestLeash_Reconnect(t *testing.T) {
 
 	_ = l.Run(ctx)
 
-	assert.GreaterOrEqual(t, connectCount, 2, "expected at least 2 connection attempts within the timeout")
+	assert.GreaterOrEqual(t, connectCount.Load(), int32(2), "expected at least 2 connection attempts within the timeout")
 }
 
 // TestWsNetConn_ReadWrite verifies that the net.Conn wrapper correctly transfers
 // binary data through a WebSocket echo server.
 func TestWsNetConn_ReadWrite(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		conn, err := testUpgrader.Upgrade(w, r, nil)
+		conn, err := acceptWS(w, r)
 		require.NoError(t, err)
-		defer func() { _ = conn.Close() }()
+		defer func() { _ = conn.CloseNow() }()
 
-		_, msg, err := conn.ReadMessage()
+		_, msg, err := conn.Read(context.Background())
 		require.NoError(t, err)
-		require.NoError(t, conn.WriteMessage(websocket.BinaryMessage, msg))
+		require.NoError(t, conn.Write(context.Background(), websocket.MessageBinary, msg))
 	}))
 	defer srv.Close()
 
-	dialer := websocket.Dialer{}
-	wsConn, resp, err := dialer.Dial("ws"+srv.URL[4:], nil)
+	wsConn, _, err := websocket.Dial(context.Background(), "ws"+srv.URL[4:], nil) //nolint:bodyclose // coder/websocket closes the handshake body itself; resp.Body is nil on success
 	require.NoError(t, err)
-	defer func() { _ = resp.Body.Close() }()
-	defer func() { _ = wsConn.Close() }()
+	defer func() { _ = wsConn.CloseNow() }()
 
 	netConn := leash.NewWSNetConn(wsConn)
 
@@ -117,6 +117,36 @@ func TestWsNetConn_ReadWrite(t *testing.T) {
 	_, err = io.ReadFull(netConn, buf)
 	require.NoError(t, err)
 	assert.Equal(t, sent, buf)
+}
+
+// TestWsNetConn_CloseIsAbrupt verifies that closing the net.Conn tears the
+// socket down without a WebSocket close frame, matching the agent's previous
+// raw-socket close. The peer must observe an error that carries no close status.
+func TestWsNetConn_CloseIsAbrupt(t *testing.T) {
+	peerErr := make(chan error, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		conn, err := acceptWS(w, r)
+		require.NoError(t, err)
+		defer func() { _ = conn.CloseNow() }()
+
+		_, _, readErr := conn.Read(context.Background())
+		peerErr <- readErr
+	}))
+	defer srv.Close()
+
+	wsConn, _, err := websocket.Dial(context.Background(), "ws"+srv.URL[4:], nil) //nolint:bodyclose // coder/websocket closes the handshake body itself; resp.Body is nil on success
+	require.NoError(t, err)
+
+	netConn := leash.NewWSNetConn(wsConn)
+	require.NoError(t, netConn.Close())
+
+	select {
+	case readErr := <-peerErr:
+		require.Error(t, readErr)
+		assert.Equal(t, websocket.StatusCode(-1), websocket.CloseStatus(readErr), "peer must not receive a close frame")
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for the peer to observe the close")
+	}
 }
 
 // TestLeash_Connect_DockerStreamDispatchesThroughFilter proves the full
@@ -160,9 +190,9 @@ func TestLeash_Connect_DockerStreamDispatchesThroughFilter(t *testing.T) {
 	defer close(serverDone)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		wsConn, upgradeErr := testUpgrader.Upgrade(w, r, nil)
+		wsConn, upgradeErr := acceptWS(w, r)
 		require.NoError(t, upgradeErr)
-		defer func() { _ = wsConn.Close() }()
+		defer func() { _ = wsConn.CloseNow() }()
 
 		session := newYamuxServerSession(t, wsConn)
 		defer func() { _ = session.Close() }()
@@ -234,9 +264,9 @@ func TestLeash_Connect_PortForwardStreamDialsTarget(t *testing.T) {
 	defer close(serverDone)
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		wsConn, upgradeErr := testUpgrader.Upgrade(w, r, nil)
+		wsConn, upgradeErr := acceptWS(w, r)
 		require.NoError(t, upgradeErr)
-		defer func() { _ = wsConn.Close() }()
+		defer func() { _ = wsConn.CloseNow() }()
 
 		session := newYamuxServerSession(t, wsConn)
 		defer func() { _ = session.Close() }()

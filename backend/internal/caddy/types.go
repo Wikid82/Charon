@@ -40,8 +40,25 @@ type WriterConfig struct {
 }
 
 // EncoderConfig configures the log format.
+// Format "filter" wraps another encoder (Wrap) and applies per-field filters (Fields).
+// Reference: https://caddyserver.com/docs/json/logging/encoder/filter/
 type EncoderConfig struct {
-	Format string `json:"format"` // "json", "console", etc.
+	Format string                 `json:"format"` // "json", "console", "filter", etc.
+	Wrap   *EncoderConfig         `json:"wrap,omitempty"`
+	Fields map[string]FieldFilter `json:"fields,omitempty"` // nested fields use ">" (e.g. "request>uri")
+}
+
+// FieldFilter applies a named filter module (e.g. "query") to one log field.
+type FieldFilter struct {
+	Filter  string        `json:"filter"`
+	Actions []QueryAction `json:"actions,omitempty"`
+}
+
+// QueryAction is one action of the "query" filter: "delete", "replace" or "hash" a query parameter.
+type QueryAction struct {
+	Type      string `json:"type"`
+	Parameter string `json:"parameter"`
+	Value     string `json:"value,omitempty"`
 }
 
 // SinkConfig configures log sinks (e.g. stderr).
@@ -64,11 +81,21 @@ type CrowdSecApp struct {
 	EnableStreaming *bool  `json:"enable_streaming,omitempty"`
 }
 
+// GeoIP2App configures the caddy-geoip2 app module. Charon sets no account or licence key, so the module only reads
+// the local database and never downloads one. The module opens <DatabaseDirectory>/<EditionID>.mmdb.
+// Reference: https://github.com/zhangjiayin/caddy-geoip2
+type GeoIP2App struct {
+	DatabaseDirectory string   `json:"databaseDirectory"`
+	EditionIDs        []string `json:"editionID"`
+	LockFile          string   `json:"lockFile"`
+}
+
 // Apps contains all Caddy app modules.
 type Apps struct {
 	HTTP     *HTTPApp     `json:"http,omitempty"`
 	TLS      *TLSApp      `json:"tls,omitempty"`
 	CrowdSec *CrowdSecApp `json:"crowdsec,omitempty"`
+	GeoIP2   *GeoIP2App   `json:"geoip2,omitempty"`
 }
 
 // HTTPApp configures the HTTP app.
@@ -135,7 +162,7 @@ func ReverseProxyHandler(dial, application string, enableStandardHeaders bool) H
 		"handler":        "reverse_proxy",
 		"flush_interval": -1, // Disable buffering for better streaming performance (Plex, etc.)
 		"upstreams": []map[string]any{
-			{"dial": dial},
+			{"dial": proxyLiteral(dial)},
 		},
 	}
 

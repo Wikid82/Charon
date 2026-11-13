@@ -187,7 +187,10 @@
     "noHosts": "No redirection hosts",
     "noHostsDescription": "Create your first redirection host to send visitors from one domain to another.",
     "deleteConfirmTitle": "Delete Redirection Host?",
-    "deleteConfirmMessage": "Are you sure you want to delete {{name}}? This action cannot be undone."
+    "deleteConfirmMessage": "Are you sure you want to delete {{name}}? This action cannot be undone.",
+    "errors": {
+      "redirect_target_invalid": "لا يمكن أن يحتوي عنوان الوجهة على أقواس متعرجة. استخدم عنوان ويب عادياً."
+    }
   },
   "proxyGroups": {
     "group": "Group",
@@ -376,6 +379,27 @@
     "createFailed": "Failed to create",
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
+  },
+  "notificationCenter": {
+    "title": "الإشعارات",
+    "bellLabel": "الإشعارات، {{count}} جديدة",
+    "markAllRead": "تعليم الكل كمقروء",
+    "empty": "لا توجد إشعارات جديدة",
+    "close": "تجاهل",
+    "updateAvailable": "تحديث متوفر: {{version}}",
+    "viewChangelog": "عرض سجل التغييرات",
+    "alerts": {
+      "label": "يحتاج إلى انتباه",
+      "clearsItself": "يختفي هذا تلقائياً بعد حل المشكلة.",
+      "geoip_unavailable": {
+        "title": "قوائم الوصول حسب الدولة غير مفروضة",
+        "message": "قاعدة بيانات الدول GeoIP مفقودة أو غير صالحة للاستخدام، لذا تسمح {{count}} قائمة دول ({{lists}}) بمرور كل الزوار حتى تصبح متاحة مرة أخرى.",
+        "messagePendingApply": "قاعدة بيانات GeoIP متاحة مرة أخرى، لكن {{count}} قائمة دول ({{lists}}) لم تُطبَّق بعد. اضغط «إعادة التحميل» في بطاقة قاعدة بيانات الدول.",
+        "docsLink": "كيفية توفير قاعدة البيانات",
+        "issueHint": "يتضمن Charon عادةً قاعدة البيانات هذه. يرجى فتح issue على GitHub حتى نتمكن من إصلاح ذلك.",
+        "issueLink": "فتح issue"
+      }
+    }
   },
   "security": {
     "title": "Security",
@@ -581,7 +605,85 @@
       "loadError": "Login protection status could not be loaded."
     },
     "settingUpdated": "Security setting updated",
-    "settingUpdateFailed": "Failed to update setting: {{error}}"
+    "settingUpdateFailed": "Failed to update setting: {{error}}",
+    "enforcement": {
+      "acl": {
+        "geoip_unavailable": "قوائم الدول غير مفروضة: قاعدة بيانات GeoIP غير موجودة في هذا التثبيت. يمكن لأي شخص الوصول إلى هذه المضيفات حتى يتم توفيرها. راجع التوثيق."
+      }
+    },
+    "geoip": {
+      "title": "قاعدة بيانات الدول (GeoIP)",
+      "description": "تحتاج قوائم الوصول حسب الدولة إلى قاعدة بيانات الدول من GeoIP. يستخدم Charon النسخة المرفقة ما لم تُوفِّر نسختك الخاصة.",
+      "loadError": "تعذّر تحميل حالة قاعدة البيانات.",
+      "unknownValue": "غير معروف",
+      "status": {
+        "ready": "جاهز",
+        "unavailable": "غير متاح"
+      },
+      "source": {
+        "label": "المصدر",
+        "bundled": "مرفقة مع Charon",
+        "data": "مجلد البيانات الخاص بك",
+        "custom": "مسار مخصص مضبوط على الخادم",
+        "none": "لا توجد قاعدة بيانات"
+      },
+      "buildDate": "تاريخ الإصدار",
+      "size": "الحجم",
+      "path": "الملف",
+      "releaseNote": "تُحدَّث النسخة المرفقة مع كل إصدار من Charon.",
+      "customPathNote": "يحدد الخادم مسار قاعدة البيانات (CHARON_GEOIP_DB_PATH)، لذا لا يمكن استبدال النسخة من هنا.",
+      "readOnlyNote": "مجلد البيانات للقراءة فقط، لذا لا يمكن استبدال قاعدة البيانات من هنا.",
+      "unavailableReason": "غير متاح. لا تُطبَّق قوائم الدول حتى يتم تحميل قاعدة بيانات.",
+      "docsLink": "كيفية توفير قاعدة بيانات",
+      "unenforcedLists": "لم يتم تطبيق {{count}} قائمة دول",
+      "formNote": {
+        "unavailable": "لن تُطبَّق هذه القائمة حتى تصبح قاعدة بيانات GeoIP متاحة.",
+        "wouldRefuseYou": "استنادًا إلى العنوان الذي تستخدمه الآن، ستمنعك هذه القائمة. الحفظ ما زال مسموحًا."
+      },
+      "actions": {
+        "reload": "إعادة التحميل",
+        "replace": "استبدال قاعدة البيانات…",
+        "replaceHint": "ارفع قاعدة بيانات الدول من GeoIP (.mmdb)، بحد أقصى {{max}} ميبيبايت.",
+        "useIncluded": "استخدام النسخة المرفقة",
+        "useIncludedConfirmTitle": "هل تريد استخدام النسخة المرفقة؟",
+        "useIncludedConfirmBody": "ستُحذف نسختك في مجلد البيانات وسيستخدم Charon قاعدة البيانات المرفقة.",
+        "useIncludedConfirmBodyNoBundled": "ستُحذف نسختك في مجلد البيانات. لن تُطبَّق قوائم الدول حتى توفر قاعدة بيانات."
+      },
+      "result": {
+        "reloaded": "تمت إعادة تحميل قاعدة البيانات.",
+        "replaced": "تم استبدال قاعدة البيانات. يستخدم Charon نسختك الآن.",
+        "removed": "يستخدم Charon النسخة المرفقة مرة أخرى."
+      },
+      "lookup": {
+        "label": "عنوان IP",
+        "placeholder": "مثال: 203.0.113.7",
+        "useMyAddress": "استخدام عنواني",
+        "submit": "بحث",
+        "found": "{{ip}} يقع في {{country}}.",
+        "notFound": "لم يُعثر على دولة لـ {{ip}}.",
+        "disabled": "البحث متاح بعد تحميل قاعدة بيانات.",
+        "invalid": "أدخل عنوان IP صالحًا.",
+        "notLoaded": "لم يتم تحميل قاعدة بيانات، لذا لا يمكن البحث عن العناوين.",
+        "myAddressFailed": "تعذّر على Charon قراءة عنوانك."
+      },
+      "errors": {
+        "geoip_file_required": "اختر ملف قاعدة بيانات للرفع.",
+        "geoip_too_large": "الملف أكبر من 32 ميبيبايت.",
+        "geoip_not_mmdb": "هذا الملف ليس قاعدة بيانات GeoIP.",
+        "geoip_corrupt": "ملف قاعدة البيانات تالف ولا يمكن قراءته.",
+        "geoip_wrong_type": "هذه قاعدة بيانات GeoIP، لكنها ليست قاعدة بيانات للدول.",
+        "geoip_older_than_current": "هذه قاعدة البيانات أقدم من القاعدة المستخدمة. ارفع نسخة أحدث.",
+        "geoip_build_date_in_future": "تاريخ إصدار قاعدة البيانات في المستقبل.",
+        "geoip_custom_path_set": "مسار قاعدة بيانات مخصص مضبوط على الخادم، لذا لا يمكن تغيير النسخة من هنا.",
+        "geoip_busy": "هناك تغيير آخر لقاعدة البيانات قيد التنفيذ. حاول مرة أخرى بعد قليل.",
+        "geoip_write_failed": "تعذّر على Charon حفظ ملف قاعدة البيانات.",
+        "geoip_reload_failed": "تعذّر على Charon تحميل ملف قاعدة البيانات.",
+        "geoip_no_data_copy": "لا توجد نسخة في مجلد البيانات لحذفها.",
+        "geoip_service_unavailable": "خدمة GeoIP غير قيد التشغيل.",
+        "proxy_apply_failed": "تعذّر على Charon تطبيق إعدادات الوكيل.",
+        "generic": "حدث خطأ ما. حاول مرة أخرى."
+      }
+    }
   },
   "accessLists": {
     "title": "Access Lists",
@@ -613,7 +715,10 @@
     "deleteItems": "Delete {{count}} Items",
     "deleting": "Deleting...",
     "noAccessLists": "No Access Lists",
-    "noAccessListsDescription": "Create your first access list to control who can access your services"
+    "noAccessListsDescription": "Create your first access list to control who can access your services",
+    "errors": {
+      "access_list_rules_required": "تحتاج قائمة السماح المفعّلة إلى قاعدة واحدة على الأقل. أضف قاعدة، أو أوقف تشغيل القائمة، ثم احفظ مرة أخرى."
+    }
   },
   "rateLimiting": {
     "title": "Rate Limiting Configuration",
@@ -1042,6 +1147,7 @@
       "manual": "Manual",
       "scheduled": "Scheduled",
       "preRestore": "Pre-restore",
+      "preDelete": "Pre-delete",
       "uploaded": "Uploaded"
     },
     "schedule": {

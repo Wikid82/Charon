@@ -128,7 +128,7 @@ graph TB
 | **Database** | SQLite | 3.x | Embedded database |
 | **ORM** | GORM | Latest | Database abstraction layer |
 | **Reverse Proxy** | Caddy Server | 2.11.2 | Embedded HTTP/HTTPS proxy |
-| **WebSocket** | gorilla/websocket | Latest | Real-time log streaming |
+| **WebSocket** | coder/websocket | Latest | Real-time log streaming |
 | **Crypto** | golang.org/x/crypto | Latest | Password hashing, encryption |
 | **Metrics** | Prometheus Client | Latest | Application metrics |
 | **Notifications** | github.com/Wikid82/Hermes | Current | External delivery-engine module (Discord, Slack, Gotify, Pushover, Ntfy, Telegram, generic webhook, Web Push, and email) consumed via Charon-supplied SSRF/SMTP/template adapters — see Service Layer below |
@@ -367,7 +367,7 @@ fork/offline fallback.
 - `POST /api/v1/proxy-hosts` - Create new proxy host
 - `PUT /api/v1/proxy-hosts/:id` - Update proxy host
 - `DELETE /api/v1/proxy-hosts/:id` - Delete proxy host
-- `WS /api/v1/logs` - WebSocket for real-time logs
+- `WS /api/v1/logs` - WebSocket for real-time logs. Live log sockets cap each client message at 4 KB, send pings every 30 s, and close a connection that stays silent for 60 s. Every write has a 10 s deadline. Access-log entries are filtered by `services.LogWatcher` before broadcast: any `token` query parameter is removed from the logged address (`stripQueryToken`), and a query string that cannot be parsed is dropped entirely, so tokens passed in the address never reach log viewers.
 
 #### Service Layer (`internal/services/`)
 
@@ -603,6 +603,10 @@ check.
 #### Security Suite (`internal/cerberus/`)
 
 - **ACL (Access Control Lists):** IP-based allow/deny rules, GeoIP blocking
+  - **Country lists (GeoIP):** Enforced in Caddy, not in Charon's API. When at least one enabled country list is in use, the generator adds the `geoip2` app (database directory and edition split from the configured `.mmdb` path, lock file in Charon's Caddy data directory, no account or key) and a `geoip2` handler with `enable: "strict"` immediately before the country subroute. Charon checks database availability at generation time (file exists, name ends in `.mmdb`, `GeoIPService` loaded it). When unavailable, country lists are not enforced: no `geoip2` handler and no country deny route are generated for them (fail-open, so a missing database never locks out visitors), with one Warn per apply and a passive `geoip_unavailable` reason on `/security/status`. The enforcement report of the last successful apply records which lists were left unenforced (`EnforcementReport.CountryListsWithoutDatabase`, read through `Manager.LastAppliedReport`); a failed apply keeps that report, because Caddy keeps running the last applied config. `POST /security/geoip/reload` loads the file and applies the proxy config even when the load fails.
+  - **Active alerts:** `internal/alerts` computes alerts at request time from the last applied report, not from stored rows. `GET /notifications/alerts` (management) returns them, and the notification bell shows them in red with a link to the GeoIP troubleshooting page. The current alert is `geoip_unavailable`, which appears while country lists are not enforced and clears by itself once a successful apply enforces them again.
+  - **GeoIP database store:** Replace, remove and reload (admin only, same-origin for cookie sessions) write only the data-folder copy `data/geoip/GeoLite2-Country.mmdb` (plus transient `.prev` and upload temp files). The bundled copy in `/app/geoip` is never modified. Backups do not include `data/geoip/`.
+  - **Allow lists without rules:** An enabled allow list with no rules, or rules that cannot be read, becomes a 403 deny handler with one Warn per apply. A block list with no rules is left out, since it blocks nobody.
 - **WAF (Web Application Firewall):** Coraza engine with user-provided rule sets (CRS-compatible)
 - **CrowdSec:** Behavior-based threat detection with global intelligence
 - **Rate Limiter:** Opt-in per-client API throttling (shared `internal/ratelimit` component)
@@ -723,43 +727,38 @@ export const useProxyHosts = () => {
 5. Caddy validates and applies new configuration
 6. Traffic flows through new proxy route
 
-**Route Pattern: Emergency + Main**
+**Route Pattern: Main Route (plus a recovery route for Charon's own host)**
 
-For each proxy host, Charon generates **two routes** with the same domain:
+For each proxy host, Charon generates a **main route** with the domain and no path matchers. Its handlers run in a fixed order before the reverse proxy: security headers first, then the Cerberus security checks, then the proxy. Locations are generated as separate path-matched routes that run the same order.
 
-1. **Emergency Route** (with path matchers):
-   - Matches: `/api/v1/emergency/*` paths
-   - Purpose: Bypass security features for administrative access
-   - Priority: Evaluated first (more specific match)
-   - Handlers: No WAF, ACL, or Rate Limiting
-
-2. **Main Route** (without path matchers):
-   - Matches: All other paths for the domain
+1. **Main Route** (without path matchers):
+   - Matches: All paths for the domain
    - Purpose: Normal application traffic with full security
-   - Priority: Evaluated second (catch-all)
-   - Handlers: Full Cerberus security suite
+   - Handlers: Security headers (applied to every response, including refusals), then the Cerberus security checks, then the reverse proxy. Country lists are checked by a `geoip2` handler placed immediately before the country subroute.
 
-This pattern is **intentional and valid**:
+2. **Recovery Route** (exact path matchers, only for a host that proxies Charon itself):
+   - Matches: exactly `/api/v1/emergency/security-reset` and `/emergency/security-reset`, with no wildcards
+   - Purpose: Recovery route for the reset endpoint. The endpoint performs its own token and management-network checks.
+   - Handlers: Skips the security pre-handlers; no other path under `/emergency/` takes this route, token endpoints included
 
-- Emergency route provides break-glass access to security controls
-- Main route protects application with enterprise security features
-- Caddy processes routes in order (emergency matches first)
-- Validator allows duplicate hosts when one has paths and one doesn't
+A host that proxies Charon gets a recovery route for the reset endpoint. Every other host gets only its main route and its locations.
+
+Caddy processes routes in order, so the recovery route (when present) is evaluated before the main route. Validator allows duplicate hosts when one has paths and one doesn't.
 
 **Example:**
 
 ```json
-// Emergency Route (evaluated first)
+// Recovery Route (only for a host whose upstream is Charon; evaluated first)
 {
-  "match": [{"host": ["app.example.com"], "path": ["/api/v1/emergency/*"]}],
-  "handle": [/* Emergency handlers - no security */],
+  "match": [{"host": ["charon.example.com"], "path": ["/api/v1/emergency/security-reset", "/emergency/security-reset"]}],
+  "handle": [/* reverse proxy only */],
   "terminal": true
 }
 
 // Main Route (evaluated second)
 {
   "match": [{"host": ["app.example.com"]}],
-  "handle": [/* Security middleware + proxy */],
+  "handle": [/* Security headers, security checks, then proxy */],
   "terminal": true
 }
 ```
@@ -1062,7 +1061,7 @@ pin (the stage already carries ~40 such pins).
 - **Trust:** `CHARON_TRUSTED_PROXIES` is validated once at startup (`config.ValidateTrustedProxies`). One invalid entry yields an empty list plus a WARN. Gin, the session-cookie logic, the throttle and the status endpoint share that list; peers are matched as parsed prefixes, so `127.0.0.1` and `::1` must each be listed. See `docs/configuration/trusted-proxies.md`.
 - **Detector:** forwarded headers arriving from an untrusted peer are recorded per scope (local or public) with capped WARNs (at most one per 15 minutes per scope).
 - **Response:** `429`, `Retry-After` (integer seconds, at least 1) and `{"error":"Too many requests. Please wait before trying again."}`. Metric: `charon_auth_rate_limited_total{class}`.
-- **Never throttled:** validated emergency bypass requests, `/api/v1/emergency/*` and the Tier-2 server.
+- **Never throttled:** validated emergency bypass requests, `/api/v1/emergency/*` and the Tier-2 server. These are exempt from this login-protection bucket only; the emergency reset route has its own limit (see [Emergency Break-Glass Protocol](#emergency-break-glass-protocol)).
 - **Configuration:** environment variables only (table below). `AuthRateLimitConfig`'s zero value is the secure default.
 - **Admin status:** `GET /api/v1/security/login-protection` (admin only) returns the effective budgets, the effective trusted-proxy count, the key Charon derives for the caller, and the forwarded-header observations. The Security dashboard renders it as a card.
 - Buckets are in memory and reset on restart. Details: `docs/features/login-protection.md`.
@@ -1116,6 +1115,14 @@ users; every subsequent account is created by an existing admin — directly
 - Grants temporary admin access
 - Rotated after each use
 
+**Reset Attempt Limits** (`middleware.EmergencyResetThrottle`, one instance per listener: `main` on the management port and `loopback` on the Tier-2 server):
+
+- **Per-address budget:** `ratelimit.KeyedLimiter` allows 5 failed attempts per address per 5-minute window, refilling at one attempt per minute. Failed means any 4xx other than 429. A successful reset consumes nothing. The budget is checked before the token is compared, so an address that is out of budget gets `429` and `Retry-After` even with a correct token.
+- **Check slots:** at most 2 reset checks run at once per listener. A request waits up to 2 s for a slot, then receives `429`.
+- **Audit:** the first refusal per address per window writes one `emergency_reset_throttled` audit row. Later refusals in that window are counted at Debug, and the count rides on the next audited row.
+- **Isolation:** each listener has its own budget and slots, so a flood on one cannot exhaust the other.
+- **Management networks:** `ParseManagementNets` accepts CIDRs and bare IPs (a bare IP becomes a /32 or /128). An empty list selects RFC 1918 plus loopback. An invalid entry switches the list to loopback only; `EmergencyBypass` logs one error at startup that names every rejected entry.
+
 ---
 
 ## Network Architecture
@@ -1138,7 +1145,7 @@ Charon operates with **two distinct traffic flows** on separate ports, each with
 
 **Why Limited Middleware?**
 
-- Management interface must remain accessible even when security modules are misconfigured; valid emergency requests bypass the throttles
+- Management interface must remain accessible even when security modules are misconfigured; the sign-in and general API throttles do not apply to emergency requests, and the reset route has its own limit on failed attempts
 - Emergency endpoints (`/api/v1/emergency/*`) require unrestricted access for system recovery
 - Separation of concerns: management access control is handled by JWT authentication plus role-based route guards (see [Management API Authentication & Authorization](#management-api-authentication--authorization)), not proxy-level security
 

@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -11,14 +12,25 @@ import (
 
 	charonlogger "github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
-	"github.com/gorilla/websocket"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
 func toWebSocketURL(httpURL string) string {
 	return "ws" + strings.TrimPrefix(httpURL, "http")
+}
+
+// readWithin reads one message, giving up after timeout. A coder Read that hits its
+// deadline closes the connection, so callers must not expect the connection to
+// survive a timed-out read.
+func readWithin(t *testing.T, conn *websocket.Conn, timeout time.Duration) ([]byte, error) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	defer cancel()
+	_, data, err := conn.Read(ctx)
+	return data, err
 }
 
 func waitFor(t *testing.T, condition func() bool) {
@@ -33,7 +45,7 @@ func waitFor(t *testing.T, condition func() bool) {
 	t.Fatalf("condition not met within %s", 2*time.Second)
 }
 
-func TestUpgraderCheckOrigin(t *testing.T) {
+func TestIsAllowedWebSocketOrigin(t *testing.T) {
 	t.Parallel()
 
 	tests := []struct {
@@ -64,7 +76,7 @@ func TestUpgraderCheckOrigin(t *testing.T) {
 			if tc.xForwardedHost != "" {
 				req.Header.Set("X-Forwarded-Host", tc.xForwardedHost)
 			}
-			got := upgrader.CheckOrigin(req)
+			got := isAllowedWebSocketOrigin(req)
 			assert.Equal(t, tc.want, got, "origin=%q host=%q xfh=%q", tc.origin, tc.host, tc.xForwardedHost)
 		})
 	}
@@ -96,10 +108,7 @@ func TestLogsWSHandler_StreamWithFiltersAndTracker(t *testing.T) {
 	defer srv.Close()
 
 	wsURL := toWebSocketURL(srv.URL) + "/logs?level=error&source=api"
-	conn, resp, err := websocket.DefaultDialer.Dial(wsURL, nil)
-	if resp != nil {
-		defer resp.Body.Close()
-	}
+	conn, _, err := websocket.Dial(context.Background(), wsURL, nil) //nolint:bodyclose // coder/websocket manages the handshake response body
 	require.NoError(t, err)
 
 	waitFor(t, func() bool {
@@ -110,8 +119,7 @@ func TestLogsWSHandler_StreamWithFiltersAndTracker(t *testing.T) {
 	charonlogger.WithFields(map[string]any{"source": "worker"}).Error("should-be-filtered-by-source")
 	charonlogger.WithFields(map[string]any{"source": "api"}).Error("should-pass-filters")
 
-	require.NoError(t, conn.SetReadDeadline(time.Now().Add(3*time.Second)))
-	_, payload, err := conn.ReadMessage()
+	payload, err := readWithin(t, conn, 3*time.Second)
 	require.NoError(t, err)
 
 	var entry LogEntry
@@ -123,9 +131,56 @@ func TestLogsWSHandler_StreamWithFiltersAndTracker(t *testing.T) {
 	require.NotNil(t, entry.Fields)
 	assert.Equal(t, "api", entry.Fields["source"])
 
-	require.NoError(t, conn.Close())
+	require.NoError(t, conn.CloseNow())
 
 	waitFor(t, func() bool {
 		return tracker.GetCount() == 0
 	})
+}
+
+// TestLogsWSHandler_ConnectionListOmitsToken verifies the logs socket connection list does not expose the query token.
+func TestLogsWSHandler_ConnectionListOmitsToken(t *testing.T) {
+	charonlogger.Init(false, io.Discard)
+
+	tracker := services.NewWebSocketTracker()
+	r := gin.New()
+	r.GET("/logs", NewLogsWSHandler(tracker).HandleWebSocket)
+	r.GET("/websocket/connections", NewWebSocketStatusHandler(tracker).GetConnections)
+
+	srv := httptest.NewServer(r)
+	defer srv.Close()
+
+	wsURL := toWebSocketURL(srv.URL) + "/logs?level=error&source=api&token=" + wsTestToken
+	conn, _, err := websocket.Dial(context.Background(), wsURL, nil) //nolint:bodyclose // coder/websocket manages the handshake response body
+	require.NoError(t, err)
+	defer func() { _ = conn.CloseNow() }()
+
+	waitFor(t, func() bool { return tracker.GetCount() == 1 })
+
+	statusResp, err := http.Get(srv.URL + "/websocket/connections") //nolint:noctx // test-only request against httptest server
+	require.NoError(t, err)
+	defer func() { _ = statusResp.Body.Close() }()
+	body, err := io.ReadAll(statusResp.Body)
+	require.NoError(t, err)
+
+	assert.NotContains(t, string(body), wsTestToken)
+	assert.Contains(t, string(body), "source=api")
+}
+
+// streamEndTimeout bounds how long readUntilStreamEnds waits for a stream to end.
+const streamEndTimeout = 5 * time.Second
+
+// readUntilStreamEnds reads messages until a read fails and returns that error.
+// Frames queued before the close, such as log lines, are read and discarded. It
+// fails the test if the stream is still open after timeout.
+func readUntilStreamEnds(t *testing.T, conn *websocket.Conn) error {
+	t.Helper()
+	deadline := time.Now().Add(streamEndTimeout)
+	for time.Now().Before(deadline) {
+		if _, err := readWithin(t, conn, time.Until(deadline)); err != nil {
+			return err
+		}
+	}
+	t.Fatalf("stream still open after %s", streamEndTimeout)
+	return nil
 }

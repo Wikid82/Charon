@@ -316,6 +316,10 @@ When the WAF or the rate limit is on but does not apply to every site, the Secur
 
 Access lists let you block or allow specific countries, IP addresses, or networks.
 
+**Country lists need a map file (the GeoIP database).** Charon includes it in the Docker image. If that file is ever missing, country lists are not enforced: an allow-list lets everyone in and a block-list blocks no one. Charon chooses this on purpose so that a missing file never locks you out of your own sites. A red alert in the notification bell tells you when this is happening. See [Country Access Lists Are Not Being Enforced](troubleshooting/geoip-database.md).
+
+Changing the country map is limited to admins. Replacing it, removing your uploaded copy, and reloading it are each recorded in the audit log, and the browser must be on Charon's own page to make these changes, so a page on another website cannot make them for you. The uploaded file is kept only in your data folder, and the copy included with Charon is never changed.
+
 ### Example 1: Block a Country
 
 **Scenario:** You only need access from the US, so block everyone else.
@@ -1330,7 +1334,7 @@ Charon uses two types of storage:
    - **Caddy Certificates**: `/app/data/caddy/` - TLS certificates from Let's Encrypt, ZeroSSL, or custom CAs
    - **Import Directory**: `/app/data/imports/` - Uploaded Caddyfile configurations
    - **CrowdSec Data**: `/app/data/crowdsec/` - CrowdSec configuration, database, and hub cache
-   - **GeoIP Database**: `/app/data/geoip/GeoLite2-Country.mmdb` - Pre-populated at build time (read-only at runtime)
+   - **GeoIP Database**: `/app/geoip/GeoLite2-Country.mmdb` - Bundled at build time, outside the data volume (read-only at runtime). A copy placed in `/app/data/geoip/GeoLite2-Country.mmdb` is used when its MaxMind build date is newer (or equal); otherwise the bundled copy is used.
 
 2. **Ephemeral Data** (tmpfs mounts) - Temporary data that doesn't need persistence:
    - **Caddy Logs**: `/var/log/caddy/` - Access logs monitored by CrowdSec

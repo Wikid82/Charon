@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { deleteAccessList, deleteProxyHostByDomain } from '../utils/proxy-refusal-helpers';
 
 /**
  * Emergency & Break-Glass Operations Workflow
@@ -79,57 +80,69 @@ test.describe('Emergency & Break-Glass Operations', () => {
     const suffix = Date.now();
     const aclName = `Emergency-ACL-${suffix}`;
     const proxyDomain = `emergency-acl-${suffix}.test.local`;
+    // Tracked so the finally block removes exactly what this test created. An enabled ACL left behind
+    // is enforced against every later request from a non-whitelisted admin IP.
+    let aclUuid: string | undefined;
 
-    await test.step('Create ACL prerequisite through API for deterministic dropdown options', async () => {
-      const createAclResponse = await page.request.post('/api/v1/access-lists', {
-        data: {
-          name: aclName,
-          type: 'whitelist',
-          description: 'ACL prerequisite for emergency regression test',
-          enabled: true,
-          ip_rules: JSON.stringify([{ cidr: '10.0.0.0/8' }]),
-        },
+    try {
+      await test.step('Create ACL prerequisite through API for deterministic dropdown options', async () => {
+        const createAclResponse = await page.request.post('/api/v1/access-lists', {
+          data: {
+            name: aclName,
+            type: 'whitelist',
+            description: 'ACL prerequisite for emergency regression test',
+            enabled: true,
+            ip_rules: JSON.stringify([{ cidr: '10.0.0.0/8' }]),
+          },
+        });
+        expect(createAclResponse.ok()).toBeTruthy();
+        aclUuid = (await createAclResponse.json()).uuid;
       });
-      expect(createAclResponse.ok()).toBeTruthy();
-    });
 
-    await test.step('Create proxy host and select created ACL in dropdown', async () => {
-      await page.goto('/proxy-hosts');
-      await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
+      await test.step('Create proxy host and select created ACL in dropdown', async () => {
+        await page.goto('/proxy-hosts');
+        await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
 
-      await openCreateProxyModal(page);
-      const dialog = page.getByRole('dialog');
+        await openCreateProxyModal(page);
+        const dialog = page.getByRole('dialog');
 
-      await dialog.locator('#proxy-name').fill(`Emergency ACL Regression ${suffix}`);
-      await dialog.locator('#domain-names').click();
-      await page.keyboard.type(proxyDomain);
-      await page.keyboard.press('Tab');
-      await dismissDomainDialog(page);
+        await dialog.locator('#proxy-name').fill(`Emergency ACL Regression ${suffix}`);
+        await dialog.locator('#domain-names').click();
+        await page.keyboard.type(proxyDomain);
+        await page.keyboard.press('Tab');
+        await dismissDomainDialog(page);
 
-      await dialog.locator('#forward-host').fill('127.0.0.1');
-      await dialog.locator('#forward-port').fill('8080');
+        await dialog.locator('#forward-host').fill('127.0.0.1');
+        await dialog.locator('#forward-port').fill('8080');
 
-      const aclTrigger = dialog.getByRole('combobox', { name: /access control list/i });
-      const selectedAclLabel = await selectOptionByName(
-        page,
-        aclTrigger,
-        new RegExp(aclName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
-      );
-      await expect(aclTrigger).toContainText(selectedAclLabel);
+        const aclTrigger = dialog.getByRole('combobox', { name: /access control list/i });
+        const selectedAclLabel = await selectOptionByName(
+          page,
+          aclTrigger,
+          new RegExp(aclName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i')
+        );
+        await expect(aclTrigger).toContainText(selectedAclLabel);
 
-      await saveProxyHost(page);
-    });
+        await saveProxyHost(page);
+      });
 
-    await test.step('Edit proxy host and verify ACL selection persisted', async () => {
-      await openEditProxyModalForDomain(page, proxyDomain);
+      await test.step('Edit proxy host and verify ACL selection persisted', async () => {
+        await openEditProxyModalForDomain(page, proxyDomain);
 
-      const dialog = page.getByRole('dialog');
-      const aclTrigger = dialog.getByRole('combobox', { name: /access control list/i });
-      await expect(aclTrigger).toContainText(new RegExp(aclName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
+        const dialog = page.getByRole('dialog');
+        const aclTrigger = dialog.getByRole('combobox', { name: /access control list/i });
+        await expect(aclTrigger).toContainText(new RegExp(aclName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i'));
 
-      await dialog.getByRole('button', { name: /cancel/i }).click();
-      await expect(dialog).not.toBeVisible({ timeout: 5000 });
-    });
+        await dialog.getByRole('button', { name: /cancel/i }).click();
+        await expect(dialog).not.toBeVisible({ timeout: 5000 });
+      });
+    } finally {
+      // Proxy host first: a host that still references the ACL would block its deletion.
+      await deleteProxyHostByDomain(page.request, proxyDomain);
+      if (aclUuid) {
+        await deleteAccessList(page.request, aclUuid);
+      }
+    }
   });
 
   // Use emergency token

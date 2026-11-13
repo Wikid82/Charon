@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -17,6 +18,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
+	"github.com/Wikid82/charon/backend/internal/geoip"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	securitypkg "github.com/Wikid82/charon/backend/internal/security"
@@ -56,6 +58,7 @@ type SecurityHandler struct {
 	svc          *services.SecurityService
 	caddyManager CaddyConfigManager
 	geoipSvc     *services.GeoIPService
+	geoipStore   *services.GeoIPDatabaseStore
 	cerberus     CacheInvalidator
 	crowdsec     CrowdsecLifecycle
 }
@@ -83,9 +86,26 @@ func (h *SecurityHandler) Close() {
 	h.svc.Close()
 }
 
-// SetGeoIPService sets the GeoIP service for the handler.
+// SetGeoIPService sets the GeoIP service for the handler and builds the database store over it. The store applies the
+// proxy config after a change when the handler has a caddy manager.
 func (h *SecurityHandler) SetGeoIPService(geoipSvc *services.GeoIPService) {
 	h.geoipSvc = geoipSvc
+	h.geoipStore = nil
+	if geoipSvc == nil {
+		return
+	}
+	var apply func(context.Context) error
+	if mgr := h.caddyManager; mgr != nil {
+		apply = func(ctx context.Context) error {
+			return applyProxyConfigDetached(ctx, mgr, proxyApplyTimeout)
+		}
+	}
+	h.geoipStore = services.NewGeoIPDatabaseStore(services.GeoIPDatabaseStoreConfig{
+		Service:     geoipSvc,
+		Apply:       apply,
+		DataPath:    geoip.DataDatabasePath(),
+		BundledPath: geoip.BundledDatabasePath(),
+	})
 }
 
 // GetStatus returns the current status of all security services.
@@ -207,6 +227,11 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		"enabled": rateLimitEnabled,
 	}
 	h.addAppliedState(wafStatus, rateLimitStatus, wafEnabled, rateLimitEnabled)
+	aclStatus := gin.H{
+		"mode":    aclMode,
+		"enabled": aclEnabled,
+	}
+	h.addACLGeoIPReason(aclStatus, aclEnabled)
 
 	c.JSON(http.StatusOK, gin.H{
 		"cerberus": gin.H{"enabled": enabled},
@@ -215,12 +240,9 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 			"api_url": crowdsec.LocalLAPIURL,
 			"enabled": crowdsecEnabled,
 		},
-		"waf":        wafStatus,
-		"rate_limit": rateLimitStatus,
-		"acl": gin.H{
-			"mode":    aclMode,
-			"enabled": aclEnabled,
-		},
+		"waf":          wafStatus,
+		"rate_limit":   rateLimitStatus,
+		"acl":          aclStatus,
 		"config_apply": latestConfigApplyState(h.db),
 	})
 }
@@ -697,103 +719,6 @@ func (h *SecurityHandler) GetRateLimitPresets(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"presets": presets})
 }
 
-// GetGeoIPStatus returns the current status of the GeoIP service.
-func (h *SecurityHandler) GetGeoIPStatus(c *gin.Context) {
-	if h.geoipSvc == nil {
-		c.JSON(http.StatusOK, gin.H{
-			"loaded":  false,
-			"message": "GeoIP service not initialized",
-			"db_path": "",
-		})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"loaded":  h.geoipSvc.IsLoaded(),
-		"db_path": h.geoipSvc.GetDatabasePath(),
-		"message": "GeoIP service available",
-	})
-}
-
-// ReloadGeoIP reloads the GeoIP database from disk.
-func (h *SecurityHandler) ReloadGeoIP(c *gin.Context) {
-	if !requireAdmin(c) {
-		return
-	}
-
-	if h.geoipSvc == nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"error": "GeoIP service not initialized",
-		})
-		return
-	}
-
-	if err := h.geoipSvc.Load(); err != nil {
-		log.WithError(err).Error("Failed to reload GeoIP database")
-		c.JSON(http.StatusInternalServerError, gin.H{
-			"error": "Failed to reload GeoIP database: " + err.Error(),
-		})
-		return
-	}
-
-	// Log audit event
-	actor := auditActor(c)
-	_ = h.svc.LogAudit(&models.SecurityAudit{Actor: actor, Action: "reload_geoip", Details: "GeoIP database reloaded successfully"})
-
-	c.JSON(http.StatusOK, gin.H{
-		"message": "GeoIP database reloaded successfully",
-		"loaded":  h.geoipSvc.IsLoaded(),
-		"db_path": h.geoipSvc.GetDatabasePath(),
-	})
-}
-
-// LookupGeoIP performs a GeoIP lookup for a given IP address.
-func (h *SecurityHandler) LookupGeoIP(c *gin.Context) {
-	if !requireAdmin(c) {
-		return
-	}
-
-	var req struct {
-		IPAddress string `json:"ip_address" binding:"required"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "ip_address is required"})
-		return
-	}
-
-	if h.geoipSvc == nil || !h.geoipSvc.IsLoaded() {
-		c.JSON(http.StatusServiceUnavailable, gin.H{
-			"error": "GeoIP service not available",
-		})
-		return
-	}
-
-	country, err := h.geoipSvc.LookupCountry(req.IPAddress)
-	if err != nil {
-		if errors.Is(err, services.ErrInvalidGeoIP) {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid IP address"})
-			return
-		}
-		if errors.Is(err, services.ErrCountryNotFound) {
-			c.JSON(http.StatusOK, gin.H{
-				"ip_address":   req.IPAddress,
-				"country_code": "",
-				"found":        false,
-				"message":      "No country found for this IP address",
-			})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "GeoIP lookup failed: " + err.Error()})
-		return
-	}
-
-	c.JSON(http.StatusOK, gin.H{
-		"ip_address":   req.IPAddress,
-		"country_code": country,
-		"found":        true,
-	})
-}
-
 // GetWAFExclusions returns current WAF rule exclusions from SecurityConfig
 func (h *SecurityHandler) GetWAFExclusions(c *gin.Context) {
 	cfg, err := h.svc.Get()
@@ -1203,7 +1128,7 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 		return
 	}
 
-	if settingKey == models.SecurityACLEnabledSettingKey && enabled && !h.allowACLEnable(c) {
+	if settingKey == models.SecurityACLEnabledSettingKey && enabled && !allowACLEnable(c, h.db) {
 		return
 	}
 
@@ -1336,14 +1261,17 @@ func upsertSetting(db *gorm.DB, setting models.Setting) error {
 	return nil
 }
 
-func (h *SecurityHandler) allowACLEnable(c *gin.Context) bool {
+// allowACLEnable is a lock-out guard, not authorisation: it stops an admin from enabling the ACL from an address the
+// admin allow-list would already cut off. It does not decide who may change security settings (that is requireAdmin).
+// An empty allow-list allows.
+func allowACLEnable(c *gin.Context, db *gorm.DB) bool {
 	if middleware.IsEmergencyBypass(c) {
 		return true
 	}
 
-	cfg, err := h.svc.Get()
+	cfg, err := models.FindDefaultSecurityConfig(db)
 	if err != nil {
-		if errors.Is(err, services.ErrSecurityConfigNotFound) {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return true
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read security config"})

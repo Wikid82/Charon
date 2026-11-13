@@ -2,6 +2,7 @@ package orthrus
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"io"
 	"net"
@@ -35,7 +36,7 @@ func sessionWithLoopback(t *testing.T) (sess *AgentSession, clientYamux *yamux.S
 
 	cfg := yamux.DefaultConfig()
 	cfg.LogOutput = io.Discard
-	cy, err := yamux.Client(newWSNetConn(clientConn), cfg)
+	cy, err := yamux.Client(newWSNetConn(context.Background(), clientConn), cfg)
 	require.NoError(t, err)
 
 	s, err := NewAgentSession("ext-test-uuid", "ext-test-agent", false, nil, serverConn)

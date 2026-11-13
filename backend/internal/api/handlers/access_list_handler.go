@@ -1,31 +1,71 @@
 package handlers
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"strconv"
 
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/util"
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 )
 
 // AccessListHandler handles access list API requests.
 type AccessListHandler struct {
-	service *services.AccessListService
+	service      *services.AccessListService
+	caddyManager CaddyConfigManager
 }
 
-// NewAccessListHandler creates a new AccessListHandler.
+// NewAccessListHandler creates a new AccessListHandler without proxy apply, for callers that only manage lists.
 func NewAccessListHandler(db *gorm.DB) *AccessListHandler {
+	return NewAccessListHandlerWithDeps(db, nil)
+}
+
+// NewAccessListHandlerWithDeps creates an AccessListHandler that re-applies the proxy config when an edit reaches a
+// list that hosts use.
+func NewAccessListHandlerWithDeps(db *gorm.DB, caddyManager CaddyConfigManager) *AccessListHandler {
 	return &AccessListHandler{
-		service: services.NewAccessListService(db),
+		service:      services.NewAccessListService(db),
+		caddyManager: nilIfTypedNil(caddyManager),
 	}
+}
+
+// applyIfInUse re-applies the proxy config after a change to a list. A list no host uses is not part of the proxy
+// config, so nothing is applied for it. It returns the apply error, if any.
+func (h *AccessListHandler) applyIfInUse(c *gin.Context, aclID uint) error {
+	if h.caddyManager == nil {
+		return nil
+	}
+	inUse, err := h.service.InUse(aclID)
+	if err != nil {
+		return err
+	}
+	if !inUse {
+		return nil
+	}
+	return applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout)
 }
 
 // SetGeoIPService sets the GeoIP service for geo-based ACL lookups.
 func (h *AccessListHandler) SetGeoIPService(geoipSvc *services.GeoIPService) {
 	h.service.SetGeoIPService(geoipSvc)
+}
+
+// accessListRulesRequiredCode is the stable error_code for ErrAccessListRulesRequired; the UI maps it to a message.
+const accessListRulesRequiredCode = "access_list_rules_required"
+
+// respondAccessListSaveError answers a refused create or update with 400. Known refusals carry a stable error_code.
+func respondAccessListSaveError(c *gin.Context, err error) {
+	if errors.Is(err, services.ErrAccessListRulesRequired) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "error_code": accessListRulesRequiredCode})
+		return
+	}
+	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 }
 
 // resolveAccessList resolves an access list by either numeric ID or UUID.
@@ -54,7 +94,7 @@ func (h *AccessListHandler) Create(c *gin.Context) {
 	}
 
 	if err := h.service.Create(&acl); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondAccessListSaveError(c, err)
 		return
 	}
 
@@ -118,7 +158,14 @@ func (h *AccessListHandler) Update(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "access list not found"})
 			return
 		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondAccessListSaveError(c, err)
+		return
+	}
+
+	// The edit is saved at this point; an apply failure is reported, and the next apply picks the saved rules up.
+	if err = h.applyIfInUse(c, acl.ID); err != nil {
+		middleware.GetRequestLogger(c).WithError(err).Warn("failed to apply proxy config after access list update")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "saved, but applying the configuration failed"})
 		return
 	}
 
@@ -185,20 +232,100 @@ func (h *AccessListHandler) TestIP(c *gin.Context) {
 		return
 	}
 
-	allowed, reason, err := h.service.TestIP(acl.ID, req.IPAddress)
+	// The tester reports the decision the proxy makes for this address, from the same evaluation the proxy
+	// configuration is generated from.
+	addr, parseErr := netip.ParseAddr(req.IPAddress)
+	if parseErr != nil || addr.Zone() != "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid IP address"})
+		return
+	}
+	decision, err := h.service.Evaluate(acl, addr.Unmap(), h.service.AdminWhitelistRanges())
 	if err != nil {
-		if err == services.ErrInvalidIPAddress {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid IP address"})
-			return
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
 		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{
-		"allowed": allowed,
-		"reason":  reason,
+		"allowed": decision.Allowed,
+		"reason":  accessListDecisionText(decision.Reason),
 	})
+}
+
+// AccessListSelfCheckResponse is the decision the proxy would make for the caller's current address under an unsaved
+// access list draft. reason is one of the services.Reason* identifiers.
+type AccessListSelfCheckResponse struct {
+	IPAddress      string `json:"ip_address"`
+	CountryCode    string `json:"country_code"`
+	Allowed        bool   `json:"allowed"`
+	AdminExempt    bool   `json:"admin_exempt"`
+	GeoIPAvailable bool   `json:"geoip_available"`
+	Reason         string `json:"reason"`
+}
+
+// SelfCheck handles POST /api/v1/access-lists/self-check. It evaluates the posted draft for the address the caller
+// connects from, using the same evaluation as the tester and the proxy. Nothing is saved. Admin only.
+func (h *AccessListHandler) SelfCheck(c *gin.Context) {
+	if !requireAdmin(c) {
+		return
+	}
+
+	var draft models.AccessList
+	if err := c.ShouldBindJSON(&draft); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid access list draft"})
+		return
+	}
+	if err := h.service.ValidateDraft(&draft); err != nil {
+		respondAccessListSaveError(c, err)
+		return
+	}
+
+	ip, err := netip.ParseAddr(util.CanonicalizeIPForSecurity(c.ClientIP()))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+	decision, err := h.service.Evaluate(&draft, ip.Unmap(), h.service.AdminWhitelistRanges())
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal server error"})
+		return
+	}
+
+	c.JSON(http.StatusOK, AccessListSelfCheckResponse{
+		IPAddress:      ip.Unmap().String(),
+		CountryCode:    decision.CountryCode,
+		Allowed:        decision.Allowed,
+		AdminExempt:    decision.AdminExempt,
+		GeoIPAvailable: decision.GeoIPAvailable,
+		Reason:         decision.Reason,
+	})
+}
+
+// accessListDecisionText returns the sentence the tester shows for a decision reason.
+func accessListDecisionText(reason string) string {
+	switch reason {
+	case services.ReasonListDisabled:
+		return "Access list is disabled - all traffic allowed"
+	case services.ReasonAdminWhitelisted:
+		return "Address is in the admin whitelist"
+	case services.ReasonAllowed:
+		return "Allowed by access list"
+	case services.ReasonGeoIPUnavailable:
+		return "GeoIP database not available - country lists are not enforced"
+	case services.ReasonCountryNotAllowed:
+		return "Blocked by geo whitelist: country is not in the allowed countries"
+	case services.ReasonCountryBlocked:
+		return "Blocked by geo blacklist: country is in the blocked countries"
+	case services.ReasonNoCountry:
+		return "No country found for IP"
+	case services.ReasonNotLocalNetwork:
+		return "Not a private network IP (RFC1918)"
+	case services.ReasonIPNotAllowed:
+		return "Not in whitelist"
+	case services.ReasonIPBlocked:
+		return "Blocked by blacklist rule"
+	default:
+		return reason
+	}
 }
 
 // GetTemplates handles GET /api/v1/access-lists/templates

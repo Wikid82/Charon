@@ -89,8 +89,10 @@ type SecurityConfig struct {
 	RateLimitBurst     int
 	ACLMode            string
 	CerberusEnabled    bool
-	// ManagementCIDRs defines IP ranges allowed to use emergency break glass token
-	// Default: RFC1918 private networks (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8)
+	// ManagementCIDRs defines IP ranges allowed to use emergency break glass token.
+	// Entries are CIDRs or bare addresses; validation happens in middleware.ParseManagementNets
+	// (config cannot import middleware). Default when unset: RFC1918 private networks
+	// (10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16) plus loopback.
 	ManagementCIDRs []string
 	// TrustedProxies lists IPs/CIDRs of reverse proxies whose
 	// X-Forwarded-Proto/X-Forwarded-Host headers are honored for TLS-

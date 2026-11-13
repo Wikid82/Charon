@@ -9,7 +9,6 @@ name: Toolchain Image — Build & Publish
 # every run (spec docs/plans/current_spec.md §3.1).
 #
 # Entry points (spec §3.4.1):
-#   schedule (daily 06:00 UTC)  -> --no-cache --pull freshness rebuild
 #   workflow_dispatch           -> manual rebuild (default --no-cache --pull)
 #   pull_request (paths)        -> validate the recipe still compiles; same-repo
 #                                  PRs also publish :<key>; forks build cacheonly
@@ -26,8 +25,6 @@ name: Toolchain Image — Build & Publish
 # docs/ci/toolchain-image.md.
 
 on:
-  schedule:
-    - cron: '0 6 * * *'
   workflow_dispatch:
     inputs:
       force_rebuild:

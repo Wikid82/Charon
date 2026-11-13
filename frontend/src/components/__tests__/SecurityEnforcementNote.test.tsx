@@ -25,6 +25,7 @@ describe('SecurityEnforcementNote', () => {
     ['waf', 'ruleset_unavailable', 'The WAF is on, but the selected rule set could not be loaded. Check it on the WAF page.'],
     ['waf', 'ruleset_empty', 'The selected rule set has no rules, so it is not protecting anything yet. Add rules to it or choose another.'],
     ['rate_limit', 'thresholds_unset', 'Rate limiting is on, but no limits are set yet. Set the requests and window on the Rate Limiting page.'],
+    ['acl', 'geoip_unavailable', 'Country lists are not enforced: the GeoIP database is missing from this install. Everyone can reach those hosts until it is provided. See the documentation.'],
   ] as const)('renders the %s line for reason %s', (moduleName, reason, text) => {
     render(<SecurityEnforcementNote moduleName={moduleName} state={{ enforced: false, reason }} />)
     expect(screen.getByTestId(`${moduleName}-enforcement-note`)).toHaveTextContent(text)
@@ -38,6 +39,11 @@ describe('SecurityEnforcementNote', () => {
   it('renders the generic line when enforced is false without a reason', () => {
     render(<SecurityEnforcementNote moduleName="rate_limit" state={{ enforced: false }} />)
     expect(screen.getByTestId('rate_limit-enforcement-note')).toHaveTextContent('Not applied to every host yet.')
+  })
+
+  it('renders the generic line when a WAF reason is reported for the ACL', () => {
+    render(<SecurityEnforcementNote moduleName="acl" state={{ enforced: false, reason: 'no_ruleset' }} />)
+    expect(screen.getByTestId('acl-enforcement-note')).toHaveTextContent('Not applied to every host yet.')
   })
 
   it('renders the generic line when a reason belongs to the other module', () => {

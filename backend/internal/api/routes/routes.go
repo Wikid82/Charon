@@ -14,6 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/alerts"
 	"github.com/Wikid82/charon/backend/internal/api/handlers"
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/caddy"
@@ -22,6 +23,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/dbmaint"
+	"github.com/Wikid82/charon/backend/internal/geoip"
 	"github.com/Wikid82/charon/backend/internal/hecate"
 	cfprovider "github.com/Wikid82/charon/backend/internal/hecate/providers/cloudflare"
 	nbprovider "github.com/Wikid82/charon/backend/internal/hecate/providers/netbird"
@@ -266,6 +268,9 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	cleanInvalidLetsEncryptCertAssignments(db, "proxy_hosts", func(h models.ProxyHost) string { return h.DomainNames })
 	cleanInvalidLetsEncryptCertAssignments(db, "redirection_hosts", func(h models.RedirectionHost) string { return h.DomainNames })
 
+	// Stored redirect targets that validation now refuses keep working as literals; this warns once per such row.
+	services.WarnRefusedRedirectTargets(db)
+
 	if caddyManager == nil {
 		caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
 		caddyManager = caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
@@ -304,13 +309,17 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	}
 	crowdsecHandler := newCrowdsecHandler(db, handlers.NewDefaultCrowdsecExecutor(), crowdsecBinPath, crowdsecDataDir, caddyManager).WithAppContext(ctx)
 
-	// Emergency endpoint
+	securityService := services.NewSecurityService(db)
+
+	// Emergency endpoint. The main listener has its own reset throttle so a flood here cannot
+	// use up the loopback Tier 2 recovery budget.
 	emergencyHandler := handlers.NewEmergencyHandlerWithDeps(db, caddyManager, cerb).
 		WithManagementCIDRs(cfg.Security.ManagementCIDRs).
 		WithCrowdsecLifecycle(crowdsecHandler)
+	emergencyResetThrottle := middleware.NewEmergencyResetThrottle("main", securityService)
 	emergency := router.Group("/api/v1/emergency")
-	// Emergency endpoints must stay responsive and should not be rate limited.
-	emergency.POST("/security-reset", emergencyHandler.SecurityReset)
+	// Emergency endpoints must stay responsive; the reset route is throttled by its own middleware.
+	emergency.POST("/security-reset", emergencyResetThrottle.Middleware(), emergencyHandler.SecurityReset)
 
 	// Emergency token management (admin-only, protected by EmergencyBypass middleware)
 	emergencyTokenService := services.NewEmergencyTokenService(db)
@@ -352,8 +361,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		// Set before Start() so no cron tick can miss it.
 		backupService.SetMaintenanceDeferrer(ctx, gate)
 	}
-	backupService.Start() // Start cron scheduler for scheduled backups
-	securityService := services.NewSecurityService(db)
+	backupService.Start()                             // Start cron scheduler for scheduled backups
 	backupService.SetSecurityService(securityService) // Async Backup/Restore Jobs §3.3.1: security-audit logging from inside the job goroutine
 	backupHandler := handlers.NewBackupHandlerWithDeps(backupService, securityService, db)
 	backupRemoteHandler := handlers.NewBackupRemoteHandler(backupRemoteService)
@@ -938,30 +946,22 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 		// caddyManager is already created early in Register() for use by settingsHandler
 
-		// Initialize GeoIP service if database exists
-		geoipPath := os.Getenv("CHARON_GEOIP_DB_PATH")
-		if geoipPath == "" {
-			geoipPath = "/app/data/geoip/GeoLite2-Country.mmdb"
-		}
+		// An upload or removal interrupted by a crash leaves temp or previous files in the data folder. They are cleared
+		// before the database path is resolved, so the resolver sees the state the last completed change left.
+		sweepGeoIPDataFolder(geoip.DataDatabasePath())
 
-		var geoipSvc *services.GeoIPService
-		if _, err := os.Stat(geoipPath); err == nil { //nolint:gosec // G703: operator-configured path from CHARON_GEOIP_DB_PATH, read-only stat
-			var geoErr error
-			geoipSvc, geoErr = services.NewGeoIPService(geoipPath)
-			if geoErr != nil {
-				logger.Log().WithError(geoErr).WithField("path", geoipPath).Warn("Failed to load GeoIP database - geo-blocking features will be unavailable")
-			} else {
-				logger.Log().WithField("path", geoipPath).Info("GeoIP database loaded successfully")
-			}
-		} else {
-			logger.Log().WithField("path", geoipPath).Info("GeoIP database not found - geo-blocking features will be unavailable")
-		}
+		// The GeoIP service always exists, even without a database file, so a database added later is loaded by
+		// POST /security/geoip/reload and every consumer (including the proxy state) sees the same live service.
+		geoipSvc := initGeoIPAtStartup(geoip.ResolveDatabasePath)
+		caddyManager.SetGeoIPState(geoIPProxyState(geoipSvc))
 
 		// Security Status
 		securityHandler := handlers.NewSecurityHandlerWithDeps(cfg.Security, db, caddyManager, cerb).WithCrowdsecLifecycle(crowdsecHandler)
-		if geoipSvc != nil {
-			securityHandler.SetGeoIPService(geoipSvc)
-		}
+		securityHandler.SetGeoIPService(geoipSvc)
+
+		// Notification bell alerts: country lists not enforced because no GeoIP database is usable.
+		alertsSvc := alerts.NewService(securityHandler.GeoIPAlertSource())
+		management.GET("/notifications/alerts", handlers.NewAlertsHandler(alertsSvc).List)
 
 		management.GET("/security/status", securityHandler.GetStatus)
 		// Security Config management
@@ -986,6 +986,9 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		securityAdmin.DELETE("/rulesets/:id", securityHandler.DeleteRuleSet)
 		securityAdmin.POST("/geoip/reload", securityHandler.ReloadGeoIP)
 		securityAdmin.POST("/geoip/lookup", securityHandler.LookupGeoIP)
+		// Cookie sessions reach these two routes only from the same origin; see middleware.RequireSameOriginForBrowserAuth.
+		securityAdmin.POST("/geoip/database", middleware.RequireSameOriginForBrowserAuth(), securityHandler.ReplaceGeoIPDatabase)
+		securityAdmin.DELETE("/geoip/database", middleware.RequireSameOriginForBrowserAuth(), securityHandler.RemoveGeoIPDatabase)
 		securityAdmin.POST("/waf/exclusions", securityHandler.AddWAFExclusion)
 		securityAdmin.DELETE("/waf/exclusions/:rule_id", securityHandler.DeleteWAFExclusion)
 
@@ -1084,10 +1087,8 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management.GET("/stats/ws", statsHandler.StatsWS)
 
 		// Access Lists
-		accessListHandler := handlers.NewAccessListHandler(db)
-		if geoipSvc != nil {
-			accessListHandler.SetGeoIPService(geoipSvc)
-		}
+		accessListHandler := handlers.NewAccessListHandlerWithDeps(db, caddyManager)
+		accessListHandler.SetGeoIPService(geoipSvc)
 		// ACLs are a security control: reads + the non-persisting /:id/test
 		// dry-run stay on management; create/update/delete are admin-only.
 		management.GET("/access-lists/templates", accessListHandler.GetTemplates)
@@ -1097,6 +1098,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management.PUT("/access-lists/:id", middleware.RequireRole(models.RoleAdmin), accessListHandler.Update)
 		management.DELETE("/access-lists/:id", middleware.RequireRole(models.RoleAdmin), accessListHandler.Delete)
 		management.POST("/access-lists/:id/test", accessListHandler.TestIP)
+		management.POST("/access-lists/self-check", middleware.RequireRole(models.RoleAdmin), accessListHandler.SelfCheck)
 
 		// Security Headers. Reads + the three pure calculator POSTs (they do
 		// not persist) stay on management so the role=user-reachable

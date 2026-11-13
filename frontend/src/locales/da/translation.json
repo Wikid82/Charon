@@ -187,7 +187,10 @@
     "noHosts": "No redirection hosts",
     "noHostsDescription": "Create your first redirection host to send visitors from one domain to another.",
     "deleteConfirmTitle": "Delete Redirection Host?",
-    "deleteConfirmMessage": "Are you sure you want to delete {{name}}? This action cannot be undone."
+    "deleteConfirmMessage": "Are you sure you want to delete {{name}}? This action cannot be undone.",
+    "errors": {
+      "redirect_target_invalid": "Måladressen må ikke indeholde krøllede parenteser. Brug en almindelig webadresse."
+    }
   },
   "proxyGroups": {
     "group": "Group",
@@ -376,6 +379,27 @@
     "createFailed": "Failed to create",
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
+  },
+  "notificationCenter": {
+    "title": "Notifikationer",
+    "bellLabel": "Notifikationer, {{count}} nye",
+    "markAllRead": "Markér alle som læst",
+    "empty": "Ingen nye notifikationer",
+    "close": "Afvis",
+    "updateAvailable": "Opdatering tilgængelig: {{version}}",
+    "viewChangelog": "Se changelog",
+    "alerts": {
+      "label": "Kræver opmærksomhed",
+      "clearsItself": "Dette forsvinder af sig selv, når problemet er løst.",
+      "geoip_unavailable": {
+        "title": "Landelister for adgang håndhæves ikke",
+        "message": "GeoIP-landedatabasen mangler eller kan ikke bruges, så {{count}} landeliste(r) ({{lists}}) lader alle besøgende igennem, indtil den er tilgængelig igen.",
+        "messagePendingApply": "GeoIP-databasen er tilgængelig igen, men {{count}} landeliste(r) ({{lists}}) håndhæves endnu ikke. Tryk på Genindlæs på kortet Landedatabase.",
+        "docsLink": "Sådan leverer du databasen",
+        "issueHint": "Charon inkluderer normalt denne database. Opret venligst et issue på GitHub, så vi kan rette det.",
+        "issueLink": "Opret et issue"
+      }
+    }
   },
   "security": {
     "title": "Security",
@@ -581,7 +605,85 @@
       "loadError": "Login protection status could not be loaded."
     },
     "settingUpdated": "Security setting updated",
-    "settingUpdateFailed": "Failed to update setting: {{error}}"
+    "settingUpdateFailed": "Failed to update setting: {{error}}",
+    "enforcement": {
+      "acl": {
+        "geoip_unavailable": "Landelister håndhæves ikke: GeoIP-databasen mangler i denne installation. Alle kan nå disse værterne, indtil den er tilgængelig. Se dokumentationen."
+      }
+    },
+    "geoip": {
+      "title": "Landedatabase (GeoIP)",
+      "description": "Landeadgangslister kræver en GeoIP-landedatabase. Charon bruger den kopi, der følger med, medmindre du angiver din egen.",
+      "loadError": "Databasestatus kunne ikke indlæses.",
+      "unknownValue": "Ukendt",
+      "status": {
+        "ready": "Klar",
+        "unavailable": "Ikke tilgængelig"
+      },
+      "source": {
+        "label": "Kilde",
+        "bundled": "Følger med Charon",
+        "data": "Din datamappe",
+        "custom": "Brugerdefineret sti er angivet på serveren",
+        "none": "Ingen database"
+      },
+      "buildDate": "Byggedato",
+      "size": "Størrelse",
+      "path": "Fil",
+      "releaseNote": "Den medfølgende kopi opdateres med hver Charon-udgivelse.",
+      "customPathNote": "Databasestien angives af serveren (CHARON_GEOIP_DB_PATH), så kopien kan ikke erstattes her.",
+      "readOnlyNote": "Datamappen er skrivebeskyttet, så databasen kan ikke erstattes her.",
+      "unavailableReason": "Ikke tilgængelig. Landelister håndhæves ikke, før en database er indlæst.",
+      "docsLink": "Sådan angiver du en database",
+      "unenforcedLists": "{{count}} landeliste(r) håndhæves ikke",
+      "formNote": {
+        "unavailable": "Denne liste håndhæves ikke, før GeoIP-databasen er tilgængelig.",
+        "wouldRefuseYou": "Ud fra den adresse, du bruger nu, ville denne liste blokere dig. Du kan stadig gemme."
+      },
+      "actions": {
+        "reload": "Genindlæs",
+        "replace": "Erstat database…",
+        "replaceHint": "Upload en GeoIP-landedatabase (.mmdb), op til {{max}} MiB.",
+        "useIncluded": "Brug den medfølgende kopi",
+        "useIncludedConfirmTitle": "Brug den medfølgende kopi?",
+        "useIncludedConfirmBody": "Din kopi i datamappen fjernes, og Charon bruger den database, der følger med.",
+        "useIncludedConfirmBodyNoBundled": "Din kopi i datamappen fjernes. Landelister håndhæves ikke, før du angiver en database."
+      },
+      "result": {
+        "reloaded": "Databasen er genindlæst.",
+        "replaced": "Databasen er erstattet. Charon bruger nu din kopi.",
+        "removed": "Charon bruger igen den medfølgende kopi."
+      },
+      "lookup": {
+        "label": "IP-adresse",
+        "placeholder": "For eksempel 203.0.113.7",
+        "useMyAddress": "Brug min adresse",
+        "submit": "Slå op",
+        "found": "{{ip}} er i {{country}}.",
+        "notFound": "Intet land fundet for {{ip}}.",
+        "disabled": "Opslag er tilgængeligt, når en database er indlæst.",
+        "invalid": "Angiv en gyldig IP-adresse.",
+        "notLoaded": "Ingen database er indlæst, så adresser kan ikke slås op.",
+        "myAddressFailed": "Charon kunne ikke læse din adresse."
+      },
+      "errors": {
+        "geoip_file_required": "Vælg en databasefil at uploade.",
+        "geoip_too_large": "Filen er større end 32 MiB.",
+        "geoip_not_mmdb": "Filen er ikke en GeoIP-database.",
+        "geoip_corrupt": "Databasefilen er beskadiget og kan ikke læses.",
+        "geoip_wrong_type": "Det er en GeoIP-database, men ikke en landedatabase.",
+        "geoip_older_than_current": "Databasen er ældre end den, der er i brug. Upload en nyere.",
+        "geoip_build_date_in_future": "Databasen har en byggedato i fremtiden.",
+        "geoip_custom_path_set": "Der er angivet en brugerdefineret databasesti på serveren, så kopien kan ikke ændres her.",
+        "geoip_busy": "En anden databaseændring er i gang. Prøv igen om lidt.",
+        "geoip_write_failed": "Charon kunne ikke gemme databasefilen.",
+        "geoip_reload_failed": "Charon kunne ikke indlæse databasefilen.",
+        "geoip_no_data_copy": "Der er ingen kopi i datamappen at fjerne.",
+        "geoip_service_unavailable": "GeoIP-tjenesten kører ikke.",
+        "proxy_apply_failed": "Charon kunne ikke anvende proxy-konfigurationen.",
+        "generic": "Noget gik galt. Prøv igen."
+      }
+    }
   },
   "accessLists": {
     "title": "Access Lists",
@@ -613,7 +715,10 @@
     "deleteItems": "Delete {{count}} Items",
     "deleting": "Deleting...",
     "noAccessLists": "No Access Lists",
-    "noAccessListsDescription": "Create your first access list to control who can access your services"
+    "noAccessListsDescription": "Create your first access list to control who can access your services",
+    "errors": {
+      "access_list_rules_required": "En aktiveret tilladelsesliste kræver mindst én regel. Tilføj en regel, eller slå listen fra, og gem igen."
+    }
   },
   "rateLimiting": {
     "title": "Rate Limiting Configuration",
@@ -1042,6 +1147,7 @@
       "manual": "Manual",
       "scheduled": "Scheduled",
       "preRestore": "Pre-restore",
+      "preDelete": "Pre-delete",
       "uploaded": "Uploaded"
     },
     "schedule": {

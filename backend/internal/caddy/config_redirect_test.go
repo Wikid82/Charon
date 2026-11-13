@@ -62,8 +62,8 @@ func TestGenerateConfig_RedirectHostsPrecedeProxyHostRoutes(t *testing.T) {
 	require.NoError(t, err)
 	server := cfg.Apps.HTTP.Servers["charon_server"]
 	require.NotNil(t, server)
-	// Redirect route first, then ProxyHost's emergency + main routes.
-	require.Len(t, server.Routes, 3)
+	// Redirect route first, then ProxyHost's main route.
+	require.Len(t, server.Routes, 2)
 	assert.Equal(t, []string{"redirected.example.com"}, server.Routes[0].Match[0].Host)
 	assert.Equal(t, "static_response", server.Routes[0].Handle[0]["handler"])
 }

@@ -187,7 +187,10 @@
     "noHosts": "No redirection hosts",
     "noHostsDescription": "Create your first redirection host to send visitors from one domain to another.",
     "deleteConfirmTitle": "Delete Redirection Host?",
-    "deleteConfirmMessage": "Are you sure you want to delete {{name}}? This action cannot be undone."
+    "deleteConfirmMessage": "Are you sure you want to delete {{name}}? This action cannot be undone.",
+    "errors": {
+      "redirect_target_invalid": "Ciljna adresa ne sme da sadrži vitičaste zagrade. Unesite običnu veb adresu."
+    }
   },
   "proxyGroups": {
     "group": "Group",
@@ -376,6 +379,27 @@
     "createFailed": "Failed to create",
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
+  },
+  "notificationCenter": {
+    "title": "Obaveštenja",
+    "bellLabel": "Obaveštenja, {{count}} novih",
+    "markAllRead": "Označi sve kao pročitano",
+    "empty": "Nema novih obaveštenja",
+    "close": "Odbaci",
+    "updateAvailable": "Dostupno ažuriranje: {{version}}",
+    "viewChangelog": "Pogledaj izmene",
+    "alerts": {
+      "label": "Zahteva pažnju",
+      "clearsItself": "Ovo nestaje samo od sebe kada se problem reši.",
+      "geoip_unavailable": {
+        "title": "Liste pristupa po državi se ne primenjuju",
+        "message": "GeoIP baza podataka o državama nedostaje ili se ne može koristiti, pa {{count}} lista(e) država ({{lists}}) propušta svakog posetioca dok ponovo ne bude dostupna.",
+        "messagePendingApply": "GeoIP baza podataka je ponovo dostupna, ali {{count}} lista država ({{lists}}) se još ne primenjuje. Pritisnite Ponovo učitaj na kartici Baza podataka država.",
+        "docsLink": "Kako obezbediti bazu podataka",
+        "issueHint": "Charon obično uključuje ovu bazu podataka. Otvorite issue na GitHub-u kako bismo to mogli da popravimo.",
+        "issueLink": "Otvori issue"
+      }
+    }
   },
   "security": {
     "title": "Security",
@@ -581,7 +605,85 @@
       "loadError": "Login protection status could not be loaded."
     },
     "settingUpdated": "Security setting updated",
-    "settingUpdateFailed": "Failed to update setting: {{error}}"
+    "settingUpdateFailed": "Failed to update setting: {{error}}",
+    "enforcement": {
+      "acl": {
+        "geoip_unavailable": "Листе држава се не примењују: GeoIP база података недостаје у овој инсталацији. Сви могу да приступе тим хостовима док се не обезбеди. Погледајте документацију."
+      }
+    },
+    "geoip": {
+      "title": "Baza podataka država (GeoIP)",
+      "description": "Liste pristupa po državi zahtevaju GeoIP bazu podataka država. Charon koristi priloženu kopiju, osim ako ne navedete sopstvenu.",
+      "loadError": "Stanje baze podataka nije moglo da se učita.",
+      "unknownValue": "Nepoznato",
+      "status": {
+        "ready": "Spremno",
+        "unavailable": "Nije dostupno"
+      },
+      "source": {
+        "label": "Izvor",
+        "bundled": "Uključeno uz Charon",
+        "data": "Vaša fascikla sa podacima",
+        "custom": "Na serveru je podešena prilagođena putanja",
+        "none": "Nema baze podataka"
+      },
+      "buildDate": "Datum izrade",
+      "size": "Veličina",
+      "path": "Datoteka",
+      "releaseNote": "Priložena kopija se ažurira uz svako izdanje Charon-a.",
+      "customPathNote": "Putanju baze podataka određuje server (CHARON_GEOIP_DB_PATH), pa se kopija ovde ne može zameniti.",
+      "readOnlyNote": "Fascikla sa podacima je samo za čitanje, pa se baza podataka ovde ne može zameniti.",
+      "unavailableReason": "Nije dostupno. Liste država se ne primenjuju dok se ne učita baza podataka.",
+      "docsLink": "Kako obezbediti bazu podataka",
+      "unenforcedLists": "Liste država koje se ne primenjuju: {{count}}",
+      "formNote": {
+        "unavailable": "Ova lista se neće primenjivati dok GeoIP baza podataka nije dostupna.",
+        "wouldRefuseYou": "Na osnovu adrese koju trenutno koristite, ova lista bi vas blokirala. Čuvanje je i dalje dozvoljeno."
+      },
+      "actions": {
+        "reload": "Ponovo učitaj",
+        "replace": "Zameni bazu podataka…",
+        "replaceHint": "Otpremite GeoIP bazu podataka država (.mmdb), najviše {{max}} MiB.",
+        "useIncluded": "Koristi priloženu kopiju",
+        "useIncludedConfirmTitle": "Koristiti priloženu kopiju?",
+        "useIncludedConfirmBody": "Vaša kopija u fascikli sa podacima biće uklonjena i Charon će koristiti priloženu bazu podataka.",
+        "useIncludedConfirmBodyNoBundled": "Vaša kopija u fascikli sa podacima biće uklonjena. Liste država se neće primenjivati dok ne obezbedite bazu podataka."
+      },
+      "result": {
+        "reloaded": "Baza podataka je ponovo učitana.",
+        "replaced": "Baza podataka je zamenjena. Charon sada koristi vašu kopiju.",
+        "removed": "Charon ponovo koristi priloženu kopiju."
+      },
+      "lookup": {
+        "label": "IP adresa",
+        "placeholder": "Na primer 203.0.113.7",
+        "useMyAddress": "Koristi moju adresu",
+        "submit": "Pretraži",
+        "found": "{{ip}} se nalazi u: {{country}}.",
+        "notFound": "Država za {{ip}} nije pronađena.",
+        "disabled": "Pretraga je dostupna kada se učita baza podataka.",
+        "invalid": "Unesite važeću IP adresu.",
+        "notLoaded": "Nijedna baza podataka nije učitana, pa adrese ne mogu da se pretražuju.",
+        "myAddressFailed": "Charon nije mogao da pročita vašu adresu."
+      },
+      "errors": {
+        "geoip_file_required": "Izaberite datoteku baze podataka za otpremanje.",
+        "geoip_too_large": "Datoteka je veća od 32 MiB.",
+        "geoip_not_mmdb": "Ta datoteka nije GeoIP baza podataka.",
+        "geoip_corrupt": "Datoteka baze podataka je oštećena i ne može da se pročita.",
+        "geoip_wrong_type": "Ovo je GeoIP baza podataka, ali ne baza podataka država.",
+        "geoip_older_than_current": "Ova baza podataka je starija od one koja se koristi. Otpremite noviju.",
+        "geoip_build_date_in_future": "Ova baza podataka ima datum izrade u budućnosti.",
+        "geoip_custom_path_set": "Na serveru je podešena prilagođena putanja baze podataka, pa se kopija ovde ne može menjati.",
+        "geoip_busy": "Druga izmena baze podataka je u toku. Pokušajte ponovo za trenutak.",
+        "geoip_write_failed": "Charon nije mogao da sačuva datoteku baze podataka.",
+        "geoip_reload_failed": "Charon nije mogao da učita datoteku baze podataka.",
+        "geoip_no_data_copy": "U fascikli sa podacima nema kopije za uklanjanje.",
+        "geoip_service_unavailable": "GeoIP usluga nije pokrenuta.",
+        "proxy_apply_failed": "Charon nije mogao da primeni konfiguraciju proksija.",
+        "generic": "Nešto nije u redu. Pokušajte ponovo."
+      }
+    }
   },
   "accessLists": {
     "title": "Access Lists",
@@ -613,7 +715,10 @@
     "deleteItems": "Delete {{count}} Items",
     "deleting": "Deleting...",
     "noAccessLists": "No Access Lists",
-    "noAccessListsDescription": "Create your first access list to control who can access your services"
+    "noAccessListsDescription": "Create your first access list to control who can access your services",
+    "errors": {
+      "access_list_rules_required": "Укљученој листи дозвољених потребно је најмање једно правило. Додајте правило или искључите листу, па сачувајте поново."
+    }
   },
   "rateLimiting": {
     "title": "Rate Limiting Configuration",
@@ -1042,6 +1147,7 @@
       "manual": "Manual",
       "scheduled": "Scheduled",
       "preRestore": "Pre-restore",
+      "preDelete": "Pre-delete",
       "uploaded": "Uploaded"
     },
     "schedule": {

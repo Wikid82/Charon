@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-a4f3ac6092c1f0d8
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:2b7b20a825eefa8073681f4278d46ca10c60b88d130e52e91a53d9bb861aac81
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-be70b87833d6b412
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:d7317bd44f6bbb18815847ce7d2a2c34fe0e8610387c081dec4a7fd575ac9d9f
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -31,7 +31,7 @@ ARG CROWDSEC_BUILDER_SRC=toolchain-prebuilt
 
 # ---- Pinned Toolchain Versions ----
 # renovate: datasource=docker depName=golang versioning=docker
-ARG GOLANG_IMAGE=golang:1.27.3-alpine@sha256:fa3d596898d9f126af7c01d14ee7597bab3f39cccf392ef36b69fe77cd681f18
+ARG GOLANG_IMAGE=golang:1.27.4-alpine@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf
 
 # renovate: datasource=docker depName=alpine versioning=docker
 ARG ALPINE_IMAGE=alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
@@ -57,18 +57,18 @@ ARG XNET_VERSION=0.62.0
 # crowdsec-builder stages so the two never drift. v0.56.0 also carries the
 # golang.org/x/crypto/ssh channel-flood deadlock DoS fixes (GO-2026-6354, GO-2026-6355).
 # renovate: datasource=go depName=golang.org/x/crypto
-ARG XCRYPTO_VERSION=0.58.0
+ARG XCRYPTO_VERSION=0.59.0
 # Shared golang.org/x/mod pin (GOSUMDB tile-verification bypass, CVE-2026-56864 / CVE-2026-56865;
 # fixed in v0.40.0). Must be >= the x/mod that the pinned x/net and x/crypto require (v0.41.0):
 # `go get golang.org/x/mod@<older>` is a downgrade and its cascade drags x/net, x/crypto and
 # x/text back down with it, silently undoing the pins above.
 # renovate: datasource=go depName=golang.org/x/mod
-ARG XMOD_VERSION=0.42.0
+ARG XMOD_VERSION=0.43.0
 # klauspost/compress DoS/resource-exhaustion fix, matching how golang.org/x/crypto
 # is patched above: pinned here so the CrowdSec/cscli and Caddy binaries (which
 # pull it in transitively) are patched immediately, ahead of upstream releases.
 # renovate: datasource=go depName=github.com/klauspost/compress
-ARG KLAUSPOST_COMPRESS_VERSION=1.20.3
+ARG KLAUSPOST_COMPRESS_VERSION=1.20.4
 # grpc-go HTTP/2 DATA-frame memory-exhaustion DoS fix (CVE-2026-84304), matching how
 # golang.org/x/crypto and klauspost/compress are patched above: pinned here so the Caddy
 # and CrowdSec/cscli binaries (which pull it in transitively) are patched immediately,
@@ -126,7 +126,7 @@ ARG CADDY_RATELIMIT_VERSION=0.1.0
 # renovate: datasource=go depName=github.com/caddy-dns/cloudflare
 ARG CADDY_DNS_CLOUDFLARE_VERSION=0.2.4
 # renovate: datasource=go depName=github.com/caddy-dns/route53
-ARG CADDY_DNS_ROUTE53_VERSION=1.6.2
+ARG CADDY_DNS_ROUTE53_VERSION=1.6.3
 # renovate: datasource=go depName=github.com/caddy-dns/digitalocean
 ARG CADDY_DNS_DIGITALOCEAN_VERSION=0.0.0-20250606074528-04bde2867106
 # renovate: datasource=go depName=github.com/caddy-dns/googleclouddns
@@ -284,7 +284,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
 # ---- Frontend Builder ----
 # Build the frontend using the BUILDPLATFORM to avoid arm64 musl Rollup native issues
 # renovate: datasource=docker depName=node
-FROM --platform=$BUILDPLATFORM node:26.13.0-alpine@sha256:8996bb5821d62a8fd9bb27c1cb07462f3fdce6e47d640c6a881ead0b064ce216 AS frontend-builder
+FROM --platform=$BUILDPLATFORM node:26.13.1-alpine@sha256:6bd9ab43c0ec0190ca7b2d193906cb8b7edf6e7f4afa43ddeccd6452710bffb5 AS frontend-builder
 RUN npm install -g npm@${NPM_VERSION} && npm cache clean --force
 WORKDIR /app/frontend
 
@@ -642,7 +642,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         # renovate: datasource=go depName=github.com/go-jose/go-jose/v3
         _retry go get github.com/go-jose/go-jose/v3@v3.0.5; \
         # renovate: datasource=go depName=github.com/go-jose/go-jose/v4
-        _retry go get github.com/go-jose/go-jose/v4@v4.1.8; \
+        _retry go get github.com/go-jose/go-jose/v4@v4.1.9; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/sdk
         _retry go get go.opentelemetry.io/otel/sdk@v1.47.0; \
         # renovate: datasource=go depName=go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploghttp
@@ -657,7 +657,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         _retry go get go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp@v1.47.0; \
         # CVE-2026-41889: SQL Injection via placeholder confusion with dollar quoted string literals
         # renovate: datasource=go depName=github.com/jackc/pgx/v5
-        _retry go get github.com/jackc/pgx/v5@v5.12.0; \
+        _retry go get github.com/jackc/pgx/v5@v5.13.0; \
         # renovate: datasource=go depName=github.com/russellhaering/goxmldsig
         _retry go get github.com/russellhaering/goxmldsig@v1.6.1; \
         # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
@@ -677,7 +677,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         _retry go get github.com/crowdsecurity/crowdsec@v${CROWDSEC_VERSION}; \
         # CVE-2026-56864 / CVE-2026-56865: golang.org/x/mod/sumdb GOSUMDB tile-verification bypass
         # (a colluding GOPROXY+GOSUMDB pair could forge sumdb tiles / serve module content outside
-        # the transparency log). Affects /usr/bin/caddy — go mod tidy's MVS resolution otherwise
+        # the transparency log). Affects /usr/bin/caddy — go mod tidys MVS resolution otherwise
         # lands on an older, vulnerable version. Fix available at v0.40.0. Same pattern as the
         # crowdsec-builder pin below.
         _retry go get golang.org/x/mod@v${XMOD_VERSION}; \
@@ -704,7 +704,7 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         _retry go get github.com/caddyserver/caddy/v2@v${CADDY_VERSION}; \
         # Final re-pin: grpc-go (CVE-2026-84304). MUST come after the OpenTelemetry
         # go.get block above: `go get .../otlp*http@v0.19.0 / v1.43.0` is a *downgrade*,
-        # and go get's downgrade cascade drags google.golang.org/grpc back down to the
+        # and go gets downgrade cascade drags google.golang.org/grpc back down to the
         # v1.83.0-dev that otel v1.43.0 requires (v1.83.1 => v1.83.0-dev => v1.83.0 in
         # the build log), silently undoing the earlier pin. Re-pinning here — with grpc
         # named on the command line so it is held fixed — and letting `go mod tidy`
@@ -880,9 +880,9 @@ RUN set -e; \
     _retry go get go.opentelemetry.io/otel@v1.47.0; \
     # GHSA-xmrv-pmrh-hhx2: AWS SDK v2 event stream injection
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream
-    _retry go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.26; \
+    _retry go get github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream@v1.7.27; \
     # renovate: datasource=go depName=github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs
-    _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.92.1; \
+    _retry go get github.com/aws/aws-sdk-go-v2/service/cloudwatchlogs@v1.92.2; \
     _retry go get github.com/aws/aws-sdk-go-v2/service/kinesis@v1.43.7; \
     _retry go get github.com/aws/aws-sdk-go-v2/service/s3@v1.102.1; \
     # CVE-2026-32952: go-ntlmssp DoS via malicious NTLM challenge response
@@ -1036,30 +1036,35 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # Note: In production, users should provide their own MaxMind license key
 # This uses the publicly available GeoLite2 database
 # In CI, timeout quickly rather than retrying to save build time
+# The download is checked against GEOLITE2_COUNTRY_SHA256; a mismatch only prints a warning because the upstream copy
+# changes between hash updates. A failed or empty download prints a warning and writes the marker
+# /app/geoip/.missing so the runtime can report it. The database lives in /app/geoip, outside the data volume, so a
+# volume mounted over /app/data does not hide it. Operators can place a newer copy in /app/data/geoip, which takes
+# precedence. The build does not fail: the image then ships without a database and country access lists refuse requests.
 ARG GEOLITE2_COUNTRY_SHA256=2c2d05c474baeb669298cce912a6236b5ecc4e50f0316a93e01ba5cf22183600
-RUN mkdir -p /app/data/geoip && \
-        if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
-            echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
-            if wget -qO /app/data/geoip/GeoLite2-Country.mmdb \
-                -T 10 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" 2>/dev/null \
-                && [ -s /app/data/geoip/GeoLite2-Country.mmdb ]; then \
-                echo "✅ GeoIP downloaded"; \
-            else \
-                echo "⚠️  GeoIP skipped"; \
-                touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder; \
-            fi; \
+RUN mkdir -p /app/geoip && \
+    db=/app/geoip/GeoLite2-Country.mmdb && \
+    if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
+        echo "⏱️  CI detected - quick download (10s timeout, no retries)"; \
+        wget_opts="-T 10"; \
+    else \
+        echo "Local - full download (30s timeout, 3 retries)"; \
+        wget_opts="-T 30 -t 4"; \
+    fi && \
+    if wget -qO "$db" $wget_opts "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
+        && [ -s "$db" ]; then \
+        if echo "${GEOLITE2_COUNTRY_SHA256}  $db" | sha256sum -c - >/dev/null 2>&1; then \
+            echo "✅ GeoIP downloaded and checksum verified"; \
         else \
-            echo "Local - full download (30s timeout, 3 retries)"; \
-            if wget -qO /app/data/geoip/GeoLite2-Country.mmdb \
-                -T 30 -t 4 "https://github.com/P3TERX/GeoLite.mmdb/raw/download/GeoLite2-Country.mmdb" \
-                && [ -s /app/data/geoip/GeoLite2-Country.mmdb ]; then \
-                echo "✅ GeoIP downloaded"; \
-            else \
-                echo "⚠️  GeoIP download failed or empty — skipping"; \
-                touch /app/data/geoip/GeoLite2-Country.mmdb.placeholder; \
-            fi; \
-        fi && \
-    chown -R charon:charon /app/data
+            echo "WARNING: GeoLite2-Country checksum differs from GEOLITE2_COUNTRY_SHA256 (the upstream copy was updated); keeping the downloaded database." >&2; \
+        fi; \
+    else \
+        echo "WARNING: GeoLite2-Country database not bundled (download failed or empty)." >&2; \
+        echo "WARNING: The image has no GeoIP database. Country access lists will refuse requests until one is provided in /app/data/geoip or at CHARON_GEOIP_DB_PATH." >&2; \
+        rm -f "$db"; \
+        touch /app/geoip/GeoLite2-Country.mmdb.placeholder /app/geoip/.missing; \
+    fi && \
+    chown -R charon:charon /app/geoip
 
 # Copy Caddy binary from caddy-builder (overwriting the one from base image)
 COPY --from=caddy-builder /usr/bin/caddy /usr/bin/caddy
@@ -1182,7 +1187,6 @@ ENV CHARON_ENV=production \
     CHARON_DB_PATH=/app/data/charon.db \
     CHARON_FRONTEND_DIR=/app/frontend/dist \
     CHARON_CADDY_CONFIG_DIR=/app/data/caddy \
-    CHARON_GEOIP_DB_PATH=/app/data/geoip/GeoLite2-Country.mmdb \
     CHARON_HTTP_PORT=8080 \
     CHARON_CROWDSEC_CONFIG_DIR=/app/data/crowdsec \
     CHARON_PLUGINS_DIR=/app/plugins
@@ -1200,7 +1204,8 @@ RUN mkdir -p /app/plugins && chmod 755 /app/plugins
 # them in a second layer on every release. Only the small, root-created dirs need it.
 # Note: /etc/crowdsec will be created as a symlink at runtime, not owned directly
 # Note: /app/plugins has 755 permissions (NOT world-writable) for security
-RUN chown -R charon:charon /app/data/caddy /app/data/crowdsec /app/plugins /app/frontend /config /var/log/crowdsec /var/log/caddy && \
+RUN chown charon:charon /app/data && \
+    chown -R charon:charon /app/data/caddy /app/data/crowdsec /app/plugins /app/frontend /config /var/log/crowdsec /var/log/caddy && \
     chown -R charon:charon /etc/crowdsec.dist 2>/dev/null || true && \
     chown -R charon:charon /var/lib/crowdsec 2>/dev/null || true
 

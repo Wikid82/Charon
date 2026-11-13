@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { GITHUB_REPO_URL } from '../../constants/links'
 import { useAuth } from '../../hooks/useAuth'
 import { useAckChangelog, useChangelogAll, useChangelogStatus } from '../../hooks/useChangelog'
 import { Button } from '../ui/Button'
@@ -16,7 +17,7 @@ import { Label } from '../ui/Label'
 
 import type { ChangelogAckAction, ChangelogEntry } from '../../api/changelog'
 
-const GITHUB_COMMIT_URL = 'https://github.com/Wikid82/Charon/commit/'
+const GITHUB_COMMIT_URL = `${GITHUB_REPO_URL}/commit/`
 
 /** Commit shas are lowercase hex from `git log`; anything else gets no link (F17). */
 const COMMIT_SHA_PATTERN = /^[0-9a-f]{7,40}$/

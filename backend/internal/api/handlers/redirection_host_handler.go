@@ -151,6 +151,19 @@ func (h *RedirectionHostHandler) List(c *gin.Context) {
 	c.JSON(http.StatusOK, hosts)
 }
 
+// redirectTargetInvalidCode is the stable error_code for ErrRedirectTargetInvalid; the UI maps it to a message.
+const redirectTargetInvalidCode = "redirect_target_invalid"
+
+// respondRedirectionHostWriteError writes a 400 for a rejected create or update.
+// Refused target URLs also carry a stable error_code.
+func respondRedirectionHostWriteError(c *gin.Context, err error) {
+	if errors.Is(err, services.ErrRedirectTargetInvalid) {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "error_code": redirectTargetInvalidCode})
+		return
+	}
+	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+}
+
 // booleanFieldsDefaultingTrueOnCreate lists RedirectionHost JSON fields that
 // are plain (non-pointer) `bool`s on the model with no `gorm:"default:true"`
 // tag (see models.RedirectionHost.PreservePath's doc comment for why). Since
@@ -207,7 +220,7 @@ func (h *RedirectionHostHandler) Create(c *gin.Context) {
 	host.UUID = uuid.NewString()
 
 	if err := h.service.Create(&host); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondRedirectionHostWriteError(c, err)
 		return
 	}
 
@@ -310,7 +323,7 @@ func (h *RedirectionHostHandler) Update(c *gin.Context) {
 	}
 
 	if err := h.service.Update(host); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondRedirectionHostWriteError(c, err)
 		return
 	}
 

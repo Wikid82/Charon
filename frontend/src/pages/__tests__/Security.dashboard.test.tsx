@@ -358,4 +358,27 @@ describe('Security Dashboard - Card Status Tests', () => {
       expect(screen.getByTestId('toggle-rate-limit')).not.toBeDisabled()
     })
   })
+
+  describe('ACL GeoIP enforcement note', () => {
+    it('shows the GeoIP note on the ACL card when the ACL reports geoip_unavailable', async () => {
+      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue({
+        ...mockSecurityStatusAllEnabled,
+        acl: { enabled: true, reason: 'geoip_unavailable' },
+      })
+      await renderSecurityPage()
+
+      const note = await screen.findByTestId('acl-enforcement-note')
+      expect(note).toHaveTextContent('Country lists are not enforced: the GeoIP database is missing')
+    })
+
+    it('shows no ACL note when the ACL reports no reason', async () => {
+      vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockSecurityStatusAllEnabled)
+      await renderSecurityPage()
+
+      await waitFor(() => {
+        expect(screen.getByText(/Cerberus Dashboard/i)).toBeInTheDocument()
+      })
+      expect(screen.queryByTestId('acl-enforcement-note')).not.toBeInTheDocument()
+    })
+  })
 })

@@ -187,7 +187,10 @@
     "noHosts": "No redirection hosts",
     "noHostsDescription": "Create your first redirection host to send visitors from one domain to another.",
     "deleteConfirmTitle": "Delete Redirection Host?",
-    "deleteConfirmMessage": "Are you sure you want to delete {{name}}? This action cannot be undone."
+    "deleteConfirmMessage": "Are you sure you want to delete {{name}}? This action cannot be undone.",
+    "errors": {
+      "redirect_target_invalid": "L'adreça de destinació no pot contenir claus. Utilitza una adreça web senzilla."
+    }
   },
   "proxyGroups": {
     "group": "Group",
@@ -376,6 +379,27 @@
     "createFailed": "Failed to create",
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
+  },
+  "notificationCenter": {
+    "title": "Notificacions",
+    "bellLabel": "Notificacions, {{count}} de noves",
+    "markAllRead": "Marca-les totes com a llegides",
+    "empty": "No hi ha notificacions noves",
+    "close": "Descarta",
+    "updateAvailable": "Actualització disponible: {{version}}",
+    "viewChangelog": "Mostra el registre de canvis",
+    "alerts": {
+      "label": "Requereix atenció",
+      "clearsItself": "Això desapareix automàticament quan el problema es resol.",
+      "geoip_unavailable": {
+        "title": "Les llistes d'accés per país no s'estan aplicant",
+        "message": "La base de dades GeoIP de països no hi és o no es pot utilitzar, de manera que {{count}} llista(es) de països ({{lists}}) deixen passar tots els visitants fins que torni a estar disponible.",
+        "messagePendingApply": "La base de dades GeoIP torna a estar disponible, però {{count}} llista(es) de països ({{lists}}) encara no s'apliquen. Premeu Torna a carregar a la targeta Base de dades de països.",
+        "docsLink": "Com proporcionar la base de dades",
+        "issueHint": "Charon normalment inclou aquesta base de dades. Obre un issue a GitHub perquè el puguem corregir.",
+        "issueLink": "Obre un issue"
+      }
+    }
   },
   "security": {
     "title": "Security",
@@ -581,7 +605,85 @@
       "loadError": "Login protection status could not be loaded."
     },
     "settingUpdated": "Security setting updated",
-    "settingUpdateFailed": "Failed to update setting: {{error}}"
+    "settingUpdateFailed": "Failed to update setting: {{error}}",
+    "enforcement": {
+      "acl": {
+        "geoip_unavailable": "Les llistes de països no s'apliquen: la base de dades GeoIP no hi és en aquesta instal·lació. Tothom pot accedir a aquests hosts fins que se n'proporcioni una. Consulta la documentació."
+      }
+    },
+    "geoip": {
+      "title": "Base de dades de països (GeoIP)",
+      "description": "Les llistes d'accés per país necessiten una base de dades de països GeoIP. Charon utilitza la còpia inclosa, tret que n'hi proporcioneu una de pròpia.",
+      "loadError": "No s'ha pogut carregar l'estat de la base de dades.",
+      "unknownValue": "Desconegut",
+      "status": {
+        "ready": "Preparat",
+        "unavailable": "No disponible"
+      },
+      "source": {
+        "label": "Origen",
+        "bundled": "Inclosa amb Charon",
+        "data": "La vostra carpeta de dades",
+        "custom": "Ruta personalitzada definida al servidor",
+        "none": "Cap base de dades"
+      },
+      "buildDate": "Data de compilació",
+      "size": "Mida",
+      "path": "Fitxer",
+      "releaseNote": "La còpia inclosa s'actualitza amb cada versió de Charon.",
+      "customPathNote": "El servidor defineix la ruta de la base de dades (CHARON_GEOIP_DB_PATH), per tant la còpia no es pot substituir aquí.",
+      "readOnlyNote": "La carpeta de dades és de només lectura, per tant la base de dades no es pot substituir aquí.",
+      "unavailableReason": "No disponible. Les llistes de països no s'apliquen fins que no es carrega una base de dades.",
+      "docsLink": "Com proporcionar una base de dades",
+      "unenforcedLists": "{{count}} llista(es) de països no aplicada(es)",
+      "formNote": {
+        "unavailable": "Aquesta llista no s'aplicarà fins que la base de dades GeoIP no estigui disponible.",
+        "wouldRefuseYou": "Segons l'adreça que feu servir ara, aquesta llista us bloquejaria. Encara es pot desar."
+      },
+      "actions": {
+        "reload": "Torna a carregar",
+        "replace": "Substitueix la base de dades…",
+        "replaceHint": "Pugeu una base de dades de països GeoIP (.mmdb), de fins a {{max}} MiB.",
+        "useIncluded": "Usa la còpia inclosa",
+        "useIncludedConfirmTitle": "Voleu usar la còpia inclosa?",
+        "useIncludedConfirmBody": "La vostra còpia de la carpeta de dades se suprimirà i Charon usarà la base de dades inclosa.",
+        "useIncludedConfirmBodyNoBundled": "La vostra còpia de la carpeta de dades se suprimirà. Les llistes de països no s'aplicaran fins que proporcioneu una base de dades."
+      },
+      "result": {
+        "reloaded": "Base de dades carregada de nou.",
+        "replaced": "Base de dades substituïda. Charon ara usa la vostra còpia.",
+        "removed": "Charon torna a usar la còpia inclosa."
+      },
+      "lookup": {
+        "label": "Adreça IP",
+        "placeholder": "Per exemple 203.0.113.7",
+        "useMyAddress": "Usa la meva adreça",
+        "submit": "Cerca",
+        "found": "{{ip}} és a {{country}}.",
+        "notFound": "No s'ha trobat cap país per a {{ip}}.",
+        "disabled": "La cerca està disponible quan es carrega una base de dades.",
+        "invalid": "Introduïu una adreça IP vàlida.",
+        "notLoaded": "No hi ha cap base de dades carregada, per tant no es poden cercar adreces.",
+        "myAddressFailed": "Charon no ha pogut llegir la vostra adreça."
+      },
+      "errors": {
+        "geoip_file_required": "Trieu un fitxer de base de dades per pujar.",
+        "geoip_too_large": "El fitxer és més gran de 32 MiB.",
+        "geoip_not_mmdb": "El fitxer no és una base de dades GeoIP.",
+        "geoip_corrupt": "El fitxer de la base de dades està danyat i no es pot llegir.",
+        "geoip_wrong_type": "És una base de dades GeoIP, però no de països.",
+        "geoip_older_than_current": "Aquesta base de dades és més antiga que la que s'està usant. Pugeu-ne una de més recent.",
+        "geoip_build_date_in_future": "Aquesta base de dades té una data de compilació al futur.",
+        "geoip_custom_path_set": "El servidor té definida una ruta personalitzada de la base de dades, per tant la còpia no es pot canviar aquí.",
+        "geoip_busy": "Hi ha un altre canvi de base de dades en curs. Torneu-ho a provar d'aquí a un moment.",
+        "geoip_write_failed": "Charon no ha pogut desar el fitxer de la base de dades.",
+        "geoip_reload_failed": "Charon no ha pogut carregar el fitxer de la base de dades.",
+        "geoip_no_data_copy": "No hi ha cap còpia a la carpeta de dades per suprimir.",
+        "geoip_service_unavailable": "El servei GeoIP no s'està executant.",
+        "proxy_apply_failed": "Charon no ha pogut aplicar la configuració del proxy.",
+        "generic": "Alguna cosa ha fallat. Torneu-ho a provar."
+      }
+    }
   },
   "accessLists": {
     "title": "Access Lists",
@@ -613,7 +715,10 @@
     "deleteItems": "Delete {{count}} Items",
     "deleting": "Deleting...",
     "noAccessLists": "No Access Lists",
-    "noAccessListsDescription": "Create your first access list to control who can access your services"
+    "noAccessListsDescription": "Create your first access list to control who can access your services",
+    "errors": {
+      "access_list_rules_required": "Una llista de permesos activada necessita almenys una regla. Afegeix una regla o desactiva la llista i torna a desar."
+    }
   },
   "rateLimiting": {
     "title": "Rate Limiting Configuration",
@@ -1042,6 +1147,7 @@
       "manual": "Manual",
       "scheduled": "Scheduled",
       "preRestore": "Pre-restore",
+      "preDelete": "Pre-delete",
       "uploaded": "Uploaded"
     },
     "schedule": {

@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SYFT_VERSION: 'v1.57.0'
+  SYFT_VERSION: 'v1.57.1'
 
 permissions:
   contents: read
@@ -294,7 +294,7 @@ jobs:
         if: steps.set-target.outputs.image_name != ''
         id: sbom_primary
         continue-on-error: true
-        uses: step-security/sbom-action@28bb7d0d2869c9ab0e5571c93591747945819d39 # v0.24.2
+        uses: step-security/sbom-action@eb16f44c4d6e93eb081c681c2be26df28c3ad79a # v0.24.3
         with:
           image: ${{ steps.set-target.outputs.image_name }}
           format: cyclonedx-json
@@ -356,7 +356,7 @@ jobs:
           for attempt in $(seq 1 "$MAX_ATTEMPTS"); do
             curl -sSfL https://raw.githubusercontent.com/anchore/grype/b6f5194537747ee7f705f4113069ac9eb269919f/install.sh -o grype-install.sh
             echo "8646f06a90b10ca64992c1809b4aa00c44e30b4f551f63c309b0b0ab66873556  grype-install.sh" | sha256sum -c -
-            if sh grype-install.sh -b /usr/local/bin v0.121.0; then
+            if sh grype-install.sh -b /usr/local/bin v0.121.3; then
               break
             fi
             if [[ "$attempt" -eq "$MAX_ATTEMPTS" ]]; then

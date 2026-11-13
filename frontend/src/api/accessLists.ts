@@ -129,3 +129,34 @@ export const accessListsApi = {
     return response.data;
   },
 };
+
+/** Unsaved access list settings sent to the self-check; same shape as the create and update payloads. */
+export interface AccessListSelfCheckDraft {
+  type: AccessList['type'];
+  country_codes: string;
+  ip_rules: string;
+  local_network_only: boolean;
+  enabled: boolean;
+}
+
+/** Decision the proxy would make for the viewer's current address under the draft. */
+export interface AccessListSelfCheckResult {
+  ip_address: string;
+  country_code: string;
+  allowed: boolean;
+  admin_exempt: boolean;
+  geoip_available: boolean;
+  reason: string;
+}
+
+/**
+ * Checks whether an unsaved access list would refuse the address the viewer is using now (admin only).
+ * Nothing is persisted.
+ * @param draft - The list settings as they are currently edited
+ * @returns Promise resolving to the self-check decision
+ * @throws {AxiosError} If the request fails or the caller is not an admin
+ */
+export async function selfCheckAccessList(draft: AccessListSelfCheckDraft): Promise<AccessListSelfCheckResult> {
+  const response = await client.post<AccessListSelfCheckResult>('/access-lists/self-check', draft);
+  return response.data;
+}

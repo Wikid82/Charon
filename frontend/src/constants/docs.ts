@@ -6,3 +6,6 @@ export const TRUSTED_PROXIES_DOCS_URL = `${DOCS_SITE_URL}/configuration/trusted-
 
 /** How sign-in throttling ("login protection") works. */
 export const LOGIN_PROTECTION_DOCS_URL = `${DOCS_SITE_URL}/features/login-protection`
+
+/** How to provide the GeoIP country database when it is missing. */
+export const GEOIP_TROUBLESHOOTING_DOCS_URL = `${DOCS_SITE_URL}/troubleshooting/geoip-database`

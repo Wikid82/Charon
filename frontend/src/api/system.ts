@@ -21,6 +21,40 @@ export interface Notification {
   created_at: string;
 }
 
+/** Severity of an active alert, using the same values as a notification. */
+export type AlertSeverity = Notification['type'];
+
+/**
+ * A condition the server currently reports to the notification bell, mirroring one entry of
+ * `GET /notifications/alerts`. Alerts are computed per request and never stored.
+ */
+export interface ActiveAlert {
+  /** Stable identifier; the frontend maps it to text and links. Unknown keys are not rendered. */
+  key: string;
+  severity: AlertSeverity;
+  /** Up to five affected names, sorted by the server. */
+  affected_lists?: string[];
+  /** Full number of affected names, which can exceed `affected_lists.length`. */
+  affected_lists_total?: number;
+  /** Whether a usable database is loaded now; selects the message variant only. */
+  database_available?: boolean;
+}
+
+/** Wire shape of `GET /notifications/alerts`. */
+interface ActiveAlertsResponse {
+  alerts: ActiveAlert[];
+}
+
+/**
+ * Fetches the alerts that currently need attention.
+ * @returns Promise resolving to ActiveAlert objects (empty when nothing needs attention)
+ * @throws {AxiosError} If the request fails
+ */
+export const getActiveAlerts = async (): Promise<ActiveAlert[]> => {
+  const response = await client.get<ActiveAlertsResponse>('/notifications/alerts');
+  return response.data.alerts;
+};
+
 /**
  * Checks for available application updates.
  * @returns Promise resolving to UpdateInfo

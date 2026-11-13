@@ -1,6 +1,7 @@
 package models
 
 import (
+	"strings"
 	"time"
 )
 
@@ -18,6 +19,18 @@ type AccessList struct {
 	Enabled          bool      `json:"enabled" gorm:"index"`
 	CreatedAt        time.Time `json:"created_at"`
 	UpdatedAt        time.Time `json:"updated_at"`
+}
+
+// NormalizeCountryCodes returns the comma-separated country codes trimmed, upper-cased and stripped of empty
+// entries, so the stored value and the generated proxy matchers agree on one canonical form.
+func NormalizeCountryCodes(raw string) string {
+	var codes []string
+	for _, part := range strings.Split(raw, ",") {
+		if code := strings.ToUpper(strings.TrimSpace(part)); code != "" {
+			codes = append(codes, code)
+		}
+	}
+	return strings.Join(codes, ",")
 }
 
 // AccessListRule represents a single IP or CIDR rule

@@ -187,7 +187,10 @@
     "noHosts": "No redirection hosts",
     "noHostsDescription": "Create your first redirection host to send visitors from one domain to another.",
     "deleteConfirmTitle": "Delete Redirection Host?",
-    "deleteConfirmMessage": "Are you sure you want to delete {{name}}? This action cannot be undone."
+    "deleteConfirmMessage": "Are you sure you want to delete {{name}}? This action cannot be undone.",
+    "errors": {
+      "redirect_target_invalid": "L'indirizzo di destinazione non può contenere parentesi graffe. Usa un indirizzo web semplice."
+    }
   },
   "proxyGroups": {
     "group": "Group",
@@ -376,6 +379,27 @@
     "createFailed": "Failed to create",
     "updateFailed": "Failed to update",
     "partialFailed": "Completed with {{count}} error(s)"
+  },
+  "notificationCenter": {
+    "title": "Notifiche",
+    "bellLabel": "Notifiche, {{count}} nuove",
+    "markAllRead": "Segna tutte come lette",
+    "empty": "Nessuna nuova notifica",
+    "close": "Ignora",
+    "updateAvailable": "Aggiornamento disponibile: {{version}}",
+    "viewChangelog": "Visualizza il changelog",
+    "alerts": {
+      "label": "Richiede attenzione",
+      "clearsItself": "Si risolve automaticamente quando il problema viene corretto.",
+      "geoip_unavailable": {
+        "title": "Le liste di accesso per paese non sono applicate",
+        "message": "Il database GeoIP dei paesi manca o non è utilizzabile, quindi {{count}} lista/e di paesi ({{lists}}) lasciano passare ogni visitatore finché non torna disponibile.",
+        "messagePendingApply": "Il database GeoIP è di nuovo disponibile, ma {{count}} lista/e per paese ({{lists}}) non sono ancora applicate. Premi Ricarica sulla scheda Database dei paesi.",
+        "docsLink": "Come fornire il database",
+        "issueHint": "Charon normalmente include questo database. Apri una segnalazione (issue) su GitHub così possiamo risolvere il problema.",
+        "issueLink": "Apri una issue"
+      }
+    }
   },
   "security": {
     "title": "Security",
@@ -581,7 +605,85 @@
       "loadError": "Login protection status could not be loaded."
     },
     "settingUpdated": "Security setting updated",
-    "settingUpdateFailed": "Failed to update setting: {{error}}"
+    "settingUpdateFailed": "Failed to update setting: {{error}}",
+    "enforcement": {
+      "acl": {
+        "geoip_unavailable": "Le liste di paesi non vengono applicate: il database GeoIP manca in questa installazione. Chiunque può raggiungere questi host finché non viene fornito. Consulta la documentazione."
+      }
+    },
+    "geoip": {
+      "title": "Database dei paesi (GeoIP)",
+      "description": "Le liste di accesso per paese richiedono un database GeoIP dei paesi. Charon usa la copia inclusa, a meno che non ne fornisci una tua.",
+      "loadError": "Impossibile caricare lo stato del database.",
+      "unknownValue": "Sconosciuto",
+      "status": {
+        "ready": "Pronto",
+        "unavailable": "Non disponibile"
+      },
+      "source": {
+        "label": "Origine",
+        "bundled": "Incluso con Charon",
+        "data": "La tua cartella dati",
+        "custom": "Percorso personalizzato impostato sul server",
+        "none": "Nessun database"
+      },
+      "buildDate": "Data di creazione",
+      "size": "Dimensione",
+      "path": "File",
+      "releaseNote": "La copia inclusa viene aggiornata con ogni versione di Charon.",
+      "customPathNote": "Il percorso del database è impostato dal server (CHARON_GEOIP_DB_PATH), quindi la copia non può essere sostituita qui.",
+      "readOnlyNote": "La cartella dati è di sola lettura, quindi il database non può essere sostituito qui.",
+      "unavailableReason": "Non disponibile. Le liste per paese non vengono applicate finché non viene caricato un database.",
+      "docsLink": "Come fornire un database",
+      "unenforcedLists": "{{count}} lista/e per paese non applicata/e",
+      "formNote": {
+        "unavailable": "Questa lista non verrà applicata finché il database GeoIP non sarà disponibile.",
+        "wouldRefuseYou": "In base all'indirizzo che stai usando ora, questa lista ti bloccherebbe. Il salvataggio resta consentito."
+      },
+      "actions": {
+        "reload": "Ricarica",
+        "replace": "Sostituisci database…",
+        "replaceHint": "Carica un database GeoIP dei paesi (.mmdb), fino a {{max}} MiB.",
+        "useIncluded": "Usa la copia inclusa",
+        "useIncludedConfirmTitle": "Usare la copia inclusa?",
+        "useIncludedConfirmBody": "La tua copia nella cartella dati verrà rimossa e Charon userà il database incluso.",
+        "useIncludedConfirmBodyNoBundled": "La tua copia nella cartella dati verrà rimossa. Le liste per paese non verranno applicate finché non fornirai un database."
+      },
+      "result": {
+        "reloaded": "Database ricaricato.",
+        "replaced": "Database sostituito. Charon ora usa la tua copia.",
+        "removed": "Charon usa di nuovo la copia inclusa."
+      },
+      "lookup": {
+        "label": "Indirizzo IP",
+        "placeholder": "Ad esempio 203.0.113.7",
+        "useMyAddress": "Usa il mio indirizzo",
+        "submit": "Cerca",
+        "found": "{{ip}} si trova in {{country}}.",
+        "notFound": "Nessun paese trovato per {{ip}}.",
+        "disabled": "La ricerca è disponibile quando è caricato un database.",
+        "invalid": "Inserisci un indirizzo IP valido.",
+        "notLoaded": "Nessun database caricato, quindi non è possibile cercare indirizzi.",
+        "myAddressFailed": "Charon non è riuscito a leggere il tuo indirizzo."
+      },
+      "errors": {
+        "geoip_file_required": "Scegli un file di database da caricare.",
+        "geoip_too_large": "Il file supera i 32 MiB.",
+        "geoip_not_mmdb": "Il file non è un database GeoIP.",
+        "geoip_corrupt": "Il file del database è danneggiato e non può essere letto.",
+        "geoip_wrong_type": "È un database GeoIP, ma non un database dei paesi.",
+        "geoip_older_than_current": "Questo database è più vecchio di quello in uso. Carica una versione più recente.",
+        "geoip_build_date_in_future": "Questo database ha una data di creazione nel futuro.",
+        "geoip_custom_path_set": "Sul server è impostato un percorso personalizzato per il database, quindi la copia non può essere modificata qui.",
+        "geoip_busy": "Un'altra modifica al database è in corso. Riprova tra poco.",
+        "geoip_write_failed": "Charon non è riuscito a salvare il file del database.",
+        "geoip_reload_failed": "Charon non è riuscito a caricare il file del database.",
+        "geoip_no_data_copy": "Nella cartella dati non c'è nessuna copia da rimuovere.",
+        "geoip_service_unavailable": "Il servizio GeoIP non è in esecuzione.",
+        "proxy_apply_failed": "Charon non è riuscito ad applicare la configurazione del proxy.",
+        "generic": "Qualcosa è andato storto. Riprova."
+      }
+    }
   },
   "accessLists": {
     "title": "Access Lists",
@@ -613,7 +715,10 @@
     "deleteItems": "Delete {{count}} Items",
     "deleting": "Deleting...",
     "noAccessLists": "No Access Lists",
-    "noAccessListsDescription": "Create your first access list to control who can access your services"
+    "noAccessListsDescription": "Create your first access list to control who can access your services",
+    "errors": {
+      "access_list_rules_required": "Una lista di autorizzazione attiva richiede almeno una regola. Aggiungi una regola o disattiva la lista, quindi salva di nuovo."
+    }
   },
   "rateLimiting": {
     "title": "Rate Limiting Configuration",
@@ -1042,6 +1147,7 @@
       "manual": "Manual",
       "scheduled": "Scheduled",
       "preRestore": "Pre-restore",
+      "preDelete": "Pre-delete",
       "uploaded": "Uploaded"
     },
     "schedule": {

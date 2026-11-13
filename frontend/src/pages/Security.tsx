@@ -9,6 +9,7 @@ import { crowdsecErrorMessage } from '../api/errorBody'
 import { type SecurityStatus } from '../api/security'
 import { updateSetting } from '../api/settings'
 import { CrowdSecKeyWarning } from '../components/CrowdSecKeyWarning'
+import { GeoIPDatabaseCard } from '../components/GeoIPDatabaseCard'
 import { PageShell } from '../components/layout/PageShell'
 import { LiveLogViewer } from '../components/LiveLogViewer'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
@@ -424,6 +425,7 @@ export default function Security() {
 
         {/* Sign-in throttling is always on, so this sits outside the Cerberus-enabled sections */}
         {user?.role === 'admin' && <LoginProtectionCard />}
+        {user?.role === 'admin' && <GeoIPDatabaseCard />}
 
         <Outlet />
 
@@ -516,6 +518,10 @@ export default function Security() {
               <p className="text-sm text-content-muted">
                 {t('security.aclProtects')}
               </p>
+              {/* The backend sends a reason only when the list is not applied, so the note is keyed on it. */}
+              {status.acl.reason && (
+                <SecurityEnforcementNote moduleName="acl" state={{ enforced: false, reason: status.acl.reason }} />
+              )}
             </CardContent>
             <CardFooter className="justify-between pt-4">
               <Tooltip>

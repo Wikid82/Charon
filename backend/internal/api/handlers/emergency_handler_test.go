@@ -874,3 +874,38 @@ func TestEmergencySecurityReset_MiddlewareValidatedRequestSkipsDirectCheck(t *te
 	router.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusOK, w.Code)
 }
+
+func TestEmergencySecurityReset_ManagementEntryForms(t *testing.T) {
+	validToken := "this-is-a-valid-emergency-token-with-32-chars-minimum"
+	t.Setenv(EmergencyTokenEnvVar, validToken)
+
+	tests := []struct {
+		name       string
+		cidrs      []string
+		remoteAddr string
+		wantStatus int
+	}{
+		{"bare address admits that address", []string{"203.0.113.9"}, "203.0.113.9:5000", http.StatusOK},
+		{"bare address rejects a neighbour", []string{"203.0.113.9"}, "203.0.113.10:5000", http.StatusForbidden},
+		{"invalid entry falls back to loopback only for private address", []string{"203.0.113.0/24", "bogus"}, "10.0.0.5:5000", http.StatusForbidden},
+		{"invalid entry falls back to loopback only for listed address", []string{"203.0.113.0/24", "bogus"}, "203.0.113.9:5000", http.StatusForbidden},
+		{"invalid entry still admits loopback", []string{"203.0.113.0/24", "bogus"}, "127.0.0.1:5000", http.StatusOK},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			db := setupEmergencyTestDB(t)
+			handler := NewEmergencyHandler(db)
+			t.Cleanup(handler.Close)
+			handler.WithManagementCIDRs(tc.cidrs)
+			router := newEmergencyRouterFrom(handler, tc.remoteAddr)
+
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/emergency/security-reset", http.NoBody)
+			req.Header.Set(EmergencyTokenHeader, validToken)
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, req)
+
+			assert.Equal(t, tc.wantStatus, w.Code)
+		})
+	}
+}

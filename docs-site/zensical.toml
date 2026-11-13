@@ -49,6 +49,7 @@ nav = [
     "troubleshooting/proxy-headers.md",
     "troubleshooting/websocket.md",
     "troubleshooting/security-module-applied.md",
+    "troubleshooting/geoip-database.md",
     "troubleshooting/react-production-errors.md",
     "troubleshooting/e2e-tests.md",
     "troubleshooting/go-gopls.md",

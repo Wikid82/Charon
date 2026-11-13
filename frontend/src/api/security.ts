@@ -29,7 +29,7 @@ export interface SecurityStatus {
   } & SecurityEnforcement
   acl: {
     enabled: boolean
-  }
+  } & SecurityEnforcement
 }
 
 /**
@@ -284,5 +284,100 @@ export const upsertRuleSet = async (payload: UpsertRuleSetPayload) => {
  */
 export const deleteRuleSet = async (uuid: string) => {
   const response = await client.delete(`/security/rulesets/${encodeURIComponent(uuid)}`)
+  return response.data
+}
+
+/** Where the proxy's GeoIP database comes from: the image, the data folder, a server-set path, or nothing. */
+export type GeoIPSource = 'bundled' | 'data' | 'custom' | 'none'
+
+/** Why a database cannot be replaced from the UI; empty when it can. */
+export type GeoIPReplaceBlockedReason = '' | 'custom_path_set' | 'data_folder_read_only'
+
+/** Response of `GET /security/geoip/status`. `reason` is present only while the database is unavailable. */
+export interface GeoIPStatus {
+  available: boolean
+  loaded: boolean
+  db_path: string
+  message: string
+  reason?: string
+  source: GeoIPSource
+  database_type: string
+  build_date: string | null
+  size_bytes: number | null
+  loaded_at: string | null
+  included_build_date: string | null
+  data_copy_present: boolean
+  can_replace: boolean
+  replace_blocked_reason: GeoIPReplaceBlockedReason
+  /** Country lists the proxy is not enforcing because no database is usable. */
+  unenforced_lists_total: number
+}
+
+/** Response of the replace and remove routes: the status after the change. */
+export interface GeoIPStatusChange {
+  status: GeoIPStatus
+  /** Set by the replace route when a data-folder copy was overwritten. */
+  replaced_previous?: boolean
+}
+
+/** Response of `POST /security/geoip/lookup`. `country_code` is empty when `found` is false. */
+export interface GeoIPLookupResult {
+  ip_address: string
+  country_code: string
+  found: boolean
+  message?: string
+}
+
+/**
+ * Gets the GeoIP database status for the Security page card (admin).
+ * @returns Promise resolving to GeoIPStatus
+ * @throws {AxiosError} If the request fails
+ */
+export const getGeoIPStatus = async (): Promise<GeoIPStatus> => {
+  const response = await client.get<GeoIPStatus>('/security/geoip/status')
+  return response.data
+}
+
+/**
+ * Reloads the GeoIP database from disk and applies the proxy configuration.
+ * @returns Promise resolving to the server's reload message
+ * @throws {AxiosError} If the reload fails; `error_code` names the cause
+ */
+export const reloadGeoIP = async (): Promise<unknown> => {
+  const response = await client.post('/security/geoip/reload')
+  return response.data
+}
+
+/**
+ * Looks up the country of an IP address with the loaded database.
+ * @param ipAddress - IPv4 or IPv6 address to look up
+ * @returns Promise resolving to GeoIPLookupResult
+ * @throws {AxiosError} If the request fails (400 for an invalid address, 503 when no database is loaded)
+ */
+export const lookupGeoIP = async (ipAddress: string): Promise<GeoIPLookupResult> => {
+  const response = await client.post<GeoIPLookupResult>('/security/geoip/lookup', { ip_address: ipAddress })
+  return response.data
+}
+
+/**
+ * Replaces the data-folder copy of the GeoIP database with an uploaded file.
+ * @param file - The uploaded database; sent as the multipart part `file`
+ * @returns Promise resolving to the status after the replacement
+ * @throws {AxiosError} If the upload is refused; `error_code` names the cause
+ */
+export const replaceGeoIPDatabase = async (file: File): Promise<GeoIPStatusChange> => {
+  const body = new FormData()
+  body.append('file', file)
+  const response = await client.post<GeoIPStatusChange>('/security/geoip/database', body)
+  return response.data
+}
+
+/**
+ * Removes the data-folder copy so Charon uses the database included with the image.
+ * @returns Promise resolving to the status after the removal
+ * @throws {AxiosError} If the removal fails; 404 when there is no data-folder copy
+ */
+export const removeGeoIPDatabase = async (): Promise<GeoIPStatusChange> => {
+  const response = await client.delete<GeoIPStatusChange>('/security/geoip/database')
   return response.data
 }

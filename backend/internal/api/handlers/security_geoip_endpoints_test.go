@@ -49,7 +49,8 @@ func TestSecurityHandler_GetGeoIPStatus_Initialized_NotLoaded(t *testing.T) {
 	var body map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &body))
 	assert.Equal(t, false, body["loaded"])
-	assert.Equal(t, "GeoIP service available", body["message"])
+	assert.Equal(t, false, body["available"])
+	assert.Equal(t, "GeoIP database unavailable", body["message"])
 }
 
 func TestSecurityHandler_ReloadGeoIP_NotInitialized(t *testing.T) {
@@ -86,7 +87,7 @@ func TestSecurityHandler_ReloadGeoIP_LoadError(t *testing.T) {
 	r.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
-	assert.Contains(t, w.Body.String(), "Failed to reload GeoIP database")
+	assert.Contains(t, w.Body.String(), "\"error_code\":\"geoip_reload_failed\"")
 }
 
 func TestSecurityHandler_LookupGeoIP_MissingIPAddress(t *testing.T) {

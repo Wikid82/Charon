@@ -12,6 +12,7 @@
  * - Escape key closes dialog
  * - Successful PEM export triggers file download
  * - Export with include key requires password re-authentication
+ * - PFX/P12 exports require the account password even without include key
  * - Dialog accessibility: keyboard navigation, dialog role, labels
  *
  * @see /projects/Charon/docs/plans/current_spec.md
@@ -676,5 +677,58 @@ test.describe('Certificate Export', () => {
         await expect(exportBtn).toBeVisible();
       }
     });
+  });
+
+  // ---------------------------------------------------------------------------
+  // Scenario 14: PFX and P12 exports always ask for the account password
+  // The format embeds the private key, so the password is required even when
+  // include_key is false or omitted. Sent through the API to cover the server
+  // check directly (the dialog's own validation is covered above).
+  // ---------------------------------------------------------------------------
+  test.describe('PFX and P12 password requirement', () => {
+    const PFX_PASSWORD = 'export-container-pass-123';
+
+    for (const format of ['pfx', 'p12'] as const) {
+      // page.request shares the signed-in session of the page, so the account password
+      // re-check runs against the same user that the dialog tests use.
+      test(`should refuse ${format} export without the account password and accept it with the password`, async ({ page }) => {
+        let certUUID = '';
+
+        await test.step('Seed a custom certificate with key via API', async () => {
+          const result = await createCustomCertViaAPI(baseURL);
+          createdCertIds.push(result.id);
+          certUUID = result.uuid;
+        });
+
+        const exportPath = `/api/v1/certificates/${certUUID}/export`;
+
+        await test.step('Refuse the export when include_key is omitted and no password is sent', async () => {
+          const response = await page.request.post(exportPath, {
+            data: { format, pfx_password: PFX_PASSWORD },
+          });
+          expect(response.status()).toBe(403);
+          expect(await response.json()).toEqual({ error: 'password required to export private key' });
+        });
+
+        await test.step('Refuse the export when include_key is false and no password is sent', async () => {
+          const response = await page.request.post(exportPath, {
+            data: { format, include_key: false, pfx_password: PFX_PASSWORD },
+          });
+          expect(response.status()).toBe(403);
+          expect(await response.json()).toEqual({ error: 'password required to export private key' });
+        });
+
+        await test.step('Accept the export when the account password is sent', async () => {
+          const response = await page.request.post(exportPath, {
+            data: { format, include_key: false, password: TEST_PASSWORD, pfx_password: PFX_PASSWORD },
+          });
+          const failure = response.ok() ? '' : `${response.status()} ${await response.text()}`;
+          expect(failure, 'account-password export should succeed').toBe('');
+          // The server names both PKCS#12 formats with a .pfx extension.
+          expect(response.headers()['content-disposition']).toContain('.pfx');
+          expect((await response.body()).length).toBeGreaterThan(0);
+        });
+      });
+    }
   });
 });

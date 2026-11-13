@@ -23,6 +23,12 @@ export const RATE_LIMIT_ENABLE_PATH = '/api/v1/security/rate-limit/enable';
 /** Whitelist that keeps the test runner reachable while Cerberus is on. */
 export const RUNNER_WHITELIST = '127.0.0.1/32,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16';
 
+/**
+ * Whitelist for cases that need a client which is not admin-whitelisted: the container's own loopback address
+ * (127.0.0.1) is left out, while the Docker bridge ranges the runner connects from stay listed.
+ */
+export const RUNNER_WHITELIST_NO_LOOPBACK = '10.0.0.0/8,172.16.0.0/12,192.168.0.0/16';
+
 /** Settings keys that hold the security module switches. The settings API accepts only true or false for them. */
 export const SECURITY_MODULE_SWITCH_KEYS = [
   'security.waf.enabled',
@@ -93,8 +99,11 @@ interface RuleSetListEntry {
   name: string;
 }
 
-/** Retries a request the API rate-limits (HTTP 429), like the other security helpers. */
-async function withRateLimitRetry<T extends { status(): number }>(send: () => Promise<T>): Promise<T> {
+/**
+ * Retries a request the API rate-limits (HTTP 429). Every API call from the runner shares one budget per client IP
+ * while the API limiter is on, so setup and cleanup calls use this too.
+ */
+export async function withRateLimitRetry<T extends { status(): number }>(send: () => Promise<T>): Promise<T> {
   const maxRetries = 5;
   const retryDelayMs = 1000;
   let response = await send();
@@ -184,6 +193,55 @@ export async function expectModuleSwitchesRestored(request: APIRequestContext, s
 export async function writeSettingValue(request: APIRequestContext, key: string, value: string): Promise<void> {
   const response = await withRateLimitRetry(() => request.post(SETTINGS_PATH, { data: { key, value } }));
   expect(response.ok(), `POST ${SETTINGS_PATH} ${key} failed with ${response.status()}`).toBeTruthy();
+}
+
+/**
+ * Settings that set the API limiter budget: the per-client limit on /api/v1 routes outside the admin control plane.
+ * Unlike the stored security config (which only drives the proxy limit), these keys are read by the API limiter itself,
+ * so a case that writes them must put them back.
+ */
+export const API_RATE_LIMIT_BUDGET_KEYS = [
+  'security.rate_limit.requests',
+  'security.rate_limit.window',
+  'security.rate_limit.burst',
+] as const;
+
+export type ApiRateLimitBudgetKey = (typeof API_RATE_LIMIT_BUDGET_KEYS)[number];
+export type ApiRateLimitBudget = Record<ApiRateLimitBudgetKey, string>;
+
+/** The values the API limiter uses when no budget setting is stored. */
+export const STANDARD_API_RATE_LIMIT_BUDGET: ApiRateLimitBudget = {
+  'security.rate_limit.requests': '100',
+  'security.rate_limit.window': '60',
+  'security.rate_limit.burst': '20',
+};
+
+/** Reads the stored API budget settings. An absent key is returned as ''. */
+export async function readApiRateLimitBudget(request: APIRequestContext): Promise<ApiRateLimitBudget> {
+  const response = await withRateLimitRetry(() => request.get(SETTINGS_PATH));
+  expect(response.ok(), `GET ${SETTINGS_PATH} failed with ${response.status()}`).toBeTruthy();
+  const body = (await response.json()) as Record<string, unknown>;
+  return Object.fromEntries(
+    API_RATE_LIMIT_BUDGET_KEYS.map((key) => [key, typeof body[key] === 'string' ? body[key] : '']),
+  ) as ApiRateLimitBudget;
+}
+
+/** Writes each budget key with the given value. */
+export async function writeApiRateLimitBudget(request: APIRequestContext, budget: ApiRateLimitBudget): Promise<void> {
+  for (const key of API_RATE_LIMIT_BUDGET_KEYS) {
+    await writeSettingValue(request, key, budget[key]);
+  }
+}
+
+/**
+ * Puts back a budget captured by readApiRateLimitBudget. The settings API cannot delete a key, so a key that was
+ * absent is written with its standard value, which is the value the limiter already used for it.
+ */
+export async function restoreApiRateLimitBudget(request: APIRequestContext, captured: ApiRateLimitBudget): Promise<void> {
+  const budget = Object.fromEntries(
+    API_RATE_LIMIT_BUDGET_KEYS.map((key) => [key, captured[key] || STANDARD_API_RATE_LIMIT_BUDGET[key]]),
+  ) as ApiRateLimitBudget;
+  await writeApiRateLimitBudget(request, budget);
 }
 
 /** Calls the emergency endpoint with the break-glass token. Only the endpoint's own status is checked. */

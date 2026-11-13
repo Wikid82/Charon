@@ -177,25 +177,31 @@ test.describe('Break Glass - Tier 2 (Emergency Server)', () => {
     expect(result.error).toBe('unauthorized');
   });
 
-  test('should rate limit emergency server requests (lenient in test mode)', async ({ request }) => {
-    // Test that rate limiting works but is lenient (50 attempts vs 5 in production)
-
-    // Make multiple requests rapidly
-    const requests = Array.from({ length: 10 }, () =>
+  test('should accept valid resets under concurrent and sequential load', async ({ request }) => {
+    // The reset route admits 2 checks at once and waits up to 2s for a slot. Two
+    // concurrent valid resets always fit those slots. Successful resets do not spend
+    // the failed-attempt budget, so the sequential burst after them is never throttled.
+    const resetRequest = () =>
       request.post(`${EMERGENCY_BASE_URL}/emergency/security-reset`, {
         headers: {
           'X-Emergency-Token': EMERGENCY_TOKEN,
           'Authorization': BASIC_AUTH,
         },
-      })
-    );
+      });
 
-    const responses = await Promise.all(requests);
+    await test.step('Two concurrent valid resets both succeed', async () => {
+      const responses = await Promise.all([resetRequest(), resetRequest()]);
+      for (const response of responses) {
+        expect(response.status()).toBe(200);
+      }
+    });
 
-    // All should succeed in test environment (50 attempts allowed)
-    for (const response of responses) {
-      expect(response.ok()).toBeTruthy();
-    }
+    await test.step('A short sequential burst of valid resets succeeds', async () => {
+      for (let i = 0; i < 3; i += 1) {
+        const response = await resetRequest();
+        expect(response.status()).toBe(200);
+      }
+    });
   });
 
   test('should provide independent access even when main app is blocking', async ({ request }) => {

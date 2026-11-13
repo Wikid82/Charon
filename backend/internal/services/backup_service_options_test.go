@@ -229,3 +229,18 @@ func TestStartCreateBackupJob_CorruptedStoredPassphrase_ReturnsError(t *testing.
 	require.NoError(t, svc.db.Model(&models.BackupJob{}).Count(&count).Error)
 	assert.Zero(t, count, "no job row should be created when the stored passphrase fails to decrypt")
 }
+
+// TestCreateAutomaticBackup_UnreadableStoredPassphraseReturnsError verifies that a safety backup fails
+// with a wrapped error, instead of writing an unencrypted archive, when the stored passphrase cannot be decrypted.
+func TestCreateAutomaticBackup_UnreadableStoredPassphraseReturnsError(t *testing.T) {
+	enc, err := crypto.NewEncryptionService(testEncryptionKeyBase64(t))
+	require.NoError(t, err)
+	svc := newOptionsTestService(t, enc)
+	require.NoError(t, svc.UpdateSettings(BackupSettingsUpdate{EncryptionEnabled: boolPtr(true)}))
+	require.NoError(t, upsertBackupSetting(svc.db, SettingKeyBackupEncryptionPassphraseEnc, "not-valid-ciphertext", "string"))
+
+	record, err := svc.CreateAutomaticBackup("pre_delete")
+	require.Error(t, err)
+	assert.Nil(t, record)
+	assert.ErrorContains(t, err, "resolve pre_delete backup options")
+}

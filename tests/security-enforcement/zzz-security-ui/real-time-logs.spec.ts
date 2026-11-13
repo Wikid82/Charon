@@ -13,7 +13,10 @@
  * - Performance (2 tests): high volume logs, buffer limits
  */
 
+import { request as playwrightRequest, type APIRequestContext } from '@playwright/test';
 import { test, expect, loginUser } from '../../fixtures/auth-fixtures';
+import { STORAGE_STATE } from '../../constants';
+import { withSecurityEnabled } from '../../utils/security-helpers';
 import { waitForLoadingComplete } from '../../utils/wait-helpers';
 
 /**
@@ -41,7 +44,8 @@ const SELECTORS = {
   blockedOnlyCheckbox: 'input[type="checkbox"]',
 
   // Log display
-  logContainer: '.font-mono.text-xs',
+  // Scrollable log pane only. The bare '.font-mono.text-xs' also matches the GeoIP card's <dd> on /security.
+  logContainer: '.overflow-y-auto.font-mono.text-xs',
   logEntry: '[data-testid="log-entry"]',
   logCount: '[data-testid="log-count"]',
   emptyState: 'text=No logs yet',
@@ -86,30 +90,19 @@ async function waitForWebSocketConnection(page: import('@playwright/test').Page)
 }
 
 test.describe('Real-Time Logs Viewer', () => {
-  // Note: These tests require Cerberus (security module) to be enabled.
-  // The LiveLogViewer component is only rendered when Cerberus is active.
-  // Tests will be skipped if the component is not visible on the /security page.
+  // The LiveLogViewer is only rendered when Cerberus is enabled, and the security shard baseline leaves it
+  // off. Turn it on for this file and restore the previous state afterwards.
+  let requestContext: APIRequestContext;
+  let restoreSecurityState: () => Promise<void>;
 
-  // Track if LiveLogViewer is available (Cerberus enabled)
-  let cerberusEnabled = false;
+  test.beforeAll(async ({ baseURL }) => {
+    requestContext = await playwrightRequest.newContext({ baseURL, storageState: STORAGE_STATE });
+    restoreSecurityState = await withSecurityEnabled(requestContext, { cerberus: true });
+  });
 
-  test.beforeAll(async ({ browser }) => {
-    // Check once at the start if Cerberus is enabled
-    // Use stored auth state from playwright/.auth/user.json
-    const context = await browser.newContext({
-      storageState: 'playwright/.auth/user.json',
-    });
-    const page = await context.newPage();
-
-    // Navigate to security page
-    await page.goto('/security');
-    await expect(page.getByRole('main')).toBeVisible({ timeout: 10000 });
-
-    // Check if LiveLogViewer is visible (only shown when Cerberus is enabled)
-    const connectionStatus = page.locator('[data-testid="connection-status"]');
-    cerberusEnabled = await connectionStatus.isVisible({ timeout: 3000 }).catch(() => false);
-
-    await context.close();
+  test.afterAll(async () => {
+    await restoreSecurityState();
+    await requestContext.dispose();
   });
 
   // =========================================================================

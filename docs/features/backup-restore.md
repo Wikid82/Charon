@@ -37,7 +37,9 @@ Backups are `.zip` archives (optionally encrypted, see [Encrypting Backups](#enc
 
 Charon creates a **scheduled** backup on the interval you configure (daily or weekly presets, or a custom cron expression) — see [Scheduling Backups](#scheduling-backups). It also creates an automatic **pre-restore safety backup** of your current state immediately before every restore, so a bad restore can always be undone; this pre-restore backup is never counted toward your regular retention limit.
 
-Charon does **not** currently create an automatic backup before every general configuration change or before version upgrades — only before a restore. If you're about to make a risky change, create a manual backup first.
+Charon also creates an automatic backup right before you **delete a certificate**, so you keep a safety copy of your configuration from that moment. It appears in your backup list labeled **Pre-delete**. Like your other backups, it is encrypted only if you have backup encryption turned on (see [Encrypting Backups](#encrypting-backups)).
+
+Charon does **not** currently create an automatic backup before every general configuration change or before version upgrades — only before a restore or a certificate deletion. If you're about to make a risky change, create a manual backup first.
 
 ### Manual Backups
 
