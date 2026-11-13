@@ -203,7 +203,11 @@ docker-compose up -d
 
 ### 4️⃣ Access the dashboard
 
-Open your browser and navigate to `http://localhost:8080` to access the dashboard and create your admin account.
+Open your browser and navigate to `http://localhost:8080`. The first-run page asks for a **setup code**. Find it with this command, then create your admin account:
+
+```bash
+docker logs charon | grep "Setup code"
+```
 
 ```code
 http://localhost:8080

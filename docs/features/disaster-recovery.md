@@ -74,8 +74,10 @@ run it before — a full migration, or rebuilding after the original disk is gon
    was configured on the original host, *before* you restore. See
    [The Encryption Key Problem](#the-encryption-key-problem) — skipping this step
    doesn't break the restore, but it silently leaves some of your data unusable.
-3. Start Charon so it creates its default data directory and admin account, then log
-   in as an admin.
+3. Start Charon so it creates its default data directory. On a brand-new install, create
+   your admin account with the one-time setup code (see
+   [Create Your First Account](../getting-started.md#create-your-first-account-setup-code)),
+   then log in as an admin.
 4. Copy your backup file onto the new machine, then either:
    - Place it directly in the new instance's `data/backups/` folder if you have
      filesystem access, and it will appear in **Tasks → Backups**, or

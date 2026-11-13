@@ -115,6 +115,34 @@ docker run -d \
 
 **Open <http://localhost:8080>** in your browser!
 
+### Create Your First Account (Setup Code)
+
+The first time Charon starts with no accounts, it asks for a **setup code**. This stops strangers from creating the first account on your server before you do. Charon makes the code when it starts and writes it to its log:
+
+1. **Find the code.** Run this command:
+
+   ```bash
+   docker logs charon | grep "Setup code"
+   ```
+
+   You will see a line like this:
+
+   ```text
+   Setup code: <code>. Open Charon and enter it to create the first account.
+   ```
+
+2. **Open <http://localhost:8080>.** The first-run page asks for the code. Enter it, then create your account.
+3. **Done.** The code stops working once the first account exists. You will never need it again.
+
+**Want to choose your own code?** For scripted installs, set the `CHARON_SETUP_TOKEN` setting to a secret of at least 32 characters (create one with `openssl rand -hex 32`). Charon then uses your value as the code. Its log line does not repeat the value, so keep your copy somewhere safe.
+
+#### I Cannot Find My Setup Code
+
+- **Nothing appears in the log.** An account already exists, so skip this step and sign in instead.
+- **You set `CHARON_SETUP_TOKEN`.** The log will not show the code. Use the value you set.
+- **Still stuck?** Add a `CHARON_SETUP_TOKEN` line (32 or more characters) to your compose file or `docker run` command, then restart Charon with `docker restart charon`. Restarting while no accounts exist also creates a fresh code in the log.
+- **Too many wrong codes.** After 5 wrong tries, Charon makes you wait about a minute before each new try. Wait it out, then type the code again.
+
 ### Recommended: Connect Docker with Orthrus
 
 For the most secure setup, skip the Docker socket mount above and connect Docker through **Orthrus** instead. Orthrus is a small helper that holds the Docker socket for you, so Charon itself never touches it. It works on the same server as Charon or on a different one. See the [Orthrus guide](features/orthrus.md#using-orthrus-on-the-same-server-as-charon).
