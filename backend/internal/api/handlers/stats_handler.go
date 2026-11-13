@@ -23,9 +23,16 @@ var (
 
 // StatsHandler handles REST endpoints for the enhanced dashboard statistics API.
 type StatsHandler struct {
-	svc      *services.StatsService
-	ingester *services.StatsIngester // may be nil when health endpoint not needed
-	hub      *StatsWSHub             // may be nil when WebSocket not needed
+	svc           *services.StatsService
+	ingester      *services.StatsIngester // may be nil when health endpoint not needed
+	hub           *StatsWSHub             // may be nil when WebSocket not needed
+	publicOrigins PublicOriginSource      // may be nil: no public origin is trusted
+}
+
+// WithPublicOriginSource wires the configured public origin into the WebSocket origin check.
+func (h *StatsHandler) WithPublicOriginSource(s PublicOriginSource) *StatsHandler {
+	h.publicOrigins = s
+	return h
 }
 
 // NewStatsHandler creates a StatsHandler without an ingester or hub reference.
@@ -172,7 +179,7 @@ func (h *StatsHandler) GetStatsHealth(c *gin.Context) {
 // StatsWS upgrades the connection to WebSocket and streams stats push messages.
 // GET /api/stats/ws
 func (h *StatsHandler) StatsWS(c *gin.Context) {
-	conn, err := upgradeWebSocket(c)
+	conn, err := upgradeWebSocket(c, h.publicOrigins)
 	if err != nil {
 		return
 	}

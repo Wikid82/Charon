@@ -94,4 +94,5 @@ If the address is an internal one and no warning appears, your container setup m
 ## Related
 
 - [Login Protection](../features/login-protection.md)
+- [Application URL](public-url.md) — set it when Charon sits behind another proxy.
 - [Troubleshooting proxy headers](../troubleshooting/proxy-headers.md)

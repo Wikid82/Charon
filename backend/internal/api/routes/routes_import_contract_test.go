@@ -6,6 +6,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/api/routes"
 	"github.com/Wikid82/charon/backend/internal/config"
 )
@@ -17,7 +18,7 @@ func TestRegisterImportHandler_StrictRouteMatrix(t *testing.T) {
 	importCaddyfilePath := filepath.Join(tempDir, "import", "Caddyfile")
 
 	router := gin.New()
-	routes.RegisterImportHandler(router, db, config.Config{JWTSecret: "test-secret"}, "echo", tempDir, importCaddyfilePath)
+	routes.RegisterImportHandler(router, db, config.Config{JWTSecret: "test-secret"}, "echo", tempDir, importCaddyfilePath, middleware.NewBrowserOriginGuard(nil))
 
 	assertStrictMethodPathMatrix(t, router.Routes(), backendImportRouteMatrix(), "import")
 }

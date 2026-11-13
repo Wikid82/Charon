@@ -76,7 +76,7 @@ func TestIsAllowedWebSocketOrigin(t *testing.T) {
 			if tc.xForwardedHost != "" {
 				req.Header.Set("X-Forwarded-Host", tc.xForwardedHost)
 			}
-			got := isAllowedWebSocketOrigin(req)
+			got := isAllowedWebSocketOrigin(req, "")
 			assert.Equal(t, tc.want, got, "origin=%q host=%q xfh=%q", tc.origin, tc.host, tc.xForwardedHost)
 		})
 	}

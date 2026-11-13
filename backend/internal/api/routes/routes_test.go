@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
@@ -150,7 +151,7 @@ func TestRegisterImportHandler(t *testing.T) {
 	require.NoError(t, err)
 
 	// RegisterImportHandler should not panic
-	RegisterImportHandler(router, db, cfg, "/usr/bin/caddy", "/tmp/imports", "/tmp/mount")
+	RegisterImportHandler(router, db, cfg, "/usr/bin/caddy", "/tmp/imports", "/tmp/mount", middleware.NewBrowserOriginGuard(nil))
 
 	// Verify import routes exist
 	routes := router.Routes()
@@ -1177,7 +1178,7 @@ func TestRegisterImportHandler_RoutesExist(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(isolatedMemoryDSN(t)), &gorm.Config{})
 	require.NoError(t, err)
 
-	RegisterImportHandler(router, db, cfg, "/usr/bin/caddy", "/tmp/imports", "/tmp/mount")
+	RegisterImportHandler(router, db, cfg, "/usr/bin/caddy", "/tmp/imports", "/tmp/mount", middleware.NewBrowserOriginGuard(nil))
 
 	routes := router.Routes()
 	routeMap := make(map[string]bool)

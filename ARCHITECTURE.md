@@ -1110,6 +1110,17 @@ restart with no users issues a new one. Wrong codes are rate limited (5 attempts
 then roughly one minute per attempt). Installs that already have users are not
 affected.
 
+### Browser Request Origin Check
+
+Changes made from a signed-in browser are refused when the request comes from another site.
+
+- **Scope:** every state-changing request (create, update, delete, and similar) on the authenticated management routes; session logout, refresh and change-password; import uploads; and WebSocket upgrade requests. Safe reads are not checked.
+- **Clients without browser metadata are unaffected:** a request whose `Authorization` header carries a bearer token (API key or bearer-token clients, such as scripts) passes through unchanged. An empty or token-less `Authorization` header falls back to the session cookie, as in the auth middleware, so it is checked like any browser request.
+- **Trusted origins:** the check accepts the browser's own origin when it matches the configured Application URL (validated by the settings handler), in addition to the host Charon sees. This keeps a deployment behind an outer proxy that rewrites `Host` from getting `403` on every change.
+- **Refresh:** a change to the Application URL takes effect immediately. A backup restore that applies live refreshes the check straight after the rehydrate (`BackupService` → `BrowserOriginGuard.Refresh`); a restore that finishes at the next start takes effect after that restart.
+- **Refusal:** the request is rejected with `403`. Operators see this in the troubleshooting note in `docs/configuration/public-url.md`.
+- **Scope of the trusted origin:** only the configured Application URL is trusted; no wildcard or other origins are added.
+
 ### Emergency Break-Glass Protocol
 
 **3-Tier Recovery System:**
