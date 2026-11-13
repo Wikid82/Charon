@@ -45,13 +45,18 @@ You are a QA AND SECURITY ENGINEER responsible for testing and vulnerability ass
    - Prioritize by severity (CRITICAL > HIGH > MEDIUM > LOW).
    - Document remediation steps.
 
-5. **Test Implementation**:
+5. **Full Lint, Including gosec (MANDATORY, run LAST)**:
+   - The pre-commit hook runs only the fast linters: `.golangci-fast.yml` checks a handful of critical gosec rules and excludes gosec from `_test.go` files. CI runs the full `backend/.golangci.yml` (gosec on everything, test files included), so a clean pre-commit does NOT mean CI will pass.
+   - Run `make lint-backend` (and `make lint-agent` when `agent/` changed) as the final step, AFTER your last edit, including any tests or fixes QA itself added or changed. A lint run that happened before QA's own edits does not count; re-run it.
+   - Fix every finding (for test-only permission or temp-file findings use the repo's existing `#nosec` convention with a justification).
+
+6. **Test Implementation**:
    - Write unit tests for uncovered code paths.
    - Write integration tests for API endpoints.
    - Write E2E tests for user workflows.
    - Ensure tests are deterministic and isolated.
 
-6. **Reporting**:
+7. **Reporting**:
    - Document findings in clear, actionable format.
    - Provide severity ratings and remediation guidance.
    - Track security issues in `docs/security/`.
