@@ -11,6 +11,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/api/routes"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -32,7 +33,7 @@ func TestRegisterImportHandler(t *testing.T) {
 	db := setupTestImportDB(t)
 
 	router := gin.New()
-	routes.RegisterImportHandler(router, db, config.Config{JWTSecret: "test-secret"}, "echo", "/tmp", "/import/Caddyfile")
+	routes.RegisterImportHandler(router, db, config.Config{JWTSecret: "test-secret"}, "echo", "/tmp", "/import/Caddyfile", middleware.NewBrowserOriginGuard(nil))
 
 	// Verify routes are registered by checking the routes list
 	routeInfo := router.Routes()
@@ -66,7 +67,7 @@ func TestRegisterImportHandler_AuthzGuards(t *testing.T) {
 
 	cfg := config.Config{JWTSecret: "test-secret"}
 	router := gin.New()
-	routes.RegisterImportHandler(router, db, cfg, "echo", "/tmp", "/import/Caddyfile")
+	routes.RegisterImportHandler(router, db, cfg, "echo", "/tmp", "/import/Caddyfile", middleware.NewBrowserOriginGuard(nil))
 
 	unauthReq := httptest.NewRequest(http.MethodGet, "/api/v1/import/status", http.NoBody)
 	unauthW := httptest.NewRecorder()

@@ -411,6 +411,15 @@ func (s *BackupService) restoreBackupSafeLockedWithProgress(filename, passphrase
 		cancel()
 	}
 
+	// R1a: rebuild the cross-origin check from the restored public address. A live rehydrate swaps the database under
+	// the running guard, which otherwise keeps trusting the pre-restore address until the next restart. A pending
+	// restore applies at boot, where the guard is built from the restored value, so it needs no refresh here.
+	if s.browserOriginRefresher != nil && rehydrated {
+		if refreshErr := s.browserOriginRefresher.Refresh(); refreshErr != nil {
+			logger.Log().WithError(refreshErr).Warn("Failed to refresh the browser origin check after a live restore")
+		}
+	}
+
 	// R1b: re-seed the uptime scheduler from the restored DB so per-monitor
 	// scheduling + debounce state match the restored rows immediately, rather
 	// than waiting ~30s for the rescan self-heal (spec §3.9 / S6). Only

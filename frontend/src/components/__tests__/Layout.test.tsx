@@ -118,7 +118,7 @@ describe('Layout', () => {
     expect(logos[0]).toBeInTheDocument()
   })
 
-  it('renders banner inside a picture element with webp source when sidebar is expanded', () => {
+  it('shows the logo (not the banner) at the top of the sidebar when expanded', () => {
     localStorage.setItem('sidebarCollapsed', 'false')
     renderWithProviders(
       <Layout>
@@ -126,20 +126,22 @@ describe('Layout', () => {
       </Layout>
     )
 
-    const pictures = document.querySelectorAll('picture')
-    expect(pictures.length).toBeGreaterThan(0)
+    expect(document.querySelector('picture')).toBeNull()
+    const logo = screen.getAllByAltText('Charon')[0]
+    expect(logo.getAttribute('src')).toBe('/logo.png')
+  })
 
-    const sources = document.querySelectorAll('picture source')
-    expect(sources.length).toBeGreaterThan(0)
-    const webpSource = Array.from(sources).find(
-      (s) => s.getAttribute('type') === 'image/webp'
+  it('shows the logo at the top of the sidebar when collapsed', () => {
+    localStorage.setItem('sidebarCollapsed', 'true')
+    renderWithProviders(
+      <Layout>
+        <div>Test Content</div>
+      </Layout>
     )
-    expect(webpSource).toBeTruthy()
-    expect(webpSource?.getAttribute('srcset')).toBe('/banner.webp')
 
-    const bannerImg = document.querySelector('picture img')
-    expect(bannerImg).toBeTruthy()
-    expect(bannerImg?.getAttribute('src')).toBe('/banner.png')
+    expect(document.querySelector('picture')).toBeNull()
+    const logo = screen.getAllByAltText('Charon')[0]
+    expect(logo.getAttribute('src')).toBe('/logo.png')
   })
 
   it('renders all navigation items', async () => {

@@ -15,8 +15,15 @@ import (
 
 // HecateWSHandler streams tunnel log entries over WebSocket.
 type HecateWSHandler struct {
-	svc     *services.HecateService
-	tracker *services.WebSocketTracker
+	svc           *services.HecateService
+	tracker       *services.WebSocketTracker
+	publicOrigins PublicOriginSource // may be nil: no public origin is trusted
+}
+
+// WithPublicOriginSource wires the configured public origin into the WebSocket origin check.
+func (h *HecateWSHandler) WithPublicOriginSource(s PublicOriginSource) *HecateWSHandler {
+	h.publicOrigins = s
+	return h
 }
 
 // NewHecateWSHandler creates a HecateWSHandler.
@@ -38,7 +45,7 @@ func (h *HecateWSHandler) StreamLogs(c *gin.Context) {
 		return
 	}
 
-	conn, upgradeErr := upgradeWebSocket(c)
+	conn, upgradeErr := upgradeWebSocket(c, h.publicOrigins)
 	if upgradeErr != nil {
 		logger.Log().WithError(upgradeErr).Error("hecate ws: upgrade failed")
 		return
