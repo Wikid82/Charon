@@ -141,16 +141,17 @@ func TestExtractBearer(t *testing.T) {
 	}
 }
 
-func TestOrthrusServer_FindAgentByToken_NoAgents(t *testing.T) {
+func TestOrthrusServer_ScanAgentsByToken_NoAgents(t *testing.T) {
 	db := setupServerTestDB(t)
 	srv, err := NewOrthrusServer(db, setupTestCA(t))
 	require.NoError(t, err)
 
-	_, err = srv.findAgentByToken("ch_orthrus_sometoken")
-	assert.Error(t, err)
+	found, err := srv.scanAgentsByToken(BcryptInput("ch_orthrus_sometoken"))
+	require.NoError(t, err)
+	assert.Nil(t, found)
 }
 
-func TestOrthrusServer_FindAgentByToken_DBError(t *testing.T) {
+func TestOrthrusServer_ScanAgentsByToken_DBError(t *testing.T) {
 	db := setupServerTestDB(t)
 	srv, err := NewOrthrusServer(db, setupTestCA(t))
 	require.NoError(t, err)
@@ -159,11 +160,11 @@ func TestOrthrusServer_FindAgentByToken_DBError(t *testing.T) {
 	require.NoError(t, err)
 	_ = sqlDB.Close()
 
-	_, err = srv.findAgentByToken("ch_orthrus_anytoken")
+	_, err = srv.scanAgentsByToken(BcryptInput("ch_orthrus_anytoken"))
 	assert.Error(t, err)
 }
 
-func TestOrthrusServer_FindAgentByToken_LongToken(t *testing.T) {
+func TestOrthrusServer_ScanAgentsByToken_LongToken(t *testing.T) {
 	db := setupServerTestDB(t)
 	srv, err := NewOrthrusServer(db, setupTestCA(t))
 	require.NoError(t, err)
@@ -180,11 +181,12 @@ func TestOrthrusServer_FindAgentByToken_LongToken(t *testing.T) {
 	}
 	require.NoError(t, db.Create(agent).Error)
 
-	_, err = srv.findAgentByToken(longToken)
-	assert.Error(t, err)
+	found, err := srv.scanAgentsByToken(BcryptInput(longToken))
+	require.NoError(t, err)
+	assert.Nil(t, found)
 }
 
-func TestOrthrusServer_FindAgentByToken_MatchingToken(t *testing.T) {
+func TestOrthrusServer_ScanAgentsByToken_MatchingToken(t *testing.T) {
 	db := setupServerTestDB(t)
 	srv, err := NewOrthrusServer(db, setupTestCA(t))
 	require.NoError(t, err)
@@ -201,7 +203,7 @@ func TestOrthrusServer_FindAgentByToken_MatchingToken(t *testing.T) {
 	}
 	require.NoError(t, db.Create(agent).Error)
 
-	found, err := srv.findAgentByToken(plainKey)
+	found, err := srv.scanAgentsByToken(BcryptInput(plainKey))
 	require.NoError(t, err)
 	assert.Equal(t, "uuid-match", found.UUID)
 }

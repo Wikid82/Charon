@@ -131,7 +131,7 @@ func TestOrthrusServer_MarkOffline_DBError_NosPanic(t *testing.T) {
 	srv.markOffline("ghost-uuid")
 }
 
-func TestOrthrusServer_FindAgentByToken_Success(t *testing.T) {
+func TestOrthrusServer_ScanAgentsByToken_Success(t *testing.T) {
 	db := setupServerTestDB(t)
 	srv, err := NewOrthrusServer(db, setupTestCA(t))
 	require.NoError(t, err)
@@ -148,7 +148,7 @@ func TestOrthrusServer_FindAgentByToken_Success(t *testing.T) {
 	}
 	require.NoError(t, db.Create(agent).Error)
 
-	found, err := srv.findAgentByToken(token)
+	found, err := srv.scanAgentsByToken(BcryptInput(token))
 	require.NoError(t, err)
 	assert.Equal(t, "find-uuid", found.UUID)
 }
@@ -268,14 +268,6 @@ func TestOrthrusServer_HandleWebSocket_ValidToken_UpgradesConnection(t *testing.
 		time.Sleep(20 * time.Millisecond)
 	}
 	assert.True(t, ok)
-}
-func TestOrthrusServer_FindAgentByToken_DBError_ReturnsError(t *testing.T) {
-	db := setupServerTestDB(t)
-	srv, err := NewOrthrusServer(db, setupTestCA(t))
-	require.NoError(t, err)
-
-	_, err = srv.findAgentByToken("anytoken")
-	assert.Error(t, err)
 }
 
 // TestOrthrusServer_HandleWebSocket_UpgradeFailure covers server.go:82-85 —

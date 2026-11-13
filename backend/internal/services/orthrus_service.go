@@ -15,7 +15,6 @@ import (
 const (
 	authKeyPrefix  = "ch_orthrus_"
 	authKeyRandLen = 32 // bytes of random hex
-	bcryptCost     = 12
 )
 
 // OrthrusService provides agent lifecycle management on top of OrthrusServer.
@@ -47,13 +46,7 @@ func (s *OrthrusService) Provision(name string) (models.OrthrusAgent, string, er
 	}
 	plainKey := authKeyPrefix + hex.EncodeToString(rawBytes)
 
-	// Truncate to bcrypt's 72-byte input limit so the full key is compared;
-	// bcrypt is the sole password hashing primitive — no pre-hash step needed.
-	keyBytes := []byte(plainKey)
-	if len(keyBytes) >= 72 {
-		keyBytes = keyBytes[:71]
-	}
-	hash, err := bcrypt.GenerateFromPassword(keyBytes, bcryptCost)
+	hash, err := bcrypt.GenerateFromPassword(orthrus.BcryptInput(plainKey), orthrus.BcryptCost)
 	if err != nil {
 		return models.OrthrusAgent{}, "", fmt.Errorf("orthrus: hash auth key: %w", err)
 	}
@@ -146,7 +139,7 @@ func (s *OrthrusService) Revoke(uuid string) error {
 	if _, err := rand.Read(invalidBytes); err != nil {
 		return fmt.Errorf("orthrus: generate revoke token: %w", err)
 	}
-	invalidHash, err := bcrypt.GenerateFromPassword(invalidBytes[:32], bcryptCost)
+	invalidHash, err := bcrypt.GenerateFromPassword(invalidBytes[:32], orthrus.BcryptCost)
 	if err != nil {
 		return fmt.Errorf("orthrus: hash revoke token: %w", err)
 	}

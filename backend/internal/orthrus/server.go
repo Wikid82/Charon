@@ -15,7 +15,6 @@ import (
 	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 	"github.com/sirupsen/logrus"
-	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
 
@@ -34,10 +33,16 @@ type OrthrusServer struct {
 	// startup in routes.go, once the concrete *services.SecurityService is
 	// available) — a nil auditLogger is a safe no-op throughout Muzzle.
 	auditLogger AuditLogger
+	// handshake throttles and bounds agent key verification on connect.
+	handshake *handshakeGuard
 }
 
 // NewOrthrusServer creates an OrthrusServer with the given database and internal CA.
 func NewOrthrusServer(db *gorm.DB, ca *InternalCA) (*OrthrusServer, error) {
+	handshake, err := newHandshakeGuard(time.Now)
+	if err != nil {
+		return nil, fmt.Errorf("orthrus: create handshake guard: %w", err)
+	}
 	ctx, cancel := context.WithCancel(context.Background()) //nolint:gosec // G118: cancel ownership transferred to struct; Stop() is responsible for calling it
 	return &OrthrusServer{
 		db:               db,
@@ -45,6 +50,7 @@ func NewOrthrusServer(db *gorm.DB, ca *InternalCA) (*OrthrusServer, error) {
 		heartbeatTimeout: 10 * time.Second,
 		ctx:              ctx,
 		cancel:           cancel,
+		handshake:        handshake,
 	}, nil
 }
 
@@ -82,9 +88,9 @@ func (s *OrthrusServer) HandleWebSocket(c *gin.Context) {
 		return
 	}
 
-	agent, err := s.findAgentByToken(token)
-	if err != nil {
-		c.AbortWithStatus(http.StatusUnauthorized)
+	agent, rejection := s.authenticate(c.Request.Context(), c.ClientIP(), c.GetHeader("X-Orthrus-Name"), token)
+	if rejection != nil {
+		abortHandshake(c, rejection)
 		return
 	}
 
@@ -242,28 +248,6 @@ func (s *OrthrusServer) markOffline(agentUUID string) {
 		logger.Log().WithField("uuid", agentUUID).WithError(err).Warn("orthrus: mark agent offline failed")
 	}
 	logger.Log().WithField("uuid", agentUUID).Info("orthrus: agent marked offline")
-}
-
-// findAgentByToken iterates all agents and bcrypt-compares the provided token
-// against each agent's stored hash. O(n) in the number of agents; acceptable
-// because the number of registered agents is expected to be small.
-func (s *OrthrusServer) findAgentByToken(token string) (*models.OrthrusAgent, error) {
-	var agents []models.OrthrusAgent
-	if err := s.db.Find(&agents).Error; err != nil {
-		return nil, fmt.Errorf("orthrus: query agents: %w", err)
-	}
-
-	for i := range agents {
-		// Truncate to match Provision's bcrypt input (≤71 bytes).
-		tokenBytes := []byte(token)
-		if len(tokenBytes) >= 72 {
-			tokenBytes = tokenBytes[:71]
-		}
-		if err := bcrypt.CompareHashAndPassword([]byte(agents[i].AuthKeyHash), tokenBytes); err == nil {
-			return &agents[i], nil
-		}
-	}
-	return nil, fmt.Errorf("orthrus: no agent matched token")
 }
 
 func extractBearer(header string) string {
