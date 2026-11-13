@@ -13,9 +13,6 @@ const MOCK_AGENT_NAME = 'My Test Orthrus Agent';
 
 const MOCK_SNIPPETS = {
   docker_compose: `services:\n  orthrus:\n    image: ghcr.io/charon/orthrus:latest\n    environment:\n      AUTH_KEY: ${MOCK_AUTH_KEY}`,
-  systemd: `[Unit]\nDescription=Orthrus Agent\n\n[Service]\nExecStart=/usr/bin/orthrus --auth-key ${MOCK_AUTH_KEY}`,
-  tarball: `curl -fsSL https://charon.example.com/orthrus/install.sh | AUTH_KEY=${MOCK_AUTH_KEY} bash`,
-  homebrew: `brew install charon/tap/orthrus\northrus start --auth-key ${MOCK_AUTH_KEY}`,
   kubernetes_daemonset: `apiVersion: apps/v1\nkind: DaemonSet\nmetadata:\n  name: orthrus\nspec:\n  AUTH_KEY: ${MOCK_AUTH_KEY}`,
 };
 
@@ -135,18 +132,16 @@ test.describe('Orthrus Agent Install Wizard', () => {
   });
 
   test.describe('Install Tabs Navigation', () => {
-    test('should display all five installation method tabs', async ({ page }) => {
+    test('should display the two installation method tabs', async ({ page }) => {
       const dialog = await openOrthrusWizard(page);
 
-      await test.step('Verify all tabs are present', async () => {
+      await test.step('Verify both tabs are present', async () => {
         const tabList = dialog.getByRole('tablist');
         await expect(tabList).toBeVisible({ timeout: 5000 });
 
         await expect(dialog.getByRole('tab', { name: /docker compose/i })).toBeVisible();
-        await expect(dialog.getByRole('tab', { name: /^systemd$/i })).toBeVisible();
-        await expect(dialog.getByRole('tab', { name: /^tarball$/i })).toBeVisible();
-        await expect(dialog.getByRole('tab', { name: /^homebrew$/i })).toBeVisible();
         await expect(dialog.getByRole('tab', { name: /^kubernetes$/i })).toBeVisible();
+        await expect(dialog.getByRole('tab')).toHaveCount(2);
       });
     });
 
@@ -162,48 +157,6 @@ test.describe('Orthrus Agent Install Wizard', () => {
         const activePanel = dialog.locator('[role="tabpanel"][data-state="active"]');
         await expect(activePanel).toBeVisible({ timeout: 5000 });
         await expect(activePanel.getByText(/services:/i)).toBeVisible();
-      });
-    });
-
-    test('Systemd tab shows systemd snippet content', async ({ page }) => {
-      const dialog = await openOrthrusWizard(page);
-
-      await test.step('Click Systemd tab', async () => {
-        await dialog.getByRole('tab', { name: /^systemd$/i }).click();
-      });
-
-      await test.step('Verify systemd snippet content is displayed', async () => {
-        const activePanel = dialog.locator('[role="tabpanel"][data-state="active"]');
-        await expect(activePanel).toBeVisible({ timeout: 5000 });
-        await expect(activePanel.getByText(/ExecStart|systemd|Unit/i)).toBeVisible();
-      });
-    });
-
-    test('Tarball tab shows tarball snippet content', async ({ page }) => {
-      const dialog = await openOrthrusWizard(page);
-
-      await test.step('Click Tarball tab', async () => {
-        await dialog.getByRole('tab', { name: /^tarball$/i }).click();
-      });
-
-      await test.step('Verify tarball snippet content is displayed', async () => {
-        const activePanel = dialog.locator('[role="tabpanel"][data-state="active"]');
-        await expect(activePanel).toBeVisible({ timeout: 5000 });
-        await expect(activePanel.getByText(/curl|install/i)).toBeVisible();
-      });
-    });
-
-    test('Homebrew tab shows homebrew snippet content', async ({ page }) => {
-      const dialog = await openOrthrusWizard(page);
-
-      await test.step('Click Homebrew tab', async () => {
-        await dialog.getByRole('tab', { name: /^homebrew$/i }).click();
-      });
-
-      await test.step('Verify homebrew snippet content is displayed', async () => {
-        const activePanel = dialog.locator('[role="tabpanel"][data-state="active"]');
-        await expect(activePanel).toBeVisible({ timeout: 5000 });
-        await expect(activePanel.getByText(/brew/i)).toBeVisible();
       });
     });
 
@@ -225,9 +178,6 @@ test.describe('Orthrus Agent Install Wizard', () => {
       const dialog = await openOrthrusWizard(page);
       const tabs = [
         { name: /docker compose/i },
-        { name: /^systemd$/i },
-        { name: /^tarball$/i },
-        { name: /^homebrew$/i },
         { name: /^kubernetes$/i },
       ];
 
@@ -330,9 +280,6 @@ test.describe('Orthrus Agent Install Wizard', () => {
         await expect(tabList).toMatchAriaSnapshot(`
           - tablist:
             - tab "Docker Compose" [selected]
-            - tab "Systemd"
-            - tab "Tarball"
-            - tab "Homebrew"
             - tab "Kubernetes"
         `);
       });

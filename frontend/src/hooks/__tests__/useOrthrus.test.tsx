@@ -200,9 +200,6 @@ describe('useOrthrus', () => {
   it('getInstallSnippets calls API', async () => {
     const snippets: api.InstallSnippets = {
       docker_compose: 'compose',
-      systemd: 'systemd',
-      tarball: 'tar',
-      homebrew: 'brew',
       kubernetes_daemonset: 'k8s',
     }
     vi.mocked(api.getInstallSnippets).mockResolvedValue(snippets)

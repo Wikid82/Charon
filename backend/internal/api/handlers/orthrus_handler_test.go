@@ -304,9 +304,9 @@ func TestOrthrusHandler_GetInstallSnippets_Success(t *testing.T) {
 
 	// All snippet keys should be present
 	assert.Contains(t, snippets, "docker_compose")
-	assert.Contains(t, snippets, "systemd")
-	assert.Contains(t, snippets, "tarball")
-	assert.Contains(t, snippets, "homebrew")
+	assert.NotContains(t, snippets, "systemd")
+	assert.NotContains(t, snippets, "tarball")
+	assert.NotContains(t, snippets, "homebrew")
 	assert.Contains(t, snippets, "kubernetes_daemonset")
 
 	// auth_key must never appear in snippets (only placeholder)

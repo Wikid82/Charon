@@ -43,21 +43,6 @@ export const OrthrusInstallWizard = ({
       note: t('hecate.installWizard.dockerGid.noteComposeSystemd'),
     },
     {
-      key: 'systemd' as const,
-      label: t('hecate.installWizard.tabs.systemd'),
-      note: t('hecate.installWizard.dockerGid.noteComposeSystemd'),
-    },
-    {
-      key: 'tarball' as const,
-      label: t('hecate.installWizard.tabs.tarball'),
-      note: t('hecate.installWizard.dockerGid.noteTarballHomebrew'),
-    },
-    {
-      key: 'homebrew' as const,
-      label: t('hecate.installWizard.tabs.homebrew'),
-      note: t('hecate.installWizard.dockerGid.noteTarballHomebrew'),
-    },
-    {
       key: 'kubernetes_daemonset' as const,
       label: t('hecate.installWizard.tabs.kubernetes'),
       note: t('hecate.installWizard.dockerGid.noteKubernetes'),
@@ -95,7 +80,8 @@ export const OrthrusInstallWizard = ({
 
   return (
     <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <DialogContent className="max-w-2xl">
+      {/* Capped to the viewport so the footer (Done) stays reachable when the snippet content is tall. */}
+      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{t('hecate.wizard.title', { name: agentName })}</DialogTitle>
           <DialogDescription>{t('hecate.wizard.description')}</DialogDescription>

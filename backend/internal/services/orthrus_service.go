@@ -11,6 +11,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/orthrus"
+	"github.com/Wikid82/charon/backend/internal/version"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
@@ -300,6 +301,62 @@ func insecureLinkNote(serverURL, indent string) string {
 		indent + "# - ORTHRUS_ALLOW_INSECURE_WS=true\n"
 }
 
+const (
+	// agentImageRepo is the Docker Hub and GHCR repository for the agent image.
+	agentImageRepo = "wikid82/orthrus"
+	// agentLatestTag is the unpinned fallback for builds without a release version.
+	agentLatestTag = "latest"
+)
+
+// agentImageTag maps a build version to the agent image tag that install
+// snippets reference. pinned is true only for plain release versions, which
+// have a matching X.Y.Z image. Pre-releases and unparsable input fall back to
+// latest because only plain X.Y.Z agent images are published.
+func agentImageTag(v string) (tag string, pinned bool) {
+	if _, ok := version.Canonical(v); !ok {
+		return agentLatestTag, false
+	}
+	base, meta, hasMeta := strings.Cut(v, "+")
+	if strings.Contains(base, "-") {
+		return agentLatestTag, false
+	}
+	if !hasMeta {
+		return base, true
+	}
+	switch {
+	case strings.HasPrefix(meta, "dev."):
+		return "dev", false
+	case strings.HasPrefix(meta, "nightly."):
+		return "nightly", false
+	default:
+		return agentLatestTag, false
+	}
+}
+
+// agentImageNote returns the comment shown above the image line for tag, or ""
+// when the tag needs no explanation.
+func agentImageNote(tag string) string {
+	switch tag {
+	case "dev":
+		return "Development build: this tag follows the development branch."
+	case "nightly":
+		return "Nightly build: this tag follows the nightly channel."
+	case agentLatestTag:
+		return "This Charon build has no release version; use the agent tag that matches your Charon release."
+	default:
+		return ""
+	}
+}
+
+// commentLine renders note as a YAML comment at indent, ending with a newline.
+// It returns "" when note is empty.
+func commentLine(note, indent string) string {
+	if note == "" {
+		return ""
+	}
+	return indent + "# " + note + "\n"
+}
+
 // GetInstallSnippets returns platform-specific install templates for an agent.
 // The placeholder "<AUTH_KEY>" is used in place of the actual key, which is
 // only provided once at Provision time.
@@ -312,6 +369,9 @@ func (s *OrthrusService) GetInstallSnippets(uuid, charonURL string) (*orthrus.In
 	name := agent.Name
 	agentUUID := agent.UUID
 	serverURL := wsURL(charonURL)
+	tag, _ := agentImageTag(version.Version)
+	image := agentImageRepo + ":" + tag
+	imageNote := agentImageNote(tag)
 
 	return &orthrus.InstallSnippets{
 		// The agent drops from root to PUID/PGID at startup (agent/privdrop), so
@@ -324,7 +384,7 @@ func (s *OrthrusService) GetInstallSnippets(uuid, charonURL string) (*orthrus.In
 #   printf '%%s' '<AUTH_KEY>' > orthrus_auth_key && chmod 600 orthrus_auth_key
 services:
   %s:
-    image: wikid82/orthrus:latest
+%s    image: %s
     restart: always
     container_name: orthrus
     environment:
@@ -343,37 +403,7 @@ services:
 secrets:
   orthrus_auth_key:
     file: ./orthrus_auth_key
-`, name, serverURL, insecureLinkNote(serverURL, "      "), agentUUID),
-
-		Systemd: fmt.Sprintf(`[Unit]
-Description=Charon Orthrus Agent (%s)
-After=network.target
-
-[Service]
-# Do not set a non-root account: the agent must start as root to drop to PUID/PGID.
-# PGID must equal the Docker socket's group GID: stat -c %%g /var/run/docker.sock
-Environment="PUID=65532"
-Environment="PGID=<DOCKER_GID>"
-Environment="ORTHRUS_SERVER_URL=%s"
-Environment="ORTHRUS_AGENT_ID=%s"
-Environment="ORTHRUS_AUTH_KEY=<AUTH_KEY>"
-ExecStart=/usr/local/bin/charon-agent
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-`, name, serverURL, agentUUID),
-
-		// sudo keeps the process root so the agent can drop to PUID/PGID. A
-		// plain (non-root) run ignores PUID/PGID, so that user must be in the
-		// docker group instead. Replace <DOCKER_GID> with: stat -c %%g /var/run/docker.sock
-		Tarball: fmt.Sprintf(`curl -fsSL https://github.com/Wikid82/charon/releases/latest/download/charon-agent-linux-amd64.tar.gz | tar xz
-sudo env PUID=65532 PGID=<DOCKER_GID> ORTHRUS_SERVER_URL=%s ORTHRUS_AGENT_ID=%s ORTHRUS_AUTH_KEY=<AUTH_KEY> ./charon-agent
-`, serverURL, agentUUID),
-
-		Homebrew: fmt.Sprintf(`brew install wikid82/tap/charon-agent
-sudo env PUID=65532 PGID=<DOCKER_GID> ORTHRUS_SERVER_URL=%s ORTHRUS_AGENT_ID=%s ORTHRUS_AUTH_KEY=<AUTH_KEY> charon-agent
-`, serverURL, agentUUID),
+`, name, commentLine(imageNote, "    "), image, serverURL, insecureLinkNote(serverURL, "      "), agentUUID),
 
 		// The key lives in a Secret mounted as a file. fsGroup and defaultMode 0440
 		// let the non-root container user read it; the Secret is created separately.
@@ -405,7 +435,7 @@ spec:
         fsGroup: 65532
       containers:
         - name: agent
-          image: wikid82/orthrus:latest
+%s          image: %s
           env:
             - name: ORTHRUS_SERVER_URL
               value: "%s"
@@ -436,7 +466,7 @@ spec:
           secret:
             secretName: orthrus-auth-key
             defaultMode: 0440
-`, serverURL, insecureLinkNote(serverURL, "            "), agentUUID),
+`, commentLine(imageNote, "          "), image, serverURL, insecureLinkNote(serverURL, "            "), agentUUID),
 	}, nil
 }
 

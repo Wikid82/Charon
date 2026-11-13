@@ -93,9 +93,6 @@ export type ProvisionResponse = ProvisionAgentResponse;
 
 export interface InstallSnippets {
   docker_compose: string;
-  systemd: string;
-  tarball: string;
-  homebrew: string;
   kubernetes_daemonset: string;
 }
 

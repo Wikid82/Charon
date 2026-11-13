@@ -158,9 +158,6 @@ describe('orthrus API', () => {
     it('calls snippets endpoint with X-Charon-URL header', async () => {
       const snippets = {
         docker_compose: 'compose-snippet',
-        systemd: 'systemd-snippet',
-        tarball: 'tarball-snippet',
-        homebrew: 'brew-snippet',
         kubernetes_daemonset: 'k8s-snippet',
       }
       vi.mocked(client.get).mockResolvedValue({ data: snippets })

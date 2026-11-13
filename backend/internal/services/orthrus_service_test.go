@@ -8,6 +8,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/orthrus"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/version"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -144,15 +145,9 @@ func TestOrthrusService_GetInstallSnippets(t *testing.T) {
 	const expectedWSURL = "wss://charon.example.com/api/v1/ws/orthrus/connect"
 
 	assert.Contains(t, snippets.DockerCompose, "<AUTH_KEY>")
-	assert.Contains(t, snippets.Systemd, "<AUTH_KEY>")
-	assert.Contains(t, snippets.Tarball, "<AUTH_KEY>")
-	assert.Contains(t, snippets.Homebrew, "<AUTH_KEY>")
 	assert.Contains(t, snippets.KubernetesDaemonSet, "<AUTH_KEY>")
 
 	assert.Contains(t, snippets.DockerCompose, expectedWSURL, "Docker Compose snippet must use wss:// URL")
-	assert.Contains(t, snippets.Systemd, expectedWSURL, "systemd snippet must use wss:// URL")
-	assert.Contains(t, snippets.Tarball, expectedWSURL, "tarball snippet must use wss:// URL")
-	assert.Contains(t, snippets.Homebrew, expectedWSURL, "homebrew snippet must use wss:// URL")
 	assert.Contains(t, snippets.KubernetesDaemonSet, expectedWSURL, "Kubernetes snippet must use wss:// URL")
 	assert.Contains(t, snippets.DockerCompose, "snippet-agent")
 }
@@ -176,16 +171,6 @@ func TestOrthrusService_GetInstallSnippets_PermissionSettings(t *testing.T) {
 	assert.Contains(t, snippets.DockerCompose, "- PGID=<DOCKER_GID>")
 	assert.Contains(t, snippets.DockerCompose, "- TZ=UTC")
 	assert.Contains(t, snippets.DockerCompose, "/var/run/docker.sock:/var/run/docker.sock:ro")
-
-	// Systemd: the agent only drops privileges when started as root, so the
-	// unit must not set User=; PUID/PGID are passed as environment instead.
-	assert.Contains(t, snippets.Systemd, `Environment="PUID=65532"`)
-	assert.Contains(t, snippets.Systemd, `Environment="PGID=<DOCKER_GID>"`)
-	assert.NotContains(t, snippets.Systemd, "User=")
-
-	// Tarball and Homebrew: sudo keeps the process root so privdrop applies.
-	assert.Contains(t, snippets.Tarball, "sudo env PUID=65532 PGID=<DOCKER_GID> ")
-	assert.Contains(t, snippets.Homebrew, "sudo env PUID=65532 PGID=<DOCKER_GID> ")
 
 	// Kubernetes: container starts non-root and mounts the socket read-only.
 	assert.Contains(t, snippets.KubernetesDaemonSet, "runAsNonRoot: true")
@@ -310,9 +295,6 @@ func TestOrthrusService_GetInstallSnippets_URLConversions(t *testing.T) {
 			snippets, err := svc.GetInstallSnippets(agent.UUID, tc.inputURL)
 			require.NoError(t, err)
 			assert.Contains(t, snippets.DockerCompose, tc.expectedURL)
-			assert.Contains(t, snippets.Systemd, tc.expectedURL)
-			assert.Contains(t, snippets.Tarball, tc.expectedURL)
-			assert.Contains(t, snippets.Homebrew, tc.expectedURL)
 			assert.Contains(t, snippets.KubernetesDaemonSet, tc.expectedURL)
 		})
 	}
@@ -700,6 +682,56 @@ func TestOrthrusService_GetInstallSnippets_InsecureLinkNote(t *testing.T) {
 					assert.NotContains(t, rendered, note, label)
 				}
 			}
+		})
+	}
+}
+
+func TestOrthrusService_GetInstallSnippets_ImageTag(t *testing.T) {
+	origVersion := version.Version
+	t.Cleanup(func() { version.Version = origVersion })
+
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+	agent, _, err := svc.Provision("image-agent")
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		version     string
+		wantImage   string
+		wantComment string
+	}{
+		{name: "release pins the matching image", version: "0.49.1", wantImage: "wikid82/orthrus:0.49.1"},
+		{
+			name:        "dev build follows the dev tag",
+			version:     "0.49.1+dev.abc1234",
+			wantImage:   "wikid82/orthrus:dev",
+			wantComment: "Development build: this tag follows the development branch.",
+		},
+		{
+			name:        "unversioned build falls back to latest",
+			version:     "dev",
+			wantImage:   "wikid82/orthrus:latest",
+			wantComment: "This Charon build has no release version; use the agent tag that matches your Charon release.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			version.Version = tt.version
+			snippets, err := svc.GetInstallSnippets(agent.UUID, "https://charon.example.com")
+			require.NoError(t, err)
+
+			assert.Contains(t, snippets.DockerCompose, "    image: "+tt.wantImage+"\n")
+			assert.Contains(t, snippets.KubernetesDaemonSet, "          image: "+tt.wantImage+"\n")
+
+			if tt.wantComment == "" {
+				assert.NotContains(t, snippets.DockerCompose, "no release version")
+				assert.NotContains(t, snippets.KubernetesDaemonSet, "no release version")
+				return
+			}
+			assert.Contains(t, snippets.DockerCompose, "    # "+tt.wantComment+"\n    image: ")
+			assert.Contains(t, snippets.KubernetesDaemonSet, "          # "+tt.wantComment+"\n          image: ")
 		})
 	}
 }

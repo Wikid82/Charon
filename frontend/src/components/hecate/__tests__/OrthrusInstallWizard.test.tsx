@@ -8,9 +8,6 @@ import type { InstallSnippets } from '../../../api/orthrus'
 
 const mockSnippets: InstallSnippets = {
   docker_compose: 'version: "3"\nservices:\n  orthrus:\n    image: orthrus\n    env:\n      AUTH_KEY: <AUTH_KEY>',
-  systemd: '[Unit]\nDescription=Orthrus\n[Service]\nEnvironment=AUTH_KEY=<AUTH_KEY>',
-  tarball: './orthrus --auth-key <AUTH_KEY>',
-  homebrew: 'brew install orthrus && orthrus start --auth-key <AUTH_KEY>',
   kubernetes_daemonset: 'apiVersion: apps/v1\nkind: DaemonSet\n  - name: AUTH_KEY\n    value: "<AUTH_KEY>"',
 }
 
@@ -37,6 +34,14 @@ describe('OrthrusInstallWizard', () => {
     render(<OrthrusInstallWizard {...defaultProps} />)
 
     expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('caps the dialog height so the footer stays reachable on short viewports', () => {
+    render(<OrthrusInstallWizard {...defaultProps} />)
+
+    const dialog = screen.getByRole('dialog')
+    expect(dialog.className).toContain('max-h-[90vh]')
+    expect(dialog.className).toContain('overflow-y-auto')
   })
 
   it('does not render dialog when closed', () => {
@@ -89,14 +94,15 @@ describe('OrthrusInstallWizard', () => {
     })
   })
 
-  it('renders platform tabs', () => {
+  it('renders the Docker Compose and Kubernetes tabs only', () => {
     render(<OrthrusInstallWizard {...defaultProps} />)
 
     expect(screen.getByRole('tab', { name: /docker/i })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /systemd/i })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /tarball/i })).toBeInTheDocument()
-    expect(screen.getByRole('tab', { name: /homebrew/i })).toBeInTheDocument()
     expect(screen.getByRole('tab', { name: /kubernetes/i })).toBeInTheDocument()
+    expect(screen.getAllByRole('tab')).toHaveLength(2)
+    expect(screen.queryByRole('tab', { name: /systemd/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /tarball/i })).not.toBeInTheDocument()
+    expect(screen.queryByRole('tab', { name: /homebrew/i })).not.toBeInTheDocument()
   })
 
   it('shows docker_compose snippet in the first tab by default', async () => {
@@ -110,10 +116,10 @@ describe('OrthrusInstallWizard', () => {
   it('switches tabs and shows different snippet', async () => {
     render(<OrthrusInstallWizard {...defaultProps} />)
 
-    await userEvent.click(screen.getByRole('tab', { name: /systemd/i }))
+    await userEvent.click(screen.getByRole('tab', { name: /kubernetes/i }))
 
     await waitFor(() => {
-      expect(screen.getByText(/\[Unit\]/)).toBeInTheDocument()
+      expect(screen.getByText(/apiVersion: apps\/v1/)).toBeInTheDocument()
     })
   })
 
@@ -188,31 +194,6 @@ describe('OrthrusInstallWizard', () => {
       render(<OrthrusInstallWizard {...defaultProps} />)
 
       expect(screen.getByText(/Set PGID to that number/)).toBeInTheDocument()
-    })
-
-    it('shows the PGID caveat on the systemd tab', async () => {
-      render(<OrthrusInstallWizard {...defaultProps} />)
-
-      await userEvent.click(screen.getByRole('tab', { name: /systemd/i }))
-
-      expect(await screen.findByText(/Set PGID to that number/)).toBeInTheDocument()
-    })
-
-    it('shows the sudo and docker group caveat on the tarball tab', async () => {
-      render(<OrthrusInstallWizard {...defaultProps} />)
-
-      await userEvent.click(screen.getByRole('tab', { name: /tarball/i }))
-
-      expect(await screen.findByText(/keep sudo in front of the command/)).toBeInTheDocument()
-      expect(screen.getByText(/your user must be in the docker group/)).toBeInTheDocument()
-    })
-
-    it('shows the sudo caveat on the Homebrew tab', async () => {
-      render(<OrthrusInstallWizard {...defaultProps} />)
-
-      await userEvent.click(screen.getByRole('tab', { name: /homebrew/i }))
-
-      expect(await screen.findByText(/keep sudo in front of the command/)).toBeInTheDocument()
     })
 
     it('shows the supplementalGroups note on the Kubernetes tab', async () => {
