@@ -11,6 +11,9 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
+// PublicURLSettingKey is the Setting row that holds the admin-configured public address.
+const PublicURLSettingKey = "app.public_url"
+
 // GetConfiguredPublicURL returns the configured, normalized public URL.
 //
 // Security note:
@@ -18,7 +21,7 @@ import (
 // so it is safe to use for embedding external links (e.g., invite emails).
 func GetConfiguredPublicURL(db *gorm.DB) (string, bool) {
 	var setting models.Setting
-	if err := db.Where("key = ?", "app.public_url").First(&setting).Error; err != nil {
+	if err := db.Where("key = ?", PublicURLSettingKey).First(&setting).Error; err != nil {
 		return "", false
 	}
 
@@ -34,7 +37,7 @@ func GetConfiguredPublicURL(db *gorm.DB) (string, bool) {
 // This should be used for all user-facing URLs (emails, invite links).
 func GetPublicURL(db *gorm.DB, c *gin.Context) string {
 	var setting models.Setting
-	if err := db.Where("key = ?", "app.public_url").First(&setting).Error; err == nil {
+	if err := db.Where("key = ?", PublicURLSettingKey).First(&setting).Error; err == nil {
 		if setting.Value != "" {
 			return strings.TrimSuffix(setting.Value, "/")
 		}

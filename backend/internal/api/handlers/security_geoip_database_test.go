@@ -106,8 +106,8 @@ func newGeoIPDBFixture(t *testing.T, opts geoipDBOptions) *geoipDBFixture {
 	})
 	securityAdmin := r.Group("/security")
 	securityAdmin.Use(middleware.RequireRole(models.RoleAdmin))
-	securityAdmin.POST("/geoip/database", middleware.RequireSameOriginForBrowserAuth(), h.ReplaceGeoIPDatabase)
-	securityAdmin.DELETE("/geoip/database", middleware.RequireSameOriginForBrowserAuth(), h.RemoveGeoIPDatabase)
+	securityAdmin.POST("/geoip/database", middleware.RequireSameOriginForBrowserAuth(middleware.NewBrowserOriginGuard(nil)), h.ReplaceGeoIPDatabase)
+	securityAdmin.DELETE("/geoip/database", middleware.RequireSameOriginForBrowserAuth(middleware.NewBrowserOriginGuard(nil)), h.RemoveGeoIPDatabase)
 	f.router = r
 	return f
 }

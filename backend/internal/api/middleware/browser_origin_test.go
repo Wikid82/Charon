@@ -49,7 +49,7 @@ func TestRequireSameOriginForBrowserAuth(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			r := gin.New()
-			r.Use(RequireSameOriginForBrowserAuth())
+			r.Use(RequireSameOriginForBrowserAuth(NewBrowserOriginGuard(nil)))
 			r.Handle(tc.method, "/security/geoip/database", func(c *gin.Context) { c.Status(http.StatusOK) })
 
 			req := httptest.NewRequest(tc.method, "/security/geoip/database", http.NoBody)
@@ -75,4 +75,129 @@ func TestRequireSameOriginForBrowserAuth(t *testing.T) {
 			}
 		})
 	}
+}
+
+// originSetting is a test TrustedOriginSource whose configured value can change between refreshes.
+type originSetting struct {
+	origin string
+	ok     bool
+}
+
+func (s *originSetting) source() (string, bool) { return s.origin, s.ok }
+
+// serveOriginGuard runs one request through the guard and returns the status code.
+func serveOriginGuard(t *testing.T, guard *BrowserOriginGuard, method, host string, headers map[string]string) int {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(RequireSameOriginForBrowserAuth(guard))
+	r.Handle(method, "/api/v1/security/geoip/database", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	req := httptest.NewRequest(method, "/api/v1/security/geoip/database", http.NoBody)
+	req.Host = host
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+	return w.Code
+}
+
+func TestBrowserOriginGuard_TrustsConfiguredPublicOrigin(t *testing.T) {
+	const publicOrigin = "https://charon.example.com"
+	guard := NewBrowserOriginGuard((&originSetting{origin: publicOrigin, ok: true}).source)
+
+	cases := []struct {
+		name    string
+		headers map[string]string
+		want    int
+	}{
+		{
+			name:    "public origin without fetch metadata passes when Host differs",
+			headers: map[string]string{"Origin": publicOrigin},
+			want:    http.StatusOK,
+		},
+		{
+			name:    "public origin cross-site passes",
+			headers: map[string]string{"Origin": publicOrigin, "Sec-Fetch-Site": "cross-site"},
+			want:    http.StatusOK,
+		},
+		{
+			name:    "other origin is still refused",
+			headers: map[string]string{"Origin": "https://evil.example", "Sec-Fetch-Site": "cross-site"},
+			want:    http.StatusForbidden,
+		},
+		{
+			name:    "same-site sibling of the public origin is still refused",
+			headers: map[string]string{"Origin": "https://app.charon.example.com", "Sec-Fetch-Site": "same-site"},
+			want:    http.StatusForbidden,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, serveOriginGuard(t, guard, http.MethodPost, "charon.internal:8080", tc.headers))
+		})
+	}
+}
+
+func TestBrowserOriginGuard_NoConfiguredOriginTrustsOnlyHostMatch(t *testing.T) {
+	guard := NewBrowserOriginGuard(nil)
+
+	assert.Equal(t, http.StatusForbidden,
+		serveOriginGuard(t, guard, http.MethodPost, "charon.internal:8080", map[string]string{"Origin": "https://charon.example.com"}))
+	assert.Equal(t, http.StatusOK,
+		serveOriginGuard(t, guard, http.MethodPost, "charon.internal:8080", map[string]string{"Origin": "http://charon.internal:8080"}))
+}
+
+func TestBrowserOriginGuard_RefreshFollowsSettingChanges(t *testing.T) {
+	setting := &originSetting{origin: "https://old.example.com", ok: true}
+	guard := NewBrowserOriginGuard(setting.source)
+	oldHeaders := map[string]string{"Origin": "https://old.example.com"}
+	newHeaders := map[string]string{"Origin": "https://new.example.com"}
+
+	require.Equal(t, http.StatusOK, serveOriginGuard(t, guard, http.MethodPost, "inner.test", oldHeaders))
+
+	setting.origin = "https://new.example.com"
+	require.NoError(t, guard.Refresh())
+	assert.Equal(t, http.StatusForbidden, serveOriginGuard(t, guard, http.MethodPost, "inner.test", oldHeaders))
+	assert.Equal(t, http.StatusOK, serveOriginGuard(t, guard, http.MethodPost, "inner.test", newHeaders))
+
+	setting.ok = false
+	require.NoError(t, guard.Refresh())
+	assert.Equal(t, http.StatusForbidden, serveOriginGuard(t, guard, http.MethodPost, "inner.test", newHeaders))
+}
+
+func TestBrowserOriginGuard_RefreshFailsClosed(t *testing.T) {
+	setting := &originSetting{origin: "https://old.example.com", ok: true}
+	guard := NewBrowserOriginGuard(setting.source)
+	oldHeaders := map[string]string{"Origin": "https://old.example.com"}
+	require.Equal(t, http.StatusOK, serveOriginGuard(t, guard, http.MethodPost, "inner.test", oldHeaders))
+
+	// A value the standard library rejects (no scheme) must drop the previous trust rather than keep it.
+	setting.origin = "charon.example.com"
+	err := guard.Refresh()
+	require.Error(t, err)
+	assert.ErrorContains(t, err, "trust configured public origin")
+	assert.Equal(t, http.StatusForbidden, serveOriginGuard(t, guard, http.MethodPost, "inner.test", oldHeaders))
+}
+
+func TestBrowserOriginGuard_ConcurrentRefreshAndRequests(t *testing.T) {
+	setting := &originSetting{origin: "https://a.example.com", ok: true}
+	guard := NewBrowserOriginGuard(setting.source)
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := 0; i < 50; i++ {
+			setting.origin = "https://a.example.com"
+			if i%2 == 1 {
+				setting.origin = "https://b.example.com"
+			}
+			_ = guard.Refresh()
+		}
+	}()
+	for i := 0; i < 50; i++ {
+		_ = serveOriginGuard(t, guard, http.MethodPost, "inner.test", map[string]string{"Origin": "https://a.example.com"})
+	}
+	<-done
 }

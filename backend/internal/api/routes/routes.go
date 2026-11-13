@@ -34,6 +34,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/orthrus"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/utils"
 	"github.com/Wikid82/charon/backend/internal/version"
 
 	// Import custom DNS providers to register them
@@ -484,6 +485,12 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	// before SetOrthrusResolver — the pool reads the resolver lazily per check.
 	uptimeService.Pool = services.NewUptimeWorkerPool(uptimeService)
 
+	// Cross-origin check for cookie sessions. It trusts the configured public address (read from the database here and
+	// on every public address save, never per request), so a proxy that rewrites Host does not refuse its own page.
+	browserOrigin := middleware.NewBrowserOriginGuard(func() (string, bool) {
+		return utils.GetConfiguredPublicURL(db)
+	})
+
 	protected := api.Group("/")
 	protected.Use(authMiddleware)
 	{
@@ -584,7 +591,8 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		managementAdmin.GET("/audit-logs/:uuid", auditLogHandler.Get)
 
 		// Settings - with CaddyManager and Cerberus for security settings reload
-		settingsHandler := handlers.NewSettingsHandlerWithDeps(db, caddyManager, cerb, securityService, dataRoot).WithCrowdsecLifecycle(crowdsecHandler)
+		settingsHandler := handlers.NewSettingsHandlerWithDeps(db, caddyManager, cerb, securityService, dataRoot).
+			WithCrowdsecLifecycle(crowdsecHandler).WithBrowserOriginRefresher(browserOrigin)
 
 		// Settings reads load for every role; every mutation is admin-only
 		// (per-route guard here + belt-and-braces in-handler checks retained).
@@ -993,8 +1001,8 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		securityAdmin.POST("/geoip/reload", securityHandler.ReloadGeoIP)
 		securityAdmin.POST("/geoip/lookup", securityHandler.LookupGeoIP)
 		// Cookie sessions reach these two routes only from the same origin; see middleware.RequireSameOriginForBrowserAuth.
-		securityAdmin.POST("/geoip/database", middleware.RequireSameOriginForBrowserAuth(), securityHandler.ReplaceGeoIPDatabase)
-		securityAdmin.DELETE("/geoip/database", middleware.RequireSameOriginForBrowserAuth(), securityHandler.RemoveGeoIPDatabase)
+		securityAdmin.POST("/geoip/database", middleware.RequireSameOriginForBrowserAuth(browserOrigin), securityHandler.ReplaceGeoIPDatabase)
+		securityAdmin.DELETE("/geoip/database", middleware.RequireSameOriginForBrowserAuth(browserOrigin), securityHandler.RemoveGeoIPDatabase)
 		securityAdmin.POST("/waf/exclusions", securityHandler.AddWAFExclusion)
 		securityAdmin.DELETE("/waf/exclusions/:rule_id", securityHandler.DeleteWAFExclusion)
 

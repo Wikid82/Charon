@@ -29,20 +29,43 @@ type CacheInvalidator interface {
 	InvalidateCache()
 }
 
+// BrowserOriginRefresher rebuilds the cross-origin check after the public address setting changes.
+type BrowserOriginRefresher interface {
+	Refresh() error
+}
+
 type SettingsHandler struct {
-	DB           *gorm.DB
-	MailService  *services.MailService
-	CaddyManager CaddyConfigManager // For triggering config reload on security settings change
-	Cerberus     CacheInvalidator   // For invalidating cache on security settings change
-	SecuritySvc  *services.SecurityService
-	crowdsec     CrowdsecLifecycle
-	DataRoot     string
+	DB            *gorm.DB
+	MailService   *services.MailService
+	CaddyManager  CaddyConfigManager // For triggering config reload on security settings change
+	Cerberus      CacheInvalidator   // For invalidating cache on security settings change
+	SecuritySvc   *services.SecurityService
+	crowdsec      CrowdsecLifecycle
+	browserOrigin BrowserOriginRefresher
+	DataRoot      string
 }
 
 // WithCrowdsecLifecycle wires the CrowdSec lifecycle that the settings API drives. A typed-nil handler is not wired.
 func (h *SettingsHandler) WithCrowdsecLifecycle(l CrowdsecLifecycle) *SettingsHandler {
 	h.crowdsec = LifecycleOrNil(l)
 	return h
+}
+
+// WithBrowserOriginRefresher wires the guard that trusts the configured public address. Saving that setting refreshes it.
+func (h *SettingsHandler) WithBrowserOriginRefresher(r BrowserOriginRefresher) *SettingsHandler {
+	h.browserOrigin = r
+	return h
+}
+
+// refreshBrowserOrigin rebuilds the origin check after a public address write. The write is already stored, so a
+// failed refresh is logged and the guard keeps trusting no extra origin until the next successful refresh.
+func (h *SettingsHandler) refreshBrowserOrigin() {
+	if h.browserOrigin == nil {
+		return
+	}
+	if err := h.browserOrigin.Refresh(); err != nil {
+		logger.Log().WithError(err).Warn("Failed to refresh the browser origin check after a public URL change")
+	}
 }
 
 const (
@@ -373,6 +396,10 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 		return
 	}
 
+	if req.Key == utils.PublicURLSettingKey {
+		h.refreshBrowserOrigin()
+	}
+
 	if req.Key == "security.admin_whitelist" {
 		if err := h.syncAdminWhitelist(req.Value); err != nil {
 			if errors.Is(err, services.ErrInvalidAdminCIDR) {
@@ -601,6 +628,10 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save settings"})
 		return
+	}
+
+	if _, changedPublicURL := updates[utils.PublicURLSettingKey]; changedPublicURL {
+		h.refreshBrowserOrigin()
 	}
 
 	// Trigger cache invalidation and Caddy reload for security settings
