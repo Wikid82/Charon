@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# First-run setup code: passed to the container and sent with the setup request.
+export CHARON_SETUP_TOKEN="${CHARON_SETUP_TOKEN:-$(openssl rand -hex 32)}"
+
 # Brief: Integration test for Rate Limiting using Docker Compose and built image
 # Steps:
 # 1. Build the local image if not present: docker build -t charon:local .
@@ -152,6 +155,7 @@ docker run -d --name ${CONTAINER_NAME} \
     --network containers_default \
     -p 8180:80 -p 8143:443 -p 8280:8080 \
     -e CHARON_ENV=development \
+    -e CHARON_SETUP_TOKEN \
     -e CHARON_DEBUG=1 \
     -e CHARON_HTTP_PORT=8080 \
     -e CHARON_DB_PATH=/app/data/charon.db \
@@ -206,7 +210,7 @@ echo ""
 echo "Setting up admin user and logging in..."
 TMP_COOKIE=$(mktemp)
 curl -s -X POST -H "Content-Type: application/json" \
-    -d '{"email":"ratelimit@example.local","password":"password123","name":"Rate Limit Tester"}' \
+    -d "{\"email\":\"ratelimit@example.local\",\"password\":\"password123\",\"name\":\"Rate Limit Tester\",\"setup_code\":\"${CHARON_SETUP_TOKEN}\"}" \
     http://localhost:8280/api/v1/setup >/dev/null 2>&1 || true
 
 LOGIN_STATUS=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" \

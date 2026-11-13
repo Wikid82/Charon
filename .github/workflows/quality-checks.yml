@@ -129,7 +129,7 @@ jobs:
 
       - name: shellcheck (integration test tooling, severity=error)
         run: |
-          shellcheck --severity=error scripts/waf_integration.sh scripts/cerberus_integration.sh scripts/crowdsec_decision_integration.sh scripts/rate_limit_integration.sh scripts/security_headers_integration.sh scripts/coraza_integration.sh scripts/debug_rate_limit.sh scripts/integration-test.sh scripts/crowdsec_integration.sh scripts/verify_crowdsec_app_config.sh
+          shellcheck --severity=error scripts/waf_integration.sh scripts/cerberus_integration.sh scripts/setup_code_integration.sh scripts/crowdsec_decision_integration.sh scripts/rate_limit_integration.sh scripts/security_headers_integration.sh scripts/coraza_integration.sh scripts/debug_rate_limit.sh scripts/integration-test.sh scripts/crowdsec_integration.sh scripts/verify_crowdsec_app_config.sh
 
   container-prune-tests:
     name: Container registry prune scripts (bats)

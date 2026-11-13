@@ -1124,7 +1124,13 @@
     "invalidEmail": "Bitte geben Sie eine gültige E-Mail-Adresse ein",
     "passwordLabel": "Passwort",
     "createAdminButton": "Admin-Konto erstellen",
-    "setupFailed": "Einrichtung fehlgeschlagen"
+    "setupFailed": "Einrichtung fehlgeschlagen",
+    "setupCodeLabel": "Einrichtungscode",
+    "setupCodeHint": "Finden Sie ihn in den Charon-Logs. Zum Beispiel: docker logs charon",
+    "errors": {
+      "setup_code_invalid": "Der Einrichtungscode ist falsch. Prüfen Sie die Charon-Logs und versuchen Sie es erneut.",
+      "rate_limited": "Zu viele Versuche. Warten Sie einige Minuten und versuchen Sie es erneut."
+    }
   },
   "acceptInvite": {
     "title": "Einladung annehmen",

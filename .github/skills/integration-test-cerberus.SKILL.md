@@ -97,6 +97,7 @@ VERBOSE=1 .github/skills/scripts/skill-runner.sh integration-test-cerberus
 | Variable | Required | Default | Description |
 | ---------- | ---------- | --------- | ------------- |
 | CHARON_EMERGENCY_TOKEN | No | (empty) | Emergency token for Cerberus teardown flows |
+| CHARON_SETUP_TOKEN | No | (generated) | First-run setup code sent with the bootstrap request. Generated per run when unset. |
 | SKIP_CLEANUP | No | false | Skip container cleanup after tests |
 | TEST_TIMEOUT | No | 600 | Timeout in seconds for the test |
 

@@ -1084,7 +1084,13 @@
     "invalidEmail": "Please enter a valid email address",
     "passwordLabel": "Password",
     "createAdminButton": "Create Admin Account",
-    "setupFailed": "Setup failed"
+    "setupFailed": "Setup failed",
+    "setupCodeLabel": "Cod de configurare",
+    "setupCodeHint": "Găsiți-l în jurnalele Charon. De exemplu: docker logs charon",
+    "errors": {
+      "setup_code_invalid": "Codul de configurare este incorect. Verificați jurnalele Charon și încercați din nou.",
+      "rate_limited": "Prea multe încercări. Așteptați câteva minute și încercați din nou."
+    }
   },
   "acceptInvite": {
     "title": "Accept Invitation",

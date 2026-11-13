@@ -1101,6 +1101,15 @@ users; every subsequent account is created by an existing admin — directly
 (`POST /api/v1/users/invite` → `GET /api/v1/invite/validate` →
 `POST /api/v1/invite/accept`). `/setup` refuses once any user exists.
 
+**First-run setup code:** on startup with an empty users table, the server
+generates a one-time setup code and logs it once. `POST /api/v1/setup` requires
+that code, which the operator reads from the logs or presets with
+`CHARON_SETUP_TOKEN` (at least 32 characters; when preset, the log line omits
+the value). The code is discarded after the first account is created, and a
+restart with no users issues a new one. Wrong codes are rate limited (5 attempts,
+then roughly one minute per attempt). Installs that already have users are not
+affected.
+
 ### Emergency Break-Glass Protocol
 
 **3-Tier Recovery System:**

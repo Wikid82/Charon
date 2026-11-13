@@ -5,6 +5,7 @@
 #
 # DO NOT USE env_file - CI provides variables through the job environment:
 #   - CHARON_ENCRYPTION_KEY: Generated with openssl rand -base64 32 (ephemeral)
+#   - CHARON_SETUP_TOKEN: Generated with openssl rand -hex 32 per run (first-run setup code)
 #   - CHARON_EMERGENCY_TOKEN, CHARON_EMERGENCY_USERNAME, CHARON_EMERGENCY_PASSWORD: generated per run
 #
 # Usage in CI:
@@ -53,6 +54,8 @@ services:
       # Encryption key - MUST be provided via environment variable
       # Generate with: export CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)
       - CHARON_ENCRYPTION_KEY=${CHARON_ENCRYPTION_KEY:?CHARON_ENCRYPTION_KEY is required}
+      # First-run setup code (32+ chars); generated per run by CI, never a fixed value.
+      - CHARON_SETUP_TOKEN=${CHARON_SETUP_TOKEN:?CHARON_SETUP_TOKEN is required}
       # Emergency reset token - for break-glass recovery when locked out by ACL
       # Generate with: openssl rand -hex 32
       - CHARON_EMERGENCY_TOKEN=${CHARON_EMERGENCY_TOKEN:?CHARON_EMERGENCY_TOKEN is required}

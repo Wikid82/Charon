@@ -1084,7 +1084,13 @@
     "invalidEmail": "Please enter a valid email address",
     "passwordLabel": "Password",
     "createAdminButton": "Create Admin Account",
-    "setupFailed": "Setup failed"
+    "setupFailed": "Setup failed",
+    "setupCodeLabel": "Kód pro nastavení",
+    "setupCodeHint": "Najdete ho v protokolech Charonu. Například: docker logs charon",
+    "errors": {
+      "setup_code_invalid": "Kód pro nastavení není správný. Zkontrolujte protokoly Charonu a zkuste to znovu.",
+      "rate_limited": "Příliš mnoho pokusů. Počkejte několik minut a zkuste to znovu."
+    }
   },
   "acceptInvite": {
     "title": "Accept Invitation",

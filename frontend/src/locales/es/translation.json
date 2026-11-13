@@ -1124,7 +1124,13 @@
     "invalidEmail": "Por favor ingresa una dirección de correo válida",
     "passwordLabel": "Contraseña",
     "createAdminButton": "Crear Cuenta de Admin",
-    "setupFailed": "Error en la configuración"
+    "setupFailed": "Error en la configuración",
+    "setupCodeLabel": "Código de configuración",
+    "setupCodeHint": "Encuéntrelo en los registros de Charon. Por ejemplo: docker logs charon",
+    "errors": {
+      "setup_code_invalid": "El código de configuración es incorrecto. Revise los registros de Charon e inténtelo de nuevo.",
+      "rate_limited": "Demasiados intentos. Espere unos minutos e inténtelo de nuevo."
+    }
   },
   "acceptInvite": {
     "title": "Aceptar Invitación",

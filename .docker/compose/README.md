@@ -43,6 +43,20 @@ docker compose -f .docker/compose/docker-compose.yml \
                -f .docker/compose/docker-compose.override.yml up -d
 ```
 
+## First-Run Setup Code
+
+On a brand-new Charon (no accounts yet), the first-run page asks for a setup code.
+Charon writes the code to its log when it starts. To find it:
+
+```bash
+docker logs charon | grep "Setup code"
+```
+
+To choose the code yourself (for scripted installs), set `CHARON_SETUP_TOKEN` to a
+secret of at least 32 characters, such as the output of `openssl rand -hex 32`.
+Charon does not repeat that value in its log. See
+[Getting Started](../../docs/getting-started.md#create-your-first-account-setup-code).
+
 ## Notes
 
 - Always use the `-f` flag to specify compose file paths from the project root

@@ -23,6 +23,9 @@
 # Exit codes: 0 pass, 1 assertion or runtime failure, 2 usage error.
 set -euo pipefail
 
+# First-run setup code: passed to the container and sent with the setup request.
+export CHARON_SETUP_TOKEN="${CHARON_SETUP_TOKEN:-$(openssl rand -hex 32)}"
+
 readonly SEMVER_RE='^[0-9]+\.[0-9]+\.[0-9]+$'
 # X.Y.Z with an optional prerelease, used to validate changelog entry versions
 # before semver_cmp orders them.
@@ -402,6 +405,7 @@ start_container() {
     -v "${VOLUME}:${DATA_DIR}" \
     -e CHARON_ENV=production \
     -e CHARON_ENCRYPTION_KEY \
+    -e CHARON_SETUP_TOKEN \
     "$IMAGE" >/dev/null || fail "docker run failed for $IMAGE"
   log "started $CTR from $IMAGE on $BASE_URL"
 }
@@ -462,8 +466,8 @@ setup_and_login() {
     ADMIN_EMAIL="${NAME_PREFIX}${RAND}@example.com"
     ADMIN_PASSWORD="$(gen_password)"
   fi
-  body="$(jq -cn --arg e "$ADMIN_EMAIL" --arg p "$ADMIN_PASSWORD" \
-    '{name:"Smoke Test", email:$e, password:$p}')"
+  body="$(jq -cn --arg e "$ADMIN_EMAIL" --arg p "$ADMIN_PASSWORD" --arg c "$CHARON_SETUP_TOKEN" \
+    '{name:"Smoke Test", email:$e, password:$p, setup_code:$c}')"
   api POST /api/v1/setup "" "$body"
   case "$API_CODE" in
     2??) log "setup: created the admin user" ;;

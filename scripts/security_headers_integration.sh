@@ -59,6 +59,9 @@ PROXY_URL="http://localhost:${HTTP_PORT}"
 PROFILE_CORP="same-origin"
 UPSTREAM_CORP="cross-origin"
 
+# First-run setup code: passed to the container and sent with the setup request.
+export CHARON_SETUP_TOKEN="${CHARON_SETUP_TOKEN:-$(openssl rand -hex 32)}"
+
 FAILURES=0
 TMP_COOKIE=""
 TMP_DIR="$(mktemp -d)"
@@ -215,6 +218,7 @@ docker run -d --name "${CONTAINER_NAME}" \
     -e CHARON_FRONTEND_DIR=/app/frontend/dist \
     -e CHARON_CADDY_CONFIG_DIR=/app/data/caddy \
     -e CHARON_CADDY_BINARY=caddy \
+    -e CHARON_SETUP_TOKEN \
     -v "${VOLUMES[0]}:/app/data" \
     -v "${VOLUMES[1]}:/data" \
     -v "${VOLUMES[2]}:/config" \
@@ -252,8 +256,10 @@ done
 echo ""
 echo "Setting up admin user and logging in..."
 TMP_COOKIE="${TMP_DIR}/cookie"
+SETUP_BODY="$(jq -cn --arg c "${CHARON_SETUP_TOKEN}" \
+    '{email: "secheaders@example.local", password: "password123", name: "Security Headers Tester", setup_code: $c}')"
 curl -s -X POST -H "Content-Type: application/json" \
-    -d '{"email":"secheaders@example.local","password":"password123","name":"Security Headers Tester"}' \
+    -d "${SETUP_BODY}" \
     "${API_URL}/setup" >/dev/null 2>&1 || true
 
 LOGIN_STATUS=$(curl -s -w "\n%{http_code}" -X POST -H "Content-Type: application/json" \

@@ -175,3 +175,27 @@ export function geoipErrorKey(code: string | undefined): string {
   const known = (GEOIP_ERROR_CODES as readonly string[]).includes(code ?? '')
   return known ? `security.geoip.errors.${code}` : 'security.geoip.errors.generic'
 }
+
+/**
+ * Coded first-run setup refusals with a translated text of their own, keyed by the server's `error_code`.
+ */
+const SETUP_CODE_MESSAGE_KEYS = {
+  setup_code_invalid: 'setup.errors.setup_code_invalid',
+} as const
+
+type SetupCodedMessage = keyof typeof SETUP_CODE_MESSAGE_KEYS
+
+const SETUP_CODED_MESSAGES = Object.keys(SETUP_CODE_MESSAGE_KEYS) as SetupCodedMessage[]
+
+/**
+ * Translated text for a refused first-run setup: a fixed text for a wrong or missing setup code,
+ * and a fixed text for a throttled attempt (HTTP 429). Other refusals return null so the caller decides.
+ * @param err - The value thrown by the request
+ * @param t - The translation function of the calling component or hook
+ * @returns The text, or null when the refusal has no text of its own
+ */
+export function setupErrorMessage(err: unknown, t: TFunction): string | null {
+  if (isAxiosError(err) && err.response?.status === 429) return t('setup.errors.rate_limited')
+  const code = getApiErrorCode(err, SETUP_CODED_MESSAGES)
+  return code ? t(SETUP_CODE_MESSAGE_KEYS[code]) : null
+}

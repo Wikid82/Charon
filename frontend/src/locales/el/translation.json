@@ -1084,7 +1084,13 @@
     "invalidEmail": "Please enter a valid email address",
     "passwordLabel": "Password",
     "createAdminButton": "Create Admin Account",
-    "setupFailed": "Setup failed"
+    "setupFailed": "Setup failed",
+    "setupCodeLabel": "Κωδικός εγκατάστασης",
+    "setupCodeHint": "Βρείτε τον στα αρχεία καταγραφής του Charon. Για παράδειγμα: docker logs charon",
+    "errors": {
+      "setup_code_invalid": "Ο κωδικός εγκατάστασης είναι λανθασμένος. Ελέγξτε τα αρχεία καταγραφής του Charon και δοκιμάστε ξανά.",
+      "rate_limited": "Πάρα πολλές προσπάθειες. Περιμένετε μερικά λεπτά και δοκιμάστε ξανά."
+    }
   },
   "acceptInvite": {
     "title": "Accept Invitation",
