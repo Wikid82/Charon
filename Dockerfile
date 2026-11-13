@@ -898,9 +898,6 @@ RUN set -e; \
     # (a colluding GOPROXY+GOSUMDB pair could forge sumdb tiles / serve module content outside
     # the transparency log). Affects /usr/local/bin/crowdsec and /usr/local/bin/cscli — go mod
     # tidy's MVS resolution otherwise lands on v0.38.0. Fix available at v0.40.0.
-    # CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
-    # renovate: datasource=go depName=github.com/jackc/pgproto3/v2
-    _retry go get github.com/jackc/pgproto3/v2@v2.3.3; \
     _retry go get golang.org/x/mod@v${XMOD_VERSION}; \
     # Re-assert x/crypto, x/net after the x/mod pin: the x/mod pin is a downgrade-prone `go get`
     # whose cascade must not leave them below the pinned CVE floor (see XMOD_VERSION).
