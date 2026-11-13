@@ -202,6 +202,9 @@ func startUptimePipeline(ctx context.Context, gate *dbmaint.Gate, s uptimeStarte
 type Registered struct {
 	UptimeShutdown UptimeShutdownFunc
 	CrowdSec       handlers.CrowdsecLifecycle
+	// BrowserOrigin is the cross-origin guard shared by the protected, session and import routes and the WebSocket
+	// handlers. The settings API refreshes it when the public address changes.
+	BrowserOrigin *middleware.BrowserOriginGuard
 }
 
 // RegisterWithDeps wires up API routes and performs automatic migrations with
@@ -420,6 +423,12 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	}
 	logAuthThrottlePolicy(authRateLimiter.Status())
 
+	// Cross-origin check for cookie sessions. It trusts the configured public address (read from the database here and
+	// on every public address save, never per request), so a proxy that rewrites Host does not refuse its own page.
+	browserOrigin := middleware.NewBrowserOriginGuard(func() (string, bool) {
+		return utils.GetConfiguredPublicURL(db)
+	})
+
 	auth := api.Group("/auth")
 	auth.Use(authRateLimiter.Middleware())
 	auth.POST("/login", authHandler.Login)
@@ -429,6 +438,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 	// Self-service session routes — accessible to all authenticated users including passthrough
 	authSession := auth.Group("", authMiddleware)
+	authSession.Use(middleware.RequireSameOriginForBrowserAuth(browserOrigin))
 	authSession.POST("/logout", authHandler.Logout)
 	authSession.POST("/refresh", authHandler.Refresh)
 	authSession.GET("/me", authHandler.Me)
@@ -484,12 +494,6 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	// after NewUptimeService (needs uptimeService.Ingester + uptimeCfg) and
 	// before SetOrthrusResolver — the pool reads the resolver lazily per check.
 	uptimeService.Pool = services.NewUptimeWorkerPool(uptimeService)
-
-	// Cross-origin check for cookie sessions. It trusts the configured public address (read from the database here and
-	// on every public address save, never per request), so a proxy that rewrites Host does not refuse its own page.
-	browserOrigin := middleware.NewBrowserOriginGuard(func() (string, bool) {
-		return utils.GetConfiguredPublicURL(db)
-	})
 
 	protected := api.Group("/")
 	protected.Use(authMiddleware)
@@ -554,7 +558,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 		// Logs
 		// WebSocket endpoints
-		logsWSHandler := handlers.NewLogsWSHandler(wsTracker)
+		logsWSHandler := handlers.NewLogsWSHandler(wsTracker).WithPublicOriginSource(browserOrigin)
 		management.GET("/logs/live", logsWSHandler.HandleWebSocket)
 		management.GET("/logs", logsHandler.List)
 		management.GET("/logs/:filename", logsHandler.Read)
@@ -789,7 +793,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 					orthrusServer.SetAuditLogger(securityService)
 				}
 
-				hecateWSHandler := handlers.NewHecateWSHandler(hecateSvc, wsTracker)
+				hecateWSHandler := handlers.NewHecateWSHandler(hecateSvc, wsTracker).WithPublicOriginSource(browserOrigin)
 				management.GET("/ws/hecate/logs/:uuid", hecateWSHandler.StreamLogs)
 
 				if orthrusServer != nil {
@@ -1088,12 +1092,12 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		} else {
 			logger.Log().WithField("path", accessLogPath).Info("Security log watcher started - stats collection enabled")
 		}
-		cerberusLogsHandler := handlers.NewCerberusLogsHandler(logWatcher, wsTracker)
+		cerberusLogsHandler := handlers.NewCerberusLogsHandler(logWatcher, wsTracker).WithPublicOriginSource(browserOrigin)
 		management.GET("/cerberus/logs/ws", cerberusLogsHandler.LiveLogs)
 
 		// Stats API routes (Issue #25)
 		statsService := services.NewStatsService(db)
-		statsHandler := handlers.NewStatsHandlerFull(statsService, statsIngester, statsWSHub)
+		statsHandler := handlers.NewStatsHandlerFull(statsService, statsIngester, statsWSHub).WithPublicOriginSource(browserOrigin)
 		management.GET("/stats/summary", statsHandler.GetStatsSummary)
 		management.GET("/stats/top-hosts", statsHandler.GetTopHosts)
 		management.GET("/stats/status-distribution", statsHandler.GetStatusDistribution)
@@ -1208,7 +1212,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	// gate ignores it).
 	go applyInitialCaddyConfig(ctx, caddyManager, 30*time.Second, time.Second, gate.ConfigDone)
 
-	return Registered{UptimeShutdown: uptimeShutdown, CrowdSec: handlers.LifecycleOrNil(crowdsecHandler)}, nil
+	return Registered{UptimeShutdown: uptimeShutdown, CrowdSec: handlers.LifecycleOrNil(crowdsecHandler), BrowserOrigin: browserOrigin}, nil
 }
 
 // startDatabaseMaintenance plans a database optimization and, when one is
@@ -1232,13 +1236,14 @@ func startDatabaseMaintenance(ctx context.Context, gate *dbmaint.Gate, db *gorm.
 }
 
 // RegisterImportHandler wires up import routes with config dependencies.
-func RegisterImportHandler(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyBinary, importDir, mountPath string) {
+func RegisterImportHandler(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyBinary, importDir, mountPath string, browserOrigin *middleware.BrowserOriginGuard) {
 	securityService := services.NewSecurityService(db)
 	importHandler := handlers.NewImportHandlerWithDeps(db, caddyBinary, importDir, mountPath, securityService)
 	api := router.Group("/api/v1")
 	authService := services.NewAuthService(db, cfg)
 	authenticatedAdmin := api.Group("/")
 	authenticatedAdmin.Use(middleware.AuthMiddleware(authService), middleware.RequireRole(models.RoleAdmin))
+	authenticatedAdmin.Use(middleware.RequireSameOriginForBrowserAuth(browserOrigin))
 	importHandler.RegisterRoutes(authenticatedAdmin)
 
 	// NPM Import Handler - supports Nginx Proxy Manager export format

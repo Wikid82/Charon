@@ -23,9 +23,24 @@ type TrustedOriginSource func() (origin string, ok bool)
 // replaces the previous one atomically, so requests never read the database and a changed setting takes effect at the
 // next Refresh.
 type BrowserOriginGuard struct {
-	source  TrustedOriginSource
-	mu      sync.Mutex // serialises Refresh so the last rebuild reflects the newest setting
-	checker atomic.Pointer[http.CrossOriginProtection]
+	source TrustedOriginSource
+	mu     sync.Mutex // serialises Refresh so the last rebuild reflects the newest setting
+	state  atomic.Pointer[guardState]
+}
+
+// guardState is one rebuild of the guard: the standard library check and the origin it trusts.
+type guardState struct {
+	checker *http.CrossOriginProtection
+	origin  string // "" when no origin is configured or the configured value was rejected
+}
+
+// TrustedOrigin returns the configured public origin ("scheme://host[:port]"), or "" when none is trusted. It reads
+// the last rebuild and never the database.
+func (g *BrowserOriginGuard) TrustedOrigin() string {
+	if st := g.state.Load(); st != nil {
+		return st.origin
+	}
+	return ""
 }
 
 // NewBrowserOriginGuard builds a guard from the current value of source. A nil source trusts no extra origin.
@@ -43,15 +58,17 @@ func (g *BrowserOriginGuard) Refresh() error {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 
-	checker := http.NewCrossOriginProtection()
+	st := &guardState{checker: http.NewCrossOriginProtection()}
 	var err error
 	if g.source != nil {
 		if origin, ok := g.source(); ok {
-			err = checker.AddTrustedOrigin(origin)
+			// AddTrustedOrigin rejects a value before it is stored, so a failed rebuild trusts no extra origin.
+			if err = st.checker.AddTrustedOrigin(origin); err == nil {
+				st.origin = origin
+			}
 		}
 	}
-	// AddTrustedOrigin rejects a value before it is stored, so a failed checker trusts no extra origin.
-	g.checker.Store(checker)
+	g.state.Store(st)
 	if err != nil {
 		return fmt.Errorf("trust configured public origin: %w", err)
 	}
@@ -92,7 +109,7 @@ func RequireSameOriginForBrowserAuth(guard *BrowserOriginGuard) gin.HandlerFunc 
 // check applies the standard library rules to r. The standard library skips safe methods, and a WebSocket handshake
 // is a GET, so an upgrade request is checked as if it were a POST. The probe is a shallow copy and r is not changed.
 func (g *BrowserOriginGuard) check(r *http.Request) error {
-	checker := g.checker.Load()
+	checker := g.state.Load().checker
 	if isWebSocketUpgrade(r) {
 		probe := r.WithContext(r.Context())
 		probe.Method = http.MethodPost

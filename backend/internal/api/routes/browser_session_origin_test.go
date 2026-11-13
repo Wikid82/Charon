@@ -174,3 +174,56 @@ func TestRegister_ProtectedWebSocketUpgradeFromOtherSiteIsRefused(t *testing.T) 
 	}
 	assert.NotContains(t, f.send(http.MethodGet, "/api/v1/logs/live", true, same).Body.String(), "cross_origin_refused")
 }
+
+// The self-service session routes (logout, refresh, change-password) accept cookie sessions, so they carry the origin
+// check. The login, setup, invite and emergency routes are public or use their own credentials, so they stay unwrapped.
+func TestRegister_AuthSessionRoutesCheckCookieOriginButPublicRoutesDoNot(t *testing.T) {
+	f := newBrowserSessionFixture(t)
+	crossSite := map[string]string{"Sec-Fetch-Site": "cross-site", "Origin": "https://evil.example"}
+
+	for _, path := range []string{"/api/v1/auth/logout", "/api/v1/auth/refresh", "/api/v1/auth/change-password"} {
+		t.Run(path+" cross-site cookie refused", func(t *testing.T) {
+			assertCrossOriginRefused(t, f.send(http.MethodPost, path, true, crossSite), "https://evil.example")
+		})
+	}
+
+	// The frontend refreshes its own session with a same-origin request, which must still pass.
+	sameOrigin := f.send(http.MethodPost, "/api/v1/auth/refresh", true, map[string]string{"Sec-Fetch-Site": "same-origin"})
+	assert.NotContains(t, sameOrigin.Body.String(), "cross_origin_refused")
+	// A header-authenticated client passes too.
+	bearer := f.sendBearer(http.MethodPost, "/api/v1/auth/refresh", crossSite)
+	assert.NotContains(t, bearer.Body.String(), "cross_origin_refused")
+
+	for _, path := range []string{"/api/v1/auth/login", "/api/v1/setup", "/api/v1/invite/accept", "/api/v1/emergency/token/generate", "/api/v1/security/events"} {
+		t.Run(path+" is not origin-checked", func(t *testing.T) {
+			w := f.send(http.MethodPost, path, false, crossSite)
+			assert.NotContains(t, w.Body.String(), "cross_origin_refused")
+		})
+	}
+}
+
+// A WebSocket handshake from the configured public origin is allowed through a proxy that rewrote Host, and any other
+// origin is still refused. The handshake is a GET, so it is checked by the upgrade rule and by the handler's own origin
+// check, which trusts the same public origin.
+func TestRegister_WebSocketProxiedOriginFollowsPublicURL(t *testing.T) {
+	upgrade := func(origin string) map[string]string {
+		return map[string]string{"Connection": "Upgrade", "Upgrade": "websocket", "Origin": origin}
+	}
+
+	for _, path := range []string{"/api/v1/logs/live", "/api/v1/stats/ws"} {
+		t.Run(path, func(t *testing.T) {
+			// A fresh router per path: saving the public URL in one subtest must not configure the next.
+			f := newBrowserSessionFixture(t)
+			before := f.send(http.MethodGet, path, true, upgrade(browserSessionPublicOrigin))
+			assertCrossOriginRefused(t, before, browserSessionPublicOrigin)
+
+			require.Equal(t, http.StatusOK, f.sendJSON(t, `{"key":"app.public_url","value":"`+browserSessionPublicOrigin+`"}`).Code)
+
+			after := f.send(http.MethodGet, path, true, upgrade(browserSessionPublicOrigin))
+			assert.NotEqual(t, http.StatusForbidden, after.Code, "the configured public origin must be allowed")
+
+			other := f.send(http.MethodGet, path, true, upgrade("https://evil.example"))
+			assertCrossOriginRefused(t, other, "https://evil.example")
+		})
+	}
+}

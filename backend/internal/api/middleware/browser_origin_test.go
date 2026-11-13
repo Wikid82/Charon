@@ -260,3 +260,15 @@ func TestBrowserOriginGuard_WebSocketUpgradeIsChecked(t *testing.T) {
 		})
 	}
 }
+
+func TestBrowserOriginGuard_TrustedOriginReportsConfiguredValue(t *testing.T) {
+	setting := &originSetting{origin: "https://charon.example.com", ok: true}
+	guard := NewBrowserOriginGuard(setting.source)
+	assert.Equal(t, "https://charon.example.com", guard.TrustedOrigin())
+
+	setting.origin = "charon.example.com"
+	require.Error(t, guard.Refresh())
+	assert.Empty(t, guard.TrustedOrigin(), "a rejected value must not be reported as trusted")
+
+	assert.Empty(t, NewBrowserOriginGuard(nil).TrustedOrigin())
+}

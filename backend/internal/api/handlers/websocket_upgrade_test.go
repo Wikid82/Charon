@@ -21,7 +21,7 @@ func newUpgradeTestServer(t *testing.T, upgradeErr chan<- error) *httptest.Serve
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.GET("/ws", func(c *gin.Context) {
-		conn, err := upgradeWebSocket(c)
+		conn, err := upgradeWebSocket(c, nil)
 		upgradeErr <- err
 		if err != nil {
 			return

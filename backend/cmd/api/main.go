@@ -286,7 +286,7 @@ func main() {
 	uptimeShutdown := registered.UptimeShutdown
 
 	// Register import handler with config dependencies
-	routes.RegisterImportHandler(router, db, cfg, cfg.CaddyBinary, cfg.ImportDir, cfg.ImportCaddyfile)
+	routes.RegisterImportHandler(router, db, cfg, cfg.CaddyBinary, cfg.ImportDir, cfg.ImportCaddyfile, registered.BrowserOrigin)
 
 	// Check for mounted Caddyfile on startup
 	if err := handlers.CheckMountedImport(db, cfg.ImportCaddyfile, cfg.CaddyBinary, cfg.ImportDir); err != nil {

@@ -24,7 +24,14 @@ type LogEntry struct {
 
 // LogsWSHandler handles WebSocket connections for live log streaming.
 type LogsWSHandler struct {
-	tracker *services.WebSocketTracker
+	tracker       *services.WebSocketTracker
+	publicOrigins PublicOriginSource // may be nil: no public origin is trusted
+}
+
+// WithPublicOriginSource wires the configured public origin into the WebSocket origin check.
+func (h *LogsWSHandler) WithPublicOriginSource(s PublicOriginSource) *LogsWSHandler {
+	h.publicOrigins = s
+	return h
 }
 
 // NewLogsWSHandler creates a new handler for log streaming.
@@ -46,7 +53,7 @@ func (h *LogsWSHandler) HandleWebSocket(c *gin.Context) {
 	logger.Log().Info("WebSocket connection attempt received")
 
 	// Upgrade HTTP connection to WebSocket
-	conn, err := upgradeWebSocket(c)
+	conn, err := upgradeWebSocket(c, h.publicOrigins)
 	if err != nil {
 		logger.Log().WithError(err).Error("Failed to upgrade WebSocket connection")
 		return

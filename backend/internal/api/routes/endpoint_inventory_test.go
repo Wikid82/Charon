@@ -10,6 +10,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/api/routes"
 	"github.com/Wikid82/charon/backend/internal/config"
 )
@@ -22,7 +23,7 @@ func TestEndpointInventory_FrontendCanonicalSaveImportContractsExistInBackend(t 
 
 	router := gin.New()
 	require.NoError(t, routes.Register(context.Background(), router, db, config.Config{JWTSecret: "test-secret"}))
-	routes.RegisterImportHandler(router, db, config.Config{JWTSecret: "test-secret"}, "echo", "/tmp", "/import/Caddyfile")
+	routes.RegisterImportHandler(router, db, config.Config{JWTSecret: "test-secret"}, "echo", "/tmp", "/import/Caddyfile", middleware.NewBrowserOriginGuard(nil))
 
 	assertStrictMethodPathMatrix(t, router.Routes(), backendImportSaveInventoryCanonical(), "backend canonical save/import inventory")
 }
@@ -35,7 +36,7 @@ func TestEndpointInventory_FrontendParityMatchesCurrentContract(t *testing.T) {
 
 	router := gin.New()
 	require.NoError(t, routes.Register(context.Background(), router, db, config.Config{JWTSecret: "test-secret"}))
-	routes.RegisterImportHandler(router, db, config.Config{JWTSecret: "test-secret"}, "echo", "/tmp", "/import/Caddyfile")
+	routes.RegisterImportHandler(router, db, config.Config{JWTSecret: "test-secret"}, "echo", "/tmp", "/import/Caddyfile", middleware.NewBrowserOriginGuard(nil))
 
 	assertStrictMethodPathMatrix(t, router.Routes(), frontendObservedImportSaveInventory(), "frontend observed save/import inventory")
 }
@@ -48,7 +49,7 @@ func TestEndpointInventory_FrontendParityDetectsActualMismatch(t *testing.T) {
 
 	router := gin.New()
 	require.NoError(t, routes.Register(context.Background(), router, db, config.Config{JWTSecret: "test-secret"}))
-	routes.RegisterImportHandler(router, db, config.Config{JWTSecret: "test-secret"}, "echo", "/tmp", "/import/Caddyfile")
+	routes.RegisterImportHandler(router, db, config.Config{JWTSecret: "test-secret"}, "echo", "/tmp", "/import/Caddyfile", middleware.NewBrowserOriginGuard(nil))
 
 	contractWithMismatch := append([]endpointInventoryEntry{}, frontendObservedImportSaveInventory()...)
 	for i := range contractWithMismatch {

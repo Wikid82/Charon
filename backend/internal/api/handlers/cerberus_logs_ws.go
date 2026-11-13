@@ -16,8 +16,15 @@ import (
 
 // CerberusLogsHandler handles WebSocket connections for streaming security logs.
 type CerberusLogsHandler struct {
-	watcher *services.LogWatcher
-	tracker *services.WebSocketTracker
+	watcher       *services.LogWatcher
+	tracker       *services.WebSocketTracker
+	publicOrigins PublicOriginSource // may be nil: no public origin is trusted
+}
+
+// WithPublicOriginSource wires the configured public origin into the WebSocket origin check.
+func (h *CerberusLogsHandler) WithPublicOriginSource(s PublicOriginSource) *CerberusLogsHandler {
+	h.publicOrigins = s
+	return h
 }
 
 // NewCerberusLogsHandler creates a new handler for Cerberus security log streaming.
@@ -42,7 +49,7 @@ func (h *CerberusLogsHandler) LiveLogs(c *gin.Context) {
 	logger.Log().Info("Cerberus logs WebSocket connection attempt")
 
 	// Upgrade HTTP connection to WebSocket
-	conn, err := upgradeWebSocket(c)
+	conn, err := upgradeWebSocket(c, h.publicOrigins)
 	if err != nil {
 		logger.Log().WithError(err).Error("Failed to upgrade Cerberus logs WebSocket")
 		return
