@@ -1880,7 +1880,12 @@ go test ./integration/...
 4. **Build:** Docker image build
 5. **Coverage:** Upload to Codecov (85% gate) — `backend`, `frontend`, and
    `agent` each upload under a distinct Codecov flag
-   (`.github/workflows/codecov-upload.yml`); `quality-checks.yml` runs a
+   (`.github/workflows/codecov-upload.yml`). Backend Go tests run as 3 package
+   shards and frontend Vitest runs as 4 shards (blob reports); a merge job per
+   stack enforces the coverage gate once and publishes `backend/coverage.txt`
+   and `frontend/coverage/lcov.info`. The shared logic lives in
+   `.github/actions/{go,vitest}-coverage-{shard,merge}` and `scripts/ci/`;
+   `quality-checks.yml` runs a
    matching `agent-quality` job (go vet, lint, coverage gate) unconditionally
    on every PR, not only PRs that touch `agent/**`
 6. **Supply Chain:** SBOM generation, Cosign signing

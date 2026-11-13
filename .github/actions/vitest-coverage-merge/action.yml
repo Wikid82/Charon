@@ -1,0 +1,48 @@
+name: Merge frontend coverage shards
+description: >-
+  Downloads every frontend blob report, merges them with `vitest --merge-reports`,
+  and enforces the line-coverage threshold from frontend/vitest.config.ts once.
+  Writes frontend/coverage/coverage-summary.json and frontend/coverage/lcov.info,
+  the same files scripts/frontend-test-coverage.sh publishes. The caller must
+  check out the repository, set up Node and run npm ci in frontend/.
+inputs:
+  expected-shards:
+    description: Number of blob reports that must be present. Fails when fewer are found.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Download shard blob reports
+      uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+      with:
+        pattern: frontend-blob-shard-*
+        path: frontend/.vitest-blobs
+        merge-multiple: true
+
+    - name: Verify every shard reported
+      shell: bash
+      working-directory: ${{ github.workspace }}/frontend
+      env:
+        EXPECTED_SHARDS: ${{ inputs.expected-shards }}
+      run: |
+        set -euo pipefail
+        found="$(find .vitest-blobs -maxdepth 1 -type f -name 'shard-*.json' | wc -l | tr -d ' ')"
+        if [ "$found" -ne "$EXPECTED_SHARDS" ]; then
+          echo "::error title=Missing frontend test shard::Expected ${EXPECTED_SHARDS} blob reports, found ${found}"
+          exit 1
+        fi
+
+    - name: Merge blob reports and enforce the coverage threshold
+      shell: bash
+      working-directory: ${{ github.workspace }}/frontend
+      run: |
+        npm run test:coverage:merge 2>&1 | tee test-output.txt
+        exit "${PIPESTATUS[0]}"
+
+    - name: Verify published coverage artifacts
+      shell: bash
+      working-directory: ${{ github.workspace }}/frontend
+      run: |
+        set -euo pipefail
+        test -s coverage/coverage-summary.json
+        test -s coverage/lcov.info

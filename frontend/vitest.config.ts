@@ -12,7 +12,7 @@ export default defineConfig({
   plugins: [react()],
   test: {
     pool: 'forks',
-    maxWorkers: 1,
+    maxWorkers: 2,
     minWorkers: 1,
     globals: true,
     environment: 'jsdom',
