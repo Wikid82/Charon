@@ -14,9 +14,12 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"path"
 	"regexp"
 	"strings"
+
+	"github.com/distribution/reference"
 )
 
 const forbiddenResponse = "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
@@ -188,12 +191,88 @@ func (f *Filter) Allow(method, reqPath string) bool {
 	// allowedDockerPrefixSuffixPatterns for why path.Match is not used
 	// here).
 	for _, ps := range allowedDockerPrefixSuffixPatterns {
-		if strings.HasPrefix(normalizedPath, ps.prefix) && strings.HasSuffix(normalizedPath, ps.suffix) {
+		if prefixSuffixAllowed(ps.prefix, ps.suffix, normalizedPath) {
 			return true
 		}
 	}
 
 	return false
+}
+
+// prefixSuffixAllowed reports whether a normalized path matches one entry of
+// allowedDockerPrefixSuffixPatterns. Registry lookups additionally pass the
+// registry host rule (see registryLookupAllowed); other entries match on
+// prefix and suffix alone.
+func prefixSuffixAllowed(prefix, suffix, normalizedPath string) bool {
+	if !strings.HasPrefix(normalizedPath, prefix) || !strings.HasSuffix(normalizedPath, suffix) {
+		return false
+	}
+	if prefix != "/distribution/" {
+		return true
+	}
+	ref, _ := strings.CutPrefix(normalizedPath, prefix)
+	ref, _ = strings.CutSuffix(ref, suffix)
+	return registryLookupAllowed(ref)
+}
+
+// registryLookupAllowed reports whether a /distribution/<ref>/json lookup may
+// reach the registry named in ref. Refused: unparsable references,
+// IP-literal registries, localhost (and *.localhost), single-label registry
+// hosts, and shorthand IPv4 forms with a numeric last label or hex labels.
+// Docker Hub short names ("nginx", "library/nginx") are allowed.
+//
+// Residual, not covered: an ordinary DNS name that resolves to an internal
+// address. Checking that would need a resolution here that could disagree
+// with the daemon's own lookup, so the read-only proxy can still make the
+// daemon contact registries named by DNS. Keep the external proxy reachable
+// only by trusted tools.
+//
+// backend/internal/orthrus/muzzle.go carries an identical helper; the two are
+// kept aligned by the mirrored table tests, not by the parity script.
+func registryLookupAllowed(ref string) bool {
+	named, err := reference.ParseNormalizedNamed(ref)
+	if err != nil {
+		return false
+	}
+	host := reference.Domain(named)
+	if h, _, splitErr := net.SplitHostPort(host); splitErr == nil {
+		host = h
+	}
+	host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+
+	if _, addrErr := netip.ParseAddr(host); addrErr == nil {
+		return false
+	}
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return false
+	}
+	if !strings.Contains(host, ".") {
+		return false
+	}
+	labels := strings.Split(host, ".")
+	if isAllDigits(labels[len(labels)-1]) {
+		return false
+	}
+	for _, label := range labels {
+		if strings.HasPrefix(label, "0x") {
+			return false
+		}
+	}
+	return true
+}
+
+// isAllDigits reports whether s is non-empty and made only of ASCII digits.
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // ServeProxy reads the HTTP request from r, checks Allow(), then dials the Docker
