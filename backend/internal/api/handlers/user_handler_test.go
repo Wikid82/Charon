@@ -26,7 +26,9 @@ import (
 func setupUserHandler(t *testing.T) (*UserHandler, *gorm.DB) {
 	db := OpenTestDB(t)
 	_ = db.AutoMigrate(&models.User{}, &models.Setting{}, &models.SecurityAudit{})
-	return NewUserHandler(db, nil), db
+	handler := NewUserHandler(db, nil)
+	handler.SetSetupCodeGuard(services.NewSetupCodeGuard(testSetupCode))
+	return handler, db
 }
 
 func TestMapsKeys(t *testing.T) {
@@ -89,9 +91,10 @@ func TestUserHandler_Setup(t *testing.T) {
 
 	// 2. Valid Setup
 	body := map[string]string{
-		"name":     "Admin",
-		"email":    "admin@example.com",
-		"password": "password123",
+		"name":       "Admin",
+		"email":      "admin@example.com",
+		"password":   "password123",
+		"setup_code": testSetupCode,
 	}
 	jsonBody, _ := json.Marshal(body)
 	req, _ = http.NewRequest("POST", "/setup", bytes.NewBuffer(jsonBody))
@@ -116,9 +119,10 @@ func TestUserHandler_Setup_OneWayInvariant_ReentryRejectedAndSingleUser(t *testi
 	r.POST("/setup", handler.Setup)
 
 	initialBody := map[string]string{
-		"name":     "Admin",
-		"email":    "admin@example.com",
-		"password": "password123",
+		"name":       "Admin",
+		"email":      "admin@example.com",
+		"password":   "password123",
+		"setup_code": testSetupCode,
 	}
 	initialJSON, _ := json.Marshal(initialBody)
 
@@ -129,9 +133,10 @@ func TestUserHandler_Setup_OneWayInvariant_ReentryRejectedAndSingleUser(t *testi
 	require.Equal(t, http.StatusCreated, firstResp.Code)
 
 	secondBody := map[string]string{
-		"name":     "Different Admin",
-		"email":    "different@example.com",
-		"password": "password123",
+		"name":       "Different Admin",
+		"email":      "different@example.com",
+		"password":   "password123",
+		"setup_code": testSetupCode,
 	}
 	secondJSON, _ := json.Marshal(secondBody)
 	secondReq := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBuffer(secondJSON))
@@ -158,23 +163,25 @@ func TestUserHandler_Setup_ConcurrentAttemptInvariant(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < concurrency; i++ {
 		wg.Add(1)
-		go func() {
+		go func(i int) {
 			defer wg.Done()
 			<-start
 
 			body := map[string]string{
-				"name":     "Admin",
-				"email":    "admin@example.com",
-				"password": "password123",
+				"name":       "Admin",
+				"email":      "admin@example.com",
+				"password":   "password123",
+				"setup_code": testSetupCode,
 			}
 			jsonBody, _ := json.Marshal(body)
 
 			req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBuffer(jsonBody))
+			req.RemoteAddr = fmt.Sprintf("198.51.100.%d:1000", i+1) // distinct clients: keep the per-client throttle out of this race
 			req.Header.Set("Content-Type", "application/json")
 			resp := httptest.NewRecorder()
 			r.ServeHTTP(resp, req)
 			statuses <- resp.Code
-		}()
+		}(i)
 	}
 
 	close(start)
@@ -211,9 +218,10 @@ func TestUserHandler_Setup_ResponseSecretEchoContract(t *testing.T) {
 	r.POST("/setup", handler.Setup)
 
 	body := map[string]string{
-		"name":     "Admin",
-		"email":    "admin@example.com",
-		"password": "password123",
+		"name":       "Admin",
+		"email":      "admin@example.com",
+		"password":   "password123",
+		"setup_code": testSetupCode,
 	}
 	jsonBody, _ := json.Marshal(body)
 
@@ -3094,6 +3102,7 @@ func TestUserHandler_Setup_ConcurrentDistinctEmailsSingleAdmin(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.User{}, &models.Setting{}, &models.SecurityAudit{}))
 
 	handler := NewUserHandler(db, nil)
+	handler.SetSetupCodeGuard(services.NewSetupCodeGuard(testSetupCode))
 	r := gin.New()
 	r.POST("/setup", handler.Setup)
 
@@ -3109,11 +3118,13 @@ func TestUserHandler_Setup_ConcurrentDistinctEmailsSingleAdmin(t *testing.T) {
 			<-start
 
 			jsonBody, _ := json.Marshal(map[string]string{
-				"name":     "Admin",
-				"email":    fmt.Sprintf("admin%d@example.com", i),
-				"password": "password123",
+				"name":       "Admin",
+				"email":      fmt.Sprintf("admin%d@example.com", i),
+				"password":   "password123",
+				"setup_code": testSetupCode,
 			})
 			req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBuffer(jsonBody))
+			req.RemoteAddr = fmt.Sprintf("198.51.100.%d:1000", i+1) // distinct clients: keep the per-client throttle out of this race
 			req.Header.Set("Content-Type", "application/json")
 			resp := httptest.NewRecorder()
 			r.ServeHTTP(resp, req)
@@ -3146,7 +3157,7 @@ func TestUserHandler_Setup_TransactionErrorPaths(t *testing.T) {
 	postSetup := func(handler *UserHandler) *httptest.ResponseRecorder {
 		r := gin.New()
 		r.POST("/setup", handler.Setup)
-		body, _ := json.Marshal(map[string]string{"name": "Admin", "email": "admin@example.com", "password": "password123"})
+		body, _ := json.Marshal(map[string]string{"name": "Admin", "email": "admin@example.com", "password": "password123", "setup_code": testSetupCode})
 		req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
@@ -3210,23 +3221,4 @@ func TestSetupRequest_ParsesOptionalSetupCode(t *testing.T) {
 	var withoutCode SetupRequest
 	require.NoError(t, json.Unmarshal([]byte(`{"name":"A","email":"a@example.com","password":"password123"}`), &withoutCode))
 	assert.Empty(t, withoutCode.SetupCode)
-}
-
-func TestUserHandler_Setup_AcceptsSetupCodeWhileUnchecked(t *testing.T) {
-	handler, _ := setupUserHandler(t)
-	r := gin.New()
-	r.POST("/setup", handler.Setup)
-
-	jsonBody, _ := json.Marshal(map[string]string{
-		"name":       "Admin",
-		"email":      "admin@example.com",
-		"password":   "password123",
-		"setup_code": "any-code-while-unchecked",
-	})
-	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBuffer(jsonBody))
-	req.Header.Set("Content-Type", "application/json")
-	w := httptest.NewRecorder()
-	r.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusCreated, w.Code)
 }
