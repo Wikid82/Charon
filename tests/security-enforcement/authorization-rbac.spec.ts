@@ -2,10 +2,12 @@
  * Cerberus ACL Role-Based Access Control Tests
  */
 
-import { test, expect, request as playwrightRequest, type APIRequestContext } from '@playwright/test';
-import { STORAGE_STATE } from '../constants';
+import { test, expect, request as playwrightRequest, type APIRequestContext, type APIResponse } from '@playwright/test';
+import { STORAGE_STATE, TEST_PASSWORD as SETUP_ADMIN_PASSWORD } from '../constants';
 import { TestDataManager } from '../utils/TestDataManager';
 import { TEST_PASSWORD } from '../fixtures/auth-fixtures';
+import { waitForLoadingComplete, waitForModal } from '../utils/wait-helpers';
+import { deleteAccessList } from '../utils/proxy-refusal-helpers';
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080';
 
@@ -506,5 +508,165 @@ test.describe('Privileged management-API authorization (GHSA-3gc6-295r-xm5m)', (
     expect(afterResponse.status()).toBe(200);
     const after = await afterResponse.json();
     expect(after.role).toBe('user');
+  });
+});
+
+/**
+ * Browser session request origin checks (PR 31, advisory A5).
+ *
+ * Cookie-authenticated requests to the protected route group are checked with the standard library's cross-origin
+ * rules. A request that carries an Authorization header is header-authenticated and passes unchanged. A refused
+ * request gets 403 with error_code `cross_origin_refused` before the handler runs.
+ *
+ * Every probe is written so that an accidentally allowed request cannot change state: the management POST carries an
+ * empty body that validation rejects, and the change-password POST carries a wrong current password, which the
+ * service rejects before any write. Each refusal is paired with a same-origin control, so a 403 is attributable to the
+ * origin check and not to the handler.
+ */
+
+const CROSS_SITE_HEADERS = { 'Sec-Fetch-Site': 'cross-site', Origin: 'https://attacker.example' };
+const SAME_ORIGIN_HEADERS = { 'Sec-Fetch-Site': 'same-origin', Origin: BASE_URL };
+const SETUP_ADMIN_EMAIL = process.env.E2E_TEST_EMAIL || 'e2e-test@example.com';
+const WRONG_CURRENT_PASSWORD = 'not-the-current-password-probe';
+const PROBE_NEW_PASSWORD = 'ProbeNewPassword123!';
+
+async function errorBody(response: APIResponse): Promise<{ error?: string; error_code?: string }> {
+  return (await response.json().catch(() => ({}))) as { error?: string; error_code?: string };
+}
+
+async function jsonSnapshot(request: APIRequestContext, path: string): Promise<unknown> {
+  const response = await request.get(path);
+  expect(response.ok(), `GET ${path} for state snapshot`).toBe(true);
+  return response.json();
+}
+
+async function deleteAccessListNamed(request: APIRequestContext, name: string): Promise<void> {
+  const response = await request.get('/api/v1/access-lists');
+  const lists = (await response.json()) as Array<{ uuid: string; name: string }>;
+  for (const list of lists.filter((entry) => entry.name === name)) {
+    await deleteAccessList(request, list.uuid);
+  }
+}
+
+test.describe('Browser session request origin checks (PR 31)', () => {
+  let cookieContext: APIRequestContext;
+  let bearerContext: APIRequestContext;
+  let setupAdminBearer: string;
+
+  test.beforeAll(async () => {
+    // Cookie context inherits the setup admin session from the shared storage state.
+    cookieContext = await playwrightRequest.newContext({ baseURL: BASE_URL, storageState: STORAGE_STATE });
+    // Bearer context logs in as the same setup admin, so header-authenticated probes use a real token.
+    bearerContext = await playwrightRequest.newContext({ baseURL: BASE_URL });
+    const login = await bearerContext.post('/api/v1/auth/login', {
+      data: { email: SETUP_ADMIN_EMAIL, password: SETUP_ADMIN_PASSWORD },
+    });
+    expect(login.ok(), 'setup admin login for header-authenticated probes').toBe(true);
+    setupAdminBearer = (await login.json()).token;
+    expect(setupAdminBearer, 'setup admin bearer token').toBeTruthy();
+  });
+
+  test.afterAll(async () => {
+    await cookieContext?.dispose();
+    await bearerContext?.dispose();
+  });
+
+  test('admin UI mutation still succeeds end to end from the same origin', async ({ page }) => {
+    // A name-only block list blocks nobody, so it needs no IP rule and cannot lock out the test runner.
+    const aclName = `Origin check ACL ${Date.now()}`;
+
+    try {
+      await test.step('Create a name-only block list from the Access Lists page', async () => {
+        await page.goto('/access-lists');
+        await waitForLoadingComplete(page);
+        await page.getByRole('button', { name: /create.*access.*list/i }).first().click();
+        await waitForModal(page, /create|access.*list/i);
+        await page.locator('#name').fill(aclName);
+        await page.locator('#type').selectOption('blacklist');
+        await page.getByRole('button', { name: /^(create|update|save)$/i }).first().click();
+        await waitForLoadingComplete(page);
+      });
+
+      await test.step('The form closes and the new list is shown', async () => {
+        await expect(page.getByRole('heading', { name: /create.*access.*list/i })).not.toBeVisible({ timeout: 10000 });
+        await expect(page.getByText(aclName, { exact: true }).first()).toBeVisible();
+      });
+    } finally {
+      await deleteAccessListNamed(cookieContext, aclName);
+    }
+  });
+
+  test.describe('Cookie-authenticated management request with cross-site metadata', () => {
+    test('POST /api/v1/proxy-hosts is refused with 403 and creates nothing', async () => {
+      await test.step('Control: same-origin cookie request reaches validation and is rejected with 400', async () => {
+        const control = await cookieContext.post('/api/v1/proxy-hosts', {
+          headers: SAME_ORIGIN_HEADERS,
+          data: {},
+        });
+        expect(control.status()).toBe(400);
+      });
+
+      const hostsBefore = await jsonSnapshot(cookieContext, '/api/v1/proxy-hosts');
+
+      await test.step('Cross-site request is refused before the handler runs', async () => {
+        const response = await cookieContext.post('/api/v1/proxy-hosts', {
+          headers: CROSS_SITE_HEADERS,
+          data: {},
+        });
+        expect(response.status()).toBe(403);
+        expect((await errorBody(response)).error_code).toBe('cross_origin_refused');
+      });
+
+      await test.step('Proxy host list is unchanged', async () => {
+        expect(await jsonSnapshot(cookieContext, '/api/v1/proxy-hosts')).toEqual(hostsBefore);
+      });
+    });
+
+    test('POST /api/v1/auth/change-password is refused with 403 and changes nothing', async () => {
+      const probe = { old_password: WRONG_CURRENT_PASSWORD, new_password: PROBE_NEW_PASSWORD };
+
+      await test.step('Control: same-origin cookie request reaches the handler and is rejected for the wrong password', async () => {
+        const control = await cookieContext.post('/api/v1/auth/change-password', {
+          headers: SAME_ORIGIN_HEADERS,
+          data: probe,
+        });
+        expect(control.status()).toBe(400);
+        expect((await errorBody(control)).error).toMatch(/invalid current password/i);
+      });
+
+      const meBefore = await jsonSnapshot(cookieContext, '/api/v1/auth/me');
+
+      await test.step('Cross-site request is refused, sets no session cookie, and changes nothing', async () => {
+        const response = await cookieContext.post('/api/v1/auth/change-password', {
+          headers: CROSS_SITE_HEADERS,
+          data: probe,
+        });
+        expect(response.status()).toBe(403);
+        expect((await errorBody(response)).error_code).toBe('cross_origin_refused');
+        expect(response.headers()['set-cookie']).toBeUndefined();
+      });
+
+      await test.step('Session identity is unchanged', async () => {
+        expect(await jsonSnapshot(cookieContext, '/api/v1/auth/me')).toEqual(meBefore);
+      });
+    });
+  });
+
+  test.describe('Requests the origin check does not refuse', () => {
+    test('header-authenticated request with cross-site metadata passes the origin check', async () => {
+      const response = await bearerContext.post('/api/v1/proxy-hosts', {
+        headers: { Authorization: `Bearer ${setupAdminBearer}`, ...CROSS_SITE_HEADERS },
+        data: {},
+      });
+      // The handler's own validation answers, so the origin check did not refuse the request.
+      expect(response.status()).toBe(400);
+      expect((await errorBody(response)).error_code).not.toBe('cross_origin_refused');
+    });
+
+    test('cookie request without browser metadata passes the origin check', async () => {
+      const response = await cookieContext.post('/api/v1/proxy-hosts', { data: {} });
+      expect(response.status()).toBe(400);
+      expect((await errorBody(response)).error_code).not.toBe('cross_origin_refused');
+    });
   });
 });
