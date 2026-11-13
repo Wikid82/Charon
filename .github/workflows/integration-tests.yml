@@ -48,7 +48,8 @@ jobs:
           ci: 'true'
           # Fork PRs cannot pull the private toolchain image -> compile inline.
           builder-src: ${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'inline' || 'prebuilt' }}
-          ghcr-token: ${{ secrets.GITHUB_TOKEN }}
+          # Registry token only for same-repository builds; fork PRs build inline and get none.
+          ghcr-token: ${{ (github.event.pull_request.head.repo.full_name == '' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.GITHUB_TOKEN || '' }}
 
       - name: Save Charon image
         run: docker save charon:local -o /tmp/charon-image.tar
@@ -84,8 +85,17 @@ jobs:
       - name: Load Charon image
         run: docker load -i /tmp/charon-image.tar
 
+      - name: Generate per-run setup code
+        id: setup-code
+        run: |
+          setup_token="$(openssl rand -hex 32)"
+          echo "::add-mask::${setup_token}"
+          echo "setup_token=${setup_token}" >> "$GITHUB_OUTPUT"
+
       - name: Run Cerberus integration tests
         id: cerberus-test
+        env:
+          CHARON_SETUP_TOKEN: ${{ steps.setup-code.outputs.setup_token }}
         run: |
           chmod +x scripts/cerberus_integration.sh
           scripts/cerberus_integration.sh 2>&1 | tee cerberus-test-output.txt
@@ -192,8 +202,17 @@ jobs:
       - name: Load Charon image
         run: docker load -i /tmp/charon-image.tar
 
+      - name: Generate per-run setup code
+        id: setup-code
+        run: |
+          setup_token="$(openssl rand -hex 32)"
+          echo "::add-mask::${setup_token}"
+          echo "setup_token=${setup_token}" >> "$GITHUB_OUTPUT"
+
       - name: Run WAF integration tests
         id: waf-test
+        env:
+          CHARON_SETUP_TOKEN: ${{ steps.setup-code.outputs.setup_token }}
         run: |
           chmod +x scripts/waf_integration.sh
           scripts/waf_integration.sh 2>&1 | tee waf-test-output.txt
@@ -282,8 +301,17 @@ jobs:
       - name: Load Charon image
         run: docker load -i /tmp/charon-image.tar
 
+      - name: Generate per-run setup code
+        id: setup-code
+        run: |
+          setup_token="$(openssl rand -hex 32)"
+          echo "::add-mask::${setup_token}"
+          echo "setup_token=${setup_token}" >> "$GITHUB_OUTPUT"
+
       - name: Run rate limit integration tests
         id: ratelimit-test
+        env:
+          CHARON_SETUP_TOKEN: ${{ steps.setup-code.outputs.setup_token }}
         run: |
           chmod +x scripts/rate_limit_integration.sh
           scripts/rate_limit_integration.sh 2>&1 | tee ratelimit-test-output.txt
@@ -385,8 +413,17 @@ jobs:
       - name: Load Charon image
         run: docker load -i /tmp/charon-image.tar
 
+      - name: Generate per-run setup code
+        id: setup-code
+        run: |
+          setup_token="$(openssl rand -hex 32)"
+          echo "::add-mask::${setup_token}"
+          echo "setup_token=${setup_token}" >> "$GITHUB_OUTPUT"
+
       - name: Run security headers integration tests
         id: secheaders-test
+        env:
+          CHARON_SETUP_TOKEN: ${{ steps.setup-code.outputs.setup_token }}
         run: |
           chmod +x scripts/security_headers_integration.sh
           scripts/security_headers_integration.sh 2>&1 | tee secheaders-test-output.txt
@@ -475,8 +512,17 @@ jobs:
       - name: Load Charon image
         run: docker load -i /tmp/charon-image.tar
 
+      - name: Generate per-run setup code
+        id: setup-code
+        run: |
+          setup_token="$(openssl rand -hex 32)"
+          echo "::add-mask::${setup_token}"
+          echo "setup_token=${setup_token}" >> "$GITHUB_OUTPUT"
+
       - name: Run CrowdSec integration tests
         id: crowdsec-test
+        env:
+          CHARON_SETUP_TOKEN: ${{ steps.setup-code.outputs.setup_token }}
         run: |
           chmod +x .github/skills/scripts/skill-runner.sh
           .github/skills/scripts/skill-runner.sh integration-test-crowdsec 2>&1 | tee crowdsec-test-output.txt
@@ -594,3 +640,60 @@ jobs:
           docker volume rm charon_crowdsec_persist_data 2>/dev/null || true
           docker rm -f crowdsec || true
           docker network rm containers_default || true
+
+  setup-code:
+    name: First-Run Setup Code Integration
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 12 # test-only work; image is built upstream in `build`.
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Download Charon image artifact
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: charon-integration-image
+          path: /tmp
+      - name: Load Charon image
+        run: docker load -i /tmp/charon-image.tar
+
+      - name: Run first-run setup code tests
+        id: setup-code-test
+        run: |
+          chmod +x scripts/setup_code_integration.sh
+          scripts/setup_code_integration.sh 2>&1 | tee setup-code-test-output.txt
+          exit "${PIPESTATUS[0]}"
+
+      - name: Setup Code Integration Summary
+        if: always()
+        run: |
+          {
+            echo "## 🔑 First-Run Setup Code Test Results"
+            if [ "${{ steps.setup-code-test.outcome }}" == "success" ]; then
+              echo "✅ **All first-run setup code tests passed**"
+              echo ""
+              echo '```'
+              grep -E "✓|TC-[0-9]|=== ALL" setup-code-test-output.txt || echo "See logs for details"
+              echo '```'
+            else
+              echo "❌ **First-run setup code tests failed**"
+              echo ""
+              echo '```'
+              grep -E "✗|FAIL|Error|failed" setup-code-test-output.txt | head -30 || echo "See logs for details"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Cleanup
+        if: always()
+        run: |
+          # The script removes its own containers and volumes; this catches a run aborted before its trap ran.
+          docker ps -aq --filter "name=charon-setup-" | xargs -r docker rm -f -v || true
+          docker volume ls -q --filter "name=charon-setup-" | xargs -r docker volume rm || true

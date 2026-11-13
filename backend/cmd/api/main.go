@@ -179,21 +179,8 @@ func main() {
 				log.Fatalf("connect database: %v", err)
 			}
 
-			var user models.User
-			if err := db.Where("email = ?", email).First(&user).Error; err != nil {
-				log.Fatalf("user not found: %v", err)
-			}
-
-			if err := user.SetPassword(newPassword); err != nil {
-				log.Fatalf("failed to hash password: %v", err)
-			}
-
-			// Unlock account if locked
-			user.LockedUntil = nil
-			user.FailedLoginAttempts = 0
-
-			if err := db.Save(&user).Error; err != nil {
-				log.Fatalf("failed to save user: %v", err)
+			if err := resetUserPassword(db, email, newPassword); err != nil {
+				log.Fatalf("reset password: %v", err)
 			}
 
 			logger.Log().Infof("Password updated successfully for user %s", email)

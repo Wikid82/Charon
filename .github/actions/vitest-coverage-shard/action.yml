@@ -1,0 +1,44 @@
+name: Frontend test shard
+description: >-
+  Runs one shard of the Vitest suite and writes a blob report (test results plus
+  V8 coverage) to frontend/.vitest-blobs/. The per-shard coverage threshold is
+  disabled here; vitest-coverage-merge enforces it once on the merged blobs. The
+  caller must check out the repository, set up Node and run npm ci in frontend/.
+inputs:
+  shard-index:
+    description: 1-based index of this shard.
+    required: true
+  shard-total:
+    description: Total number of shards. Must match the matrix size of the calling job.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Run shard tests with coverage
+      shell: bash
+      working-directory: ${{ github.workspace }}/frontend
+      env:
+        SHARD_INDEX: ${{ inputs.shard-index }}
+        SHARD_TOTAL: ${{ inputs.shard-total }}
+      run: |
+        npm run test:coverage:shard -- \
+          --shard="${SHARD_INDEX}/${SHARD_TOTAL}" \
+          --outputFile.blob=".vitest-blobs/shard-${SHARD_INDEX}.json" 2>&1 | tee test-output.txt
+        exit "${PIPESTATUS[0]}"
+
+    - name: Upload shard test output
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: frontend-test-output-shard-${{ inputs.shard-index }}
+        path: frontend/test-output.txt
+        if-no-files-found: warn
+        retention-days: 7
+
+    - name: Upload shard blob report
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: frontend-blob-shard-${{ inputs.shard-index }}
+        path: frontend/.vitest-blobs/shard-${{ inputs.shard-index }}.json
+        if-no-files-found: error
+        retention-days: 1

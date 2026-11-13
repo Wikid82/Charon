@@ -1,7 +1,7 @@
 # E2E Tests Workflow (Reorganized: Security Isolation + Parallel Sharding)
 #
-# Architecture: 15 Total Jobs
-#   - 3 Security Enforcement Jobs (1 shard per browser, serial execution, 30min timeout)
+# Architecture: 21 Total Jobs
+#   - 9 Security Enforcement Jobs (3 browsers x 3 shards, serial within each shard, 60min timeout)
 #   - 12 Non-Security Jobs (4 shards per browser, parallel execution, 20min timeout)
 #
 # Problem Solved: Cross-shard contamination from security middleware state changes
@@ -39,8 +39,6 @@ on:
         default: false
         type: boolean
     secrets:
-      CHARON_EMERGENCY_TOKEN:
-        required: false
       DOCKERHUB_USERNAME:
         required: false
       DOCKERHUB_TOKEN:
@@ -281,14 +279,19 @@ jobs:
           retention-days: 1
 
   # ==================================================================================
-  # SECURITY ENFORCEMENT TESTS (3 jobs: 1 per browser, serial execution)
+  # SECURITY ENFORCEMENT TESTS (9 jobs: 3 browsers x 3 shards, serial within each shard)
   # ==================================================================================
   # These tests enable Cerberus middleware and verify security enforcement
-  # Run serially to avoid cross-test contamination from global state changes
+  # Each shard is a separate job with its own compose stack, so state changes never cross shards.
+  # Within a shard, specs run serially to avoid cross-test contamination from global state changes.
+  # Specs are assigned to shards by scripts/ci/shard-security-specs.sh from the committed manifest
+  # (scripts/ci/security-shard-manifest.txt), not by Playwright --shard. The break-glass chain
+  # (emergency-reset, zzz-*, zzzz-break-glass-recovery, and the bypass-dependent tests/security specs)
+  # stays in one shard so its ordering holds. See the shard-1 note in the multi-feature step.
   # ==================================================================================
 
   e2e-chromium-security:
-    name: E2E Chromium (Security Enforcement)
+    name: E2E Chromium (Security Enforcement, Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
     runs-on: ubuntu-latest
     needs: build
     if: |
@@ -296,8 +299,12 @@ jobs:
       ((inputs.browser || 'all') == 'chromium' || (inputs.browser || 'all') == 'all') &&
       ((inputs.test_category || 'all') == 'security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+        total-shards: [3]
     env:
-      CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "true"  # Cerberus ON for enforcement tests
       CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
@@ -307,6 +314,27 @@ jobs:
         uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
+
+      # Per-run values for this job only. Generated here, masked, and handed to later steps
+      # as step outputs through step-level env. Nothing is shared between jobs or written to GITHUB_ENV.
+      - name: Generate per-run test secrets
+        id: test-secrets
+        run: |
+          emergency_token="$(openssl rand -hex 32)"
+          encryption_key="$(openssl rand -base64 32)"
+          emergency_username="e2e-$(openssl rand -hex 4)"
+          emergency_password="$(openssl rand -hex 24)"
+          setup_token="$(openssl rand -hex 32)"
+          for value in "$emergency_token" "$encryption_key" "$emergency_username" "$emergency_password" "$setup_token"; do
+            echo "::add-mask::${value}"
+          done
+          {
+            echo "emergency_token=${emergency_token}"
+            echo "encryption_key=${encryption_key}"
+            echo "emergency_username=${emergency_username}"
+            echo "emergency_password=${emergency_password}"
+            echo "setup_token=${setup_token}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -343,21 +371,25 @@ jobs:
           name: docker-image
 
       - name: Validate Emergency Token Configuration
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           echo "🔐 Validating emergency token configuration..."
           if [ -z "$CHARON_EMERGENCY_TOKEN" ]; then
             echo "::error title=Missing Secret::CHARON_EMERGENCY_TOKEN secret not configured"
             exit 1
           fi
+          echo "::add-mask::${CHARON_EMERGENCY_TOKEN}"
           TOKEN_LENGTH=${#CHARON_EMERGENCY_TOKEN}
           if [ "$TOKEN_LENGTH" -lt 64 ]; then
             echo "::error title=Invalid Token Length::CHARON_EMERGENCY_TOKEN must be at least 64 characters"
             exit 1
           fi
-          MASKED_TOKEN="${CHARON_EMERGENCY_TOKEN:0:8}...${CHARON_EMERGENCY_TOKEN: -4}"
-          echo "::notice::Emergency token validated (length: $TOKEN_LENGTH, preview: $MASKED_TOKEN)"
-        env:
-          CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+          echo "::notice::Emergency token validated (length: $TOKEN_LENGTH)"
 
       - name: Load Docker image artifact
         if: needs.build.outputs.image_source == 'build'
@@ -365,18 +397,24 @@ jobs:
           docker load -i charon-e2e-image.tar
           docker images | grep charon
 
-      - name: Generate ephemeral encryption key
-        run: |
-          key="$(openssl rand -base64 32)"
-          echo "::add-mask::${key}"
-          echo "CHARON_ENCRYPTION_KEY=${key}" >> "$GITHUB_ENV"
-
       - name: Start test environment (Security Tests Profile)
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml --profile security-tests up -d
           echo "✅ Container started for Chromium security enforcement tests"
 
       - name: Wait for service health
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
           MAX_ATTEMPTS=60
@@ -398,14 +436,14 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Run Chromium Security Enforcement Tests
+      - name: Run Chromium Security Enforcement Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
           set -euo pipefail
           STATUS=0
           echo "════════════════════════════════════════════"
           echo "Chromium Security Enforcement Tests"
           echo "Cerberus: ENABLED"
-          echo "Execution: SERIAL (no sharding)"
+          echo "Execution: SERIAL within shard ${{ matrix.shard }}/${{ matrix.total-shards }} (manifest-pinned spec lists)"
           echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "════════════════════════════════════════════"
 
@@ -432,11 +470,25 @@ jobs:
           # the same workflow a second time with Cerberus not yet touched,
           # complementing the Cerberus-OFF run already covered by
           # tests/integration in the non-security sharded chromium job.
-          echo "--- chromium project: tests/integration/multi-feature-workflows.spec.ts ---"
-          PLAYWRIGHT_HTML_REPORT=playwright-report/multi-feature-workflows bash scripts/ci/run-playwright-container.sh \
-            --project=chromium \
-            --output=playwright-output/security-chromium/multi-feature-workflows \
-            tests/integration/multi-feature-workflows.spec.ts || STATUS=$?
+          # Shard 1 only: the pre-step must run in the same container as, and before, the
+          # security-tests invocation below. Shards 2 and 3 run security-tests alone, each in a
+          # fresh container, so the pre-step is not repeated there.
+          if [[ "${{ matrix.shard }}" == "1" ]]; then
+            echo "--- chromium project: tests/integration/multi-feature-workflows.spec.ts ---"
+            PLAYWRIGHT_HTML_REPORT=playwright-report/multi-feature-workflows-shard-${{ matrix.shard }} bash scripts/ci/run-playwright-container.sh \
+              --project=chromium \
+              --output=playwright-output/security-chromium-shard-${{ matrix.shard }}/multi-feature-workflows \
+              tests/integration/multi-feature-workflows.spec.ts || STATUS=$?
+          fi
+
+          # Explicit spec list for this shard, from the committed manifest. The bucketing script
+          # keeps the break-glass chain in one shard and fails the step if any spec under
+          # tests/security-enforcement/ or tests/security/ is unassigned or listed twice.
+          SHARD_SPEC_LIST="$RUNNER_TEMP/security-specs-shard-${{ matrix.shard }}.txt"
+          bash scripts/ci/shard-security-specs.sh "${{ matrix.shard }}" "${{ matrix.total-shards }}" > "$SHARD_SPEC_LIST"
+          mapfile -t SECURITY_SPECS < "$SHARD_SPEC_LIST"
+          echo "Security specs assigned to shard ${{ matrix.shard }}/${{ matrix.total-shards }}: ${#SECURITY_SPECS[@]}"
+          printf '  %s\n' "${SECURITY_SPECS[@]}"
 
           # tests/security-enforcement/ and tests/security/ are ONLY ever
           # collected by the dedicated `security-tests` project in
@@ -446,11 +498,10 @@ jobs:
           # directories, so `--project=chromium` here always matched 0 tests
           # in them. Run them under their correct project, last (see above).
           echo "--- security-tests project: tests/security-enforcement/, tests/security/ ---"
-          PLAYWRIGHT_HTML_REPORT=playwright-report/security-tests bash scripts/ci/run-playwright-container.sh \
+          PLAYWRIGHT_HTML_REPORT=playwright-report/security-tests-shard-${{ matrix.shard }} bash scripts/ci/run-playwright-container.sh \
             --project=security-tests \
-            --output=playwright-output/security-chromium/security-tests \
-            tests/security-enforcement/ \
-            tests/security/ || STATUS=$?
+            --output=playwright-output/security-chromium-shard-${{ matrix.shard }}/security-tests \
+            "${SECURITY_SPECS[@]}" || STATUS=$?
 
           SHARD_END=$(date +%s)
           echo "SHARD_END=$SHARD_END" >> "$GITHUB_ENV"
@@ -461,6 +512,11 @@ jobs:
           echo "PLAYWRIGHT_STATUS=$STATUS" >> "$GITHUB_ENV"
           exit "$STATUS"
         env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           PLAYWRIGHT_SETUP_BROWSER: chromium
           CI: true
@@ -469,7 +525,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: playwright-report-chromium-security
+          name: playwright-report-chromium-security-shard-${{ matrix.shard }}
           path: playwright-report/
           retention-days: 14
 
@@ -477,7 +533,7 @@ jobs:
         if: always() && (inputs.playwright_coverage == 'true' || vars.PLAYWRIGHT_COVERAGE == '1')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: e2e-coverage-chromium-security
+          name: e2e-coverage-chromium-security-shard-${{ matrix.shard }}
           path: coverage/e2e/
           retention-days: 7
 
@@ -485,7 +541,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: traces-chromium-security
+          name: traces-chromium-security-shard-${{ matrix.shard }}
           path: test-results/**/*.zip
           retention-days: 7
 
@@ -504,37 +560,53 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: e2e-diagnostics-chromium-security
+          name: e2e-diagnostics-chromium-security-shard-${{ matrix.shard }}
           path: diagnostics/
           retention-days: 7
 
       - name: Collect Docker logs on failure
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: failure()
         run: |
-          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-chromium-security.txt 2>&1
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-chromium-security-shard-${{ matrix.shard }}.txt 2>&1
 
       - name: Upload Docker logs on failure
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: docker-logs-chromium-security
-          path: docker-logs-chromium-security.txt
+          name: docker-logs-chromium-security-shard-${{ matrix.shard }}
+          path: docker-logs-chromium-security-shard-${{ matrix.shard }}.txt
           retention-days: 7
 
       - name: Cleanup
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: always()
         run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
 
   e2e-firefox-security:
-    name: E2E Firefox (Security Enforcement)
+    name: E2E Firefox (Security Enforcement, Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
     runs-on: ubuntu-latest
     needs: build
     if: |
       (github.event_name == 'pull_request' || (inputs.browser || 'all') == 'firefox' || (inputs.browser || 'all') == 'all') &&
       ((inputs.test_category || 'all') == 'security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+        total-shards: [3]
     env:
-      CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "true"  # Cerberus ON for enforcement tests
       CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
@@ -544,6 +616,27 @@ jobs:
         uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
+
+      # Per-run values for this job only. Generated here, masked, and handed to later steps
+      # as step outputs through step-level env. Nothing is shared between jobs or written to GITHUB_ENV.
+      - name: Generate per-run test secrets
+        id: test-secrets
+        run: |
+          emergency_token="$(openssl rand -hex 32)"
+          encryption_key="$(openssl rand -base64 32)"
+          emergency_username="e2e-$(openssl rand -hex 4)"
+          emergency_password="$(openssl rand -hex 24)"
+          setup_token="$(openssl rand -hex 32)"
+          for value in "$emergency_token" "$encryption_key" "$emergency_username" "$emergency_password" "$setup_token"; do
+            echo "::add-mask::${value}"
+          done
+          {
+            echo "emergency_token=${emergency_token}"
+            echo "encryption_key=${encryption_key}"
+            echo "emergency_username=${emergency_username}"
+            echo "emergency_password=${emergency_password}"
+            echo "setup_token=${setup_token}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -580,21 +673,25 @@ jobs:
           name: docker-image
 
       - name: Validate Emergency Token Configuration
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           echo "🔐 Validating emergency token configuration..."
           if [ -z "$CHARON_EMERGENCY_TOKEN" ]; then
             echo "::error title=Missing Secret::CHARON_EMERGENCY_TOKEN secret not configured"
             exit 1
           fi
+          echo "::add-mask::${CHARON_EMERGENCY_TOKEN}"
           TOKEN_LENGTH=${#CHARON_EMERGENCY_TOKEN}
           if [ "$TOKEN_LENGTH" -lt 64 ]; then
             echo "::error title=Invalid Token Length::CHARON_EMERGENCY_TOKEN must be at least 64 characters"
             exit 1
           fi
-          MASKED_TOKEN="${CHARON_EMERGENCY_TOKEN:0:8}...${CHARON_EMERGENCY_TOKEN: -4}"
-          echo "::notice::Emergency token validated (length: $TOKEN_LENGTH, preview: $MASKED_TOKEN)"
-        env:
-          CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+          echo "::notice::Emergency token validated (length: $TOKEN_LENGTH)"
 
       - name: Load Docker image artifact
         if: needs.build.outputs.image_source == 'build'
@@ -602,18 +699,24 @@ jobs:
           docker load -i charon-e2e-image.tar
           docker images | grep charon
 
-      - name: Generate ephemeral encryption key
-        run: |
-          key="$(openssl rand -base64 32)"
-          echo "::add-mask::${key}"
-          echo "CHARON_ENCRYPTION_KEY=${key}" >> "$GITHUB_ENV"
-
       - name: Start test environment (Security Tests Profile)
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml --profile security-tests up -d
           echo "✅ Container started for Firefox security enforcement tests"
 
       - name: Wait for service health
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
           MAX_ATTEMPTS=60
@@ -635,14 +738,14 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Run Firefox Security Enforcement Tests
+      - name: Run Firefox Security Enforcement Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
           set -euo pipefail
           STATUS=0
           echo "════════════════════════════════════════════"
           echo "Firefox Security Enforcement Tests"
           echo "Cerberus: ENABLED"
-          echo "Execution: SERIAL (no sharding)"
+          echo "Execution: SERIAL within shard ${{ matrix.shard }}/${{ matrix.total-shards }} (manifest-pinned spec lists)"
           echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "════════════════════════════════════════════"
 
@@ -669,11 +772,25 @@ jobs:
           # the same workflow a second time with Cerberus not yet touched,
           # complementing the Cerberus-OFF run already covered by
           # tests/integration in the non-security sharded firefox job.
-          echo "--- firefox project: tests/integration/multi-feature-workflows.spec.ts ---"
-          PLAYWRIGHT_HTML_REPORT=playwright-report/multi-feature-workflows bash scripts/ci/run-playwright-container.sh \
-            --project=firefox \
-            --output=playwright-output/security-firefox/multi-feature-workflows \
-            tests/integration/multi-feature-workflows.spec.ts || STATUS=$?
+          # Shard 1 only: the pre-step must run in the same container as, and before, the
+          # security-tests invocation below. Shards 2 and 3 run security-tests alone, each in a
+          # fresh container, so the pre-step is not repeated there.
+          if [[ "${{ matrix.shard }}" == "1" ]]; then
+            echo "--- firefox project: tests/integration/multi-feature-workflows.spec.ts ---"
+            PLAYWRIGHT_HTML_REPORT=playwright-report/multi-feature-workflows-shard-${{ matrix.shard }} bash scripts/ci/run-playwright-container.sh \
+              --project=firefox \
+              --output=playwright-output/security-firefox-shard-${{ matrix.shard }}/multi-feature-workflows \
+              tests/integration/multi-feature-workflows.spec.ts || STATUS=$?
+          fi
+
+          # Explicit spec list for this shard, from the committed manifest. The bucketing script
+          # keeps the break-glass chain in one shard and fails the step if any spec under
+          # tests/security-enforcement/ or tests/security/ is unassigned or listed twice.
+          SHARD_SPEC_LIST="$RUNNER_TEMP/security-specs-shard-${{ matrix.shard }}.txt"
+          bash scripts/ci/shard-security-specs.sh "${{ matrix.shard }}" "${{ matrix.total-shards }}" > "$SHARD_SPEC_LIST"
+          mapfile -t SECURITY_SPECS < "$SHARD_SPEC_LIST"
+          echo "Security specs assigned to shard ${{ matrix.shard }}/${{ matrix.total-shards }}: ${#SECURITY_SPECS[@]}"
+          printf '  %s\n' "${SECURITY_SPECS[@]}"
 
           # tests/security-enforcement/ and tests/security/ are ONLY ever
           # collected by the dedicated `security-tests` project in
@@ -686,11 +803,10 @@ jobs:
           # browser, so this invocation still needs Chromium. The Playwright image
           # ships Chromium, so no separate install step is needed.)
           echo "--- security-tests project: tests/security-enforcement/, tests/security/ ---"
-          PLAYWRIGHT_HTML_REPORT=playwright-report/security-tests bash scripts/ci/run-playwright-container.sh \
+          PLAYWRIGHT_HTML_REPORT=playwright-report/security-tests-shard-${{ matrix.shard }} bash scripts/ci/run-playwright-container.sh \
             --project=security-tests \
-            --output=playwright-output/security-firefox/security-tests \
-            tests/security-enforcement/ \
-            tests/security/ || STATUS=$?
+            --output=playwright-output/security-firefox-shard-${{ matrix.shard }}/security-tests \
+            "${SECURITY_SPECS[@]}" || STATUS=$?
 
           SHARD_END=$(date +%s)
           echo "SHARD_END=$SHARD_END" >> "$GITHUB_ENV"
@@ -701,6 +817,11 @@ jobs:
           echo "PLAYWRIGHT_STATUS=$STATUS" >> "$GITHUB_ENV"
           exit "$STATUS"
         env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           PLAYWRIGHT_SETUP_BROWSER: firefox
           CI: true
@@ -709,7 +830,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: playwright-report-firefox-security
+          name: playwright-report-firefox-security-shard-${{ matrix.shard }}
           path: playwright-report/
           retention-days: 14
 
@@ -717,7 +838,7 @@ jobs:
         if: always() && (inputs.playwright_coverage == 'true' || vars.PLAYWRIGHT_COVERAGE == '1')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: e2e-coverage-firefox-security
+          name: e2e-coverage-firefox-security-shard-${{ matrix.shard }}
           path: coverage/e2e/
           retention-days: 7
 
@@ -725,7 +846,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: traces-firefox-security
+          name: traces-firefox-security-shard-${{ matrix.shard }}
           path: test-results/**/*.zip
           retention-days: 7
 
@@ -744,29 +865,41 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: e2e-diagnostics-firefox-security
+          name: e2e-diagnostics-firefox-security-shard-${{ matrix.shard }}
           path: diagnostics/
           retention-days: 7
 
       - name: Collect Docker logs on failure
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: failure()
         run: |
-          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-firefox-security.txt 2>&1
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-firefox-security-shard-${{ matrix.shard }}.txt 2>&1
 
       - name: Upload Docker logs on failure
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: docker-logs-firefox-security
-          path: docker-logs-firefox-security.txt
+          name: docker-logs-firefox-security-shard-${{ matrix.shard }}
+          path: docker-logs-firefox-security-shard-${{ matrix.shard }}.txt
           retention-days: 7
 
       - name: Cleanup
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: always()
         run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
 
   e2e-webkit-security:
-    name: E2E WebKit (Security Enforcement)
+    name: E2E WebKit (Security Enforcement, Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
     runs-on: ubuntu-latest
     needs: build
     if: |
@@ -774,8 +907,12 @@ jobs:
       ((inputs.browser || 'all') == 'webkit' || (inputs.browser || 'all') == 'all') &&
       ((inputs.test_category || 'all') == 'security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3]
+        total-shards: [3]
     env:
-      CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "true"  # Cerberus ON for enforcement tests
       CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
@@ -785,6 +922,27 @@ jobs:
         uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
+
+      # Per-run values for this job only. Generated here, masked, and handed to later steps
+      # as step outputs through step-level env. Nothing is shared between jobs or written to GITHUB_ENV.
+      - name: Generate per-run test secrets
+        id: test-secrets
+        run: |
+          emergency_token="$(openssl rand -hex 32)"
+          encryption_key="$(openssl rand -base64 32)"
+          emergency_username="e2e-$(openssl rand -hex 4)"
+          emergency_password="$(openssl rand -hex 24)"
+          setup_token="$(openssl rand -hex 32)"
+          for value in "$emergency_token" "$encryption_key" "$emergency_username" "$emergency_password" "$setup_token"; do
+            echo "::add-mask::${value}"
+          done
+          {
+            echo "emergency_token=${emergency_token}"
+            echo "encryption_key=${encryption_key}"
+            echo "emergency_username=${emergency_username}"
+            echo "emergency_password=${emergency_password}"
+            echo "setup_token=${setup_token}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -821,21 +979,25 @@ jobs:
           name: docker-image
 
       - name: Validate Emergency Token Configuration
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           echo "🔐 Validating emergency token configuration..."
           if [ -z "$CHARON_EMERGENCY_TOKEN" ]; then
             echo "::error title=Missing Secret::CHARON_EMERGENCY_TOKEN secret not configured"
             exit 1
           fi
+          echo "::add-mask::${CHARON_EMERGENCY_TOKEN}"
           TOKEN_LENGTH=${#CHARON_EMERGENCY_TOKEN}
           if [ "$TOKEN_LENGTH" -lt 64 ]; then
             echo "::error title=Invalid Token Length::CHARON_EMERGENCY_TOKEN must be at least 64 characters"
             exit 1
           fi
-          MASKED_TOKEN="${CHARON_EMERGENCY_TOKEN:0:8}...${CHARON_EMERGENCY_TOKEN: -4}"
-          echo "::notice::Emergency token validated (length: $TOKEN_LENGTH, preview: $MASKED_TOKEN)"
-        env:
-          CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
+          echo "::notice::Emergency token validated (length: $TOKEN_LENGTH)"
 
       - name: Load Docker image artifact
         if: needs.build.outputs.image_source == 'build'
@@ -843,18 +1005,24 @@ jobs:
           docker load -i charon-e2e-image.tar
           docker images | grep charon
 
-      - name: Generate ephemeral encryption key
-        run: |
-          key="$(openssl rand -base64 32)"
-          echo "::add-mask::${key}"
-          echo "CHARON_ENCRYPTION_KEY=${key}" >> "$GITHUB_ENV"
-
       - name: Start test environment (Security Tests Profile)
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml --profile security-tests up -d
           echo "✅ Container started for WebKit security enforcement tests"
 
       - name: Wait for service health
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
           MAX_ATTEMPTS=60
@@ -876,14 +1044,14 @@ jobs:
       - name: Install dependencies
         run: npm ci --ignore-scripts
 
-      - name: Run WebKit Security Enforcement Tests
+      - name: Run WebKit Security Enforcement Tests (Shard ${{ matrix.shard }}/${{ matrix.total-shards }})
         run: |
           set -euo pipefail
           STATUS=0
           echo "════════════════════════════════════════════"
           echo "WebKit Security Enforcement Tests"
           echo "Cerberus: ENABLED"
-          echo "Execution: SERIAL (no sharding)"
+          echo "Execution: SERIAL within shard ${{ matrix.shard }}/${{ matrix.total-shards }} (manifest-pinned spec lists)"
           echo "Start Time: $(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           echo "════════════════════════════════════════════"
 
@@ -910,11 +1078,25 @@ jobs:
           # the same workflow a second time with Cerberus not yet touched,
           # complementing the Cerberus-OFF run already covered by
           # tests/integration in the non-security sharded webkit job.
-          echo "--- webkit project: tests/integration/multi-feature-workflows.spec.ts ---"
-          PLAYWRIGHT_HTML_REPORT=playwright-report/multi-feature-workflows bash scripts/ci/run-playwright-container.sh \
-            --project=webkit \
-            --output=playwright-output/security-webkit/multi-feature-workflows \
-            tests/integration/multi-feature-workflows.spec.ts || STATUS=$?
+          # Shard 1 only: the pre-step must run in the same container as, and before, the
+          # security-tests invocation below. Shards 2 and 3 run security-tests alone, each in a
+          # fresh container, so the pre-step is not repeated there.
+          if [[ "${{ matrix.shard }}" == "1" ]]; then
+            echo "--- webkit project: tests/integration/multi-feature-workflows.spec.ts ---"
+            PLAYWRIGHT_HTML_REPORT=playwright-report/multi-feature-workflows-shard-${{ matrix.shard }} bash scripts/ci/run-playwright-container.sh \
+              --project=webkit \
+              --output=playwright-output/security-webkit-shard-${{ matrix.shard }}/multi-feature-workflows \
+              tests/integration/multi-feature-workflows.spec.ts || STATUS=$?
+          fi
+
+          # Explicit spec list for this shard, from the committed manifest. The bucketing script
+          # keeps the break-glass chain in one shard and fails the step if any spec under
+          # tests/security-enforcement/ or tests/security/ is unassigned or listed twice.
+          SHARD_SPEC_LIST="$RUNNER_TEMP/security-specs-shard-${{ matrix.shard }}.txt"
+          bash scripts/ci/shard-security-specs.sh "${{ matrix.shard }}" "${{ matrix.total-shards }}" > "$SHARD_SPEC_LIST"
+          mapfile -t SECURITY_SPECS < "$SHARD_SPEC_LIST"
+          echo "Security specs assigned to shard ${{ matrix.shard }}/${{ matrix.total-shards }}: ${#SECURITY_SPECS[@]}"
+          printf '  %s\n' "${SECURITY_SPECS[@]}"
 
           # tests/security-enforcement/ and tests/security/ are ONLY ever
           # collected by the dedicated `security-tests` project in
@@ -927,11 +1109,10 @@ jobs:
           # browser, so this invocation still needs Chromium. The Playwright image
           # ships Chromium, so no separate install step is needed.)
           echo "--- security-tests project: tests/security-enforcement/, tests/security/ ---"
-          PLAYWRIGHT_HTML_REPORT=playwright-report/security-tests bash scripts/ci/run-playwright-container.sh \
+          PLAYWRIGHT_HTML_REPORT=playwright-report/security-tests-shard-${{ matrix.shard }} bash scripts/ci/run-playwright-container.sh \
             --project=security-tests \
-            --output=playwright-output/security-webkit/security-tests \
-            tests/security-enforcement/ \
-            tests/security/ || STATUS=$?
+            --output=playwright-output/security-webkit-shard-${{ matrix.shard }}/security-tests \
+            "${SECURITY_SPECS[@]}" || STATUS=$?
 
           SHARD_END=$(date +%s)
           echo "SHARD_END=$SHARD_END" >> "$GITHUB_ENV"
@@ -942,6 +1123,11 @@ jobs:
           echo "PLAYWRIGHT_STATUS=$STATUS" >> "$GITHUB_ENV"
           exit "$STATUS"
         env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           PLAYWRIGHT_SETUP_BROWSER: webkit
           CI: true
@@ -950,7 +1136,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: playwright-report-webkit-security
+          name: playwright-report-webkit-security-shard-${{ matrix.shard }}
           path: playwright-report/
           retention-days: 14
 
@@ -958,7 +1144,7 @@ jobs:
         if: always() && (inputs.playwright_coverage == 'true' || vars.PLAYWRIGHT_COVERAGE == '1')
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: e2e-coverage-webkit-security
+          name: e2e-coverage-webkit-security-shard-${{ matrix.shard }}
           path: coverage/e2e/
           retention-days: 7
 
@@ -966,7 +1152,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: traces-webkit-security
+          name: traces-webkit-security-shard-${{ matrix.shard }}
           path: test-results/**/*.zip
           retention-days: 7
 
@@ -985,24 +1171,36 @@ jobs:
         if: always()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: e2e-diagnostics-webkit-security
+          name: e2e-diagnostics-webkit-security-shard-${{ matrix.shard }}
           path: diagnostics/
           retention-days: 7
 
       - name: Collect Docker logs on failure
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: failure()
         run: |
-          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-webkit-security.txt 2>&1
+          docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-webkit-security-shard-${{ matrix.shard }}.txt 2>&1
 
       - name: Upload Docker logs on failure
         if: failure()
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
-          name: docker-logs-webkit-security
-          path: docker-logs-webkit-security.txt
+          name: docker-logs-webkit-security-shard-${{ matrix.shard }}
+          path: docker-logs-webkit-security-shard-${{ matrix.shard }}.txt
           retention-days: 7
 
       - name: Cleanup
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: always()
         run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
 
@@ -1023,7 +1221,6 @@ jobs:
       ((inputs.test_category || 'all') == 'non-security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 60
     env:
-      CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "false"  # Cerberus OFF for non-security tests
       CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
@@ -1038,6 +1235,27 @@ jobs:
         uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
+
+      # Per-run values for this job only. Generated here, masked, and handed to later steps
+      # as step outputs through step-level env. Nothing is shared between jobs or written to GITHUB_ENV.
+      - name: Generate per-run test secrets
+        id: test-secrets
+        run: |
+          emergency_token="$(openssl rand -hex 32)"
+          encryption_key="$(openssl rand -base64 32)"
+          emergency_username="e2e-$(openssl rand -hex 4)"
+          emergency_password="$(openssl rand -hex 24)"
+          setup_token="$(openssl rand -hex 32)"
+          for value in "$emergency_token" "$encryption_key" "$emergency_username" "$emergency_password" "$setup_token"; do
+            echo "::add-mask::${value}"
+          done
+          {
+            echo "emergency_token=${emergency_token}"
+            echo "encryption_key=${encryption_key}"
+            echo "emergency_username=${emergency_username}"
+            echo "emergency_password=${emergency_password}"
+            echo "setup_token=${setup_token}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Free disk space
         uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6  # v2.0.0
@@ -1122,18 +1340,24 @@ jobs:
           docker load -i charon-e2e-image.tar
           docker images | grep charon
 
-      - name: Generate ephemeral encryption key
-        run: |
-          key="$(openssl rand -base64 32)"
-          echo "::add-mask::${key}"
-          echo "CHARON_ENCRYPTION_KEY=${key}" >> "$GITHUB_ENV"
-
       - name: Start test environment (Non-Security Profile)
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml up -d
           echo "✅ Container started for Chromium non-security tests (Cerberus OFF)"
 
       - name: Wait for service health
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
           MAX_ATTEMPTS=60
@@ -1192,6 +1416,11 @@ jobs:
           echo "PLAYWRIGHT_STATUS=$STATUS" >> "$GITHUB_ENV"
           exit "$STATUS"
         env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           PLAYWRIGHT_SETUP_BROWSER: chromium
           CI: true
@@ -1249,6 +1478,12 @@ jobs:
           retention-days: 7
 
       - name: Collect Docker logs on failure
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: failure()
         run: |
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-chromium-shard-${{ matrix.shard }}.txt 2>&1
@@ -1262,6 +1497,12 @@ jobs:
           retention-days: 7
 
       - name: Cleanup
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: always()
         run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
 
@@ -1274,7 +1515,6 @@ jobs:
       ((inputs.test_category || 'all') == 'non-security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 60
     env:
-      CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "false"  # Cerberus OFF for non-security tests
       CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
@@ -1289,6 +1529,27 @@ jobs:
         uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
+
+      # Per-run values for this job only. Generated here, masked, and handed to later steps
+      # as step outputs through step-level env. Nothing is shared between jobs or written to GITHUB_ENV.
+      - name: Generate per-run test secrets
+        id: test-secrets
+        run: |
+          emergency_token="$(openssl rand -hex 32)"
+          encryption_key="$(openssl rand -base64 32)"
+          emergency_username="e2e-$(openssl rand -hex 4)"
+          emergency_password="$(openssl rand -hex 24)"
+          setup_token="$(openssl rand -hex 32)"
+          for value in "$emergency_token" "$encryption_key" "$emergency_username" "$emergency_password" "$setup_token"; do
+            echo "::add-mask::${value}"
+          done
+          {
+            echo "emergency_token=${emergency_token}"
+            echo "encryption_key=${encryption_key}"
+            echo "emergency_username=${emergency_username}"
+            echo "emergency_password=${emergency_password}"
+            echo "setup_token=${setup_token}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Free disk space
         uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6  # v2.0.0
@@ -1373,18 +1634,24 @@ jobs:
           docker load -i charon-e2e-image.tar
           docker images | grep charon
 
-      - name: Generate ephemeral encryption key
-        run: |
-          key="$(openssl rand -base64 32)"
-          echo "::add-mask::${key}"
-          echo "CHARON_ENCRYPTION_KEY=${key}" >> "$GITHUB_ENV"
-
       - name: Start test environment (Non-Security Profile)
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml up -d
           echo "✅ Container started for Firefox non-security tests (Cerberus OFF)"
 
       - name: Wait for service health
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
           MAX_ATTEMPTS=60
@@ -1443,6 +1710,11 @@ jobs:
           echo "PLAYWRIGHT_STATUS=$STATUS" >> "$GITHUB_ENV"
           exit "$STATUS"
         env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           PLAYWRIGHT_SETUP_BROWSER: firefox
           CI: true
@@ -1500,6 +1772,12 @@ jobs:
           retention-days: 7
 
       - name: Collect Docker logs on failure
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: failure()
         run: |
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-firefox-shard-${{ matrix.shard }}.txt 2>&1
@@ -1513,6 +1791,12 @@ jobs:
           retention-days: 7
 
       - name: Cleanup
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: always()
         run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
 
@@ -1526,7 +1810,6 @@ jobs:
       ((inputs.test_category || 'all') == 'non-security' || (inputs.test_category || 'all') == 'all')
     timeout-minutes: 60
     env:
-      CHARON_EMERGENCY_TOKEN: ${{ secrets.CHARON_EMERGENCY_TOKEN }}
       CHARON_EMERGENCY_SERVER_ENABLED: "true"
       CHARON_SECURITY_TESTS_ENABLED: "false"  # Cerberus OFF for non-security tests
       CHARON_E2E_IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
@@ -1541,6 +1824,27 @@ jobs:
         uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
         with:
           egress-policy: audit
+
+      # Per-run values for this job only. Generated here, masked, and handed to later steps
+      # as step outputs through step-level env. Nothing is shared between jobs or written to GITHUB_ENV.
+      - name: Generate per-run test secrets
+        id: test-secrets
+        run: |
+          emergency_token="$(openssl rand -hex 32)"
+          encryption_key="$(openssl rand -base64 32)"
+          emergency_username="e2e-$(openssl rand -hex 4)"
+          emergency_password="$(openssl rand -hex 24)"
+          setup_token="$(openssl rand -hex 32)"
+          for value in "$emergency_token" "$encryption_key" "$emergency_username" "$emergency_password" "$setup_token"; do
+            echo "::add-mask::${value}"
+          done
+          {
+            echo "emergency_token=${emergency_token}"
+            echo "encryption_key=${encryption_key}"
+            echo "emergency_username=${emergency_username}"
+            echo "emergency_password=${emergency_password}"
+            echo "setup_token=${setup_token}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Free disk space
         uses: jlumbroso/free-disk-space@ceedf095f4ec1a097402bc6bd80831f2e1a6fde6  # v2.0.0
@@ -1625,18 +1929,24 @@ jobs:
           docker load -i charon-e2e-image.tar
           docker images | grep charon
 
-      - name: Generate ephemeral encryption key
-        run: |
-          key="$(openssl rand -base64 32)"
-          echo "::add-mask::${key}"
-          echo "CHARON_ENCRYPTION_KEY=${key}" >> "$GITHUB_ENV"
-
       - name: Start test environment (Non-Security Profile)
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml up -d
           echo "✅ Container started for WebKit non-security tests (Cerberus OFF)"
 
       - name: Wait for service health
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         run: |
           echo "⏳ Waiting for Charon to be healthy..."
           MAX_ATTEMPTS=60
@@ -1695,6 +2005,11 @@ jobs:
           echo "PLAYWRIGHT_STATUS=$STATUS" >> "$GITHUB_ENV"
           exit "$STATUS"
         env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
           PLAYWRIGHT_BASE_URL: http://127.0.0.1:8080
           PLAYWRIGHT_SETUP_BROWSER: webkit
           CI: true
@@ -1752,6 +2067,12 @@ jobs:
           retention-days: 7
 
       - name: Collect Docker logs on failure
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: failure()
         run: |
           docker compose -f .docker/compose/docker-compose.playwright-ci.yml logs > docker-logs-webkit-shard-${{ matrix.shard }}.txt 2>&1
@@ -1765,6 +2086,12 @@ jobs:
           retention-days: 7
 
       - name: Cleanup
+        env:
+          CHARON_EMERGENCY_TOKEN: ${{ steps.test-secrets.outputs.emergency_token }}
+          CHARON_EMERGENCY_USERNAME: ${{ steps.test-secrets.outputs.emergency_username }}
+          CHARON_EMERGENCY_PASSWORD: ${{ steps.test-secrets.outputs.emergency_password }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-secrets.outputs.encryption_key }}
+          CHARON_SETUP_TOKEN: ${{ steps.test-secrets.outputs.setup_token }}
         if: always()
         run: docker compose -f .docker/compose/docker-compose.playwright-ci.yml down -v 2>/dev/null || true
 
@@ -1786,14 +2113,14 @@ jobs:
           {
             echo "## 📊 E2E Test Results (Split: Security + Sharded)"
             echo ""
-            echo "### Architecture: 15 Total Jobs"
+            echo "### Architecture: 21 Total Jobs"
             echo ""
-            echo "#### Security Enforcement (3 jobs)"
+            echo "#### Security Enforcement (9 jobs)"
             echo "| Browser | Status | Shards | Timeout | Cerberus |"
             echo "|---------|--------|--------|---------|----------|"
-            echo "| Chromium | ${{ needs.e2e-chromium-security.result }} | 1 | 30min | ON |"
-            echo "| Firefox | ${{ needs.e2e-firefox-security.result }} | 1 | 30min | ON |"
-            echo "| WebKit | ${{ needs.e2e-webkit-security.result }} | 1 | 30min | ON |"
+            echo "| Chromium | ${{ needs.e2e-chromium-security.result }} | 3 | 60min | ON |"
+            echo "| Firefox | ${{ needs.e2e-firefox-security.result }} | 3 | 60min | ON |"
+            echo "| WebKit | ${{ needs.e2e-webkit-security.result }} | 3 | 60min | ON |"
             echo ""
             echo "#### Non-Security Tests (12 jobs)"
             echo "| Browser | Status | Shards | Timeout | Cerberus |"

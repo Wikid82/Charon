@@ -47,17 +47,20 @@ var CaddyAdminAPIForTests string
 
 // Config captures runtime configuration sourced from environment variables.
 type Config struct {
-	Environment           string
-	HTTPPort              string
-	DatabasePath          string
-	ConfigRoot            string
-	FrontendDir           string
-	CaddyAdminAPI         string
-	CaddyConfigDir        string
-	CaddyBinary           string
-	ImportCaddyfile       string
-	ImportDir             string
-	JWTSecret             string
+	Environment     string
+	HTTPPort        string
+	DatabasePath    string
+	ConfigRoot      string
+	FrontendDir     string
+	CaddyAdminAPI   string
+	CaddyConfigDir  string
+	CaddyBinary     string
+	ImportCaddyfile string
+	ImportDir       string
+	JWTSecret       string
+	// SetupToken is CHARON_SETUP_TOKEN: an operator-chosen first-run setup code
+	// for automation. Empty means the setup code is generated at startup.
+	SetupToken            string
 	EncryptionKey         string
 	ACMEStaging           bool
 	SingleContainer       bool
@@ -191,6 +194,10 @@ func Load() (Config, error) {
 	if cfg.JWTSecret == "" {
 		cfg.JWTSecret = os.Getenv("CPM_JWT_SECRET")
 	}
+
+	// Secret files and .env lines often end with a newline or padding; trim it so the
+	// token matches what the operator sees in the setup form.
+	cfg.SetupToken = strings.TrimSpace(getEnvAny("", "CHARON_SETUP_TOKEN"))
 
 	loopbackAdminAPI, err := resolveCaddyAdminAPI(cfg.CaddyAdminAPI)
 	if err != nil {

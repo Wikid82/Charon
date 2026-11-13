@@ -1,0 +1,79 @@
+name: Backend test shard
+description: >-
+  Runs one shard of the Go test suite (packages chosen by
+  scripts/ci/shard-go-packages.sh) with the coverage gate deferred, then uploads
+  the shard's coverage profile and test output. The go-coverage-merge action
+  combines every shard and enforces the gate once. The caller must check out the
+  repository and generate CHARON_ENCRYPTION_KEY before this action runs.
+inputs:
+  shard-index:
+    description: 1-based index of this shard.
+    required: true
+  shard-total:
+    description: Total number of shards. Must match the matrix size of the calling job.
+    required: true
+  encryption-key:
+    description: Per-run CHARON_ENCRYPTION_KEY for the backend tests.
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Set up Go
+      uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+      with:
+        go-version-file: backend/go.mod
+        cache-dependency-path: backend/go.sum
+
+    - name: Install gotestsum
+      shell: bash
+      run: |
+        for attempt in 1 2 3; do
+          go install gotest.tools/gotestsum@v1.13.0 && break
+          if [ "$attempt" -lt 3 ]; then
+            echo "Attempt ${attempt}/3 failed; retrying in $((attempt * 15))s..." >&2
+            sleep $((attempt * 15))
+          else
+            echo "ERROR: go install gotest.tools/gotestsum failed after 3 attempts" >&2
+            exit 1
+          fi
+        done
+
+    - name: Select this shard's packages
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        SHARD_INDEX: ${{ inputs.shard-index }}
+        SHARD_TOTAL: ${{ inputs.shard-total }}
+      run: |
+        set -euo pipefail
+        packages="$(bash scripts/ci/shard-go-packages.sh "$SHARD_INDEX" "$SHARD_TOTAL" | tr '\n' ' ' | sed 's/ *$//')"
+        echo "Shard ${SHARD_INDEX}/${SHARD_TOTAL} tests: ${packages}"
+        echo "CHARON_TEST_PACKAGES=${packages}" >> "$GITHUB_ENV"
+
+    - name: Run shard tests (coverage gate deferred to merge)
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        CGO_ENABLED: 1
+        CHARON_COVERAGE_GATE: '0'
+        CHARON_ENCRYPTION_KEY: ${{ inputs.encryption-key }}
+      run: |
+        bash scripts/go-test-coverage.sh 2>&1 | tee backend/test-output.txt
+        exit "${PIPESTATUS[0]}"
+
+    - name: Upload shard test output
+      if: always()
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: backend-test-output-shard-${{ inputs.shard-index }}
+        path: backend/test-output.txt
+        if-no-files-found: warn
+        retention-days: 7
+
+    - name: Upload shard coverage profile
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: backend-coverage-shard-${{ inputs.shard-index }}
+        path: backend/coverage.txt
+        if-no-files-found: error
+        retention-days: 1

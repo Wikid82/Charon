@@ -14,7 +14,7 @@ concurrency:
 env:
   GOTOOLCHAIN: auto
 
-# Minimal permissions at workflow level; write permissions granted at job level for push only
+# Read-only for every run. Only the store job, which runs on pushes to main, gets write scopes.
 permissions:
   contents: read
 
@@ -22,12 +22,7 @@ jobs:
   benchmark:
     name: Performance Regression Check
     runs-on: ubuntu-latest
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event_name == 'pull_request' || github.event.workflow_run.conclusion == 'success' }}
-    # Grant write permissions for storing benchmark results (only used on push via step condition)
-    # Note: GitHub Actions doesn't support dynamic expressions in permissions block
-    permissions:
-      contents: write
-      deployments: write
+
     steps:
       - name: Harden the runner (Audit all outbound calls)
         uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
@@ -39,9 +34,7 @@ jobs:
           persist-credentials: false
           # For pull_request events, use the branch HEAD SHA (not the ephemeral merge
           # commit that github.sha resolves to), which is directly fetchable by SHA.
-          # For workflow_run events fall back to the triggering HEAD SHA.
-          # For push/workflow_dispatch fall back to github.sha.
-          ref: ${{ github.event.pull_request.head.sha || github.event.workflow_run.head_sha || github.sha }}
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
 
       - name: Set up Go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
@@ -50,17 +43,72 @@ jobs:
 
           cache-dependency-path: backend/go.sum
 
+      # The benchmark needs only a valid 32-byte key. It is generated per run, so no
+      # repository secret is exposed to the benchmark code.
+      - name: Generate encryption key for benchmark
+        id: test-key
+        shell: bash
+        run: |
+          set -euo pipefail
+          encryption_key="$(openssl rand -base64 32)"
+          echo "::add-mask::${encryption_key}"
+          echo "encryption_key=${encryption_key}" >> "$GITHUB_OUTPUT"
+
       - name: Run Benchmark
         working-directory: backend
         env:
-          CHARON_ENCRYPTION_KEY: ${{ secrets.CHARON_ENCRYPTION_KEY_TEST }}
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-key.outputs.encryption_key }}
         run: go test -bench=. -benchmem -run='^$' ./... | tee output.txt
 
+      - name: Save benchmark output
+        # The store job reads this artifact on pushes to main.
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: benchmark-output
+          path: backend/output.txt
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Run Perf Asserts
+        working-directory: backend
+        env:
+          PERF_MAX_MS_GETSTATUS_P95: 500ms
+          PERF_MAX_MS_GETSTATUS_P95_PARALLEL: 1500ms
+          PERF_MAX_MS_LISTDECISIONS_P95: 2000ms
+          CHARON_ENCRYPTION_KEY: ${{ steps.test-key.outputs.encryption_key }}
+        run: |
+          echo "## 🔍 Running performance assertions (TestPerf)" >> "$GITHUB_STEP_SUMMARY"
+          go test -run TestPerf -v ./internal/api/handlers -count=1 | tee perf-output.txt
+          exit "${PIPESTATUS[0]}"
+
+  store:
+    name: Store Benchmark Result
+    needs: benchmark
+    # Runs after the benchmark even when its perf asserts fail, so the result is still recorded.
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && needs.benchmark.result != 'cancelled' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      deployments: write
+
+    steps:
+      - name: Harden the runner (Audit all outbound calls)
+        uses: step-security/harden-runner@1d88384fd173af6ecb012dfd0264a306b711241a # v2.22.4
+        with:
+          egress-policy: audit
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Download benchmark output
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: benchmark-output
+          path: backend
+
+      # Security: Pinned to full SHA for supply chain security
       - name: Store Benchmark Result
-        # Only store results on pushes to main - PRs just run benchmarks without storage
-        # This avoids gh-pages branch errors and permission issues on fork PRs
-        if: github.event.workflow_run.event == 'push' && github.event.workflow_run.head_branch == 'main'
-        # Security: Pinned to full SHA for supply chain security
         uses: step-security/github-action-benchmark@5126ec633bcaa5ca5aa8bf045b81f79faf48d6b8 # v1.22.2
         with:
           name: Go Benchmark
@@ -75,15 +123,3 @@ jobs:
           fail-on-alert: false
           # Enable Job Summary
           summary-always: true
-
-      - name: Run Perf Asserts
-        working-directory: backend
-        env:
-          PERF_MAX_MS_GETSTATUS_P95: 500ms
-          PERF_MAX_MS_GETSTATUS_P95_PARALLEL: 1500ms
-          PERF_MAX_MS_LISTDECISIONS_P95: 2000ms
-          CHARON_ENCRYPTION_KEY: ${{ secrets.CHARON_ENCRYPTION_KEY_TEST }}
-        run: |
-          echo "## 🔍 Running performance assertions (TestPerf)" >> "$GITHUB_STEP_SUMMARY"
-          go test -run TestPerf -v ./internal/api/handlers -count=1 | tee perf-output.txt
-          exit "${PIPESTATUS[0]}"

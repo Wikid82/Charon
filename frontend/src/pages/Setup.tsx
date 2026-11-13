@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router';
 
 import client from '../api/client';
+import { setupErrorMessage } from '../api/errorBody';
 import { getSetupStatus, performSetup, type SetupRequest } from '../api/setup';
 import { PasswordStrengthMeter } from '../components/PasswordStrengthMeter';
 import { Button } from '../components/ui/Button';
@@ -21,6 +22,7 @@ const Setup: FC = () => {
     email: '',
     password: '',
   });
+  const [setupCode, setSetupCode] = useState('');
   const [error, setError] = useState<string | null>(null);
 
   const { data: status, isLoading: statusLoading } = useQuery({
@@ -57,15 +59,17 @@ const Setup: FC = () => {
       await queryClient.invalidateQueries({ queryKey: ['setupStatus'] });
       navigate('/');
     },
-    onError: (err: Error) => {
-      setError(err.message || t('setup.setupFailed'));
+    onError: (err: unknown) => {
+      setError(setupErrorMessage(err, t) ?? (err instanceof Error && err.message ? err.message : t('setup.setupFailed')));
     },
   });
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
     setError(null);
-    mutation.mutate(formData);
+    // The code is sent only when the server asks for it, and is never kept anywhere else.
+    const payload: SetupRequest = status?.setup_code_required ? { ...formData, setup_code: setupCode.trim() } : formData;
+    mutation.mutate(payload);
   };
 
   if (statusLoading) {
@@ -137,10 +141,33 @@ const Setup: FC = () => {
               />
               <PasswordStrengthMeter password={formData.password} />
             </div>
+            {status?.setup_code_required && (
+              <div className="space-y-1">
+                <Input
+                  id="setup-code"
+                  name="setup_code"
+                  label={t('setup.setupCodeLabel')}
+                  type="text"
+                  required
+                  // `required` alone accepts whitespace, so the pattern rejects a code with no visible characters.
+                  pattern=".*\S.*"
+                  autoComplete="off"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  value={setupCode}
+                  aria-describedby="setup-code-hint"
+                  onChange={(e) => setSetupCode(e.target.value)}
+                />
+                <p id="setup-code-hint" className="text-xs text-gray-600 dark:text-gray-400">
+                  {t('setup.setupCodeHint')}
+                </p>
+              </div>
+            )}
           </div>
 
           {error && (
-            <div className="text-red-500 text-sm text-center">
+            <div role="alert" className="text-red-500 text-sm text-center">
               {error}
             </div>
           )}

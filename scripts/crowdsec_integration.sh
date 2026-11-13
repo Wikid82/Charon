@@ -2,6 +2,9 @@
 # shellcheck disable=SC2016 # jq filters are single-quoted on purpose; their $variables are jq variables bound with --arg/--argjson.
 set -euo pipefail
 
+# First-run setup code: passed to the container and sent with the setup request.
+export CHARON_SETUP_TOKEN="${CHARON_SETUP_TOKEN:-$(openssl rand -hex 32)}"
+
 # ⚠️  DEPRECATED: This script is deprecated and will be removed in v2.0.0
 #    Please use: .github/skills/scripts/skill-runner.sh integration-test-crowdsec
 #    For more info: docs/AGENT_SKILLS_MIGRATION.md
@@ -77,7 +80,7 @@ if ! docker network inspect "$NETWORK" >/dev/null 2>&1; then
 fi
 
 docker run -d --name "$CONTAINER" --network "$NETWORK" -p "${HOST_PORT}:8080" \
-  -e CHARON_ENV=development -e CHARON_HTTP_PORT=8080 -e CHARON_DB_PATH=/app/data/charon.db -e CHARON_FRONTEND_DIR=/app/frontend/dist \
+  -e CHARON_ENV=development -e CHARON_SETUP_TOKEN -e CHARON_HTTP_PORT=8080 -e CHARON_DB_PATH=/app/data/charon.db -e CHARON_FRONTEND_DIR=/app/frontend/dist \
   -e CHARON_CADDY_CONFIG_DIR=/app/data/caddy -e CHARON_CADDY_BINARY=caddy -e CHARON_IMPORT_CADDYFILE=/import/Caddyfile \
   -e CHARON_IMPORT_DIR=/app/data/imports -e CHARON_ACME_STAGING=false -e FEATURE_CERBERUS_ENABLED=true \
   -e CHARON_SECURITY_TESTS_ENABLED=false \
@@ -140,7 +143,7 @@ check() {
 }
 
 echo "Setting up admin user and logging in..."
-curl -s -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123","name":"Integration Tester"}' "${API_BASE}/api/v1/setup" >/dev/null || true
+curl -s -X POST -H "Content-Type: application/json" -d "{\"email\":\"integration@example.local\",\"password\":\"password123\",\"name\":\"Integration Tester\",\"setup_code\":\"${CHARON_SETUP_TOKEN}\"}" "${API_BASE}/api/v1/setup" >/dev/null || true
 LOGIN_CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Content-Type: application/json" -d '{"email":"integration@example.local","password":"password123"}' -c "$TMP_COOKIE" "${API_BASE}/api/v1/auth/login" || echo "000")
 if [ "$LOGIN_CODE" != "200" ]; then
   echo "ERROR: login failed with HTTP ${LOGIN_CODE}"

@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# First-run setup code: passed to the container and sent with the setup request.
+export CHARON_SETUP_TOKEN="${CHARON_SETUP_TOKEN:-$(openssl rand -hex 32)}"
+
 # Brief: Integration test for WAF (Coraza) functionality
 # Steps:
 # 1. Build the local image if not present: docker build -t charon:local .
@@ -202,6 +205,7 @@ docker run -d --name ${CONTAINER_NAME} \
     --network containers_default \
     -p ${HTTP_PORT}:80 -p ${HTTPS_PORT}:443 -p ${API_PORT}:8080 \
     -e CHARON_ENV=development \
+    -e CHARON_SETUP_TOKEN \
     -e CHARON_DEBUG=1 \
     -e CHARON_HTTP_PORT=8080 \
     -e CHARON_DB_PATH=/app/data/charon.db \
@@ -252,7 +256,7 @@ log_info "Setting up admin user and logging in..."
 TMP_COOKIE=$(mktemp)
 
 curl -s -X POST -H "Content-Type: application/json" \
-    -d '{"email":"waf-test@example.local","password":"password123","name":"WAF Tester"}' \
+    -d "{\"email\":\"waf-test@example.local\",\"password\":\"password123\",\"name\":\"WAF Tester\",\"setup_code\":\"${CHARON_SETUP_TOKEN}\"}" \
     "http://localhost:${API_PORT}/api/v1/setup" >/dev/null 2>&1 || true
 
 curl -s -X POST -H "Content-Type: application/json" \

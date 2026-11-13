@@ -1124,7 +1124,13 @@
     "invalidEmail": "请输入有效的电子邮件地址",
     "passwordLabel": "密码",
     "createAdminButton": "创建管理员账户",
-    "setupFailed": "设置失败"
+    "setupFailed": "设置失败",
+    "setupCodeLabel": "设置代码",
+    "setupCodeHint": "可在 Charon 日志中找到。例如：docker logs charon",
+    "errors": {
+      "setup_code_invalid": "设置代码不正确。请检查 Charon 日志后重试。",
+      "rate_limited": "尝试次数过多。请稍等几分钟后重试。"
+    }
   },
   "acceptInvite": {
     "title": "接受邀请",

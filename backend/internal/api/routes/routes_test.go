@@ -420,7 +420,7 @@ func TestRegister_PublicRegistrationEndpointRemoved(t *testing.T) {
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
 
-	cfg := config.Config{JWTSecret: "test-secret"}
+	cfg := config.Config{JWTSecret: "test-secret", SetupToken: routesTestSetupCode}
 	require.NoError(t, Register(context.Background(), router, db, cfg))
 
 	call := func(method, path string, body string, token string) *httptest.ResponseRecorder {
@@ -460,9 +460,15 @@ func TestRegister_PublicRegistrationEndpointRemoved(t *testing.T) {
 	setupStatus := call(http.MethodGet, "/api/v1/setup", "", "")
 	assert.Equal(t, http.StatusOK, setupStatus.Code)
 	assert.Contains(t, setupStatus.Body.String(), `"setupRequired":true`)
+	assert.Contains(t, setupStatus.Body.String(), `"setup_code_required":true`)
+
+	assert.Equal(t, http.StatusForbidden,
+		call(http.MethodPost, "/api/v1/setup",
+			`{"name":"First Admin","email":"admin@example.com","password":"adminpassword123"}`, "").Code,
+		"/setup without the setup code must be refused")
 
 	created := call(http.MethodPost, "/api/v1/setup",
-		`{"name":"First Admin","email":"admin@example.com","password":"adminpassword123"}`, "")
+		`{"name":"First Admin","email":"admin@example.com","password":"adminpassword123","setup_code":"`+routesTestSetupCode+`"}`, "")
 	require.Equal(t, http.StatusCreated, created.Code, "first /setup call must create the admin")
 
 	var adminUser models.User
@@ -1921,3 +1927,6 @@ func TestRegister_SeedsRetentionDefaultAndRecordsMigrationMarker(t *testing.T) {
 		Where("key = ?", services.UptimeRetentionMigrationMarker).Count(&markers).Error)
 	assert.Equal(t, int64(1), markers)
 }
+
+// routesTestSetupCode is the preset first-run setup code the routes tests install.
+const routesTestSetupCode = "routes-test-setup-code-0123456789abcdef"

@@ -1084,7 +1084,13 @@
     "invalidEmail": "Please enter a valid email address",
     "passwordLabel": "Password",
     "createAdminButton": "Create Admin Account",
-    "setupFailed": "Setup failed"
+    "setupFailed": "Setup failed",
+    "setupCodeLabel": "Mã thiết lập",
+    "setupCodeHint": "Tìm mã trong nhật ký của Charon. Ví dụ: docker logs charon",
+    "errors": {
+      "setup_code_invalid": "Mã thiết lập không đúng. Hãy kiểm tra nhật ký của Charon và thử lại.",
+      "rate_limited": "Quá nhiều lần thử. Hãy đợi vài phút rồi thử lại."
+    }
   },
   "acceptInvite": {
     "title": "Accept Invitation",

@@ -105,7 +105,8 @@ jobs:
           # Default path COPY --from's the digest-pinned toolchain image; fork
           # PRs (no private-package pull) compile caddy-inline/crowdsec-inline.
           builder-src: ${{ (github.event.pull_request.head.repo.full_name != '' && github.event.pull_request.head.repo.full_name != github.repository) && 'inline' || 'prebuilt' }}
-          ghcr-token: ${{ secrets.GITHUB_TOKEN }}
+          # Registry token only for same-repository builds; fork PRs build inline and get none.
+          ghcr-token: ${{ (github.event.pull_request.head.repo.full_name == '' || github.event.pull_request.head.repo.full_name == github.repository) && secrets.GITHUB_TOKEN || '' }}
 
       - name: Check for PR image artifact
         id: check-artifact
@@ -311,6 +312,29 @@ jobs:
             exit 1
           fi
 
+      - name: Load scanner policy from the base branch
+        # On pull requests the Trivy policy comes from the base branch, so a change to the
+        # policy files cannot weaken the scan that gates it. Push runs use the checked-out files.
+        if: github.event_name == 'pull_request'
+        id: base-policy
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          POLICY_DIR="${RUNNER_TEMP}/scanner-policy"
+          mkdir -p "${POLICY_DIR}"
+
+          git fetch --depth=1 origin "${BASE_REF}"
+          for file in .trivyignore trivy.yaml; do
+            git show "FETCH_HEAD:${file}" > "${POLICY_DIR}/${file}"
+          done
+
+          {
+            echo "trivyignores=${POLICY_DIR}/.trivyignore"
+            echo "trivy_config=${POLICY_DIR}/trivy.yaml"
+          } >> "$GITHUB_OUTPUT"
+          echo "📋 Using scanner policy from base branch ${BASE_REF}"
+
       - name: Run Trivy filesystem scan (SARIF output)
         if: steps.check-artifact.outputs.artifact_exists == 'true' || github.event_name == 'push' || github.event_name == 'pull_request'
         # aquasecurity/trivy-action 0.36.0
@@ -322,8 +346,8 @@ jobs:
           output: 'trivy-binary-results.sarif'
           severity: 'CRITICAL,HIGH,MEDIUM'
           version: 'v0.76.2'
-          trivyignores: '.trivyignore'
-          trivy-config: 'trivy.yaml'
+          trivyignores: ${{ github.event_name == 'pull_request' && steps.base-policy.outputs.trivyignores || '.trivyignore' }}
+          trivy-config: ${{ github.event_name == 'pull_request' && steps.base-policy.outputs.trivy_config || 'trivy.yaml' }}
         continue-on-error: true
 
       - name: Check Trivy SARIF output exists
@@ -356,8 +380,8 @@ jobs:
           severity: 'CRITICAL,HIGH'
           exit-code: '1'
           version: 'v0.76.2'
-          trivyignores: '.trivyignore'
-          trivy-config: 'trivy.yaml'
+          trivyignores: ${{ github.event_name == 'pull_request' && steps.base-policy.outputs.trivyignores || '.trivyignore' }}
+          trivy-config: ${{ github.event_name == 'pull_request' && steps.base-policy.outputs.trivy_config || 'trivy.yaml' }}
 
       - name: Upload scan artifacts
         if: always() && steps.trivy-sarif-check.outputs.exists == 'true'

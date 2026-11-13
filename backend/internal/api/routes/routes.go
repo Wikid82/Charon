@@ -444,6 +444,12 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	// User handler (public endpoints)
 	userHandler := handlers.NewUserHandler(db, authService)
 	userHandler.SetPasswordAttemptGuard(authRateLimiter)
+	setupCodeGuard, setupIssue, err := services.IssueStartupSetupCode(db, cfg.SetupToken)
+	if err != nil {
+		return Registered{}, fmt.Errorf("first-run setup code: %w", err)
+	}
+	logStartupSetupCode(setupIssue)
+	userHandler.SetSetupCodeGuard(setupCodeGuard)
 	api.GET("/setup", userHandler.GetSetupStatus)
 	api.POST("/setup", userHandler.Setup)
 	api.GET("/invite/validate", userHandler.ValidateInvite)
@@ -1231,6 +1237,21 @@ func RegisterImportHandler(router *gin.Engine, db *gorm.DB, cfg config.Config, c
 	// JSON Import Handler - supports both Charon and NPM export formats
 	jsonImportHandler := handlers.NewJSONImportHandler(db)
 	jsonImportHandler.RegisterRoutes(authenticatedAdmin)
+}
+
+// logStartupSetupCode logs the first-run setup code state exactly once. A generated
+// code is printed so the operator can enter it. A preset comes from
+// CHARON_SETUP_TOKEN and is never printed: the log only says where it came from.
+// Nothing is logged when no setup is pending.
+func logStartupSetupCode(issue services.SetupCodeIssue) {
+	switch {
+	case !issue.Pending:
+		return
+	case issue.Generated:
+		logger.Log().Infof("Setup code: %s. Open Charon and enter it to create the first account.", issue.Code)
+	default:
+		logger.Log().Info("Setup code taken from CHARON_SETUP_TOKEN. Open Charon and enter it to create the first account.")
+	}
 }
 
 // logAuthThrottlePolicy logs the effective sign-in throttle policy once at

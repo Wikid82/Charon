@@ -22,6 +22,8 @@
     "check-coverage": "bash ../scripts/frontend-test-coverage.sh",
     "pretest:coverage": "npm ci --silent --ignore-scripts && node -e \"require('fs').mkdirSync('coverage/.tmp', { recursive: true })\"",
     "test:coverage": "NODE_OPTIONS=--max-old-space-size=4096 vitest run --coverage",
+    "test:coverage:shard": "NODE_OPTIONS=--max-old-space-size=4096 vitest run --coverage --coverage.thresholds.lines=0 --reporter=default --reporter=blob",
+    "test:coverage:merge": "NODE_OPTIONS=--max-old-space-size=4096 vitest --merge-reports=.vitest-blobs --coverage",
     "e2e:install": "npx playwright install --with-deps",
     "e2e:test": "playwright test",
     "e2e:up:block": "docker compose -f ../.docker/compose/docker-compose.local.yml down && CHARON_SECURITY_WAF_MODE=block docker compose -f ../.docker/compose/docker-compose.local.yml up -d",
@@ -56,7 +58,7 @@
     "react-router-hash-link": "^2.4.3",
     "recharts": "^3.10.1",
     "tailwind-merge": "^3.7.0",
-    "tldts": "^7.4.28",
+    "tldts": "^7.5.1",
     "translate": "^3.1.1"
   },
   "devDependencies": {

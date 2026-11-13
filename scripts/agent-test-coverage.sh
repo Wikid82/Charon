@@ -3,7 +3,7 @@ set -euo pipefail
 # Agent module test-coverage gate. Same line-coverage-from-coverprofile
 # arithmetic as scripts/go-test-coverage.sh (backend's coverage gate), but
 # scoped to the agent/ Go module: no encryption-key bootstrapping (agent has
-# no equivalent to CHARON_ENCRYPTION_KEY_TEST) and a smaller
+# no equivalent to the backend encryption-key secret) and a smaller
 # EXCLUDE_PACKAGES set (agent's root/main package only, mirroring
 # backend/cmd/api's exclusion precedent).
 

@@ -73,11 +73,24 @@ standard user.
 
 ## The Very First Account
 
-The first time you open a brand-new Charon, it shows a one-time setup screen and
-asks you to create the starting administrator account. That's the only time an
-account is created without an existing admin doing it. Once that account exists,
-the setup screen is gone for good and all further accounts go through
-**Settings → Users**.
+The first time you open a brand-new Charon, it shows a first-run page and asks
+for a **setup code** before it lets you create the starting administrator
+account. That's the only time an account is created without an existing admin
+doing it.
+
+- **Finding the code:** Charon makes the code when it starts and writes it to
+  its log. Run `docker logs charon | grep "Setup code"` to see it. Full steps are
+  in [Create Your First Account](../getting-started.md#create-your-first-account-setup-code).
+- **One code, one use:** The code stops working as soon as the first account
+  exists. A restart while no accounts exist issues a new code, and only the
+  newest code works.
+- **Wrong codes:** After 5 wrong tries, Charon makes you wait about a minute
+  before each new try.
+- **Existing installs:** If you already have accounts, nothing changes and you
+  never see this page.
+
+Once that account exists, the first-run page is gone for good and all further
+accounts go through **Settings → Users**.
 
 ---
 

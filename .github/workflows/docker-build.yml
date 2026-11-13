@@ -279,10 +279,11 @@ jobs:
         if: steps.skip.outputs.skip_build != 'true'
         id: alpine
         run: |
-          ALPINE_TAG=$(grep -m1 'ARG ALPINE_IMAGE=' Dockerfile | sed 's/ARG ALPINE_IMAGE=alpine://' | cut -d'@' -f1)
-          docker pull "alpine:${ALPINE_TAG}"
-          DIGEST=$(docker inspect --format='{{index .RepoDigests 0}}' "alpine:${ALPINE_TAG}")
-          echo "image=$DIGEST" >> "$GITHUB_OUTPUT"
+          # Pass the full pinned reference (tag@digest) the Dockerfile declares,
+          # so the build never re-resolves a mutable tag.
+          ALPINE_IMAGE_REF=$(bash scripts/ci/dockerfile-arg.sh --require-digest Dockerfile ALPINE_IMAGE)
+          echo "Resolved Alpine image: ${ALPINE_IMAGE_REF}"
+          echo "image=${ALPINE_IMAGE_REF}" >> "$GITHUB_OUTPUT"
 
       - name: Compute branch tags
         if: steps.skip.outputs.skip_build != 'true'
@@ -422,7 +423,7 @@ jobs:
             type=raw,value=latest,enable=${{ env.TRIGGER_REF == 'refs/heads/main' }}
             type=raw,value=dev,enable=${{ env.TRIGGER_REF == 'refs/heads/development' }}
             type=raw,value=nightly,enable=${{ env.TRIGGER_REF == 'refs/heads/nightly' }}
-            type=raw,value=beta,enable=${{ env.TRIGGER_EVENT == 'pull_request' && env.TRIGGER_BASE_REF == 'development' }}
+            type=raw,value=beta,enable=${{ env.TRIGGER_EVENT == 'pull_request' && env.TRIGGER_BASE_REF == 'development' && github.event.pull_request.head.repo.full_name == github.repository }}
             type=raw,value=${{ steps.pr_image_ref_output.outputs.image_tag }},enable=${{ steps.pr_image_ref_output.outputs.image_tag != '' }}
             type=raw,value=${{ steps.branch-tags.outputs.feature_branch_tag }},enable=${{ env.TRIGGER_EVENT != 'pull_request' && startsWith(env.TRIGGER_REF, 'refs/heads/feature/') && steps.branch-tags.outputs.feature_branch_tag != '' }}
             type=raw,value=${{ steps.branch-tags.outputs.branch_sha_tag }},enable=${{ env.TRIGGER_EVENT != 'pull_request' && steps.branch-tags.outputs.branch_sha_tag != '' }}
@@ -1525,13 +1526,31 @@ jobs:
 
           echo "✅ Image freshness validated"
 
+      - name: Load Trivy ignore list from the base branch
+        # On pull requests the suppression list comes from the base branch, so a pull request
+        # cannot suppress its own findings. Push and schedule runs use the checked-out file.
+        if: github.event_name == 'pull_request'
+        id: base-policy
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          POLICY_DIR="${RUNNER_TEMP}/scanner-policy"
+          mkdir -p "${POLICY_DIR}"
+
+          git fetch --depth=1 origin "${BASE_REF}"
+          git show "FETCH_HEAD:.trivyignore" > "${POLICY_DIR}/.trivyignore"
+
+          echo "trivyignores=${POLICY_DIR}/.trivyignore" >> "$GITHUB_OUTPUT"
+          echo "📋 Using Trivy ignore list from base branch ${BASE_REF}"
+
       - name: Run Trivy scan on PR image (table output)
         uses: step-security/trivy-action@4d04e2d32ba36aae5693467644b22741d68f9115 # v0.36.0
         with:
           image-ref: ${{ steps.pr-image.outputs.image_ref }}
           format: 'table'
           scanners: 'vuln'
-          trivyignores: '.trivyignore'
+          trivyignores: ${{ github.event_name == 'pull_request' && steps.base-policy.outputs.trivyignores || '.trivyignore' }}
           severity: 'CRITICAL,HIGH'
           exit-code: '0'
           version: 'v0.76.2'
@@ -1544,7 +1563,7 @@ jobs:
           format: 'sarif'
           output: 'trivy-pr-results.sarif'
           scanners: 'vuln'
-          trivyignores: '.trivyignore'
+          trivyignores: ${{ github.event_name == 'pull_request' && steps.base-policy.outputs.trivyignores || '.trivyignore' }}
           severity: 'CRITICAL,HIGH'
           # Keep scanning strict for CRITICAL/HIGH; fail is enforced explicitly
           # at the end so SARIF upload and summaries still run.

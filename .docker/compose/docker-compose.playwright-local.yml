@@ -7,7 +7,10 @@
 #   docker compose -f .docker/compose/docker-compose.playwright-local.yml up -d
 #
 # Prerequisites:
-#   - Create .env file in project root with CHARON_ENCRYPTION_KEY and CHARON_EMERGENCY_TOKEN
+#   - Create .env in the project root with CHARON_ENCRYPTION_KEY, CHARON_EMERGENCY_TOKEN,
+#     CHARON_EMERGENCY_USERNAME and CHARON_EMERGENCY_PASSWORD. The docker-rebuild-e2e skill
+#     generates missing values once. Export them (set -a; . ./.env; set +a) before running
+#     docker compose, so the ${VAR:?} references below resolve.
 #   - Build image: docker build -t charon:local .
 #
 # The setup API will be available since no users exist in the fresh database.
@@ -28,7 +31,7 @@ services:
       - "8180:80"
       - "8080:8080"             # Management UI (Charon) - E2E tests verify UI/UX here
       # Caddy admin API is not published: read it with docker exec charon-e2e wget -qO- http://127.0.0.1:2019/config/
-      - "2020:2020"            # Emergency tier-2 API (all interfaces for E2E tests)
+      - "127.0.0.1:2020:2020" # Emergency tier-2 API (loopback only; E2E tests run on the same host)
     environment:
       - CHARON_ENV=e2e  # E2E ACME/TLS policies without an ACME email; any non-production value also enables CHARON_CHANGELOG_VERSION
       - CHARON_DEBUG=0
@@ -36,13 +39,17 @@ services:
       # Test databases are never optimized at startup: a conversion mid-suite would
       # answer the management UI and API with 503 (GH #1422)
       - CHARON_DB_COMPACT_ON_START=off
-      # Encryption key and emergency token loaded from env_file (../../.env)
-      # DO NOT add them here - env_file takes precedence and explicit entries override with empty values
+      # Encryption key and emergency token are read from env_file (../../.env) and must also be
+      # exported in the shell, so the explicit ${VAR:?} entries below resolve to the same values.
       # Emergency server (Tier 2 break glass) - separate port bypassing all security
+      - CHARON_ENCRYPTION_KEY=${CHARON_ENCRYPTION_KEY:?CHARON_ENCRYPTION_KEY is required (see .env)}
+      # First-run setup code (32+ chars); the docker-rebuild-e2e skill writes it to .env.
+      - CHARON_SETUP_TOKEN=${CHARON_SETUP_TOKEN:?CHARON_SETUP_TOKEN is required (see .env)}
+      - CHARON_EMERGENCY_TOKEN=${CHARON_EMERGENCY_TOKEN:?CHARON_EMERGENCY_TOKEN is required (see .env)}
       - CHARON_EMERGENCY_SERVER_ENABLED=true
       - CHARON_EMERGENCY_BIND=0.0.0.0:2020  # Bind to all interfaces in container (avoid Caddy's 2019)
-      - CHARON_EMERGENCY_USERNAME=admin
-      - CHARON_EMERGENCY_PASSWORD=${CHARON_EMERGENCY_PASSWORD:-changeme}
+      - CHARON_EMERGENCY_USERNAME=${CHARON_EMERGENCY_USERNAME:?CHARON_EMERGENCY_USERNAME is required (see .env)}
+      - CHARON_EMERGENCY_PASSWORD=${CHARON_EMERGENCY_PASSWORD:?CHARON_EMERGENCY_PASSWORD is required (see .env)}
       - CHARON_HTTP_PORT=8080
       - CHARON_DB_PATH=/app/data/charon.db
       - CHARON_FRONTEND_DIR=/app/frontend/dist

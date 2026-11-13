@@ -362,7 +362,29 @@ func TestChangePassword_WrongCurrentPasswordChangesNothing(t *testing.T) {
 
 func TestApplyPasswordChange_UnknownUser(t *testing.T) {
 	_, db, _ := newLoginTestService(t)
-	require.Error(t, applyPasswordChange(db, 9999, "hash"))
+	require.Error(t, ApplyPasswordChange(db, 9999, "hash"))
+}
+
+// The recovery command calls ApplyPasswordChange directly, so it must advance the
+// session version and clear lock state on its own.
+func TestApplyPasswordChange_AdvancesSessionVersionAndClearsLock(t *testing.T) {
+	_, db, user := newLoginTestService(t)
+	before := reloadUser(t, db, user.ID)
+	lockedUntil := time.Now().Add(time.Hour)
+	require.NoError(t, db.Model(&models.User{}).Where("id = ?", user.ID).Updates(map[string]any{
+		"failed_login_attempts": 4,
+		"locked_until":          &lockedUntil,
+	}).Error)
+
+	require.NoError(t, db.Transaction(func(tx *gorm.DB) error {
+		return ApplyPasswordChange(tx, user.ID, "new-hash")
+	}))
+
+	after := reloadUser(t, db, user.ID)
+	assert.Equal(t, "new-hash", after.PasswordHash)
+	assert.Equal(t, before.SessionVersion+1, after.SessionVersion)
+	assert.Equal(t, 0, after.FailedLoginAttempts)
+	assert.Nil(t, after.LockedUntil)
 }
 
 func TestLogin_AccountDisabledDuringSignInIsRefused(t *testing.T) {

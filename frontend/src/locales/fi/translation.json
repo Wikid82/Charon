@@ -1084,7 +1084,13 @@
     "invalidEmail": "Please enter a valid email address",
     "passwordLabel": "Password",
     "createAdminButton": "Create Admin Account",
-    "setupFailed": "Setup failed"
+    "setupFailed": "Setup failed",
+    "setupCodeLabel": "Asennuskoodi",
+    "setupCodeHint": "Löydät sen Charonin lokeista. Esimerkiksi: docker logs charon",
+    "errors": {
+      "setup_code_invalid": "Asennuskoodi on virheellinen. Tarkista Charonin lokit ja yritä uudelleen.",
+      "rate_limited": "Liian monta yritystä. Odota muutama minuutti ja yritä uudelleen."
+    }
   },
   "acceptInvite": {
     "title": "Accept Invitation",

@@ -1,0 +1,72 @@
+# Security E2E shard manifest (read by scripts/ci/shard-security-specs.sh).
+#
+# One line per spec under tests/security-enforcement/ and tests/security/:
+#   <shard> <group> <weight> <path>
+# group: pinned = break-glass dependency chain, all pinned lines share one shard.
+#        balanced = placed by the balancer. Weight = top-level test() calls (static estimate).
+# Every spec must appear exactly once. A new spec fails CI until it is added here.
+# To place a new spec, run `bash scripts/ci/shard-security-specs.sh --report` and pick the
+# lightest shard. Regenerating with --generate reshuffles every balanced spec, so avoid it
+# unless the whole assignment is being rebalanced.
+1 pinned 3 tests/security-enforcement/emergency-reset.spec.ts
+1 pinned 3 tests/security-enforcement/zzz-admin-whitelist-blocking.spec.ts
+1 pinned 45 tests/security-enforcement/zzz-security-ui/access-lists-crud.spec.ts
+1 pinned 12 tests/security-enforcement/zzz-security-ui/crowdsec-import.spec.ts
+1 pinned 21 tests/security-enforcement/zzz-security-ui/encryption-management.spec.ts
+1 pinned 24 tests/security-enforcement/zzz-security-ui/real-time-logs.spec.ts
+1 pinned 18 tests/security-enforcement/zzz-security-ui/system-security-settings.spec.ts
+1 pinned 4 tests/security-enforcement/zzzz-break-glass-recovery.spec.ts
+1 pinned 18 tests/security/acl-integration.spec.ts
+1 pinned 22 tests/security/audit-logs.spec.ts
+1 pinned 15 tests/security/crowdsec-background-install.spec.ts
+1 pinned 35 tests/security/crowdsec-dashboard.spec.ts
+1 pinned 18 tests/security/crowdsec-diagnostics.spec.ts
+1 pinned 12 tests/security/crowdsec-export-redaction.spec.ts
+1 pinned 10 tests/security/crowdsec-file-editor.spec.ts
+1 pinned 6 tests/security/crowdsec-first-enable.spec.ts
+1 pinned 22 tests/security/crowdsec-hub-items.spec.ts
+1 pinned 4 tests/security/crowdsec-hub-offline.spec.ts
+1 pinned 7 tests/security/crowdsec-hub-preset-apply.spec.ts
+1 pinned 47 tests/security/crowdsec-import.spec.ts
+1 pinned 2 tests/security/crowdsec-key-robustness.spec.ts
+1 pinned 4 tests/security/crowdsec-preset-apply.spec.ts
+1 pinned 2 tests/security/crowdsec-security-toggle-busy.spec.ts
+1 pinned 11 tests/security/crowdsec-ui-states.spec.ts
+1 pinned 6 tests/security/emergency-operations.spec.ts
+1 pinned 7 tests/security/geoip-database-card.spec.ts
+1 pinned 6 tests/security/self-proxy-requests.spec.ts
+1 pinned 23 tests/security/suite-integration.spec.ts
+1 pinned 11 tests/security/system-settings-feature-toggles.spec.ts
+1 pinned 1 tests/security/websocket-connection-token.spec.ts
+2 balanced 4 tests/security-enforcement/acl-waf-layering.spec.ts
+2 balanced 3 tests/security-enforcement/auth-api-enforcement.spec.ts
+2 balanced 33 tests/security-enforcement/authorization-rbac.spec.ts
+2 balanced 5 tests/security-enforcement/combined-enforcement.spec.ts
+2 balanced 6 tests/security-enforcement/crowdsec-admin-authz.spec.ts
+2 balanced 3 tests/security-enforcement/crowdsec-enforcement.spec.ts
+2 balanced 5 tests/security-enforcement/emergency-server/emergency-server.spec.ts
+2 balanced 7 tests/security-enforcement/emergency-token.spec.ts
+2 balanced 5 tests/security-enforcement/security-headers-enforcement.spec.ts
+2 balanced 4 tests/security-enforcement/waf-enforcement.spec.ts
+2 balanced 25 tests/security/crowdsec-decisions.spec.ts
+2 balanced 2 tests/security/geoip-unenforced-alert.spec.ts
+2 balanced 12 tests/security/rate-limiting.spec.ts
+2 balanced 11 tests/security/security-config-field-update.spec.ts
+2 balanced 18 tests/security/security-headers.spec.ts
+2 balanced 1 tests/security/security-state-restore.spec.ts
+3 balanced 1 tests/security-enforcement/acl-creation.spec.ts
+3 balanced 1 tests/security-enforcement/acl-dropdown-regression.spec.ts
+3 balanced 11 tests/security-enforcement/acl-enforcement.spec.ts
+3 balanced 6 tests/security-enforcement/auth-middleware-cascade.spec.ts
+3 balanced 5 tests/security-enforcement/crowdsec-lifecycle.spec.ts
+3 balanced 7 tests/security-enforcement/emergency-server/tier2-validation.spec.ts
+3 balanced 3 tests/security-enforcement/multi-component-security-workflows.spec.ts
+3 balanced 5 tests/security-enforcement/public-registration-removed.spec.ts
+3 balanced 4 tests/security-enforcement/rate-limit-enforcement.spec.ts
+3 balanced 5 tests/security-enforcement/waf-rate-limit-interaction.spec.ts
+3 balanced 30 tests/security/crowdsec-config.spec.ts
+3 balanced 29 tests/security/crowdsec-console-enrollment.spec.ts
+3 balanced 8 tests/security/security-dashboard.spec.ts
+3 balanced 18 tests/security/waf-config.spec.ts
+3 balanced 6 tests/security/waf-enforcement-status.spec.ts
+3 balanced 4 tests/security/workflow-security.spec.ts

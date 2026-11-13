@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -17,6 +18,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/ratelimit"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/utils"
 	"github.com/Wikid82/charon/backend/internal/version"
@@ -48,20 +50,42 @@ type UserHandler struct {
 	securitySvc *services.SecurityService
 	// passwordGuard throttles password verification; nil allows every attempt.
 	passwordGuard PasswordAttemptGuard
+	// setupCode checks the first-run setup code; nil accepts no code.
+	setupCode *services.SetupCodeGuard
+	// setupLimiter throttles first-run setup attempts per client, ahead of any code check.
+	setupLimiter *ratelimit.KeyedLimiter
+	// setupHashGate lets one first-run setup run at a time (a semaphore of one), so
+	// password hashing cost cannot stack up while no user exists.
+	setupHashGate sync.Mutex
 }
 
+const (
+	setupAttemptsPerWindow = 5
+	setupAttemptWindow     = 5 * time.Minute
+
+	setupCodeRejectedMessage = "Invalid setup code"
+	setupCodeRejectedErrCode = "setup_code_invalid"
+)
+
 func NewUserHandler(db *gorm.DB, authService *services.AuthService) *UserHandler {
+	rate, burst := ratelimit.PerWindow(setupAttemptsPerWindow, setupAttemptWindow)
 	return &UserHandler{
-		DB:          db,
-		AuthService: authService,
-		MailService: services.NewMailService(db),
-		securitySvc: services.NewSecurityService(db),
+		DB:           db,
+		AuthService:  authService,
+		MailService:  services.NewMailService(db),
+		securitySvc:  services.NewSecurityService(db),
+		setupLimiter: ratelimit.MustNewKeyedLimiter(ratelimit.Config{Rate: rate, Burst: burst}),
 	}
 }
 
 // SetPasswordAttemptGuard charges email-change password checks to the sign-in budget.
 func (h *UserHandler) SetPasswordAttemptGuard(g PasswordAttemptGuard) {
 	h.passwordGuard = g
+}
+
+// SetSetupCodeGuard installs the first-run setup code that Setup accepts.
+func (h *UserHandler) SetSetupCodeGuard(g *services.SetupCodeGuard) {
+	h.setupCode = g
 }
 
 func (h *UserHandler) logUserAudit(c *gin.Context, action string, user *models.User, details map[string]any) {
@@ -115,8 +139,10 @@ func (h *UserHandler) GetSetupStatus(c *gin.Context) {
 		return
 	}
 
+	setupRequired := count == 0
 	c.JSON(http.StatusOK, gin.H{
-		"setupRequired": count == 0,
+		"setupRequired":       setupRequired,
+		"setup_code_required": setupRequired && h.setupCode.Active(),
 	})
 }
 
@@ -124,6 +150,9 @@ type SetupRequest struct {
 	Name     string `json:"name" binding:"required"`
 	Email    string `json:"email" binding:"required,email"`
 	Password string `json:"password" binding:"required,min=8"`
+	// SetupCode is the first-run setup code printed to the log at startup or preset
+	// through CHARON_SETUP_TOKEN.
+	SetupCode string `json:"setup_code,omitempty"`
 }
 
 func isSetupConflictError(err error) bool {
@@ -164,7 +193,22 @@ func (h *UserHandler) Setup(c *gin.Context) {
 		return
 	}
 
-	// 3. Create User
+	// 3. Throttle per client, then check the setup code. Both run before any hashing.
+	// The rejection never says whether the code was missing or wrong.
+	if decision := h.setupLimiter.Allow(ratelimit.ClientKey(c.ClientIP())); !decision.Allowed {
+		ratelimit.Reject(c, decision)
+		return
+	}
+	if !h.setupCode.Verify(req.SetupCode) {
+		c.JSON(http.StatusForbidden, gin.H{"error": setupCodeRejectedMessage, "error_code": setupCodeRejectedErrCode})
+		return
+	}
+
+	// 4. Hash and write one setup at a time.
+	h.setupHashGate.Lock()
+	defer h.setupHashGate.Unlock()
+
+	// 5. Create User
 	user := models.User{
 		UUID:            uuid.New().String(),
 		Name:            req.Name,
@@ -180,7 +224,7 @@ func (h *UserHandler) Setup(c *gin.Context) {
 		return
 	}
 
-	// 4. Create Setting for ACME Email
+	// 6. Create Setting for ACME Email
 	acmeEmailSetting := models.Setting{
 		Key:      "caddy.acme_email",
 		Value:    req.Email,
@@ -231,6 +275,9 @@ func (h *UserHandler) Setup(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to complete setup"})
 		return
 	}
+
+	// The first account exists, so the setup code has no further use.
+	h.setupCode.Discard()
 
 	c.JSON(http.StatusCreated, gin.H{
 		"message": "Setup completed successfully",

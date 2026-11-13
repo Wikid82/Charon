@@ -8,19 +8,39 @@
 import { APIRequestContext } from '@playwright/test';
 
 /**
- * Emergency token for E2E tests - must match docker-compose.e2e.yml
+ * Reads an emergency-server setting from the environment. There are no committed
+ * fallbacks: CI generates these values per run, and local runs read them from the
+ * git-ignored .env file. A missing value throws with the variable name.
  */
-export const EMERGENCY_TOKEN =
-  process.env.CHARON_EMERGENCY_TOKEN || 'test-emergency-token-for-e2e-32chars';
+export function requireEmergencyEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(
+      `${name} is not set. CI generates it per run; locally, run the docker-rebuild-e2e skill so it is written to .env.`
+    );
+  }
+  return value;
+}
+
+/**
+ * Emergency token for E2E tests. Empty when unset; the callers that need it check
+ * for that and fail or skip with a clear message.
+ */
+export const EMERGENCY_TOKEN = process.env.CHARON_EMERGENCY_TOKEN ?? '';
 
 /**
  * Emergency server configuration for E2E tests
- * Port 2020 is used to avoid conflict with Caddy admin API (port 2019)
+ * Port 2020 is used to avoid conflict with Caddy admin API (port 2019).
+ * Credentials are read lazily so importing this module never fails.
  */
 export const EMERGENCY_SERVER = {
   baseURL: 'http://localhost:2020',
-  username: 'admin',
-  password: 'changeme',
+  get username(): string {
+    return requireEmergencyEnv('CHARON_EMERGENCY_USERNAME');
+  },
+  get password(): string {
+    return requireEmergencyEnv('CHARON_EMERGENCY_PASSWORD');
+  },
 };
 
 /**

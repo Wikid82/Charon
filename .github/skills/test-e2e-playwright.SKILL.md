@@ -180,6 +180,10 @@ For use in GitHub Actions or other CI/CD pipelines:
 | PLAYWRIGHT_BASE_URL | No | <http://localhost:8080> | Application URL to test against |
 | PLAYWRIGHT_HTML_OPEN | No | never | HTML report auto-open behavior |
 | CI | No | "" | Set to "true" for CI environment behavior |
+| CHARON_EMERGENCY_TOKEN | Yes (security specs) | (none) | Emergency token for the emergency-server specs. Unset, the break-glass spec fails in setup with a clear message, the auth setup skips its emergency reset, and other specs send an empty token. Local runs read it from `.env`. |
+| CHARON_SETUP_TOKEN | Yes (bootstrap) | (none) | First-run setup code sent with `POST /api/v1/setup` by the auth setup. Local runs read it from `.env`, which the docker-rebuild-e2e skill writes once. |
+| CHARON_EMERGENCY_USERNAME | Yes (emergency specs) | (none) | Basic-auth user for the emergency server. |
+| CHARON_EMERGENCY_PASSWORD | Yes (emergency specs) | (none) | Basic-auth password for the emergency server. |
 
 ## Outputs
 

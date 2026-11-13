@@ -1,15 +1,16 @@
 # Playwright E2E Test Environment for CI/CD
 # ==========================================
 # This configuration is specifically designed for GitHub Actions CI/CD pipelines.
-# Environment variables are provided via GitHub Secrets and generated dynamically.
+# Environment variables are generated per run by CI (no repository secrets are used).
 #
-# DO NOT USE env_file - CI provides variables via $GITHUB_ENV:
+# DO NOT USE env_file - CI provides variables through the job environment:
 #   - CHARON_ENCRYPTION_KEY: Generated with openssl rand -base64 32 (ephemeral)
-#   - CHARON_EMERGENCY_TOKEN: From repository secrets (secure)
+#   - CHARON_SETUP_TOKEN: Generated with openssl rand -hex 32 per run (first-run setup code)
+#   - CHARON_EMERGENCY_TOKEN, CHARON_EMERGENCY_USERNAME, CHARON_EMERGENCY_PASSWORD: generated per run
 #
 # Usage in CI:
 #   export CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)
-#   export CHARON_EMERGENCY_TOKEN="${{ secrets.CHARON_EMERGENCY_TOKEN }}"
+#   export CHARON_EMERGENCY_TOKEN=$(openssl rand -hex 32)
 #   docker compose -f .docker/compose/docker-compose.playwright-ci.yml up -d
 #
 # Profiles:
@@ -33,12 +34,12 @@ services:
     container_name: charon-playwright
     restart: "no"
     # CI generates CHARON_ENCRYPTION_KEY dynamically in GitHub Actions workflow
-    # and passes CHARON_EMERGENCY_TOKEN from GitHub Secrets via $GITHUB_ENV.
+    # and passes the emergency token and credentials through the job environment.
     # No .env file is used in CI as it's gitignored and not available.
     ports:
       - "8080:8080"            # Management UI (Charon)
       # Caddy admin API is not published: read it with docker exec charon-playwright wget -qO- http://127.0.0.1:2019/config/
-      - "2020:2020"           # Emergency tier-2 API (all interfaces for E2E tests)
+      - "127.0.0.1:2020:2020" # Emergency tier-2 API (loopback only; E2E tests run on the same host)
       - "80:80"               # Caddy proxy (all interfaces for E2E tests)
       - "443:443"             # Caddy proxy HTTPS (all interfaces for E2E tests)
     environment:
@@ -53,17 +54,19 @@ services:
       # Encryption key - MUST be provided via environment variable
       # Generate with: export CHARON_ENCRYPTION_KEY=$(openssl rand -base64 32)
       - CHARON_ENCRYPTION_KEY=${CHARON_ENCRYPTION_KEY:?CHARON_ENCRYPTION_KEY is required}
+      # First-run setup code (32+ chars); generated per run by CI, never a fixed value.
+      - CHARON_SETUP_TOKEN=${CHARON_SETUP_TOKEN:?CHARON_SETUP_TOKEN is required}
       # Emergency reset token - for break-glass recovery when locked out by ACL
       # Generate with: openssl rand -hex 32
-      - CHARON_EMERGENCY_TOKEN=${CHARON_EMERGENCY_TOKEN:-test-emergency-token-for-e2e-32chars}
+      - CHARON_EMERGENCY_TOKEN=${CHARON_EMERGENCY_TOKEN:?CHARON_EMERGENCY_TOKEN is required}
       - CHARON_EMERGENCY_SERVER_ENABLED=true
       - CHARON_SECURITY_TESTS_ENABLED=${CHARON_SECURITY_TESTS_ENABLED:-true}
       # Emergency server must bind to 0.0.0.0 for Docker port mapping to work
       # Host binding via compose restricts external access (127.0.0.1:2020:2020)
       - CHARON_EMERGENCY_BIND=0.0.0.0:2020
       # Emergency server Basic Auth (required for E2E tests)
-      - CHARON_EMERGENCY_USERNAME=admin
-      - CHARON_EMERGENCY_PASSWORD=changeme
+      - CHARON_EMERGENCY_USERNAME=${CHARON_EMERGENCY_USERNAME:?CHARON_EMERGENCY_USERNAME is required}
+      - CHARON_EMERGENCY_PASSWORD=${CHARON_EMERGENCY_PASSWORD:?CHARON_EMERGENCY_PASSWORD is required}
       # Server settings
       - CHARON_HTTP_PORT=8080
       - CHARON_DB_PATH=/app/data/charon.db

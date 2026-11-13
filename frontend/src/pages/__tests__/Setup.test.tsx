@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { AxiosError, type AxiosResponse } from 'axios';
 import { MemoryRouter } from 'react-router';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
@@ -69,7 +70,7 @@ describe('Setup Page', () => {
   });
 
   it('renders setup form when setup is required', async () => {
-    vi.mocked(setupApi.getSetupStatus).mockResolvedValue({ setupRequired: true });
+    vi.mocked(setupApi.getSetupStatus).mockResolvedValue({ setupRequired: true, setup_code_required: false });
 
     renderWithProviders(<Setup />);
 
@@ -86,7 +87,7 @@ describe('Setup Page', () => {
   });
 
   it('does not render form when setup is not required', async () => {
-    vi.mocked(setupApi.getSetupStatus).mockResolvedValue({ setupRequired: false });
+    vi.mocked(setupApi.getSetupStatus).mockResolvedValue({ setupRequired: false, setup_code_required: false });
 
     renderWithProviders(<Setup />);
 
@@ -101,7 +102,7 @@ describe('Setup Page', () => {
 
   it('redirects an authenticated user to the dashboard when setup is not required', async () => {
     mockIsAuthenticated = true;
-    vi.mocked(setupApi.getSetupStatus).mockResolvedValue({ setupRequired: false });
+    vi.mocked(setupApi.getSetupStatus).mockResolvedValue({ setupRequired: false, setup_code_required: false });
 
     renderWithProviders(<Setup />);
 
@@ -112,7 +113,7 @@ describe('Setup Page', () => {
   });
 
   it('submits form successfully', async () => {
-    vi.mocked(setupApi.getSetupStatus).mockResolvedValue({ setupRequired: true });
+    vi.mocked(setupApi.getSetupStatus).mockResolvedValue({ setupRequired: true, setup_code_required: false });
     vi.mocked(setupApi.performSetup).mockResolvedValue();
 
     renderWithProviders(<Setup />);
@@ -141,7 +142,7 @@ describe('Setup Page', () => {
   });
 
   it('displays error on submission failure', async () => {
-    vi.mocked(setupApi.getSetupStatus).mockResolvedValue({ setupRequired: true });
+    vi.mocked(setupApi.getSetupStatus).mockResolvedValue({ setupRequired: true, setup_code_required: false });
     vi.mocked(setupApi.performSetup).mockRejectedValue({
       response: { data: { error: 'Setup failed' } }
     });
@@ -164,7 +165,7 @@ describe('Setup Page', () => {
   });
 
   it('has proper autocomplete attributes for password managers', async () => {
-    vi.mocked(setupApi.getSetupStatus).mockResolvedValue({ setupRequired: true });
+    vi.mocked(setupApi.getSetupStatus).mockResolvedValue({ setupRequired: true, setup_code_required: false });
 
     renderWithProviders(<Setup />);
 
@@ -177,5 +178,147 @@ describe('Setup Page', () => {
 
     expect(emailInput).toHaveAttribute('autocomplete', 'email')
     expect(passwordInput).toHaveAttribute('autocomplete', 'new-password')
+  });
+});
+
+describe('Setup Page setup code', () => {
+  const codeStatus = { setupRequired: true, setup_code_required: true };
+
+  const axiosRefusal = (status: number, data: unknown): AxiosError => {
+    const response = { status, statusText: '', headers: {}, config: {}, data } as AxiosResponse;
+    return new AxiosError(`Request failed with status code ${status}`, 'ERR_BAD_REQUEST', undefined, undefined, response);
+  };
+
+  const fillAdminForm = async (user: ReturnType<typeof userEvent.setup>) => {
+    await user.type(screen.getByLabelText('Name'), 'Admin');
+    await user.type(screen.getByLabelText('Email Address'), 'admin@example.com');
+    await user.type(screen.getByLabelText('Password'), 'password123');
+  };
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    queryClient.clear();
+    mockIsAuthenticated = false;
+  });
+
+  it('hides the setup code field when the server does not require it', async () => {
+    vi.mocked(setupApi.getSetupStatus).mockResolvedValue({ setupRequired: true, setup_code_required: false });
+
+    renderWithProviders(<Setup />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Welcome to Charon')).toBeTruthy();
+    });
+    expect(screen.queryByLabelText('Setup code')).toBeNull();
+  });
+
+  it('shows a required setup code field with a hint and autocomplete off', async () => {
+    vi.mocked(setupApi.getSetupStatus).mockResolvedValue(codeStatus);
+
+    renderWithProviders(<Setup />);
+
+    const input = await screen.findByLabelText('Setup code');
+    expect(input).toBeRequired();
+    expect(input).toHaveAttribute('autocomplete', 'off');
+    expect(input).toHaveAttribute('type', 'text');
+    expect(input).toHaveAccessibleDescription('Find it in the Charon logs. For example: docker logs charon');
+  });
+
+  it('sends the setup code with the setup payload when it is required', async () => {
+    vi.mocked(setupApi.getSetupStatus).mockResolvedValue(codeStatus);
+    vi.mocked(setupApi.performSetup).mockResolvedValue();
+
+    renderWithProviders(<Setup />);
+
+    const user = userEvent.setup();
+    await screen.findByLabelText('Setup code');
+    await fillAdminForm(user);
+    await user.type(screen.getByLabelText('Setup code'), 'ABC123');
+    await user.click(screen.getByRole('button', { name: 'Create Admin Account' }));
+
+    await waitFor(() => {
+      expect(setupApi.performSetup).toHaveBeenCalledWith({
+        name: 'Admin',
+        email: 'admin@example.com',
+        password: 'password123',
+        setup_code: 'ABC123',
+      });
+    });
+  });
+
+  it('shows the fixed text for a wrong setup code', async () => {
+    vi.mocked(setupApi.getSetupStatus).mockResolvedValue(codeStatus);
+    vi.mocked(setupApi.performSetup).mockRejectedValue(
+      axiosRefusal(403, { error: 'Invalid setup code', error_code: 'setup_code_invalid' }),
+    );
+
+    renderWithProviders(<Setup />);
+
+    const user = userEvent.setup();
+    await screen.findByLabelText('Setup code');
+    await fillAdminForm(user);
+    await user.type(screen.getByLabelText('Setup code'), 'WRONG');
+    await user.click(screen.getByRole('button', { name: 'Create Admin Account' }));
+
+    expect(await screen.findByText('The setup code is incorrect. Check the Charon logs and try again.')).toBeTruthy();
+    expect(screen.getByRole('alert')).toHaveTextContent('The setup code is incorrect. Check the Charon logs and try again.');
+    expect(mockNavigate).not.toHaveBeenCalledWith('/');
+  });
+
+  it('shows the fixed text when attempts are throttled', async () => {
+    vi.mocked(setupApi.getSetupStatus).mockResolvedValue(codeStatus);
+    vi.mocked(setupApi.performSetup).mockRejectedValue(
+      axiosRefusal(429, { error: 'Too many requests. Please wait before trying again.' }),
+    );
+
+    renderWithProviders(<Setup />);
+
+    const user = userEvent.setup();
+    await screen.findByLabelText('Setup code');
+    await fillAdminForm(user);
+    await user.type(screen.getByLabelText('Setup code'), 'ABC123');
+    await user.click(screen.getByRole('button', { name: 'Create Admin Account' }));
+
+    expect(await screen.findByText('Too many attempts. Wait a few minutes and try again.')).toBeTruthy();
+  });
+
+  it('trims surrounding whitespace from a pasted setup code before sending it', async () => {
+    vi.mocked(setupApi.getSetupStatus).mockResolvedValue(codeStatus);
+    vi.mocked(setupApi.performSetup).mockResolvedValue();
+
+    renderWithProviders(<Setup />);
+
+    const user = userEvent.setup();
+    await screen.findByLabelText('Setup code');
+    await fillAdminForm(user);
+    await user.type(screen.getByLabelText('Setup code'), '  ABC123 ');
+    await user.click(screen.getByRole('button', { name: 'Create Admin Account' }));
+
+    await waitFor(() => {
+      expect(setupApi.performSetup).toHaveBeenCalledWith({
+        name: 'Admin',
+        email: 'admin@example.com',
+        password: 'password123',
+        setup_code: 'ABC123',
+      });
+    });
+  });
+
+  it('does not submit a whitespace-only setup code', async () => {
+    vi.mocked(setupApi.getSetupStatus).mockResolvedValue(codeStatus);
+    vi.mocked(setupApi.performSetup).mockResolvedValue();
+
+    renderWithProviders(<Setup />);
+
+    const user = userEvent.setup();
+    await screen.findByLabelText('Setup code');
+    await fillAdminForm(user);
+    await user.type(screen.getByLabelText('Setup code'), '   ');
+    await user.click(screen.getByRole('button', { name: 'Create Admin Account' }));
+
+    await waitFor(() => {
+      expect(screen.getByLabelText('Setup code')).toBeInvalid();
+    });
+    expect(setupApi.performSetup).not.toHaveBeenCalled();
   });
 });

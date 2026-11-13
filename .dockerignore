@@ -37,6 +37,7 @@ htmlcov/
 # -----------------------------------------------------------------------------
 frontend/node_modules/
 frontend/coverage/
+frontend/.vitest-blobs/
 frontend/test-results/
 frontend/dist/
 frontend/.cache

@@ -1,8 +1,11 @@
+import { EMERGENCY_SERVER } from '../fixtures/security';
 /**
  * Admin Whitelist IP Blocking Enforcement Tests
  *
- * CRITICAL: This test MUST run LAST in the security-enforcement suite.
- * Uses 'zzz-' prefix to ensure alphabetical ordering places it at the end.
+ * Ordering: this spec is pinned in scripts/ci/security-shard-manifest.txt to the same shard as the
+ * break-glass chain. It runs after emergency-reset and the non-zzz specs, and before the zzz-security-ui
+ * specs and zzzz-break-glass-recovery in that shard. Its afterAll emergency reset unblocks the test IP
+ * for those later specs.
  *
  * Tests validate that Cerberus admin whitelist correctly blocks non-whitelisted IPs
  * and allows whitelisted IPs or emergency tokens.
@@ -39,7 +42,7 @@ test.describe.serial('Admin Whitelist IP Blocking (RUN LAST)', () => {
     try {
       const response = await request.post('http://localhost:2020/emergency/security-reset', {
         headers: {
-          'Authorization': 'Basic ' + Buffer.from('admin:changeme').toString('base64'),
+          'Authorization': 'Basic ' + Buffer.from(`${EMERGENCY_SERVER.username}:${EMERGENCY_SERVER.password}`).toString('base64'),
           'X-Emergency-Token': EMERGENCY_TOKEN,
           'Content-Type': 'application/json',
         },
@@ -136,7 +139,7 @@ test.describe.serial('Admin Whitelist IP Blocking (RUN LAST)', () => {
       // First disable ACL so we can change config
       await request.post('http://localhost:2020/emergency/security-reset', {
         headers: {
-          'Authorization': 'Basic ' + Buffer.from('admin:changeme').toString('base64'),
+          'Authorization': 'Basic ' + Buffer.from(`${EMERGENCY_SERVER.username}:${EMERGENCY_SERVER.password}`).toString('base64'),
           'X-Emergency-Token': EMERGENCY_TOKEN,
         },
         data: { reason: 'Test setup - reset for emergency token test' },

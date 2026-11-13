@@ -36,7 +36,7 @@ func TestUserHandler_Setup_SeedsLastSeenVersion(t *testing.T) {
 	r := gin.New()
 	r.POST("/setup", handler.Setup)
 
-	body := map[string]string{"name": "Admin", "email": "seed-admin@example.com", "password": "password123"}
+	body := map[string]string{"name": "Admin", "email": "seed-admin@example.com", "password": "password123", "setup_code": testSetupCode}
 	jsonBody, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
@@ -56,7 +56,7 @@ func TestUserHandler_Setup_SkipsSeedingOnDevBuild(t *testing.T) {
 	r := gin.New()
 	r.POST("/setup", handler.Setup)
 
-	body := map[string]string{"name": "Admin", "email": "dev-admin@example.com", "password": "password123"}
+	body := map[string]string{"name": "Admin", "email": "dev-admin@example.com", "password": "password123", "setup_code": testSetupCode}
 	jsonBody, _ := json.Marshal(body)
 	req := httptest.NewRequest(http.MethodPost, "/setup", bytes.NewBuffer(jsonBody))
 	req.Header.Set("Content-Type", "application/json")

@@ -1,3 +1,4 @@
+import { requireEmergencyEnv } from './fixtures/security';
 import { test as setup } from './fixtures/test';
 import type { APIRequestContext } from '@playwright/test';
 import { request as playwrightRequest } from '@playwright/test';
@@ -112,8 +113,8 @@ async function recoverFromAclLockout(baseURL: string | undefined): Promise<boole
   const recoveryContext = await playwrightRequest.newContext({
     baseURL: emergencyURL.toString(),
     httpCredentials: {
-      username: process.env.CHARON_EMERGENCY_USERNAME || 'admin',
-      password: process.env.CHARON_EMERGENCY_PASSWORD || 'changeme',
+      username: requireEmergencyEnv('CHARON_EMERGENCY_USERNAME'),
+      password: requireEmergencyEnv('CHARON_EMERGENCY_PASSWORD'),
     },
   });
 
@@ -295,6 +296,7 @@ setup('authenticate', async ({ request, baseURL }) => {
         name: TEST_NAME,
         email: TEST_EMAIL,
         password: TEST_PASSWORD,
+        setup_code: process.env.CHARON_SETUP_TOKEN,
       },
     });
 
