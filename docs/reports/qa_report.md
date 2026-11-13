@@ -1,145 +1,122 @@
-# QA Report: Workflow Permissions and Build Inputs
+# QA Report: First-Run Setup Code
 
-- Branch: `chore/ci-workflow-permissions` (11 commits on `origin/development`, up to `7da34cd2d`)
-- Spec: `docs/plans/cerberus_hardening_batch7_spec.md`, section 3, plus two follow-ups (per-run key in
-  `quality-checks.yml`; base-branch Trivy ignore list in `docker-build.yml` and `toolchain-image.yml`)
-- Scope: CI workflows, CI and skill shell scripts, Playwright compose files, E2E test fixtures, editor tasks, CI docs.
-  No application code changed (`git diff --stat origin/development...HEAD` touches no `backend/`, `frontend/` or
-  `agent/` source), so the backend and frontend coverage suites and the patch coverage preflight were not run.
-- Image under test: `charon:local` from `docker-rebuild-e2e` on the committed branch.
-- Date: 2026-11-12
+- Branch: `fix/first-run-setup` (7 commits on `origin/development`, up to `d64af2420`)
+- Spec: `docs/plans/cerberus_hardening_batch7_spec.md`, section 5
+- Scope: backend (setup handler, setup code service, route wiring, config, password reset command), frontend
+  (first-run page, error mapping, locales), CI workflows, integration and smoke scripts, Playwright fixtures, docs.
+- Image under test: `charon:local` from `docker-rebuild-e2e`, rebuilt after the QA changes below.
+- Date: 2026-11-13
 
 ## Verdict
 
-**Findings resolved in follow-up commits.** QA first blocked the branch on two defects in the per-run test value
-flow of `e2e-tests-split.yml` (H1, H2) and found four low items (L1 to L4). All six were fixed in the five commits
-after `7da34cd2d`; the report below describes the state that was reviewed. The remaining check is the PR's own CI
-run, which is the only way to exercise the E2E jobs, the result-publishing job and the base-branch policy fetch.
+**Approved after QA fixes.** QA found one CI-blocking defect (H1) and fixed it in the working tree, along with
+the patch coverage gaps and two doc inaccuracies. Nothing blocking remains. The full E2E and integration matrix
+runs only in the PR's CI.
 
 ## Gates run (all foreground)
 
 | Gate | Result |
 | --- | --- |
-| `actionlint` (all workflows) | Pass |
-| `shellcheck` on changed scripts | Pass (info-level SC1091 only, same as on `development`) |
-| `bats scripts/tests/dockerfile-arg.bats` | Pass, 10/10 |
-| `scripts/ci/dockerfile-arg.sh --require-digest Dockerfile ALPINE_IMAGE` | Prints the tag@digest reference |
-| `markdownlint` on changed docs | Pass |
-| `jq . .vscode/tasks.json` | Pass |
-| `docker compose config`, CI file, all four values set | Pass; port 2020 bound to `127.0.0.1` |
-| `docker compose config`, CI file, values unset or empty | Fails with the `:?` message (intended) |
-| `docker compose config`, CI file, only token and key set (what the workflow sets) | **Fails**: username and password missing (see H1) |
-| `docker compose config`, local file, set and unset | Pass / fails as intended |
-| `lefthook run pre-commit --all-files` | Pass (all 20 hooks) |
-| `docker-rebuild-e2e` skill | Pass; container healthy, 2020 on loopback |
-| `npx playwright test tests/security-enforcement/emergency-reset.spec.ts --project=security-tests` | 5 passed |
-| `npx playwright test tests/security-enforcement/multi-component-security-workflows.spec.ts --project=security-tests` | 5 passed |
-| Same emergency spec with the emergency password unset | Fails in setup with the clear "is not set" message (intended) |
-| `npx tsc --noEmit -p tests/tsconfig.json` | Pass |
-| `npm run lint:e2e` | 0 errors, 123 warnings (cap 124); no new warnings on changed lines |
-| Installer checksums in `.vscode/tasks.json` | Both match an independent download (see below) |
+| `docker-rebuild-e2e` (twice: before and after QA changes) | Pass, container healthy |
+| Playwright `public-registration-removed.spec.ts --project=security-tests` | Pass, 7/7 (both images) |
+| Playwright `tests/core/authentication.spec.ts --project=firefox` | Pass, 16/16 |
+| `scripts/setup_code_integration.sh` | Pass, 22/22 (both images) |
+| `scripts/security_headers_integration.sh` (after the H1 fix) | Pass |
+| `scripts/go-test-coverage.sh` | Pass, 92.6% line coverage (gate 87%) |
+| `scripts/frontend-test-coverage.sh` | Pass, 92.66% lines, 4485 tests |
+| `go test -race -count=3` on the setup, setup code, routes and reset paths | Pass |
+| `bash scripts/local-patch-report.sh` | Frontend 100%; backend 99.1% (1 line, see L3) |
+| `make lint-backend` (full golangci-lint) | Pass, 0 issues |
+| `lefthook run pre-commit --all-files` | Pass, all hooks (semgrep included) |
+| `npm run lint` (`--max-warnings 0`) | Pass |
+| `tsc6 --noEmit`, `npm run type-check` | Pass |
+| `npm run build`, `go build ./...` | Pass |
+| `./scripts/scan-gorm-security.sh --check` | Pass, 0 critical/high/medium |
+| `lefthook run codeql` (Go and JS) | 0 new; Go has 4 existing suppressed results in untouched files; JS 0 |
+| `actionlint` on the changed workflows | Pass |
+| `shellcheck --severity=error` on the changed scripts | Pass |
+| Trivy filesystem scan (vuln + secret, HIGH/CRITICAL) | 0 findings |
+| Trivy image scan of `charon:local` (HIGH/CRITICAL) | 3 HIGH with no fixed version, all in bundled third-party binaries; unchanged by this PR (no dependency or Dockerfile changes) |
+
+## Throwaway container gate
+
+Run against a separate container on a random loopback port, not the shared E2E container. All containers and
+volumes were removed afterwards.
+
+| Check | Result |
+| --- | --- |
+| Fresh volume, no environment: exactly one `Setup code:` log line | Pass (1 line, 52-character code) |
+| Status before setup | `setupRequired` and `setup_code_required` both true; no other fields |
+| UI flow (Firefox, first-run page): wrong code shows the translated alert; correct code returns 201 and leaves `/setup` | Pass |
+| Restart after success | No `Setup code:` line; status reports both flags false |
+| Restart on an emptied database | One new code, different from the first; the old code is refused (403), the new one works (201) |
+| Preset token with debug logging on: wrong and correct attempts | Token absent from stdout logs, response bodies and the data volume (including the log file) |
+| Preset shorter than the minimum | Container exits at startup with a length error; the value is not in the logs |
+
+## Security review
+
+- **Code generation and storage.** 32 bytes from `crypto/rand`, base32 without padding. Only a SHA-256 digest is
+  kept; the comparison is constant-time over fixed-size digests. A nil or discarded guard accepts nothing.
+- **Ordering.** Request binding, then the per-client limiter, then the code check, all before any password
+  hashing. The limiter's 429 is returned even for a correct code, as intended.
+- **Single use.** The code is discarded only after the write transaction commits. Concurrent correct submissions
+  produce exactly one account (unit tests under `-race`, plus the transaction's own recheck). A failed setup
+  (for example a short password) keeps the code active.
+- **No disclosure.** Rejections use one fixed message for missing and wrong codes and never echo the input.
+  The status endpoint adds only `setup_code_required`. A preset is never logged: the startup line only names
+  its source. The integration script redacts both values from any debug output; its own output contained no
+  code-shaped strings. The E2E rebuild log, E2E container log and local Playwright artifacts did not contain the
+  token.
+- **Preset length.** Values under 32 characters stop startup with an error that does not repeat the value.
+- **Password reset command.** Now goes through the shared password change path, so it ends existing sessions
+  and clears lock state; a failed save leaves the session version unchanged (new test).
+- **CI.** All six E2E jobs and all five integration jobs that bootstrap an admin generate their own token in a
+  step of the same job, mask it, and pass it through step-level `env`. Nothing is written to `GITHUB_ENV` and
+  nothing crosses jobs. The new setup code job generates its token inside the script.
 
 ## Findings
 
-### HIGH
+### High
 
-**H1. CI E2E jobs do not provide the emergency username and password.**
-`.docker/compose/docker-compose.playwright-ci.yml` now requires `CHARON_EMERGENCY_USERNAME` and
-`CHARON_EMERGENCY_PASSWORD` (`${VAR:?}`), and the test helpers (`requireEmergencyEnv`) throw when they are unset.
-The six E2E jobs in `.github/workflows/e2e-tests-split.yml` set only `CHARON_EMERGENCY_TOKEN` and
-`CHARON_ENCRYPTION_KEY`. `docker compose ... up -d` will fail in every job, and Playwright setup would fail after
-it. Reproduced locally with `docker compose config` using only the two values the workflow sets.
-Remediation: generate a per-run username and password alongside the token and key, and set them in the same place
-as the other two values in all six jobs (see H2 for where that place should be).
+- **H1 (fixed): security headers integration job could not create its admin.**
+  `scripts/security_headers_integration.sh` still posted the first-run request without a setup code, and its
+  `integration-tests.yml` job did not provide one, so the login step would fail on every CI run.
+  Fix applied: the script now defaults `CHARON_SETUP_TOKEN` to a per-run value, passes it to the container and
+  sends it with the setup request (built with `jq`); the job gets a per-job generated, masked token through
+  step-level `env`, matching the other jobs. Verified by running the script locally (pass).
 
-**H2. Per-run values passed as job outputs will arrive empty.**
-The `build` job masks the generated token and key (`::add-mask::`) and exposes them as job outputs; the E2E jobs
-read `needs.build.outputs.*`. The runner drops any job output that contains a masked value ("Skip output ... since
-it may contain secret"), so the E2E jobs receive empty strings. The token check step then fails with "secret not
-configured", and compose fails on the empty key. (GitHub documents this behaviour in "Passing information between
-jobs".) Remediation: generate the values inside each E2E job instead of in `build` (each job starts its own
-container, so the values do not need to be shared). Because job-level `env` is evaluated before steps run, either
-set them per step from a step output, or keep one generation step that masks them and writes them for the job. The
-spec's no-`GITHUB_ENV` rule can be kept by giving the compose, Playwright and log steps the values through
-step-level `env` from `steps.<id>.outputs`. Do not drop the masking to make the outputs pass: the job-level `env`
-block is printed in step logs before any later mask takes effect.
-
-Only the PR's CI run can confirm the fix for H1 and H2; there is no local equivalent of the cross-job output filter.
-
-### MEDIUM
+### Medium
 
 None.
 
-### LOW
+### Low
 
-**L1. Backend coverage job lost its Go cache key.** `.github/workflows/codecov-upload.yml`, `backend-codecov`
-job, "Set up Go": the `cache-dependency-path: backend/go.sum` line was removed together with the old key step.
-The job still works but restores no module cache (setup-go looks for a root `go.sum`). Remediation: restore the line.
+- **L1 (fixed): docs.** `docs/getting-started.md` told users to `docker restart` after adding
+  `CHARON_SETUP_TOKEN`, which does not apply new environment settings; it now says to recreate the container.
+  It and `docs/features/user-accounts.md` now say that only the newest code works when several are logged, and
+  that the log entry contains (rather than is) the shown line, since the log is JSON.
+- **L2 (fixed): unreachable error branches.** `generateSetupCode` handled an error that `crypto/rand.Read`
+  never returns on this Go version, and `IssueStartupSetupCode` re-validated a preset it had already validated.
+  Both branches were removed (`pickSetupCode` helper); behavior is unchanged.
+- **L3 (accepted): one uncovered patch line.** `backend/cmd/api/main.go:183` is a `log.Fatalf` inside `main()`
+  and cannot run in-process. `backend/cmd/api/**` is in the Codecov ignore list, so CI patch coverage is not
+  affected. All other changed lines are covered.
+- **L4 (open, recommend follow-up issue): surrounding whitespace in the code.** Neither the first-run page nor
+  the server trims the submitted code, and a preset read with a trailing newline would count it. A pasted value
+  with extra spaces is refused as incorrect. Suggested approach: trim the field before submit and trim the preset
+  when loading config.
+- **L5 (informational): request bodies in failure traces.** Two Playwright fixtures send the per-run token in
+  API calls, and CI uploads traces for retried tests. The token is generated per job, only valid until the first
+  account exists, and its container is removed at job end, so this carries no practical exposure. No change made.
 
-**L2. Editor scanner tasks report success when the checksum fails.** `.vscode/tasks.json`, Grype and Syft update
-tasks: the command ends with `; rm -f "$tmp"`, so the task's exit status is that of `rm`, not of the checksum or
-install. A mismatch prints `FAILED` and installs nothing (safe), but the task shows as successful. Remediation:
-`... ; rc=$?; rm -f "$tmp"; exit $rc`, or a `trap`. Also, the spec asked for `sudo` only on the final copy; the
-whole installer runs under `sudo`. Acceptable because the script is checksum-verified first, but an unprivileged
-install to a temp dir followed by `sudo install` would match the spec.
+## Changes made by QA (uncommitted, in the working tree)
 
-**L3. Issue-file path check validates only the last path component.** `.github/workflows/docs-to-issues.yml`,
-`rejectIssueFile`: `lstat` rejects a symlinked file, but a symlinked directory inside `docs/issues/` would still be
-followed. Inputs come from pushes and manual runs by people with write access, so impact is small. Remediation:
-also require `fs.realpathSync(filePath)` to start with `fs.realpathSync('docs/issues') + path.sep`. Manual paths
-also skip the `created/`, template and README exclusions that commit-derived paths get; consider applying the same
-filter to both.
-
-**L4. Toolchain scan job can now fail on PRs where it was report-only.** `.github/workflows/toolchain-image.yml`,
-`trivy-scan`: the base-policy step runs on every PR (including fork PRs where `scan` is false) and has no
-`continue-on-error`, while the Trivy gate it feeds is report-only on PRs. A transient fetch failure fails the job.
-This is fail-closed and acceptable; optionally gate the step on `steps.ref.outputs.scan == 'true'`.
-
-### Informational
-
-- `benchmark.yml`: the concurrency group still references `github.event.workflow_run.head_branch`, which no longer
-  applies (the workflow has no `workflow_run` trigger). Harmless; can be dropped.
-- `supply-chain-pr.yml`, "Fail on Critical/High vulnerabilities": still interpolates step outputs directly into
-  `run`. The values are counts produced by `jq` in the same job, so this is not exploitable, but moving them to
-  `env` would match the rest of the change.
-- Once this merges, the repository secrets for the backend test key and the E2E emergency token are no longer read
-  by any workflow and can be deleted.
-
-## Security review notes
-
-- **Permissions.** `supply-chain-pr.yml` workflow scope is read-only; write scopes exist only on
-  `publish-results`, which never checks out code, downloads the scan artifact only, and validates every count as a
-  non-negative integer before building the comment. Comment values and repository/run identifiers now come through
-  `env`, not inline expressions. `benchmark.yml` runs PR and dispatch code with `contents: read` and no repository
-  secrets; the `store` job holds the write scopes and runs only on `push` to `main`.
-- **Registry token expression.** `(head.repo.full_name == '' || head.repo.full_name == github.repository) &&
-  secrets.GITHUB_TOKEN || ''` is the exact complement of the existing `builder-src` inline condition: push and
-  dispatch (no PR payload) and same-repository PRs get the token; fork PRs get `''`, and the composite action skips
-  the registry login when the token is empty. The deviation from the spec wording is sound. Edge case: a PR whose
-  head repository was deleted has an empty `full_name` and is treated like a push; its token is read-only.
-- **Base-branch scanner policy.** `BASE_REF` is passed through `env` and quoted. `FETCH_HEAD` is the right ref to
-  read after `git fetch --depth=1 origin "$BASE_REF"` (a checkout made with a single ref does not always update the
-  remote-tracking ref), so this deviation from the spec is sound. Failure is closed: `set -euo pipefail` fails the
-  step, and the Trivy steps that consume the output have no `always()`, so they cannot run with the PR's own policy.
-  The repository is public, so the anonymous fetch works without persisted credentials.
-- **Six E2E jobs.** All three security and three non-security jobs were switched, and all six old key steps
-  removed. No caller passes the removed reusable-workflow secret. The coverage is complete; the flow itself is
-  broken (H1, H2).
-- **Secrets in logs.** The old token preview (first and last characters) is gone. No value is written to
-  `GITHUB_ENV`. Test-only values in `quality-checks.yml`, `codecov-upload.yml` and `benchmark.yml` stay in step
-  outputs within one job, which works.
-- **Installer pins.** Independently downloaded both commit-pinned `install.sh` files: Grype `8646f06a...3556` and
-  Syft `2ed88b16...4b3b` match `.vscode/tasks.json`. Both commits are ancestors of the upstream `main` branch, not
-  commits that exist only in a fork. The Grype pin matches `supply-chain-pr.yml`. The installers then verify the
-  release archive checksum themselves; the tasks install the latest release rather than a pinned version.
-- **Compose.** Port 2020 now binds to loopback in both Playwright compose files, and no compose file carries a
-  committed default credential.
-
-## What only the PR's own CI run can confirm
-
-- The E2E jobs start and pass after H1 and H2 are fixed.
-- `publish-results` posts or updates the PR comment and uploads SARIF without a checkout.
-- The base-branch policy steps fetch and feed Trivy on a real PR.
-- The benchmark `store` job's push to the results branch runs only after a merge to `main` and cannot be tested on
-  the PR; its condition was checked by reading it.
-- The `beta` tag condition was checked by reading it.
+- `scripts/security_headers_integration.sh`, `.github/workflows/integration-tests.yml`: H1 fix.
+- `scripts/setup_code_integration.sh`: the "preset not logged" check now also searches for the raw token value,
+  not only the log line text (still 22 checks).
+- `backend/internal/services/setup_code.go`: L2 cleanup.
+- `backend/internal/api/handlers/user_handler.go`: corrected a duplicated step number in a comment.
+- Tests: `backend/internal/api/routes/routes_setup_code_log_test.go` (short preset fails registration without
+  repeating the value; nothing logged when no setup is pending) and `backend/cmd/api/reset_password_test.go`
+  (unhashable password; failed save leaves sessions alone).
+- Docs: `docs/getting-started.md`, `docs/features/user-accounts.md` (L1).
