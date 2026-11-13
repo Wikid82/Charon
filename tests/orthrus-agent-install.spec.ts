@@ -1,5 +1,5 @@
 import { test, expect } from './fixtures/test';
-import { waitForAPIHealth } from './utils/api-helpers';
+import { getStorageStateAuthHeaders, waitForAPIHealth } from './utils/api-helpers';
 import { waitForLoadingComplete } from './utils/wait-helpers';
 
 const REMOTE_SERVERS_API = '**/api/v1/remote-servers*';
@@ -15,6 +15,40 @@ const MOCK_SNIPPETS = {
   docker_compose: `services:\n  orthrus:\n    image: ghcr.io/charon/orthrus:latest\n    environment:\n      AUTH_KEY: ${MOCK_AUTH_KEY}`,
   kubernetes_daemonset: `apiVersion: apps/v1\nkind: DaemonSet\nmetadata:\n  name: orthrus\nspec:\n  AUTH_KEY: ${MOCK_AUTH_KEY}`,
 };
+
+/**
+ * Provisions an agent through the UI on /hecate/agent and returns the install wizard.
+ * Routes must be registered by the caller before this runs.
+ */
+async function provisionThroughDialog(page: import('@playwright/test').Page, agentName: string) {
+  // Provisioning + the install wizard live on /hecate/agent (HecateAgent.tsx),
+  // not on /remote-servers — RemoteServerForm's "agent" connection mode only
+  // attaches an already-provisioned agent (see ConnectionTypeSelector.tsx),
+  // it does not provision new ones. See docs/plans/current_spec.md §9.1.
+  await page.goto('/hecate/agent');
+  await waitForLoadingComplete(page);
+
+  await page.getByRole('button', { name: /provision new agent/i }).click();
+
+  const provisionDialog = page.getByRole('dialog');
+  await expect(provisionDialog).toBeVisible({ timeout: 5000 });
+
+  await provisionDialog.locator('#provision-name').fill(agentName);
+
+  // Scoped to the dialog: the page's own "Provision New Agent" trigger button
+  // shares the exact same accessible name as this dialog's submit button.
+  await provisionDialog.getByRole('button', { name: /provision new agent/i }).click();
+
+  // The provision dialog closes and the install wizard opens in the same
+  // batched state update, but the Dialog exit/enter animation (Dialog.tsx,
+  // data-[state=open|closed]:animate-in/out) can transiently keep both
+  // role="dialog" nodes mounted — filter on content instead of relying on
+  // there being exactly one `dialog` role element.
+  const wizardDialog = page.getByRole('dialog').filter({ hasText: /install orthrus agent/i });
+  await expect(wizardDialog).toBeVisible({ timeout: 8000 });
+
+  return wizardDialog;
+}
 
 async function openOrthrusWizard(page: import('@playwright/test').Page) {
   await page.route(REMOTE_SERVERS_API, (route) => route.fulfill({ json: [] }));
@@ -33,34 +67,33 @@ async function openOrthrusWizard(page: import('@playwright/test').Page) {
     }
   });
 
-  // Provisioning + the install wizard live on /hecate/agent (HecateAgent.tsx),
-  // not on /remote-servers — RemoteServerForm's "agent" connection mode only
-  // attaches an already-provisioned agent (see ConnectionTypeSelector.tsx),
-  // it does not provision new ones. See docs/plans/current_spec.md §9.1.
-  await page.goto('/hecate/agent');
-  await waitForLoadingComplete(page);
-
-  await page.getByRole('button', { name: /provision new agent/i }).click();
-
-  const provisionDialog = page.getByRole('dialog');
-  await expect(provisionDialog).toBeVisible({ timeout: 5000 });
-
-  await provisionDialog.locator('#provision-name').fill(MOCK_AGENT_NAME);
-
-  // Scoped to the dialog: the page's own "Provision New Agent" trigger button
-  // shares the exact same accessible name as this dialog's submit button.
-  await provisionDialog.getByRole('button', { name: /provision new agent/i }).click();
-
-  // The provision dialog closes and the install wizard opens in the same
-  // batched state update, but the Dialog exit/enter animation (Dialog.tsx,
-  // data-[state=open|closed]:animate-in/out) can transiently keep both
-  // role="dialog" nodes mounted — filter on content instead of relying on
-  // there being exactly one `dialog` role element.
-  const wizardDialog = page.getByRole('dialog').filter({ hasText: /install orthrus agent/i });
-  await expect(wizardDialog).toBeVisible({ timeout: 8000 });
-
-  return wizardDialog;
+  return provisionThroughDialog(page, MOCK_AGENT_NAME);
 }
+
+// Mirrors services.agentImageTag (backend/internal/services/orthrus_service.go) so the
+// expected tag is derived from the version the running backend reports. Plain X.Y.Z
+// maps to its own tag; +dev./+nightly. map to their channel tags; anything else
+// (pre-releases, PR/local builds, unparsable versions) falls back to latest.
+const AGENT_IMAGE_REPO = 'wikid82/orthrus';
+const NO_RELEASE_NOTE =
+  'This Charon build has no release version; use the agent tag that matches your Charon release.';
+
+function expectedAgentImage(version: string): { tag: string; note: string } {
+  if (/^\d+\.\d+\.\d+$/.test(version)) {
+    return { tag: version, note: '' };
+  }
+  const channel = version.match(/^\d+\.\d+\.\d+\+(dev|nightly)\.[^+]+$/)?.[1];
+  if (channel === 'dev') {
+    return { tag: 'dev', note: 'Development build: this tag follows the development branch.' };
+  }
+  if (channel === 'nightly') {
+    return { tag: 'nightly', note: 'Nightly build: this tag follows the nightly channel.' };
+  }
+  return { tag: 'latest', note: NO_RELEASE_NOTE };
+}
+
+const isProvisionResponse = (response: import('@playwright/test').Response) =>
+  response.request().method() === 'POST' && new URL(response.url()).pathname === '/api/v1/orthrus/agents';
 
 test.describe('Orthrus Agent Install Wizard', () => {
   test.beforeEach(async ({ request }) => {
@@ -283,6 +316,117 @@ test.describe('Orthrus Agent Install Wizard', () => {
             - tab "Kubernetes"
         `);
       });
+    });
+  });
+
+  // No route mocks here: the provisioned agent, its key and its snippets all come from the
+  // running backend, so these cases check the real install contract end to end.
+  test.describe('Real backend install snippets', () => {
+    const createdAgentUUIDs: string[] = [];
+
+    test.beforeEach(async ({ request }) => {
+      await waitForAPIHealth(request);
+    });
+
+    test.afterEach(async ({ request }) => {
+      for (const uuid of createdAgentUUIDs.splice(0)) {
+        const response = await request.delete(`/api/v1/orthrus/agents/${uuid}`, {
+          headers: getStorageStateAuthHeaders(),
+        });
+        expect(response.ok()).toBeTruthy();
+      }
+    });
+
+    /** Provisions through the UI and returns the wizard plus the real one-time key. */
+    async function provisionRealAgent(page: import('@playwright/test').Page, agentName: string) {
+      const provisioned = page.waitForResponse(isProvisionResponse);
+      const dialog = await provisionThroughDialog(page, agentName);
+      const body = (await (await provisioned).json()) as {
+        agent: { uuid: string };
+        auth_key: string;
+      };
+      createdAgentUUIDs.push(body.agent.uuid);
+      return { dialog, authKey: body.auth_key };
+    }
+
+    test('Compose and Kubernetes snippets pin the image tag for the running version and read the key from a file', async ({
+      page,
+      request,
+    }) => {
+      const healthResponse = await request.get('/api/v1/health');
+      const { version } = (await healthResponse.json()) as { version: string };
+      const { tag, note } = expectedAgentImage(version);
+
+      const { dialog, authKey } = await provisionRealAgent(page, `install-snippet-${Date.now()}`);
+
+      await test.step('Wizard shows the real one-time key in the read-only input', async () => {
+        await expect(dialog.locator('#auth-key-input')).toHaveValue(authKey);
+      });
+
+      await test.step('Compose snippet uses the agent image tag the health endpoint version maps to', async () => {
+        const activePanel = dialog.locator('[role="tabpanel"][data-state="active"]');
+        await expect(activePanel).toContainText(`image: ${AGENT_IMAGE_REPO}:${tag}`);
+        if (note) {
+          await expect(activePanel).toContainText(note);
+        }
+      });
+
+      await test.step('Compose snippet reads the key from a file secret and never inlines it', async () => {
+        const activePanel = dialog.locator('[role="tabpanel"][data-state="active"]');
+        await expect(activePanel).toContainText('ORTHRUS_AUTH_KEY_FILE=/run/secrets/orthrus_auth_key');
+        await expect(activePanel).toContainText('<AUTH_KEY>');
+        await expect(activePanel).not.toContainText(/ORTHRUS_AUTH_KEY=/);
+        await expect(activePanel).not.toContainText(authKey);
+      });
+
+      await test.step('Kubernetes snippet uses the same image tag and key file', async () => {
+        await dialog.getByRole('tab', { name: /^kubernetes$/i }).click();
+        const activePanel = dialog.locator('[role="tabpanel"][data-state="active"]');
+        await expect(activePanel).toContainText(`image: ${AGENT_IMAGE_REPO}:${tag}`);
+        await expect(activePanel).toContainText('name: ORTHRUS_AUTH_KEY_FILE');
+        await expect(activePanel).toContainText('/var/run/secrets/orthrus/auth-key');
+        await expect(activePanel).not.toContainText(/ORTHRUS_AUTH_KEY=/);
+        await expect(activePanel).not.toContainText(authKey);
+      });
+    });
+
+    test('insecure ws:// server URL gets the wss-or-opt-in annotation in the Compose snippet', async ({
+      page,
+    }) => {
+      // The snippet's server URL comes from the X-Charon-URL header the frontend sends.
+      await page.route(ORTHRUS_AGENT_SNIPPETS_API, (route) =>
+        route.continue({
+          headers: { ...route.request().headers(), 'X-Charon-URL': 'http://charon.example.test:8080' },
+        }),
+      );
+
+      const { dialog } = await provisionRealAgent(page, `install-ws-public-${Date.now()}`);
+
+      const activePanel = dialog.locator('[role="tabpanel"][data-state="active"]');
+      await expect(activePanel).toContainText(
+        'ORTHRUS_SERVER_URL=ws://charon.example.test:8080/api/v1/ws/orthrus/connect',
+      );
+      await expect(activePanel).toContainText('This address is not private');
+      await expect(activePanel).toContainText('# - ORTHRUS_ALLOW_INSECURE_WS=true');
+    });
+
+    test('ws:// server URL on a private name gets no annotation in the Compose snippet', async ({
+      page,
+    }) => {
+      await page.route(ORTHRUS_AGENT_SNIPPETS_API, (route) =>
+        route.continue({
+          headers: { ...route.request().headers(), 'X-Charon-URL': 'http://charon.home.arpa:8080' },
+        }),
+      );
+
+      const { dialog } = await provisionRealAgent(page, `install-ws-private-${Date.now()}`);
+
+      const activePanel = dialog.locator('[role="tabpanel"][data-state="active"]');
+      await expect(activePanel).toContainText(
+        'ORTHRUS_SERVER_URL=ws://charon.home.arpa:8080/api/v1/ws/orthrus/connect',
+      );
+      await expect(activePanel).not.toContainText('This address is not private');
+      await expect(activePanel).not.toContainText('ORTHRUS_ALLOW_INSECURE_WS');
     });
   });
 });

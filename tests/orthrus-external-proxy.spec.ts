@@ -422,6 +422,27 @@ test.describe('External Docker Proxy', () => {
     });
   });
 
+  test('routable automatic listener — shows the bound address and no fallback or loopback note', async ({ page }) => {
+    await setupAgentPage(page, [MOCK_AGENT_WITH_PROXY], MOCK_PROXY_ACTIVE);
+
+    await test.step('Agent card notes the automatic listen address', async () => {
+      await expect(
+        page.getByText('Listen address is automatic. Choose a network in the proxy settings if other hosts need access.').first(),
+      ).toBeVisible({ timeout: 8000 });
+    });
+
+    const dialog = await openProxyDialog(page, MOCK_AGENT_NAME);
+
+    await test.step('Dialog shows the live bound address', async () => {
+      await expect(dialog.getByText('Listening on 172.18.0.4:2375')).toBeVisible({ timeout: 5000 });
+    });
+
+    await test.step('Neither the fallback nor the loopback explanation is shown', async () => {
+      await expect(dialog.getByText(/found no network/i)).toHaveCount(0);
+      await expect(dialog.getByText('Not reachable from other containers or hosts.')).toHaveCount(0);
+    });
+  });
+
   test('PROXY badge appears in agent row when external_proxy_port > 0', async ({ page }) => {
     await setupAgentPage(page, [MOCK_AGENT_WITH_PROXY], null);
 
