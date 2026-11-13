@@ -109,29 +109,12 @@ func (s *ProxyHostService) validateProxyHost(host *models.ProxyHost) error {
 		return errors.New("forward host is required")
 	}
 
+	if err := refuseAdminListenerTarget(host.ForwardHost, host.ForwardPort); err != nil {
+		return err
+	}
+
 	// Basic hostname/IP validation
-	target := host.ForwardHost
-
-	// Strip protocol and extract hostname if URL format
-	if strings.HasPrefix(target, "http://") || strings.HasPrefix(target, "https://") {
-		if u, err := url.Parse(target); err == nil {
-			target = u.Hostname()
-		} else {
-			// Fallback to simple prefix stripping
-			target = strings.TrimPrefix(target, "http://")
-			target = strings.TrimPrefix(target, "https://")
-		}
-	}
-
-	// Strip port if present
-	if h, _, err := net.SplitHostPort(target); err == nil {
-		target = h
-	}
-
-	// Remove any path components
-	if idx := strings.Index(target, "/"); idx != -1 {
-		target = target[:idx]
-	}
+	target := forwardTargetHost(host.ForwardHost)
 
 	// Validate target
 	if net.ParseIP(target) == nil {
@@ -162,23 +145,34 @@ func normalizeAdvancedConfig(host *models.ProxyHost) error {
 	if host.AdvancedConfig == "" {
 		return nil
 	}
+	norm, err := normalizeAdvancedJSON(host.AdvancedConfig)
+	if err != nil {
+		return err
+	}
+	host.AdvancedConfig = norm
+	return nil
+}
+
+// normalizeAdvancedJSON parses advanced_config JSON and returns its normalized
+// encoding.
+func normalizeAdvancedJSON(raw string) (string, error) {
 	var parsed any
-	if err := json.Unmarshal([]byte(host.AdvancedConfig), &parsed); err != nil {
-		return fmt.Errorf("invalid advanced_config JSON: %w", err)
+	if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+		return "", fmt.Errorf("invalid advanced_config JSON: %w", err)
 	}
 	norm, err := json.Marshal(caddy.NormalizeAdvancedConfig(parsed))
 	if err != nil {
-		return fmt.Errorf("invalid advanced_config after normalization: %w", err)
+		return "", fmt.Errorf("invalid advanced_config after normalization: %w", err)
 	}
-	host.AdvancedConfig = string(norm)
-	return nil
+	return string(norm), nil
 }
 
 // checkHostWrite runs the uniqueness and validation checks shared by Create
 // and Update. It must run inside the write-locked transaction so the checks
 // and the subsequent write are atomic. A non-nil certificate_id must reference
-// an existing certificate.
-func (s *ProxyHostService) checkHostWrite(tx *gorm.DB, host *models.ProxyHost, excludeID uint) error {
+// an existing certificate. When admin is false, the write must not change the
+// admin-only fields relative to the stored row.
+func (s *ProxyHostService) checkHostWrite(tx *gorm.DB, host *models.ProxyHost, excludeID uint, admin bool) error {
 	if err := checkSameTableDomainConflict(tx, host.DomainNames, &models.ProxyHost{}, excludeID); err != nil {
 		return err
 	}
@@ -188,17 +182,56 @@ func (s *ProxyHostService) checkHostWrite(tx *gorm.DB, host *models.ProxyHost, e
 	if err := s.validateProxyHost(host); err != nil {
 		return err
 	}
+	if err := validateLocationTargets(host.Locations); err != nil {
+		return err
+	}
 	if err := ensureCertificateExists(tx, host.CertificateID); err != nil {
 		return err
 	}
-	return normalizeAdvancedConfig(host)
+	if err := normalizeAdvancedConfig(host); err != nil {
+		return err
+	}
+	stored, err := storedProxyAdminFields(tx, excludeID)
+	if err != nil {
+		return err
+	}
+	return ensureAdminOnlyFieldsUnchanged(admin, stored, proxyAdminFieldsOf(host))
 }
 
-// Create validates and creates a new proxy host. The uniqueness checks and the
-// insert run in one write-locked transaction (see WithWriteLock).
+// proxyAdminFieldsOf returns the admin-only fields of an incoming proxy host.
+func proxyAdminFieldsOf(host *models.ProxyHost) hostAdminFields {
+	return hostAdminFields{
+		dnsProviderID:   host.DNSProviderID,
+		useDNSChallenge: host.UseDNSChallenge,
+		advancedConfig:  host.AdvancedConfig,
+		advancedBackup:  host.AdvancedConfigBackup,
+	}
+}
+
+// validateLocationTargets applies the forward target rules to each location.
+func validateLocationTargets(locations []models.Location) error {
+	for i := range locations {
+		if err := refuseAdminListenerTarget(locations[i].ForwardHost, locations[i].ForwardPort); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Create validates and creates a new proxy host. It is the trusted internal
+// entry point (imports and setup) and applies no admin-only field restriction.
+// HTTP handlers acting for a user must call CreateAs.
 func (s *ProxyHostService) Create(host *models.ProxyHost) error {
+	return s.CreateAs(host, true)
+}
+
+// CreateAs validates and creates a new proxy host on behalf of a caller. When
+// admin is false, the DNS provider binding, the DNS challenge flag and the
+// advanced config must stay empty. The uniqueness checks and the insert run in
+// one write-locked transaction (see WithWriteLock).
+func (s *ProxyHostService) CreateAs(host *models.ProxyHost, admin bool) error {
 	err := WithWriteLock(s.db, &models.ProxyHost{}, func(tx *gorm.DB) error {
-		if err := s.checkHostWrite(tx, host, 0); err != nil {
+		if err := s.checkHostWrite(tx, host, 0, admin); err != nil {
 			return err
 		}
 		return tx.Create(host).Error
@@ -210,11 +243,20 @@ func (s *ProxyHostService) Create(host *models.ProxyHost) error {
 	return nil
 }
 
-// Update validates and updates an existing proxy host. The uniqueness checks
-// and the write run in one write-locked transaction (see WithWriteLock).
+// Update validates and updates an existing proxy host. It is the trusted
+// internal entry point and applies no admin-only field restriction. HTTP
+// handlers acting for a user must call UpdateAs.
 func (s *ProxyHostService) Update(host *models.ProxyHost) error {
+	return s.UpdateAs(host, true)
+}
+
+// UpdateAs validates and updates an existing proxy host on behalf of a caller.
+// When admin is false, the admin-only fields must match the stored row. The
+// uniqueness checks and the write run in one write-locked transaction (see
+// WithWriteLock).
+func (s *ProxyHostService) UpdateAs(host *models.ProxyHost, admin bool) error {
 	err := WithWriteLock(s.db, &models.ProxyHost{}, func(tx *gorm.DB) error {
-		if err := s.checkHostWrite(tx, host, host.ID); err != nil {
+		if err := s.checkHostWrite(tx, host, host.ID, admin); err != nil {
 			return err
 		}
 		// Use Updates to handle nullable foreign keys properly

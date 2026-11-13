@@ -26,6 +26,7 @@ func setupRedirectionHostHandlerRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
+	attachTestAdminRole(router)
 	h := NewRedirectionHostHandler(db, nil) // nil caddyManager: ApplyConfig calls are skipped in these unit tests
 	grp := router.Group("/")
 	h.RegisterRoutes(grp)

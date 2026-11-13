@@ -529,8 +529,8 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 		host.Locations[i].UUID = uuid.NewString()
 	}
 
-	if err := h.service.Create(&host); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := h.service.CreateAs(&host, isAdmin(c)); err != nil {
+		respondHostWriteError(c, err)
 		return
 	}
 
@@ -765,8 +765,8 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		}
 	}
 
-	if err := h.service.Update(host); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := h.service.UpdateAs(host, isAdmin(c)); err != nil {
+		respondHostWriteError(c, err)
 		return
 	}
 
@@ -907,7 +907,7 @@ func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 		}
 
 		host.AccessListID = req.AccessListID
-		if err := h.service.Update(host); err != nil {
+		if err := h.service.UpdateAs(host, isAdmin(c)); err != nil {
 			failures = append(failures, map[string]string{
 				"uuid":  hostUUID,
 				"error": err.Error(),
@@ -975,7 +975,7 @@ func (h *ProxyHostHandler) BulkUpdateGroup(c *gin.Context) {
 			continue
 		}
 		host.ProxyGroupID = resolvedGroupID
-		if err := h.service.Update(host); err != nil {
+		if err := h.service.UpdateAs(host, isAdmin(c)); err != nil {
 			failures = append(failures, map[string]string{
 				"uuid":  hostUUID,
 				"error": err.Error(),

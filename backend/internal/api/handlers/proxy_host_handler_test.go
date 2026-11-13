@@ -37,6 +37,7 @@ func setupTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	ns := services.NewNotificationService(db, nil)
 	h := NewProxyHostHandler(db, nil, ns, nil)
 	r := gin.New()
+	attachTestAdminRole(r)
 	api := r.Group("/api/v1")
 	h.RegisterRoutes(api)
 
@@ -59,6 +60,7 @@ func setupTestRouterWithReferenceTables(t *testing.T) (*gin.Engine, *gorm.DB) {
 	ns := services.NewNotificationService(db, nil)
 	h := NewProxyHostHandler(db, nil, ns, nil)
 	r := gin.New()
+	attachTestAdminRole(r)
 	api := r.Group("/api/v1")
 	h.RegisterRoutes(api)
 

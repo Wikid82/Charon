@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
@@ -19,11 +20,35 @@ func requireAdmin(c *gin.Context) bool {
 	if isAdmin(c) {
 		return true
 	}
+	respondAdminOnly(c)
+	return false
+}
+
+// respondAdminOnly writes the 403 returned when a caller lacks administrator rights.
+func respondAdminOnly(c *gin.Context) {
 	c.JSON(http.StatusForbidden, gin.H{
 		"error":      "admin privileges required",
 		"error_code": "permissions_admin_only",
 	})
-	return false
+}
+
+// respondAdminOnlyHostError writes the 403 for a rejected admin-only host field
+// and reports whether err was that rejection.
+func respondAdminOnlyHostError(c *gin.Context, err error) bool {
+	if !errors.Is(err, services.ErrAdminOnlyHostField) {
+		return false
+	}
+	respondAdminOnly(c)
+	return true
+}
+
+// respondHostWriteError writes the response for a rejected proxy or redirection
+// host write: 403 for an admin-only field, otherwise 400 with the validation message.
+func respondHostWriteError(c *gin.Context, err error) {
+	if respondAdminOnlyHostError(c, err) {
+		return
+	}
+	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 }
 
 func requireAuthenticatedAdmin(c *gin.Context) bool {
