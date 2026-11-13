@@ -9,9 +9,13 @@ name: Orthrus Agent — Build & Publish
 # dependencies change: everything the image is built from lives under agent/
 # (source, go.mod/go.sum, Dockerfile and its pinned base images), so a single
 # agent/** filter covers both. Branch pushes and pull requests share the same
-# filter. `v*` release tags are deliberately exempt (GitHub does not evaluate
-# path filters for tag pushes) so every release still publishes the
-# semver-tagged image that pairs with the Charon release.
+# filter.
+#
+# Release version tags (X.Y.Z and X.Y) are published by a workflow_call from
+# docker-build.yml when a release commit lands on main. Release tags cannot
+# start this workflow directly: release-please creates them with GITHUB_TOKEN,
+# and events created by GITHUB_TOKEN do not start workflows. The
+# workflow_dispatch release_version input backfills a release on demand.
 
 "on":
   pull_request:
@@ -20,7 +24,6 @@ name: Orthrus Agent — Build & Publish
       - '.github/workflows/orthrus-build.yml'
   push:
     branches: [main, development]
-    tags: ['v*']
     paths:
       - 'agent/**'
       - '.github/workflows/orthrus-build.yml'
@@ -30,10 +33,26 @@ name: Orthrus Agent — Build & Publish
         description: 'Why are you running this manually?'
         required: false
         default: 'manual trigger'
+      release_version:
+        description: 'Backfill release tags X.Y.Z and X.Y (X.Y.Z only; refused unless run on main)'
+        required: false
+        default: ''
+  workflow_call:
+    inputs:
+      release_version:
+        description: 'Release version (X.Y.Z) to publish as version tags'
+        required: true
+        type: string
+      ref:
+        description: 'Commit SHA to build (the release commit)'
+        required: true
+        type: string
 
+# Release runs use their own group and never cancel: a later push to main that
+# touches agent/ must not cancel the build that publishes the release tags.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
-  cancel-in-progress: true
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}${{ inputs.release_version && '-release' || '' }}
+  cancel-in-progress: ${{ !inputs.release_version }}
 
 env:
   GHCR_REGISTRY: ghcr.io
@@ -74,11 +93,40 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           persist-credentials: false
+          # Empty outside workflow_call, which keeps the event's default checkout.
+          ref: ${{ inputs.ref }}
 
       - name: Normalize image name
         run: |
           IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
           echo "IMAGE_NAME=${IMAGE_NAME}" >> "$GITHUB_ENV"
+
+      # Release version tags are computed here instead of with type=semver, which
+      # only emits tags when the ref itself is a git tag. Only main may publish them.
+      - name: Resolve release version tags
+        id: release-tags
+        env:
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$RELEASE_VERSION" ]]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::release_version is not X.Y.Z"
+            exit 1
+          fi
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "::error::Release version tags can only be published from main (ref=${GITHUB_REF})"
+            exit 1
+          fi
+          IFS=. read -r release_major release_minor _release_patch <<<"$RELEASE_VERSION"
+          {
+            echo "enabled=true"
+            echo "version=${RELEASE_VERSION}"
+            echo "minor_version=${release_major}.${release_minor}"
+          } >> "$GITHUB_OUTPUT"
 
       # Reuse the exact same tag-computation logic as docker-build.yml so that
       # feature branches (feature/hecate → feature-hecate-abc1234) and PRs
@@ -176,9 +224,8 @@ jobs:
             ${{ env.DOCKERHUB_REGISTRY }}/${{ env.IMAGE_NAME }}
             ${{ env.GHCR_REGISTRY }}/${{ env.IMAGE_NAME }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=raw,value=${{ steps.release-tags.outputs.version }},enable=${{ steps.release-tags.outputs.enabled == 'true' }}
+            type=raw,value=${{ steps.release-tags.outputs.minor_version }},enable=${{ steps.release-tags.outputs.enabled == 'true' }}
             type=raw,value=latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=dev,enable=${{ github.ref == 'refs/heads/development' }}
             type=raw,value=beta,enable=${{ github.event_name == 'pull_request' && github.base_ref == 'development' && github.event.pull_request.head.repo.full_name == github.repository }}
@@ -206,7 +253,7 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
-            VERSION=${{ steps.meta.outputs.version }}
+            VERSION=${{ steps.release-tags.outputs.version || steps.meta.outputs.version }}
             GIT_COMMIT=${{ github.sha }}
             BUILD_DATE=${{ fromJSON(steps.meta.outputs.json).labels['org.opencontainers.image.created'] }}
           cache-from: type=gha

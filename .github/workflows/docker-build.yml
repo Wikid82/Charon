@@ -1439,6 +1439,22 @@ jobs:
             echo '```'
           } >> "$GITHUB_STEP_SUMMARY"
 
+  # Publishes the agent image with release version tags (X.Y.Z, X.Y). The
+  # release tag is pushed with GITHUB_TOKEN and cannot start a workflow, so this
+  # call is the only path that tags the agent image with the release version.
+  orthrus-release:
+    name: Orthrus Agent Release Image
+    needs: setup
+    if: needs.setup.outputs.is_release == 'true' && github.event_name == 'push' && github.ref == 'refs/heads/main'
+    uses: ./.github/workflows/orthrus-build.yml
+    with:
+      release_version: ${{ needs.setup.outputs.release_version }}
+      ref: ${{ github.sha }}
+    secrets: inherit
+    permissions:
+      contents: read
+      packages: write
+
   scan-pr-image:
     name: Security Scan PR Image
     needs: merge-and-publish
