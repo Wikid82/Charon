@@ -5,6 +5,8 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"net/netip"
+	"net/url"
 	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -253,6 +255,51 @@ func wsURL(base string) string {
 	return base
 }
 
+// orthrusCGNAT is the carrier-grade NAT range (RFC 6598) used by Tailscale.
+var orthrusCGNAT = netip.MustParsePrefix("100.64.0.0/10")
+
+// orthrusPrivateSuffixes are private-use name suffixes that cannot resolve to
+// public hosts (mDNS, home.arpa, internal).
+var orthrusPrivateSuffixes = []string{".local", ".home.arpa", ".internal"}
+
+// isPrivateAgentHost reports whether an agent may use an unencrypted ws:// link
+// to host without an explicit opt-in. It mirrors the agent's rule in agent/main.go;
+// the two copies are kept in step by table tests on both sides.
+func isPrivateAgentHost(host string) bool {
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
+	if host == "" {
+		return false
+	}
+	if addr, err := netip.ParseAddr(host); err == nil {
+		addr = addr.Unmap()
+		return addr.IsLoopback() || addr.IsPrivate() || orthrusCGNAT.Contains(addr)
+	}
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	if !strings.Contains(host, ".") {
+		return true
+	}
+	for _, suffix := range orthrusPrivateSuffixes {
+		if strings.HasSuffix(host, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+// insecureLinkNote returns commented lines for a snippet when serverURL is a
+// ws:// link to a host the agent would refuse without the opt-in. The lines use
+// the given indent and end with a newline; otherwise it returns "".
+func insecureLinkNote(serverURL, indent string) string {
+	u, err := url.Parse(serverURL)
+	if err != nil || u.Scheme != "ws" || isPrivateAgentHost(u.Hostname()) {
+		return ""
+	}
+	return indent + "# This address is not private, so the agent needs wss:// (Charon behind HTTPS) or ORTHRUS_ALLOW_INSECURE_WS=true.\n" +
+		indent + "# - ORTHRUS_ALLOW_INSECURE_WS=true\n"
+}
+
 // GetInstallSnippets returns platform-specific install templates for an agent.
 // The placeholder "<AUTH_KEY>" is used in place of the actual key, which is
 // only provided once at Provision time.
@@ -286,7 +333,7 @@ services:
       - PGID=<DOCKER_GID>
       - TZ=UTC
       - ORTHRUS_SERVER_URL=%s
-      - ORTHRUS_AGENT_ID=%s
+%s      - ORTHRUS_AGENT_ID=%s
       # The agent reads the key from this file before it drops privileges.
       - ORTHRUS_AUTH_KEY_FILE=/run/secrets/orthrus_auth_key
     secrets:
@@ -296,7 +343,7 @@ services:
 secrets:
   orthrus_auth_key:
     file: ./orthrus_auth_key
-`, name, serverURL, agentUUID),
+`, name, serverURL, insecureLinkNote(serverURL, "      "), agentUUID),
 
 		Systemd: fmt.Sprintf(`[Unit]
 Description=Charon Orthrus Agent (%s)
@@ -362,7 +409,7 @@ spec:
           env:
             - name: ORTHRUS_SERVER_URL
               value: "%s"
-            - name: ORTHRUS_AGENT_ID
+%s            - name: ORTHRUS_AGENT_ID
               value: "%s"
             # The agent reads the key from this file before it drops privileges.
             - name: ORTHRUS_AUTH_KEY_FILE
@@ -389,7 +436,7 @@ spec:
           secret:
             secretName: orthrus-auth-key
             defaultMode: 0440
-`, serverURL, agentUUID),
+`, serverURL, insecureLinkNote(serverURL, "            "), agentUUID),
 	}, nil
 }
 

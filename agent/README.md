@@ -55,6 +55,7 @@ The agent runs as an unprivileged user. `PGID` must be the group that owns the D
 | Variable | Default | Description |
 | --- | --- | --- |
 | `ORTHRUS_SERVER_URL` | — | WebSocket URL of the Charon Orthrus endpoint (`wss://...` behind HTTPS, `ws://...` for direct HTTP) |
+| `ORTHRUS_ALLOW_INSECURE_WS` | `false` | Set to `true` to allow `ws://` to a host that is not private. Private hosts (loopback, RFC 1918, Tailscale CGNAT, IPv6 ULA, `localhost`, single-label names, and `.local`/`.home.arpa`/`.internal` names) need no opt-in. Link-local and public hosts are refused without it. An unparsable value stops the agent |
 | `ORTHRUS_AUTH_KEY_FILE` | — | Absolute path to a file holding the auth key (`ch_orthrus_...`). Preferred. Read before the agent drops root; must be a regular file of at most 4 KiB; surrounding whitespace is trimmed. Cannot be combined with `ORTHRUS_AUTH_KEY` |
 | `ORTHRUS_AUTH_KEY` | — | Auth key from the Charon provisioning response (`ch_orthrus_...`). Visible in `docker inspect` and the process environment |
 | `ORTHRUS_DOCKER_SOCKET` | `/var/run/docker.sock` | Path to the local Docker socket |
@@ -90,6 +91,6 @@ Environment variables take precedence over flags. For the auth key, the order is
 
 **mTLS enrollment** (future): Full mutual TLS enrollment via Certificate Signing Request (CSR) submitted to Charon's internal CA is planned. Currently the agent generates a self-signed ECDSA-P256 certificate in memory for local identification.
 
-**TLS**: Use `wss://` when Charon is behind an HTTPS reverse proxy. Charon itself serves plain HTTP, so when connecting directly to its port (e.g. over Tailscale or a Docker network) use `ws://`; the agent logs a warning for non-localhost `ws://`. Using `wss://` against a plain HTTP port fails with `tls: first record does not look like a TLS handshake`.
+**TLS**: Use `wss://` when Charon is behind an HTTPS reverse proxy. Charon itself serves plain HTTP, so when connecting directly to its port (e.g. over Tailscale or a Docker network) use `ws://`; the agent accepts `ws://` only for private hosts (see `ORTHRUS_ALLOW_INSECURE_WS`) and logs a warning for every non-loopback `ws://` connection. Using `wss://` against a plain HTTP port fails with `tls: first record does not look like a TLS handshake`.
 
 **Auth key**: Never logged; it appears in logs only as `[REDACTED]`. Prefer `ORTHRUS_AUTH_KEY_FILE`: a Compose secret or Kubernetes Secret keeps the key out of `docker inspect` output and the process environment. The startup log records which source was used as `auth_key_source` (`file`, `env` or `flag`).

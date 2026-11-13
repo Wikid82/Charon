@@ -10,10 +10,12 @@ import (
 	"flag"
 	"fmt"
 	"net"
+	"net/netip"
 	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -107,7 +109,11 @@ func main() {
 		dockSock = *dockerSock
 	}
 
-	if err := validateServerURL(svrURL); err != nil {
+	allowInsecure, err := parseAllowInsecureWS(os.Getenv("ORTHRUS_ALLOW_INSECURE_WS"))
+	if err != nil {
+		log.WithError(err).Fatal("orthrus: invalid ORTHRUS_ALLOW_INSECURE_WS")
+	}
+	if err := validateServerURL(svrURL, allowInsecure); err != nil {
 		log.WithError(err).Fatal("orthrus: invalid server URL")
 	}
 	svrURL = normalizeServerURL(svrURL)
@@ -214,10 +220,70 @@ func normalizeServerURL(rawURL string) string {
 	return u.String()
 }
 
-// validateServerURL rejects non-WebSocket schemes. ws:// is permitted for all
-// hosts to support deployments where Charon sits behind a TLS-terminating proxy
-// and the agent connects over a trusted local/overlay network (e.g. Tailscale).
-func validateServerURL(rawURL string) error {
+// cgnatPrefix is the carrier-grade NAT range (RFC 6598), which Tailscale uses.
+// netip.Addr.IsPrivate does not cover it.
+var cgnatPrefix = netip.MustParsePrefix("100.64.0.0/10")
+
+// privateSuffixes are name suffixes reserved for private use, so they cannot
+// resolve to public hosts: mDNS (RFC 6762), home.arpa (RFC 8375) and internal
+// (ICANN, 2024).
+var privateSuffixes = []string{".local", ".home.arpa", ".internal"}
+
+// isPrivateAgentHost reports whether host names a network that may carry an
+// unencrypted ws:// link without an explicit opt-in. Private means loopback,
+// RFC 1918, CGNAT, or IPv6 ULA addresses; localhost names; single-label names
+// (such as a Compose service); and names under a private-use suffix. Link-local
+// addresses and every other name are not private.
+func isPrivateAgentHost(host string) bool {
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
+	if host == "" {
+		return false
+	}
+	if addr, err := netip.ParseAddr(host); err == nil {
+		addr = addr.Unmap()
+		return addr.IsLoopback() || addr.IsPrivate() || cgnatPrefix.Contains(addr)
+	}
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	if !strings.Contains(host, ".") {
+		return true
+	}
+	for _, suffix := range privateSuffixes {
+		if strings.HasSuffix(host, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+// isLoopbackHost reports whether host resolves only to the local machine.
+func isLoopbackHost(host string) bool {
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
+	if addr, err := netip.ParseAddr(host); err == nil {
+		return addr.Unmap().IsLoopback()
+	}
+	return host == "localhost" || strings.HasSuffix(host, ".localhost")
+}
+
+// parseAllowInsecureWS reads ORTHRUS_ALLOW_INSECURE_WS. An empty value means
+// the opt-in is not set; any other unparsable value is an error.
+func parseAllowInsecureWS(value string) (bool, error) {
+	if value == "" {
+		return false, nil
+	}
+	allow, err := strconv.ParseBool(value)
+	if err != nil {
+		return false, fmt.Errorf("ORTHRUS_ALLOW_INSECURE_WS=%q: %w", value, err)
+	}
+	return allow, nil
+}
+
+// validateServerURL rejects non-WebSocket schemes. ws:// is accepted without
+// the opt-in only when the host is private (see isPrivateAgentHost). Any other
+// ws:// host needs allowInsecure, so an unencrypted link to a public or
+// link-local address is never the default.
+func validateServerURL(rawURL string, allowInsecure bool) error {
 	u, err := url.Parse(rawURL)
 	if err != nil {
 		return fmt.Errorf("parse URL: %w", err)
@@ -230,8 +296,10 @@ func validateServerURL(rawURL string) error {
 	case "wss":
 		return nil
 	case "ws":
-		isLocalhost := host == "localhost" || host == "127.0.0.1" || host == "::1"
-		if !isLocalhost {
+		if !isPrivateAgentHost(host) && !allowInsecure {
+			return fmt.Errorf("ws:// to %s is unencrypted; use wss:// or set ORTHRUS_ALLOW_INSECURE_WS=true", host)
+		}
+		if !isLoopbackHost(host) {
 			logrus.StandardLogger().Warn("orthrus: ws:// connection is unencrypted; consider deploying Charon behind a TLS-terminating proxy")
 		}
 		return nil

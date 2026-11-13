@@ -665,3 +665,41 @@ func TestOrthrusService_GetInstallSnippets_KubernetesUsesSecretVolume(t *testing
 	assert.Contains(t, ds, "secretName: orthrus-auth-key")
 	assert.Contains(t, ds, "mountPath: /var/run/secrets/orthrus")
 }
+
+func TestOrthrusService_GetInstallSnippets_InsecureLinkNote(t *testing.T) {
+	const note = "ORTHRUS_ALLOW_INSECURE_WS=true"
+	tests := []struct {
+		name     string
+		charon   string
+		wantNote bool
+	}{
+		{"https public host has no note", "https://charon.example.com", false},
+		{"http private IP has no note", "http://10.0.0.5:8080", false},
+		{"http compose service name has no note", "http://charon:8080", false},
+		{"http dotted LAN name gets note", "http://charon.lan:8080", true},
+		{"http public host gets note", "http://8.8.8.8:8080", true},
+		{"http link-local gets note", "http://169.254.1.1:8080", true},
+	}
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+	agent, _, err := svc.Provision("insecure-note-agent")
+	require.NoError(t, err)
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			snippets, err := svc.GetInstallSnippets(agent.UUID, tc.charon)
+			require.NoError(t, err)
+			for label, rendered := range map[string]string{
+				"compose":    snippets.DockerCompose,
+				"kubernetes": snippets.KubernetesDaemonSet,
+			} {
+				if tc.wantNote {
+					assert.Contains(t, rendered, "This address is not private", label)
+					assert.Contains(t, rendered, note, label)
+				} else {
+					assert.NotContains(t, rendered, note, label)
+				}
+			}
+		})
+	}
+}
