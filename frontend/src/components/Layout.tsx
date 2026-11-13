@@ -115,7 +115,6 @@ export default function Layout({ children }: LayoutProps) {
     staleTime: 1000 * 60 * 5, // 5 minutes
   })
   const customLogoUrl = settings?.['ui.logo_url'] ?? null
-  const customBannerUrl = settings?.['ui.banner_url'] ?? null
   const logoSrc = customLogoUrl || '/logo.png'
 
   const navigation: NavItem[] = [
@@ -222,16 +221,7 @@ export default function Layout({ children }: LayoutProps) {
         ${isCollapsed ? 'w-20' : 'w-64'}
       `}>
         <div className={`h-20 flex items-center justify-center border-b border-border`}>
-           {isCollapsed ? (
-             <img src={logoSrc} alt="Charon" className="h-12 w-auto" fetchPriority="high" decoding="async" />
-           ) : customBannerUrl ? (
-             <img src={customBannerUrl} alt="Charon" className="h-14 w-auto max-w-[200px] object-contain" fetchPriority="high" decoding="async" />
-           ) : (
-             <picture>
-               <source srcSet="/banner.webp" type="image/webp" />
-               <img src="/banner.png" alt="Charon" className="h-14 w-auto max-w-[200px] object-contain" fetchPriority="high" decoding="async" />
-             </picture>
-           )}
+           <img src={logoSrc} alt="Charon" className="h-12 w-auto" fetchPriority="high" decoding="async" />
         </div>
 
         <div className="flex flex-col flex-1 px-4 mt-16 lg:mt-6 min-h-0">

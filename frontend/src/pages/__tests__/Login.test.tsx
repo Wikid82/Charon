@@ -47,6 +47,13 @@ describe('<Login />', () => {
     })
   })
 
+  it('renders the banner image', async () => {
+    vi.spyOn(setupApi, 'getSetupStatus').mockResolvedValue({ setupRequired: false })
+    renderWithProviders(<Login />)
+    const img = await screen.findByAltText('Charon')
+    expect(img.getAttribute('src')).toBe('/banner.png')
+  })
+
   it('shows error toast when login fails', async () => {
     vi.spyOn(setupApi, 'getSetupStatus').mockResolvedValue({ setupRequired: false })
     const postSpy = vi.spyOn(client, 'post').mockRejectedValueOnce({ response: { data: { error: 'Bad creds' } } })

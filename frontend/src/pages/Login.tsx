@@ -99,9 +99,10 @@ export default function Login() {
       <div className="min-h-screen bg-dark-bg flex items-center justify-center p-4">
         <div className="w-full max-w-md space-y-4">
           <div className="flex items-center justify-center">
-          <img src="/logo.png" alt="Charon" style={{ height: '150px', width: 'auto' }}/>
-
-
+          <picture>
+            <source srcSet="/banner.webp" type="image/webp" />
+            <img src="/banner.png" alt="Charon" className="h-32 w-auto max-w-full object-contain" />
+          </picture>
           </div>
           <Card className="w-full" title={t('auth.login')}>
           <form onSubmit={handleSubmit} className="space-y-6">
