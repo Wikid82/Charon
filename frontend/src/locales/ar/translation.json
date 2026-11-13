@@ -2419,7 +2419,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "تدوير المفتاح لـ {{name}}",
+      "rotateTitle": "تدوير مفتاح الوكيل",
+      "rotateDescription": "يتوقف المفتاح الحالي عن العمل فورًا ويُفصل الوكيل. لن يتمكن الوكيل من إعادة الاتصال حتى تحدّثه بالمفتاح الجديد.",
+      "rotateConfirm": "تدوير المفتاح",
+      "rotateSuccessTitle": "مفتاح جديد لـ {{name}}",
+      "rotateSuccessDescription": "انسخ هذا المفتاح الآن. لن يعرضه Charon مرة أخرى. ضعه في ملف مفاتيح الوكيل ثم أعد تشغيل الوكيل ليعيد الاتصال.",
+      "rotateDone": "تم",
+      "rotateError": "تعذّر تدوير المفتاح. حاول مرة أخرى."
     },
     "externalProxy": {
       "title": "External Docker Proxy",

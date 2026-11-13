@@ -26,15 +26,26 @@ const (
 // fixed operator-facing message and error code.
 var ErrInvalidExternalProxyBind = errors.New("external proxy bind is invalid")
 
+// agentDisconnector closes a live agent session. *orthrus.OrthrusServer satisfies
+// it; tests substitute a recorder.
+type agentDisconnector interface {
+	DisconnectAgent(agentUUID string) error
+}
+
 // OrthrusService provides agent lifecycle management on top of OrthrusServer.
 type OrthrusService struct {
 	db     *gorm.DB
-	server *orthrus.OrthrusServer
+	server agentDisconnector
 }
 
-// NewOrthrusService creates an OrthrusService.
+// NewOrthrusService creates an OrthrusService. A nil server leaves session
+// disconnection disabled (no sessions can exist without a server).
 func NewOrthrusService(db *gorm.DB, server *orthrus.OrthrusServer) *OrthrusService {
-	return &OrthrusService{db: db, server: server}
+	svc := &OrthrusService{db: db}
+	if server != nil {
+		svc.server = server
+	}
+	return svc
 }
 
 // List returns all registered OrthrusAgent records.
@@ -46,18 +57,28 @@ func (s *OrthrusService) List() ([]models.OrthrusAgent, error) {
 	return agents, nil
 }
 
+// newAuthKey generates a random agent key and its bcrypt hash. The plaintext is
+// returned once to the caller and never stored.
+func newAuthKey() (plainKey string, hash []byte, err error) {
+	rawBytes := make([]byte, authKeyRandLen)
+	if _, err = rand.Read(rawBytes); err != nil {
+		return "", nil, fmt.Errorf("orthrus: generate auth key: %w", err)
+	}
+	plainKey = authKeyPrefix + hex.EncodeToString(rawBytes)
+
+	hash, err = bcrypt.GenerateFromPassword(orthrus.BcryptInput(plainKey), orthrus.BcryptCost)
+	if err != nil {
+		return "", nil, fmt.Errorf("orthrus: hash auth key: %w", err)
+	}
+	return plainKey, hash, nil
+}
+
 // Provision creates a new agent and returns it along with the plaintext auth key.
 // The key is only available at this point and is not stored in plaintext.
 func (s *OrthrusService) Provision(name string) (models.OrthrusAgent, string, error) {
-	rawBytes := make([]byte, authKeyRandLen)
-	if _, err := rand.Read(rawBytes); err != nil {
-		return models.OrthrusAgent{}, "", fmt.Errorf("orthrus: generate auth key: %w", err)
-	}
-	plainKey := authKeyPrefix + hex.EncodeToString(rawBytes)
-
-	hash, err := bcrypt.GenerateFromPassword(orthrus.BcryptInput(plainKey), orthrus.BcryptCost)
+	plainKey, hash, err := newAuthKey()
 	if err != nil {
-		return models.OrthrusAgent{}, "", fmt.Errorf("orthrus: hash auth key: %w", err)
+		return models.OrthrusAgent{}, "", err
 	}
 
 	agent := models.OrthrusAgent{
@@ -177,8 +198,42 @@ func (s *OrthrusService) Revoke(uuid string) error {
 		return fmt.Errorf("orthrus: revoke agent %s: %w", uuid, err)
 	}
 
-	_ = s.server.DisconnectAgent(uuid)
+	s.disconnect(uuid)
 	return nil
+}
+
+// RotateKey replaces an agent's auth key and returns the new plaintext key.
+// The key is only available at this point. The old key stops working at once and
+// any live session is disconnected, so the agent must reconnect with the new key.
+// The UUID, name, provider links and proxy settings are unchanged.
+func (s *OrthrusService) RotateKey(uuid string) (string, error) {
+	plainKey, hash, err := newAuthKey()
+	if err != nil {
+		return "", err
+	}
+
+	res := s.db.Model(&models.OrthrusAgent{}).
+		Where("uuid = ?", uuid).
+		Update("auth_key_hash", string(hash))
+	if res.Error != nil {
+		return "", fmt.Errorf("orthrus: rotate key for agent %s: %w", uuid, res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return "", fmt.Errorf("orthrus: rotate key for agent %s: %w", uuid, gorm.ErrRecordNotFound)
+	}
+
+	s.disconnect(uuid)
+	return plainKey, nil
+}
+
+// disconnect closes the agent's live session if one exists and is safe to call
+// without a server. A close error is ignored: the session is removed from the
+// live table before it is closed, and the stored key has already changed.
+func (s *OrthrusService) disconnect(uuid string) {
+	if s.server == nil {
+		return
+	}
+	_ = s.server.DisconnectAgent(uuid)
 }
 
 // wsURL converts an http/https base URL to the canonical Orthrus WebSocket

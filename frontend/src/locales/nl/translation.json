@@ -2419,7 +2419,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Sleutel voor {{name}} vernieuwen",
+      "rotateTitle": "Agentsleutel vernieuwen",
+      "rotateDescription": "De huidige sleutel werkt meteen niet meer en de agent wordt losgekoppeld. De agent kan pas weer verbinden als je hem met de nieuwe sleutel bijwerkt.",
+      "rotateConfirm": "Sleutel vernieuwen",
+      "rotateSuccessTitle": "Nieuwe sleutel voor {{name}}",
+      "rotateSuccessDescription": "Kopieer deze sleutel nu. Charon toont hem niet opnieuw. Zet hem in het sleutelbestand van de agent en start de agent daarna opnieuw op zodat hij weer verbindt.",
+      "rotateDone": "Klaar",
+      "rotateError": "De sleutel kon niet worden vernieuwd. Probeer het opnieuw."
     },
     "externalProxy": {
       "title": "External Docker Proxy",

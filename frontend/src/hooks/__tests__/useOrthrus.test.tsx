@@ -4,7 +4,7 @@ import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import * as api from '../../api/orthrus'
-import { useOrthrus, useAgentList, useProvisionAgent, useRenameAgent, useDeleteAgent, useAgentProxyStatus, AGENTS_QUERY_KEY } from '../useOrthrus'
+import { useOrthrus, useAgentList, useProvisionAgent, useRenameAgent, useDeleteAgent, useAgentProxyStatus, useRotateAgentKey, AGENTS_QUERY_KEY } from '../useOrthrus'
 
 vi.mock('../../api/orthrus', () => ({
   listAgents: vi.fn(),
@@ -12,6 +12,7 @@ vi.mock('../../api/orthrus', () => ({
   renameAgent: vi.fn(),
   deleteAgent: vi.fn(),
   revokeAgent: vi.fn(),
+  rotateAgentKey: vi.fn(),
   getInstallSnippets: vi.fn(),
   getAgentProxyStatus: vi.fn(),
 }))
@@ -259,5 +260,24 @@ describe('useAgentProxyStatus', () => {
 
     expect(result.current.fetchStatus).toBe('idle')
     expect(api.getAgentProxyStatus).not.toHaveBeenCalled()
+  })
+})
+
+describe('useRotateAgentKey', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('calls rotateAgentKey with the uuid and returns the new key', async () => {
+    vi.mocked(api.rotateAgentKey).mockResolvedValue({ auth_key: 'ch_orthrus_new' })
+    vi.mocked(api.listAgents).mockResolvedValue([mockAgent])
+
+    const { result } = renderHook(() => useRotateAgentKey(), { wrapper: createWrapper() })
+
+    let response: api.RotateAgentKeyResponse | undefined
+    await act(async () => {
+      response = await result.current.mutateAsync('agent-1')
+    })
+
+    expect(api.rotateAgentKey).toHaveBeenCalledWith('agent-1')
+    expect(response).toEqual({ auth_key: 'ch_orthrus_new' })
   })
 })

@@ -2503,7 +2503,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "轮换 {{name}} 的密钥",
+      "rotateTitle": "轮换代理密钥",
+      "rotateDescription": "当前密钥将立即失效，代理也会断开连接。在您使用新密钥更新代理之前，代理无法重新连接。",
+      "rotateConfirm": "轮换密钥",
+      "rotateSuccessTitle": "{{name}} 的新密钥",
+      "rotateSuccessDescription": "请立即复制此密钥，Charon 不会再次显示。将其保存到代理的密钥文件中，然后重启代理以重新连接。",
+      "rotateDone": "完成",
+      "rotateError": "无法轮换密钥，请重试。"
     },
     "externalProxy": {
       "title": "外部 Docker 代理",

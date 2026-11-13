@@ -2419,7 +2419,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "החלפת מפתח עבור {{name}}",
+      "rotateTitle": "החלפת מפתח הסוכן",
+      "rotateDescription": "המפתח הנוכחי מפסיק לפעול מיד והסוכן מנותק. הסוכן לא יוכל להתחבר מחדש עד שתעדכן אותו במפתח החדש.",
+      "rotateConfirm": "החלף מפתח",
+      "rotateSuccessTitle": "מפתח חדש עבור {{name}}",
+      "rotateSuccessDescription": "העתק את המפתח הזה עכשיו. Charon לא יציג אותו שוב. שמור אותו בקובץ המפתח של הסוכן, והפעל אותו מחדש כדי שיתחבר.",
+      "rotateDone": "סיום",
+      "rotateError": "לא ניתן היה להחליף את המפתח. נסה שוב."
     },
     "externalProxy": {
       "title": "External Docker Proxy",

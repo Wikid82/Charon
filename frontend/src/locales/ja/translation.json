@@ -2419,7 +2419,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "{{name}} のキーをローテーション",
+      "rotateTitle": "エージェントキーをローテーション",
+      "rotateDescription": "現在のキーは直ちに無効になり、エージェントは切断されます。新しいキーで更新するまで、エージェントは再接続できません。",
+      "rotateConfirm": "キーをローテーション",
+      "rotateSuccessTitle": "{{name}} の新しいキー",
+      "rotateSuccessDescription": "今すぐこのキーをコピーしてください。Charon が再度表示することはありません。エージェントのキーファイルに保存してから、エージェントを再起動して再接続させてください。",
+      "rotateDone": "完了",
+      "rotateError": "キーをローテーションできませんでした。もう一度お試しください。"
     },
     "externalProxy": {
       "title": "External Docker Proxy",

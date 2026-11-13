@@ -12,6 +12,7 @@ import {
   DialogDescription,
 } from '../ui/Dialog';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '../ui/Tabs';
+import { AuthKeyPanel } from './AuthKeyPanel';
 
 /** Prints the numeric group ID of the host Docker socket, used as PGID. */
 const DOCKER_GID_COMMAND = 'stat -c %g /var/run/docker.sock';
@@ -65,7 +66,6 @@ export const OrthrusInstallWizard = ({
 
   type PlatformKey = (typeof platforms)[number]['key'];
 
-  const [copiedKey, setCopiedKey] = useState(false);
   const [copiedGidCommand, setCopiedGidCommand] = useState(false);
   const [copiedSnippet, setCopiedSnippet] = useState<PlatformKey | null>(null);
 
@@ -75,18 +75,10 @@ export const OrthrusInstallWizard = ({
   if (wasOpen !== open) {
     setWasOpen(open);
     if (!open) {
-      // Auth key is cleared from component state when the dialog closes.
-      setCopiedKey(false);
       setCopiedGidCommand(false);
       setCopiedSnippet(null);
     }
   }
-
-  const handleCopyKey = async () => {
-    await navigator.clipboard.writeText(authKey);
-    setCopiedKey(true);
-    setTimeout(() => setCopiedKey(false), 3000);
-  };
 
   const handleCopyGidCommand = async () => {
     await navigator.clipboard.writeText(DOCKER_GID_COMMAND);
@@ -111,41 +103,7 @@ export const OrthrusInstallWizard = ({
 
         <div className="p-6 space-y-6">
           {/* Auth key section */}
-          <div id="auth-key-warning" className="rounded-lg border border-warning/30 bg-warning/10 p-4 space-y-3">
-            <p className="text-sm font-medium text-content-primary">
-              {t('hecate.wizard.authKeyLabel')}
-            </p>
-            <p className="text-xs text-content-secondary">{t('hecate.wizard.authKeyWarning')}</p>
-            <div className="flex items-center gap-2">
-              <input
-                readOnly
-                id="auth-key-input"
-                value={authKey}
-                aria-label={t('hecate.wizard.authKeyLabel')}
-                aria-describedby="auth-key-warning"
-                className="font-mono w-full bg-surface-base border border-border rounded px-3 py-2 text-content-primary text-sm select-all focus:outline-none focus:ring-2 focus:ring-brand-500"
-              />
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={handleCopyKey}
-                aria-label={t('hecate.wizard.copyAuthKey')}
-              >
-                {copiedKey ? (
-                  <CheckCircle2 className="h-4 w-4 text-success" aria-hidden="true" />
-                ) : (
-                  <Copy className="h-4 w-4" aria-hidden="true" />
-                )}
-              </Button>
-            </div>
-            <p
-              className="text-xs text-success h-4"
-              aria-live="polite"
-              aria-atomic="true"
-            >
-              {copiedKey ? t('hecate.wizard.copied') : ''}
-            </p>
-          </div>
+          <AuthKeyPanel authKey={authKey} />
 
           {/* Docker group ID (PGID) lookup, shared by every platform */}
           <div id="docker-gid-help" className="rounded-lg border border-border p-4 space-y-2">

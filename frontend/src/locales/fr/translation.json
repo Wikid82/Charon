@@ -2503,7 +2503,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Renouveler la clé de {{name}}",
+      "rotateTitle": "Renouveler la clé de l'agent",
+      "rotateDescription": "La clé actuelle cesse immédiatement de fonctionner et l'agent est déconnecté. L'agent ne pourra pas se reconnecter tant que vous ne l'aurez pas mis à jour avec la nouvelle clé.",
+      "rotateConfirm": "Renouveler la clé",
+      "rotateSuccessTitle": "Nouvelle clé pour {{name}}",
+      "rotateSuccessDescription": "Copiez cette clé maintenant. Charon ne l'affichera plus. Placez-la dans le fichier de clé de l'agent, puis redémarrez l'agent pour qu'il se reconnecte.",
+      "rotateDone": "Terminé",
+      "rotateError": "La clé n'a pas pu être renouvelée. Réessayez."
     },
     "externalProxy": {
       "title": "Proxy Docker Externe",

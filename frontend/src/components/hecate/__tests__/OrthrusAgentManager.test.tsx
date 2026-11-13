@@ -47,6 +47,23 @@ vi.mock('../AgentExternalProxyDialog', () => ({
     ) : null,
 }));
 
+vi.mock('../RotateAgentKeyDialog', () => ({
+  RotateAgentKeyDialog: ({
+    open,
+    onClose,
+    agent,
+  }: {
+    open: boolean;
+    onClose: () => void;
+    agent: { name: string };
+  }) =>
+    open ? (
+      <div data-testid="rotate-key-dialog" aria-label={`rotate-key-dialog-${agent.name}`}>
+        <button onClick={onClose}>CloseRotateKey</button>
+      </div>
+    ) : null,
+}));
+
 vi.mock('../AgentWriteModeDialog', () => ({
   AgentWriteModeDialog: ({
     open,
@@ -460,6 +477,35 @@ describe('OrthrusAgentManager', () => {
 
     await waitFor(() =>
       expect(screen.queryByTestId('write-mode-dialog')).not.toBeInTheDocument(),
+    );
+  });
+
+  it('clicking rotate key button opens RotateAgentKeyDialog', async () => {
+    renderManager([agentWithProvider]);
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: `hecate.agentManager.rotateLabel:${agentWithProvider.name}`,
+      }),
+    );
+
+    expect(await screen.findByTestId('rotate-key-dialog')).toBeInTheDocument();
+  });
+
+  it('rotate key dialog onClose clears rotateAgent', async () => {
+    renderManager([agentWithProvider]);
+
+    fireEvent.click(
+      screen.getByRole('button', {
+        name: `hecate.agentManager.rotateLabel:${agentWithProvider.name}`,
+      }),
+    );
+
+    await screen.findByTestId('rotate-key-dialog');
+    fireEvent.click(screen.getByText('CloseRotateKey'));
+
+    await waitFor(() =>
+      expect(screen.queryByTestId('rotate-key-dialog')).not.toBeInTheDocument(),
     );
   });
 });

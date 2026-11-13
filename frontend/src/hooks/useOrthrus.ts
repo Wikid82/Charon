@@ -9,6 +9,7 @@ import {
   provisionAgent,
   renameAgent,
   revokeAgent,
+  rotateAgentKey,
   type ExternalProxyStatus,
   type OrthrusAgent,
   type PatchAgentRequest,
@@ -48,6 +49,16 @@ export const usePatchAgent = () => {
   return useMutation({
     mutationFn: ({ uuid, req }: { uuid: string; req: PatchAgentRequest }) =>
       patchAgent(uuid, req),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
+    },
+  });
+};
+
+export const useRotateAgentKey = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (uuid: string) => rotateAgentKey(uuid),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
     },

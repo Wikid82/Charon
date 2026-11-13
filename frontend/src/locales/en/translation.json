@@ -2503,7 +2503,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Rotate key for {{name}}",
+      "rotateTitle": "Rotate agent key",
+      "rotateDescription": "The current key stops working immediately and the agent is disconnected. The agent cannot reconnect until you update it with the new key.",
+      "rotateConfirm": "Rotate key",
+      "rotateSuccessTitle": "New key for {{name}}",
+      "rotateSuccessDescription": "Copy this key now. Charon will not show it again. Put it in the agent's key file, then restart the agent so it reconnects.",
+      "rotateDone": "Done",
+      "rotateError": "The key could not be rotated. Try again."
     },
     "externalProxy": {
       "title": "External Docker Proxy",

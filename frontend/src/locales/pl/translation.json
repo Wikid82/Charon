@@ -2419,7 +2419,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Obróć klucz dla {{name}}",
+      "rotateTitle": "Obróć klucz agenta",
+      "rotateDescription": "Obecny klucz przestaje działać natychmiast, a agent zostaje rozłączony. Agent nie połączy się ponownie, dopóki nie zaktualizujesz go nowym kluczem.",
+      "rotateConfirm": "Obróć klucz",
+      "rotateSuccessTitle": "Nowy klucz dla {{name}}",
+      "rotateSuccessDescription": "Skopiuj ten klucz teraz. Charon nie pokaże go ponownie. Zapisz go w pliku klucza agenta, a następnie uruchom agenta ponownie, aby się połączył.",
+      "rotateDone": "Gotowe",
+      "rotateError": "Nie udało się obrócić klucza. Spróbuj ponownie."
     },
     "externalProxy": {
       "title": "External Docker Proxy",

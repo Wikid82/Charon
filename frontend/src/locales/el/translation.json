@@ -2419,7 +2419,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Ανανέωση κλειδιού για {{name}}",
+      "rotateTitle": "Ανανέωση κλειδιού πράκτορα",
+      "rotateDescription": "Το τρέχον κλειδί παύει να ισχύει αμέσως και ο πράκτορας αποσυνδέεται. Ο πράκτορας δεν μπορεί να συνδεθεί ξανά έως ότου τον ενημερώσετε με το νέο κλειδί.",
+      "rotateConfirm": "Ανανέωση κλειδιού",
+      "rotateSuccessTitle": "Νέο κλειδί για {{name}}",
+      "rotateSuccessDescription": "Αντιγράψτε αυτό το κλειδί τώρα. Το Charon δεν θα το εμφανίσει ξανά. Τοποθετήστε το στο αρχείο κλειδιού του πράκτορα και μετά επανεκκινήστε τον πράκτορα ώστε να συνδεθεί ξανά.",
+      "rotateDone": "Τέλος",
+      "rotateError": "Δεν ήταν δυνατή η ανανέωση του κλειδιού. Δοκιμάστε ξανά."
     },
     "externalProxy": {
       "title": "External Docker Proxy",

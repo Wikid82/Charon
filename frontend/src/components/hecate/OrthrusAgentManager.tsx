@@ -1,4 +1,4 @@
-import { Check, Link2, Pencil, Settings, ShieldCheck, Trash2, X } from 'lucide-react';
+import { Check, KeyRound, Link2, Pencil, Settings, ShieldCheck, Trash2, X } from 'lucide-react';
 import { useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
@@ -17,6 +17,7 @@ import { Input } from '../ui/Input';
 import { AgentExternalProxyDialog } from './AgentExternalProxyDialog';
 import { AgentProviderAssignDialog } from './AgentProviderAssignDialog';
 import { AgentWriteModeDialog } from './AgentWriteModeDialog';
+import { RotateAgentKeyDialog } from './RotateAgentKeyDialog';
 
 interface OrthrusAgentManagerProps {
   agents: OrthrusAgent[];
@@ -39,6 +40,7 @@ interface AgentRowProps {
   onAssignProvider: (agent: OrthrusAgent) => void;
   onConfigureProxy: (agent: OrthrusAgent) => void;
   onConfigureWriteMode: (agent: OrthrusAgent) => void;
+  onRotateKey: (agent: OrthrusAgent) => void;
 }
 
 const AgentRow = ({
@@ -47,6 +49,7 @@ const AgentRow = ({
   onAssignProvider,
   onConfigureProxy,
   onConfigureWriteMode,
+  onRotateKey,
 }: AgentRowProps) => {
   const { t } = useTranslation();
   const { mutate: rename, isPending: isRenaming } = useRenameAgent();
@@ -204,6 +207,15 @@ const AgentRow = ({
             variant="ghost"
             size="sm"
             className="h-7 w-7 p-0 text-content-tertiary hover:text-brand-500"
+            onClick={() => onRotateKey(agent)}
+            aria-label={t('hecate.agentManager.rotateLabel', { name: agent.name })}
+          >
+            <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 w-7 p-0 text-content-tertiary hover:text-brand-500"
             onClick={() => onAssignProvider(agent)}
             aria-label={t('hecate.agentManager.assignProvider', { name: agent.name })}
           >
@@ -231,6 +243,7 @@ export const OrthrusAgentManager = ({ agents }: OrthrusAgentManagerProps) => {
   const [assignProviderAgent, setAssignProviderAgent] = useState<OrthrusAgent | null>(null);
   const [proxyConfigAgent, setProxyConfigAgent] = useState<OrthrusAgent | null>(null);
   const [writeModeAgent, setWriteModeAgent] = useState<OrthrusAgent | null>(null);
+  const [rotateKeyAgent, setRotateKeyAgent] = useState<OrthrusAgent | null>(null);
 
   const handleDeleteRequest = (uuid: string, name: string) => {
     setConfirmDelete({ uuid, name });
@@ -286,6 +299,7 @@ export const OrthrusAgentManager = ({ agents }: OrthrusAgentManagerProps) => {
                 onAssignProvider={setAssignProviderAgent}
                 onConfigureProxy={setProxyConfigAgent}
                 onConfigureWriteMode={setWriteModeAgent}
+                onRotateKey={setRotateKeyAgent}
               />
             ))}
           </tbody>
@@ -325,6 +339,14 @@ export const OrthrusAgentManager = ({ agents }: OrthrusAgentManagerProps) => {
           agent={proxyConfigAgent}
           open={!!proxyConfigAgent}
           onClose={() => setProxyConfigAgent(null)}
+        />
+      )}
+      {/* Rotate key dialog */}
+      {rotateKeyAgent && (
+        <RotateAgentKeyDialog
+          agent={rotateKeyAgent}
+          open={!!rotateKeyAgent}
+          onClose={() => setRotateKeyAgent(null)}
         />
       )}
       {/* Write Mode dialog */}

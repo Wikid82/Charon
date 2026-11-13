@@ -2419,7 +2419,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Xoay khóa cho {{name}}",
+      "rotateTitle": "Xoay khóa tác nhân",
+      "rotateDescription": "Khóa hiện tại sẽ ngừng hoạt động ngay và tác nhân sẽ bị ngắt kết nối. Tác nhân không thể kết nối lại cho đến khi bạn cập nhật khóa mới.",
+      "rotateConfirm": "Xoay khóa",
+      "rotateSuccessTitle": "Khóa mới cho {{name}}",
+      "rotateSuccessDescription": "Hãy sao chép khóa này ngay. Charon sẽ không hiển thị lại. Đặt khóa vào tệp khóa của tác nhân, sau đó khởi động lại tác nhân để kết nối.",
+      "rotateDone": "Xong",
+      "rotateError": "Không thể xoay khóa. Vui lòng thử lại."
     },
     "externalProxy": {
       "title": "External Docker Proxy",

@@ -104,6 +104,17 @@ export const revokeAgent = async (uuid: string): Promise<{ message: string }> =>
   return data;
 };
 
+// rotateAgentKey replaces the agent's key. The returned key is shown once; the
+// server disconnects the agent, which must reconnect with the new key.
+export interface RotateAgentKeyResponse {
+  auth_key: string;
+}
+
+export const rotateAgentKey = async (uuid: string): Promise<RotateAgentKeyResponse> => {
+  const { data } = await client.post<RotateAgentKeyResponse>(`/orthrus/agents/${uuid}/rotate-key`);
+  return data;
+};
+
 export const getInstallSnippets = async (uuid: string): Promise<InstallSnippets> => {
   const { data } = await client.get<InstallSnippets>(`/orthrus/agents/${uuid}/snippets`, {
     headers: { 'X-Charon-URL': window.location.origin },

@@ -2419,7 +2419,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Roter nøgle for {{name}}",
+      "rotateTitle": "Roter agentnøgle",
+      "rotateDescription": "Den nuværende nøgle holder straks op med at virke, og agenten afbrydes. Agenten kan ikke forbinde igen, før du opdaterer den med den nye nøgle.",
+      "rotateConfirm": "Roter nøgle",
+      "rotateSuccessTitle": "Ny nøgle til {{name}}",
+      "rotateSuccessDescription": "Kopiér denne nøgle nu. Charon viser den ikke igen. Læg den i agentens nøglefil, og genstart derefter agenten, så den kan forbinde igen.",
+      "rotateDone": "Færdig",
+      "rotateError": "Nøglen kunne ikke roteres. Prøv igen."
     },
     "externalProxy": {
       "title": "External Docker Proxy",

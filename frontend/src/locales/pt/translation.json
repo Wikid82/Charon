@@ -2419,7 +2419,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Renovar chave de {{name}}",
+      "rotateTitle": "Renovar chave do agente",
+      "rotateDescription": "A chave atual deixa de funcionar imediatamente e o agente é desconectado. O agente não poderá se reconectar até que você o atualize com a nova chave.",
+      "rotateConfirm": "Renovar chave",
+      "rotateSuccessTitle": "Nova chave para {{name}}",
+      "rotateSuccessDescription": "Copie esta chave agora. O Charon não a mostrará novamente. Coloque-a no arquivo de chave do agente e depois reinicie o agente para que ele se reconecte.",
+      "rotateDone": "Concluído",
+      "rotateError": "Não foi possível renovar a chave. Tente novamente."
     },
     "externalProxy": {
       "title": "External Docker Proxy",

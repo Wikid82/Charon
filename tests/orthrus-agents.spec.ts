@@ -288,4 +288,50 @@ test.describe('Orthrus Agent Manager', () => {
       ).toBeHidden();
     });
   });
+
+  test.describe('Rotate agent key', () => {
+    const ROTATED_KEY = 'ch_orthrus_e2e_rotated';
+
+    test('confirm rotates the key and shows it once, then closes', async ({ page }) => {
+      await setupAgentPage(page, [MOCK_AGENT_ONLINE]);
+      let rotateCalls = 0;
+      await page.route(`**/api/v1/orthrus/agents/${MOCK_AGENT_UUID_1}/rotate-key`, (route) => {
+        rotateCalls += 1;
+        return route.fulfill({ json: { auth_key: ROTATED_KEY } });
+      });
+
+      await page.getByRole('button', { name: /rotate key for online-agent/i }).click();
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible({ timeout: 5000 });
+      expect(rotateCalls).toBe(0);
+
+      await dialog.getByRole('button', { name: 'Rotate key', exact: true }).click();
+
+      await expect(dialog.locator('#auth-key-input')).toHaveValue(ROTATED_KEY, { timeout: 5000 });
+      expect(rotateCalls).toBe(1);
+
+      await dialog.getByRole('button', { name: 'Done', exact: true }).click();
+      await expect(dialog).toBeHidden({ timeout: 5000 });
+
+      await page.getByRole('button', { name: /rotate key for online-agent/i }).click();
+      await expect(page.getByRole('dialog').locator('#auth-key-input')).toBeHidden();
+    });
+
+    test('cancel closes the dialog without rotating', async ({ page }) => {
+      await setupAgentPage(page, [MOCK_AGENT_ONLINE]);
+      let rotateCalls = 0;
+      await page.route(`**/api/v1/orthrus/agents/${MOCK_AGENT_UUID_1}/rotate-key`, (route) => {
+        rotateCalls += 1;
+        return route.fulfill({ json: { auth_key: ROTATED_KEY } });
+      });
+
+      await page.getByRole('button', { name: /rotate key for online-agent/i }).click();
+      const dialog = page.getByRole('dialog');
+      await expect(dialog).toBeVisible({ timeout: 5000 });
+      await dialog.getByRole('button', { name: /cancel/i }).click();
+
+      await expect(dialog).toBeHidden({ timeout: 5000 });
+      expect(rotateCalls).toBe(0);
+    });
+  });
 });

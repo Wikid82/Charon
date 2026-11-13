@@ -2419,7 +2419,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Rotește cheia pentru {{name}}",
+      "rotateTitle": "Rotește cheia agentului",
+      "rotateDescription": "Cheia curentă încetează imediat să mai funcționeze, iar agentul este deconectat. Agentul nu se poate reconecta până nu îl actualizezi cu noua cheie.",
+      "rotateConfirm": "Rotește cheia",
+      "rotateSuccessTitle": "Cheie nouă pentru {{name}}",
+      "rotateSuccessDescription": "Copiază această cheie acum. Charon nu o va mai afișa. Pune-o în fișierul de chei al agentului, apoi repornește agentul ca să se reconecteze.",
+      "rotateDone": "Gata",
+      "rotateError": "Cheia nu a putut fi rotită. Încearcă din nou."
     },
     "externalProxy": {
       "title": "External Docker Proxy",

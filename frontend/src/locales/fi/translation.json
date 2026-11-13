@@ -2419,7 +2419,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Kierrätä avain: {{name}}",
+      "rotateTitle": "Kierrätä agentin avain",
+      "rotateDescription": "Nykyinen avain lakkaa toimimasta heti ja agentti katkaistaan. Agentti ei voi muodostaa yhteyttä uudelleen ennen kuin päivität sen uudella avaimella.",
+      "rotateConfirm": "Kierrätä avain",
+      "rotateSuccessTitle": "Uusi avain: {{name}}",
+      "rotateSuccessDescription": "Kopioi tämä avain nyt. Charon ei näytä sitä uudelleen. Tallenna se agentin avaintiedostoon ja käynnistä agentti uudelleen, jotta se yhdistää.",
+      "rotateDone": "Valmis",
+      "rotateError": "Avainta ei voitu kierrättää. Yritä uudelleen."
     },
     "externalProxy": {
       "title": "External Docker Proxy",

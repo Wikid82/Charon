@@ -2419,7 +2419,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Ruota chiave per {{name}}",
+      "rotateTitle": "Ruota chiave dell'agente",
+      "rotateDescription": "La chiave attuale smette subito di funzionare e l'agente viene disconnesso. L'agente non potrà riconnettersi finché non lo aggiornerai con la nuova chiave.",
+      "rotateConfirm": "Ruota chiave",
+      "rotateSuccessTitle": "Nuova chiave per {{name}}",
+      "rotateSuccessDescription": "Copia subito questa chiave. Charon non la mostrerà di nuovo. Inseriscila nel file della chiave dell'agente, poi riavvia l'agente perché si riconnetta.",
+      "rotateDone": "Fatto",
+      "rotateError": "Impossibile ruotare la chiave. Riprova."
     },
     "externalProxy": {
       "title": "External Docker Proxy",

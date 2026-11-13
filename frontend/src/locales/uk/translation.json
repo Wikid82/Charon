@@ -2419,7 +2419,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Оновити ключ для {{name}}",
+      "rotateTitle": "Оновити ключ агента",
+      "rotateDescription": "Поточний ключ одразу перестане працювати, а агент буде відключено. Агент не зможе підключитися знову, доки ви не оновите його новим ключем.",
+      "rotateConfirm": "Оновити ключ",
+      "rotateSuccessTitle": "Новий ключ для {{name}}",
+      "rotateSuccessDescription": "Скопіюйте цей ключ зараз. Charon більше не покаже його. Збережіть його у файл ключа агента та перезапустіть агент, щоб він знову підключився.",
+      "rotateDone": "Готово",
+      "rotateError": "Не вдалося оновити ключ. Спробуйте ще раз."
     },
     "externalProxy": {
       "title": "External Docker Proxy",

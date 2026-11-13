@@ -2419,7 +2419,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Regenera la clau de {{name}}",
+      "rotateTitle": "Regenera la clau de l'agent",
+      "rotateDescription": "La clau actual deixa de funcionar immediatament i l'agent es desconnecta. L'agent no es podrà tornar a connectar fins que l'actualitzis amb la clau nova.",
+      "rotateConfirm": "Regenera la clau",
+      "rotateSuccessTitle": "Clau nova per a {{name}}",
+      "rotateSuccessDescription": "Copia aquesta clau ara. Charon no la tornarà a mostrar. Posa-la al fitxer de claus de l'agent i després reinicia'l perquè es torni a connectar.",
+      "rotateDone": "Fet",
+      "rotateError": "No s'ha pogut regenerar la clau. Torna-ho a provar."
     },
     "externalProxy": {
       "title": "External Docker Proxy",

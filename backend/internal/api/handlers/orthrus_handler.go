@@ -80,6 +80,7 @@ func (h *OrthrusHandler) RegisterRoutes(read, admin *gin.RouterGroup) {
 	admin.PATCH("/orthrus/agents/:uuid", h.Patch)
 	admin.DELETE("/orthrus/agents/:uuid", h.Delete)
 	admin.POST("/orthrus/agents/:uuid/revoke", h.Revoke)
+	admin.POST("/orthrus/agents/:uuid/rotate-key", h.RotateKey)
 	admin.GET("/orthrus/agents/:uuid/snippets", h.GetInstallSnippets)
 	admin.GET("/orthrus/agents/:uuid/proxy-status", h.GetProxyStatus)
 	admin.GET("/orthrus/local-networks", h.LocalNetworks)
@@ -210,6 +211,39 @@ func (h *OrthrusHandler) Revoke(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "revoked"})
+}
+
+// RotateKey replaces an agent's auth key and returns the new key exactly once.
+// The response is never cached. A security audit entry records the rotation
+// without the key.
+func (h *OrthrusHandler) RotateKey(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	uuid := c.Param("uuid")
+	authKey, err := h.svc.RotateKey(uuid)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+
+	if h.securityService != nil {
+		agentName := ""
+		if agent, getErr := h.svc.Get(uuid); getErr == nil {
+			agentName = agent.Name
+		}
+		_ = h.securityService.LogAudit(&models.SecurityAudit{
+			Actor:         auditActor(c),
+			Action:        "orthrus_key_rotated",
+			EventCategory: "orthrus_agent",
+			ResourceUUID:  uuid,
+			Details:       fmt.Sprintf(`{"agent_name":%q}`, agentName),
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"auth_key": authKey})
 }
 
 // GetInstallSnippets returns platform install templates for an agent.

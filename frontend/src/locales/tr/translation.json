@@ -2419,7 +2419,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "{{name}} anahtarını döndür",
+      "rotateTitle": "Ajan anahtarını döndür",
+      "rotateDescription": "Mevcut anahtar hemen geçersiz olur ve ajanın bağlantısı kesilir. Ajan, onu yeni anahtarla güncelleyene kadar yeniden bağlanamaz.",
+      "rotateConfirm": "Anahtarı döndür",
+      "rotateSuccessTitle": "{{name}} için yeni anahtar",
+      "rotateSuccessDescription": "Bu anahtarı şimdi kopyalayın. Charon bunu bir daha göstermeyecek. Ajanın anahtar dosyasına koyun, ardından ajanı yeniden başlatarak bağlanmasını sağlayın.",
+      "rotateDone": "Tamam",
+      "rotateError": "Anahtar döndürülemedi. Tekrar deneyin."
     },
     "externalProxy": {
       "title": "External Docker Proxy",

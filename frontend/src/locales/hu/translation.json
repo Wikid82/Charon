@@ -2419,7 +2419,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Kulcs cseréje: {{name}}",
+      "rotateTitle": "Ügynökkulcs cseréje",
+      "rotateDescription": "A jelenlegi kulcs azonnal érvényét veszti, és az ügynök leválasztásra kerül. Az ügynök nem tud újra csatlakozni, amíg az új kulccsal nem frissíti.",
+      "rotateConfirm": "Kulcs cseréje",
+      "rotateSuccessTitle": "Új kulcs ehhez: {{name}}",
+      "rotateSuccessDescription": "Másolja ki most ezt a kulcsot. A Charon nem fogja újra megjeleníteni. Helyezze az ügynök kulcsfájljába, majd indítsa újra az ügynököt, hogy újra csatlakozzon.",
+      "rotateDone": "Kész",
+      "rotateError": "A kulcsot nem sikerült lecserélni. Próbálja újra."
     },
     "externalProxy": {
       "title": "External Docker Proxy",

@@ -11,6 +11,7 @@ import {
   patchAgent,
   renameAgent,
   getAgentProxyStatus,
+  rotateAgentKey,
 } from '../orthrus'
 
 vi.mock('../client', () => ({
@@ -201,5 +202,26 @@ describe('orthrus API', () => {
       vi.mocked(client.get).mockRejectedValue(new Error('proxy status failed'))
       await expect(getAgentProxyStatus('agent-uuid')).rejects.toThrow('proxy status failed')
     })
+  })
+})
+
+describe('rotateAgentKey', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('posts to the rotate-key endpoint and returns the new key', async () => {
+    vi.mocked(client.post).mockResolvedValue({ data: { auth_key: 'ch_orthrus_new' } })
+
+    const result = await rotateAgentKey('agent-uuid')
+
+    expect(client.post).toHaveBeenCalledWith('/orthrus/agents/agent-uuid/rotate-key')
+    expect(result).toEqual({ auth_key: 'ch_orthrus_new' })
+  })
+
+  it('propagates request failures', async () => {
+    vi.mocked(client.post).mockRejectedValue(new Error('not found'))
+
+    await expect(rotateAgentKey('missing')).rejects.toThrow('not found')
   })
 })

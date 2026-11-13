@@ -2419,7 +2419,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Rotiraj ključ za {{name}}",
+      "rotateTitle": "Rotiraj ključ agenta",
+      "rotateDescription": "Trenutni ključ odmah prestaje da radi i agent se odjavljuje. Agent se ne može ponovo povezati dok ga ne ažurirate novim ključem.",
+      "rotateConfirm": "Rotiraj ključ",
+      "rotateSuccessTitle": "Novi ključ za {{name}}",
+      "rotateSuccessDescription": "Kopirajte ovaj ključ odmah. Charon ga više neće prikazati. Stavite ga u fajl ključa agenta, zatim ponovo pokrenite agent da bi se povezao.",
+      "rotateDone": "Gotovo",
+      "rotateError": "Ključ nije mogao da se rotira. Pokušajte ponovo."
     },
     "externalProxy": {
       "title": "External Docker Proxy",

@@ -2419,7 +2419,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Obnovit klíč pro {{name}}",
+      "rotateTitle": "Obnovit klíč agenta",
+      "rotateDescription": "Aktuální klíč přestane okamžitě fungovat a agent bude odpojen. Agent se nemůže znovu připojit, dokud ho neaktualizujete novým klíčem.",
+      "rotateConfirm": "Obnovit klíč",
+      "rotateSuccessTitle": "Nový klíč pro {{name}}",
+      "rotateSuccessDescription": "Zkopírujte si tento klíč hned. Charon ho znovu nezobrazí. Vložte ho do souboru s klíčem agenta a poté agenta restartujte, aby se znovu připojil.",
+      "rotateDone": "Hotovo",
+      "rotateError": "Klíč se nepodařilo obnovit. Zkuste to znovu."
     },
     "externalProxy": {
       "title": "External Docker Proxy",
