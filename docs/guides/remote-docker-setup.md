@@ -44,7 +44,7 @@ Make sure you have:
 
 ## Step 2 — Install the Agent on Your Remote Machine
 
-Still in Charon, click the **Install** tab on the agent page. You'll see several ready-made snippets. **Docker Compose is the easiest if your remote machine already runs Docker.**
+Still in Charon, click the **Install** tab on the agent page. You'll see two ready-made snippets: **Docker Compose** and **Kubernetes**. **Docker Compose is the easiest if your remote machine already runs Docker.**
 
 <!-- screenshot: Install tab showing Docker Compose snippet -->
 
@@ -55,7 +55,7 @@ On your **remote machine**, open a terminal and:
 1. Create a new folder for the agent: `mkdir orthrus-agent && cd orthrus-agent`
 2. Copy the Docker Compose snippet from the Charon UI
 3. Create a file called `docker-compose.yml` and paste the snippet into it
-4. Replace `<AUTH_KEY>` with the key you saved in Step 1
+4. Save your key to a file. The first lines of the snippet show a command that does this. Replace `<AUTH_KEY>` with the key you saved in Step 1, then run that command in the same folder. It creates a file named `orthrus_auth_key`. Your key stays in that file and is not written into `docker-compose.yml`. See [Keep the Auth Key in a File](../features/orthrus.md#keep-the-auth-key-in-a-file).
 5. Check the permission settings. The file should include `PUID`, `PGID`, and `TZ` lines. Set `PGID` to your Docker group's number: run `stat -c '%g' /var/run/docker.sock` on the remote machine and put the number it prints after `PGID=`. Most setups need this. See [Set the Permissions](../features/orthrus.md#set-the-permissions-puid-pgid-and-tz) for details.
 
    > **Heads up:** That number goes in `PGID` only. `DOCKER_SOCK` stays the socket's *path* (`/var/run/docker.sock`); do not build it from the number. To check it, run `getent group <number>`; it should print the `docker` group.
@@ -69,7 +69,7 @@ docker compose up -d
 
 The agent starts in the background and immediately tries to connect to Charon.
 
-> **Other install options:** If you prefer not to use Docker, the **Install** tab also provides a systemd unit file (for Linux servers), a Homebrew formula (for macOS), a Kubernetes DaemonSet, and a plain tarball. All work the same way — paste in your auth key and run it.
+> **Using Kubernetes?** The **Install** tab's Kubernetes snippet starts with a command that stores your key in a Kubernetes Secret. Run that command first, then apply the rest of the snippet.
 
 ---
 
@@ -141,7 +141,7 @@ Charon now proxies traffic through the Orthrus tunnel to reach that container. F
 
 1. Go to **Hecate** → **Agent**
 2. Click the **gear icon** next to your agent
-3. Set a port (any number from 1024 to 65535) and click **Save**
+3. Set a port (any number from 1024 to 65535) and click **Save**. Leave **Listen on** set to **Automatic** unless your tool runs on a different Docker network. In that case, choose the network your tool can reach.
 4. In your third-party tool, use the connection string `tcp://<host>:<port>` — Charon fills in `<host>` for you automatically, so just plug in the port you chose
 
 **Full detail:** [Orthrus guide → External Docker Proxy](../features/orthrus.md#external-docker-proxy-advanced).
@@ -172,6 +172,8 @@ Charon will check the service regularly and alert you through your configured no
 | No containers listed | Docker socket not mounted in agent | Add `-v /var/run/docker.sock:/var/run/docker.sock:ro` to the agent's volumes |
 | No containers listed, and the agent cannot open the socket | `PGID` does not match the Docker group | Set `PGID` to the output of `stat -c '%g' /var/run/docker.sock`, then run `docker compose up -d` again |
 | Auth key rejected | Key copied incorrectly | Delete the agent, create a new one, copy the key carefully |
+| Agent says the key is not set yet | The `orthrus_auth_key` file is empty | Paste your key into that file, then run `docker compose up -d` again |
+| Agent says it cannot use the key file | The file is missing, or the folder is not the one with `docker-compose.yml` | Run the save command from Step 2 in the folder that holds `docker-compose.yml`, then run `docker compose up -d` again |
 | Agent disconnects repeatedly | Network instability | Normal — the agent reconnects automatically, no action needed |
 | Third-party tool can't reach my agent's Docker API | Wrong port configured in the tool | Check the tool is using the External Proxy port shown in the gear-icon dialog — not Charon's main web port |
 

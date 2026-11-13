@@ -41,8 +41,10 @@ sync by release-please itself.
      `release-please-config.json`)
    - Creates the GitHub Release for that tag
 4. **Downstream, independently of release-please**:
-   - `.github/workflows/orthrus-build.yml` triggers on the new `v*`
-     tag and publishes semver-tagged Orthrus agent images
+   - `docker-build.yml` calls `orthrus-build.yml` when a release commit
+     lands on `main`, publishing the `X.Y.Z` and `X.Y` Orthrus agent images
+     (release-please creates tags with a token that cannot start workflows,
+     so the `v*` tag is not the trigger)
    - The image builds (`docker-build.yml` and `nightly-build.yml`) read the
      `v*` tags with `scripts/generate-changelog.sh` to regenerate the in-app
      "What's New" data (see "What's New Data" below)
