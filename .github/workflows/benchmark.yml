@@ -107,6 +107,23 @@ jobs:
           name: benchmark-output
           path: backend
 
+      # github-action-benchmark fetches gh-pages and fails if it doesn't exist yet.
+      # Create an empty orphan branch on first run; no-op afterwards.
+      - name: Ensure gh-pages branch exists
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          if git ls-remote --exit-code --heads "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" gh-pages >/dev/null 2>&1; then
+            echo "gh-pages already exists"
+            exit 0
+          fi
+          git checkout --orphan gh-pages-bootstrap
+          git rm -rf --quiet . || true
+          git -c user.name=github-actions[bot] -c user.email=41898282+github-actions[bot]@users.noreply.github.com \
+            commit --allow-empty -m "chore: initialize gh-pages for benchmark data"
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${REPO}.git" gh-pages-bootstrap:gh-pages
+
       # Security: Pinned to full SHA for supply chain security
       - name: Store Benchmark Result
         uses: step-security/github-action-benchmark@5126ec633bcaa5ca5aa8bf045b81f79faf48d6b8 # v1.22.2
