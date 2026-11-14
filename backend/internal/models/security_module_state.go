@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -239,16 +240,19 @@ func ReconcileWAFDetectionMode(db *gorm.DB) (int64, error) {
 //     them. The outcome is mixed: one part is restored and the other keeps the concurrent write.
 //  3. A concurrent admin write's own proxy apply may already have applied the failed writer's values to the proxy. The
 //     restore does not re-apply them; the next apply corrects the proxy.
-//  4. The row image holds only the columns in rowColumns. waf_paranoia_level and crowdsec_api_url are not imaged, so a
-//     refused apply does not restore them. This is pre-existing and unchanged by the restore.
-//  5. A row the writer created is deleted when every imaged column is still unchanged, even if a non-imaged column was
+//  4. A row the writer created is deleted when every imaged column is still unchanged, even if a non-imaged column was
 //     changed by a concurrent write. That concurrent write is lost with the row.
+//
+// A restore that puts back every column the writer touched also puts back the row's update time. When a concurrent
+// write kept any column, the update time is the restore time, because that row was written again.
 type ModuleStateSnapshot struct {
 	name      string
 	keys      []settingImage
 	rowBefore map[string]any // nil when the row did not exist before the write
-	sealed    bool
-	rowAfter  map[string]any // nil when the row is absent after the write
+	// rowUpdatedAt is the row's update time before the write. It is not compared, only written back by a full restore.
+	rowUpdatedAt time.Time
+	sealed       bool
+	rowAfter     map[string]any // nil when the row is absent after the write
 	// rowTouched lists the row columns the writer changed, in column-name order. A created row lists every column.
 	rowTouched []string
 	rowCreated bool
@@ -306,17 +310,23 @@ func ReadModuleRow(tx *gorm.DB, name string) (*SecurityConfig, error) {
 	return &row, nil
 }
 
-// rowColumns returns the default-row columns a module writer or a config save can change, keyed by column name. A
-// missing row has no columns and returns nil.
+// rowColumns returns the default-row columns a module writer, a CrowdSec start or a config save can change, keyed by
+// column name. Every column applyTo can write is listed (see ImagedRowColumns). A missing row has no columns and
+// returns nil.
 func rowColumns(row *SecurityConfig) map[string]any {
 	if row == nil {
 		return nil
 	}
 	return map[string]any{
 		"enabled":                row.Enabled,
+		"crowd_sec_mode":         row.CrowdSecMode,
+		"crowd_sec_api_url":      row.CrowdSecAPIURL,
+		"admin_whitelist":        row.AdminWhitelist,
 		"waf_mode":               row.WAFMode,
 		"waf_rules_source":       row.WAFRulesSource,
-		"admin_whitelist":        row.AdminWhitelist,
+		"waf_learning":           row.WAFLearning,
+		"waf_paranoia_level":     row.WAFParanoiaLevel,
+		"waf_exclusions":         row.WAFExclusions,
 		"rate_limit_mode":        row.RateLimitMode,
 		"rate_limit_enable":      row.RateLimitEnable,
 		"rate_limit_requests":    row.RateLimitRequests,
@@ -324,6 +334,12 @@ func rowColumns(row *SecurityConfig) map[string]any {
 		"rate_limit_burst":       row.RateLimitBurst,
 		"rate_limit_bypass_list": row.RateLimitBypassList,
 	}
+}
+
+// ImagedRowColumns returns the database column names that rowColumns images, in sorted order. A parity test in the
+// services package checks that every column a config save can write is in this list.
+func ImagedRowColumns() []string {
+	return sortedColumns(rowColumns(&SecurityConfig{}))
 }
 
 // sortedColumns returns the column names of a row image in a stable order.
@@ -348,6 +364,9 @@ func warnRestoreSkipped(target string) {
 // records the after-image once the writes are in place.
 func CaptureModuleState(tx *gorm.DB, name string, row *SecurityConfig, extraKeys ...string) (ModuleStateSnapshot, error) {
 	snap := ModuleStateSnapshot{name: name, rowBefore: rowColumns(row)}
+	if row != nil {
+		snap.rowUpdatedAt = row.UpdatedAt
+	}
 
 	keys := append(append([]string{}, securityModuleKeys...), CerberusFeatureSettingKey, CerberusLegacySettingKey)
 	seen := make(map[string]bool, len(keys)+len(extraKeys))
@@ -492,7 +511,17 @@ func (s ModuleStateSnapshot) RestoreRow(db *gorm.DB) error {
 	if len(restore) == 0 {
 		return nil
 	}
-	if err := db.Model(&SecurityConfig{}).Where("name = ?", s.name).Updates(restore).Error; err != nil {
+	if kept > 0 {
+		// A kept column means a concurrent write touched this row, so the update time is the restore time.
+		if err := db.Model(&SecurityConfig{}).Where("name = ?", s.name).Updates(restore).Error; err != nil {
+			return fmt.Errorf("restore security config %q: %w", s.name, err)
+		}
+		return nil
+	}
+	// Every touched column is back to the pre-image, so the row is back to the pre-image: the update time too. UpdateColumns
+	// keeps GORM from stamping the restore time.
+	restore["updated_at"] = s.rowUpdatedAt
+	if err := db.Model(&SecurityConfig{}).Where("name = ?", s.name).UpdateColumns(restore).Error; err != nil {
 		return fmt.Errorf("restore security config %q: %w", s.name, err)
 	}
 	return nil
