@@ -279,6 +279,8 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		caddyClient := caddy.NewClient(cfg.CaddyAdminAPI)
 		caddyManager = caddy.NewManager(caddyClient, db, cfg.CaddyConfigDir, cfg.FrontendDir, cfg.ACMEStaging, cfg.Security)
 	}
+	// Stored hosts whose forward target reaches an agent listener are left out of every apply.
+	caddyManager.SetForwardTargetGuard(services.NewListenerTargetGuard(db))
 
 	// Wire encryption service to Caddy manager for decrypting certificate private keys
 	if cfg.EncryptionKey != "" {
@@ -784,6 +786,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 				orthrusHandler := handlers.NewOrthrusHandler(orthrsuSvc, securityService)
 				orthrusHandler.RegisterRoutes(management, managementAdmin)
+				orthrusHandler.SetConfigApplier(caddyManager)
 
 				if orthrusServer != nil {
 					orthrusHandler.SetProxyResolver(orthrusServer)
@@ -800,7 +803,9 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 				if orthrusServer != nil {
 					api.GET("/ws/orthrus/connect", orthrusServer.HandleWebSocket)
-					caddyManager.SetOrthrusServer(orthrusServer)
+					// The live agent ports take part in the forward target checks. A newly connected agent may own a port that a stored host already targets, so the config is re-applied in the background.
+					services.SetOrthrusListenerSource(orthrusServer)
+					orthrusServer.SetListenerStartedHook(backgroundReapply(caddyManager))
 				}
 			}
 		} else {
@@ -1310,4 +1315,26 @@ func newChangelogService(currentVersion, environment, override string) *changelo
 	}
 	svc.SetCurrentVersion(override)
 	return svc
+}
+
+// proxyConfigReapplier is the part of the caddy manager that re-generates and applies the proxy config.
+type proxyConfigReapplier interface {
+	ApplyConfig(ctx context.Context) error
+}
+
+// reapplyProxyConfig re-applies the proxy config with a bounded context. It runs
+// on its own goroutine, so a slow Caddy never blocks an agent connection. A
+// failure is logged; the next config apply tries again.
+func reapplyProxyConfig(mgr proxyConfigReapplier) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	if err := mgr.ApplyConfig(ctx); err != nil {
+		logger.Log().WithError(err).Warn("re-apply proxy config after agent listener start failed")
+	}
+}
+
+// backgroundReapply returns a hook that starts reapplyProxyConfig on its own
+// goroutine, so the caller never waits for Caddy.
+func backgroundReapply(mgr proxyConfigReapplier) func() {
+	return func() { go reapplyProxyConfig(mgr) }
 }

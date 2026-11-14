@@ -21,13 +21,15 @@ import (
 // OrthrusServer manages incoming agent WebSocket connections and tracks
 // active sessions indexed by agent UUID.
 type OrthrusServer struct {
-	db               *gorm.DB
-	ca               *InternalCA
-	sessions         sync.Map // agentUUID → *AgentSession
-	heartbeatTimeout time.Duration
-	ctx              context.Context
-	cancel           context.CancelFunc
-	wg               sync.WaitGroup
+	db       *gorm.DB
+	ca       *InternalCA
+	sessions sync.Map // agentUUID → *AgentSession
+	// onListenerStarted runs after a connected agent's listeners are registered. Set once at startup.
+	onListenerStarted func()
+	heartbeatTimeout  time.Duration
+	ctx               context.Context
+	cancel            context.CancelFunc
+	wg                sync.WaitGroup
 	// auditLogger records write-path audit entries for every AgentSession
 	// this server creates. nil until SetAuditLogger is called (e.g. at
 	// startup in routes.go, once the concrete *services.SecurityService is
@@ -163,6 +165,9 @@ func (s *OrthrusServer) HandleWebSocket(c *gin.Context) {
 	}()
 
 	s.sessions.Store(agent.UUID, session)
+	if s.onListenerStarted != nil {
+		s.onListenerStarted()
+	}
 }
 
 // GetExternalProxyStatus returns the external proxy status for a connected agent.
@@ -254,4 +259,29 @@ func extractBearer(header string) string {
 		return ""
 	}
 	return strings.TrimPrefix(header, "Bearer ")
+}
+
+// SetListenerStartedHook registers fn to run after a connected agent's proxy
+// listeners are registered, so that a config that depends on the live ports can
+// be re-evaluated. It runs on the connection's goroutine and must not block. Set
+// it at startup; nil clears it.
+func (s *OrthrusServer) SetListenerStartedHook(fn func()) {
+	s.onListenerStarted = fn
+}
+
+// LiveListenerPorts returns the ports Charon listens on for connected agents: the
+// loopback proxy port of each session and its external proxy port while active. A
+// nil server reports none.
+func (s *OrthrusServer) LiveListenerPorts() []int {
+	if s == nil {
+		return nil
+	}
+	var ports []int
+	s.sessions.Range(func(_, raw any) bool {
+		if sess, ok := raw.(*AgentSession); ok {
+			ports = append(ports, sess.listenerPorts()...)
+		}
+		return true
+	})
+	return ports
 }

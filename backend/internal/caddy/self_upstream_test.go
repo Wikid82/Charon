@@ -104,7 +104,6 @@ func TestGenerateConfig_SelfHopHeadersOnlyOnSelfUpstream(t *testing.T) {
 	secret := testHopSecret(t)
 	cfg := generateWithOpts(t, fixtureHosts(),
 		WithSelfHop(secret, "8080"),
-		WithRemoteHosts(map[string]struct{}{"u-remote": {}}),
 	)
 
 	var selfCount, otherCount int
@@ -112,7 +111,7 @@ func TestGenerateConfig_SelfHopHeadersOnlyOnSelfUpstream(t *testing.T) {
 		_, hasSecret := p.set[selfhop.HeaderSecret]
 		switch p.dial {
 		case "127.0.0.1:8080", "localhost:8080":
-			// u-self (main + recovery + location) and u-remote (never self).
+			// u-self (main, recovery, location) and u-remote (main, recovery): both target the API port.
 			if hasSecret {
 				selfCount++
 				assert.Equal(t, []string{secret.Reveal()}, p.set[selfhop.HeaderSecret])
@@ -127,27 +126,13 @@ func TestGenerateConfig_SelfHopHeadersOnlyOnSelfUpstream(t *testing.T) {
 			assert.NotContains(t, p.set, selfhop.HeaderClient)
 		}
 	}
-	// main route, recovery route and one self location of u-self.
-	assert.Equal(t, 3, selfCount)
+	// u-self: main route, recovery route and one self location; u-remote: main and recovery.
+	assert.Equal(t, 5, selfCount)
 	assert.Positive(t, otherCount)
 
-	// The remote host dials the same address:port but never receives proof.
 	raw, err := json.Marshal(cfg)
 	require.NoError(t, err)
-	assert.Equal(t, 3, strings.Count(string(raw), secret.Reveal()))
-}
-
-func TestGenerateConfig_WithoutSelfHopIsUnchanged(t *testing.T) {
-	baseline := generateWithOpts(t, fixtureHosts())
-	withRemote := generateWithOpts(t, fixtureHosts(), WithRemoteHosts(map[string]struct{}{"u-remote": {}}))
-
-	a, err := json.Marshal(baseline)
-	require.NoError(t, err)
-	b, err := json.Marshal(withRemote)
-	require.NoError(t, err)
-	assert.Equal(t, string(a), string(b))
-	assert.NotContains(t, string(a), selfhop.HeaderSecret)
-	assert.NotContains(t, string(a), selfhop.HeaderClient)
+	assert.Equal(t, 5, strings.Count(string(raw), secret.Reveal()))
 }
 
 func TestGenerateConfig_NonSelfRoutesIdenticalWithSelfHopEnabled(t *testing.T) {
@@ -169,32 +154,30 @@ func TestSelfHopConfig_IsSelfUpstream(t *testing.T) {
 	cfg := &selfHopConfig{secret: testHopSecret(t), port: "8080", local: local}
 
 	tests := []struct {
-		dial   string
-		remote bool
-		want   bool
+		dial string
+		want bool
 	}{
-		{"127.0.0.1:8080", false, true},
-		{"localhost:8080", false, true},
-		{"[::1]:8080", false, true},
-		{"0.0.0.0:8080", false, true},
-		{"charon-box:8080", false, true},
-		{"127.0.0.1:08080", false, true},
-		{"127.0.0.1:8081", false, false},
-		{"127.0.0.1:80", false, false},
-		{"10.99.99.99:8080", false, false},
-		{"example.com:8080", false, false},
-		{"127.0.0.1:8080", true, false},
-		{"127.0.0.1", false, false},
-		{"127.0.0.1:abc", false, false},
-		{"", false, false},
+		{"127.0.0.1:8080", true},
+		{"localhost:8080", true},
+		{"[::1]:8080", true},
+		{"0.0.0.0:8080", true},
+		{"charon-box:8080", true},
+		{"127.0.0.1:08080", true},
+		{"127.0.0.1:8081", false},
+		{"127.0.0.1:80", false},
+		{"10.99.99.99:8080", false},
+		{"example.com:8080", false},
+		{"127.0.0.1", false},
+		{"127.0.0.1:abc", false},
+		{"", false},
 	}
 	for _, tc := range tests {
-		assert.Equal(t, tc.want, cfg.isSelfUpstream(tc.dial, tc.remote), "dial=%q remote=%v", tc.dial, tc.remote)
+		assert.Equal(t, tc.want, cfg.isSelfUpstream(tc.dial), "dial=%q", tc.dial)
 	}
 
 	var nilCfg *selfHopConfig
-	assert.False(t, nilCfg.isSelfUpstream("127.0.0.1:8080", false))
-	assert.False(t, (&selfHopConfig{port: "8080", local: local}).isSelfUpstream("127.0.0.1:8080", false))
+	assert.False(t, nilCfg.isSelfUpstream("127.0.0.1:8080"))
+	assert.False(t, (&selfHopConfig{port: "8080", local: local}).isSelfUpstream("127.0.0.1:8080"))
 }
 
 func TestSelfHopConfig_OwnInterfaceAddressIsSelf(t *testing.T) {
@@ -211,16 +194,7 @@ func TestSelfHopConfig_OwnInterfaceAddressIsSelf(t *testing.T) {
 		t.Skip("no non-loopback IPv4 interface address")
 	}
 	cfg := &selfHopConfig{secret: testHopSecret(t), port: "8080", local: selfhop.NewLocalAddrs()}
-	assert.True(t, cfg.isSelfUpstream(own+":8080", false))
-}
-
-func TestOrthrusHostUUIDs(t *testing.T) {
-	assert.Nil(t, orthrusHostUUIDs([]models.ProxyHost{{UUID: "a", ForwardHost: "10.0.0.1"}}))
-	got := orthrusHostUUIDs([]models.ProxyHost{
-		{UUID: "a", ForwardHost: "orthrus:agent-1"},
-		{UUID: "b", ForwardHost: "10.0.0.1"},
-	})
-	assert.Equal(t, map[string]struct{}{"a": {}}, got)
+	assert.True(t, cfg.isSelfUpstream(own+":8080"))
 }
 
 type captureClient struct {
@@ -233,10 +207,6 @@ func (c *captureClient) Load(_ context.Context, cfg *Config) error {
 }
 func (c *captureClient) Ping(context.Context) error                 { return nil }
 func (c *captureClient) GetConfig(context.Context) (*Config, error) { return &Config{}, nil }
-
-type stubOrthrus struct{ addr string }
-
-func (s stubOrthrus) GetProxyAddr(string) (string, bool) { return s.addr, true }
 
 func newHopManager(t *testing.T) (*Manager, *captureClient, *gorm.DB, string) {
 	t.Helper()
@@ -252,15 +222,12 @@ func TestManager_ApplyConfig_SelfHopWiringAndSnapshotRedaction(t *testing.T) {
 	m, client, db, dir := newHopManager(t)
 	secret := testHopSecret(t)
 	m.SetSelfHop(secret, "8080")
-	m.SetOrthrusServer(stubOrthrus{addr: "127.0.0.1:8080"})
 	require.NoError(t, db.Create(&models.ProxyHost{UUID: "u-self", DomainNames: "charon.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true}).Error)
-	require.NoError(t, db.Create(&models.ProxyHost{UUID: "u-agent", DomainNames: "agent.example.com", ForwardHost: "orthrus:agent-1", ForwardPort: 1, Enabled: true}).Error)
 
 	require.NoError(t, m.ApplyConfig(context.Background()))
 	require.Len(t, client.loaded, 1)
 
-	// Live config: the self route carries the proof, the agent route (resolved to
-	// the same address) does not.
+	// Live config: the self route carries the proof on both of its routes.
 	withProof, without := 0, 0
 	for _, p := range collectProxies(t, client.loaded[0]) {
 		if p.dial != "127.0.0.1:8080" {
@@ -273,7 +240,7 @@ func TestManager_ApplyConfig_SelfHopWiringAndSnapshotRedaction(t *testing.T) {
 		}
 	}
 	assert.Equal(t, 2, withProof) // main + recovery route of the self host
-	assert.Equal(t, 1, without)   // main route of the agent host (no recovery route)
+	assert.Equal(t, 0, without)
 
 	// Snapshots on disk never hold the secret.
 	entries, err := os.ReadDir(dir)

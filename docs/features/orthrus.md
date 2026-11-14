@@ -391,6 +391,10 @@ The registry check needs a note. Read-only means the proxy can't change anything
 
 **Want the tool to be able to apply an update it finds, not just detect one?** See [Opting an agent into write access](#opting-an-agent-into-write-access) above — it's the same idea, just for a fixed, audited set of write operations layered on top of this same proxy.
 
+### Forward Targets
+
+Charon keeps its own internal Orthrus ports off the list of valid forward targets. A proxy host or location that points at this machine on an agent's external proxy port, or on one of the internal ports Charon opens for a connected agent, is refused when it is saved. That includes the host-side address of the Docker network Charon is attached to, the name `host.docker.internal`, and any name that cannot be resolved. The agent-name form (`orthrus:<agent>`) is not accepted as a forward target at all. A host saved before this rule, or one whose agent port changes later, is left out of the generated config until its target is corrected, and Charon logs a warning that names the host.
+
 ---
 
 ## Agent Status Reference

@@ -4,9 +4,7 @@ import (
 	"bytes"
 	"net"
 	"strconv"
-	"strings"
 
-	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/security/selfhop"
 )
 
@@ -20,10 +18,9 @@ type selfHopConfig struct {
 }
 
 // isSelfUpstream reports whether dial points at this process's own API: a host
-// naming this machine on the API's listen port. Upstreams marked remote (for
-// example agent-resolved targets) never qualify.
-func (s *selfHopConfig) isSelfUpstream(dial string, remote bool) bool {
-	if s == nil || s.secret == nil || remote {
+// naming this machine on the API's listen port.
+func (s *selfHopConfig) isSelfUpstream(dial string) bool {
+	if s == nil || s.secret == nil {
 		return false
 	}
 	host, port, err := net.SplitHostPort(dial)
@@ -51,9 +48,9 @@ func (s *selfHopConfig) selfHopHeaders() map[string][]string {
 
 // proxyHandler builds the reverse_proxy handler for dial, adding the hop headers
 // only when the upstream is Charon itself.
-func (o *generateConfigOptions) proxyHandler(dial string, remote bool, application string, enableStandardHeaders bool) Handler {
+func (o *generateConfigOptions) proxyHandler(dial, application string, enableStandardHeaders bool) Handler {
 	h := ReverseProxyHandler(dial, application, enableStandardHeaders)
-	if !o.selfHop.isSelfUpstream(dial, remote) {
+	if !o.selfHop.isSelfUpstream(dial) {
 		return h
 	}
 	headers, _ := h["headers"].(map[string]any)
@@ -79,21 +76,6 @@ func (o *generateConfigOptions) proxyHandler(dial string, remote bool, applicati
 
 // snapshotSecretPlaceholder stands in for the hop secret in this manager's snapshots.
 const snapshotSecretPlaceholder = "CHARON_SELF_HOP_SECRET_REDACTED" //nolint:gosec // marker text, not a credential
-
-// orthrusHostUUIDs returns the UUIDs of hosts whose upstream is an agent-resolved
-// target. It must be called before the targets are rewritten to addresses.
-func orthrusHostUUIDs(hosts []models.ProxyHost) map[string]struct{} {
-	var out map[string]struct{}
-	for _, h := range hosts {
-		if strings.HasPrefix(h.ForwardHost, orthrusHostPrefix) {
-			if out == nil {
-				out = make(map[string]struct{})
-			}
-			out[h.UUID] = struct{}{}
-		}
-	}
-	return out
-}
 
 // redactHopSecret replaces the live secret in a serialized snapshot. The secret
 // changes at every restart, so a stored value would only go stale.
