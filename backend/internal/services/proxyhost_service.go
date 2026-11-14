@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
@@ -280,14 +281,20 @@ func (s *ProxyHostService) Create(host *models.ProxyHost) error {
 
 // CreateAs validates and creates a new proxy host on behalf of a caller. When
 // admin is false, the DNS provider binding, the DNS challenge flag and the
-// advanced config must stay empty. The uniqueness checks and the insert run in
-// one write-locked transaction (see WithWriteLock).
-func (s *ProxyHostService) CreateAs(host *models.ProxyHost, admin bool) error {
+// advanced config must stay empty. sentKeys are the JSON keys the client sent:
+// the defaulted boolean fields among them are stored as sent (see
+// CreateKeepingSent). The uniqueness checks and the insert run in one
+// write-locked transaction (see WithWriteLock).
+func (s *ProxyHostService) CreateAs(host *models.ProxyHost, admin bool, sentKeys ...string) error {
 	err := WithWriteLock(s.db, &models.ProxyHost{}, func(tx *gorm.DB) error {
 		if err := s.checkHostWrite(tx, host, 0, admin); err != nil {
 			return err
 		}
-		return tx.Create(host).Error
+		sentColumns, err := SentDefaultColumns(tx, &models.ProxyHost{}, sentKeys, reflect.Bool)
+		if err != nil {
+			return err
+		}
+		return CreateKeepingSent(tx, host, sentColumns)
 	})
 	if err != nil {
 		return err

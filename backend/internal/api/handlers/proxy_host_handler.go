@@ -543,7 +543,7 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 		host.Locations[i].UUID = uuid.NewString()
 	}
 
-	if err := h.service.CreateAs(&host, isAdmin(c)); err != nil {
+	if err := h.service.CreateAs(&host, isAdmin(c), requestKeys(payload)...); err != nil {
 		respondHostWriteError(c, err)
 		return
 	}
@@ -654,6 +654,9 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 	}
 	if v, ok := payload["hsts_subdomains"].(bool); ok {
 		host.HSTSSubdomains = v
+	}
+	if v, ok := payload["security_headers_enabled"].(bool); ok {
+		host.SecurityHeadersEnabled = v
 	}
 	if v, ok := payload["block_exploits"].(bool); ok {
 		host.BlockExploits = v
