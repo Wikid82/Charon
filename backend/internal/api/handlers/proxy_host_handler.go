@@ -883,6 +883,9 @@ func (h *ProxyHostHandler) TestConnection(c *gin.Context) {
 	}
 
 	if err := h.service.TestConnection(req.ForwardHost, req.ForwardPort); err != nil {
+		if respondForwardTargetRefused(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return
 	}

@@ -157,7 +157,6 @@ test.describe('Orthrus Write Mode', () => {
       await setupAgentPage(page, [MOCK_AGENT_BASE], MOCK_PROXY_STATUS_WRITE_OFF);
       await page.route(ORTHRUS_AGENT_API, async (route) => {
         if (route.request().method() === 'PATCH') {
-          patchBody = (await route.request().postDataJSON()) as Record<string, unknown>;
           await route.fulfill({ json: MOCK_AGENT_WRITE_ENABLED });
         } else {
           await route.continue();
@@ -170,7 +169,9 @@ test.describe('Orthrus Write Mode', () => {
         const toggle = dialog.getByRole('switch');
         await toggleLabel(toggle).click();
         await dialog.getByRole('textbox', { name: /type .* to confirm/i }).fill(MOCK_AGENT_NAME);
+        const patchRequest = page.waitForRequest((req) => req.method() === 'PATCH' && req.url().includes('/api/v1/orthrus/agents/'));
         await dialog.getByRole('button', { name: /save|enable/i }).click();
+        patchBody = (await patchRequest).postDataJSON() as Record<string, unknown>;
       });
 
       await test.step('PATCH sent write_enabled: true', async () => {
@@ -213,7 +214,6 @@ test.describe('Orthrus Write Mode', () => {
     });
     await page.route(ORTHRUS_AGENT_API, async (route) => {
       if (route.request().method() === 'PATCH') {
-        patchBody = (await route.request().postDataJSON()) as Record<string, unknown>;
         await route.fulfill({ json: MOCK_AGENT_BASE });
       } else {
         await route.continue();
@@ -230,7 +230,11 @@ test.describe('Orthrus Write Mode', () => {
       const confirmInput = dialog.getByRole('textbox', { name: /type .* to confirm/i });
       await expect(confirmInput).toBeHidden();
 
+      const patchRequest = page.waitForRequest((req) => req.method() === 'PATCH' && req.url().includes('/api/v1/orthrus/agents/'));
+
       await dialog.getByRole('button', { name: /save|disable/i }).click();
+
+      patchBody = (await patchRequest).postDataJSON() as Record<string, unknown>;
     });
 
     await test.step('PATCH sent write_enabled: false', async () => {

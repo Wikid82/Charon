@@ -236,7 +236,7 @@ Connect Docker with **Orthrus** (recommended: a small helper holds the Docker so
 
 ---
 
-### � Orthrus — Remote Tunnel Agent
+### Orthrus — Remote Tunnel Agent
 
 Your HomeLab is behind a firewall? Orthrus is a small agent you install on any remote machine. It dials outward to Charon over a secure connection — no open inbound ports required. Once connected, Charon can discover and proxy Docker containers on that machine just like local ones. The agent runs as a low-privilege user, not as the machine's administrator.
 
@@ -262,7 +262,7 @@ Each tunnel provider (Tailscale, Cloudflare, NetBird, ZeroTier) shows its config
 
 Each Orthrus agent can be assigned a provider tunnel and a specific device (or public hostname for Cloudflare). Once assigned, Charon remembers the address—so when you add a Source using that agent, the connection details fill in automatically.
 
-A step-by-step install wizard walks you through deploying the Orthrus agent (Docker Compose, systemd, Kubernetes, or standalone binary). Each Source shows a live status badge so you can see connection health at a glance.
+A step-by-step install wizard walks you through deploying the Orthrus agent (Docker Compose or Kubernetes). Each Source shows a live status badge so you can see connection health at a glance.
 
 → [Learn More](features/hecate.md)
 

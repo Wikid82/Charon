@@ -125,7 +125,7 @@ env:
   # Official Playwright image (browsers + OS deps preinstalled). MUST match the
   # @playwright/test version in package-lock.json; scripts/ci/check-playwright-image-version.sh
   # fails the run if they drift. Renovate bumps this with @playwright/test (see renovate.json).
-  PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.65.0-noble@sha256:9beb546099e11f52d62e505537914870e01a67e0e6b00ae41da4775324e73dbe
+  PLAYWRIGHT_IMAGE: mcr.microsoft.com/playwright:v1.65.1-noble@sha256:1507cbfc550a63a6b7396791ca4f00df17beb56342d2447b3f106c306f525579
 
 permissions:
   contents: read

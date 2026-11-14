@@ -1,12 +1,13 @@
-import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-import { type OrthrusAgent } from '../../../api/orthrus';
+import { type LocalNetworks, type OrthrusAgent } from '../../../api/orthrus';
 import { AgentExternalProxyDialog } from '../AgentExternalProxyDialog';
 
 const mockPatch = vi.fn();
 const mockRefetchStatus = vi.fn();
 let mockProxyStatus: Record<string, unknown> | undefined;
+let mockLocalNetworks: LocalNetworks | undefined;
 
 vi.mock('../../../hooks/useOrthrus', () => ({
   usePatchAgent: () => ({ mutate: mockPatch, isPending: false }),
@@ -14,6 +15,7 @@ vi.mock('../../../hooks/useOrthrus', () => ({
     data: mockProxyStatus,
     refetch: mockRefetchStatus,
   }),
+  useLocalNetworks: () => ({ data: mockLocalNetworks }),
 }));
 
 vi.mock('react-i18next', () => ({
@@ -34,7 +36,15 @@ const baseAgent: OrthrusAgent = {
   created_at: '2025-01-01T00:00:00Z',
   updated_at: '2025-01-01T00:00:00Z',
   external_proxy_port: 2375,
+  external_proxy_bind: '',
   write_enabled: false,
+};
+
+const detectedNetworks: LocalNetworks = {
+  auto: { address: '172.18.0.4', source: 'default_route' },
+  networks: [
+    { interface: 'eth0', address: '172.18.0.4', cidr: '172.18.0.0/16', primary: true },
+  ],
 };
 
 const renderDialog = (agent: OrthrusAgent = baseAgent, open = true, onClose = vi.fn()) =>
@@ -44,7 +54,25 @@ beforeEach(() => {
   mockPatch.mockReset();
   mockRefetchStatus.mockReset();
   mockProxyStatus = undefined;
+  mockLocalNetworks = detectedNetworks;
 });
+
+const activeStatus = {
+  agent_uuid: 'agent-1',
+  agent_online: true,
+  configured_port: 2375,
+  active: true,
+  active_port: 2375,
+  bind_address: '0.0.0.0:2375',
+  configured_bind: '',
+  active_bind: '',
+  bind_mode: 'auto',
+  bind_fallback: false,
+  configured_write_enabled: false,
+  active_write_enabled: false,
+  connection_string: 'tcp://charon:2375',
+  error: '',
+};
 
 describe('AgentExternalProxyDialog', () => {
   describe('port validation', () => {
@@ -87,7 +115,7 @@ describe('AgentExternalProxyDialog', () => {
       renderDialog();
       fireEvent.click(screen.getByText('common.save'));
       expect(mockPatch).toHaveBeenCalledWith(
-        { uuid: 'agent-1', req: { external_proxy_port: 2375 } },
+        { uuid: 'agent-1', req: { external_proxy_port: 2375, external_proxy_bind: '' } },
         expect.any(Object),
       );
     });
@@ -110,6 +138,131 @@ describe('AgentExternalProxyDialog', () => {
       fireEvent.click(screen.getByText('common.save'));
       expect(mockRefetchStatus).toHaveBeenCalled();
       expect(onClose).toHaveBeenCalled();
+    });
+  });
+
+  describe('listen on setting', () => {
+    const bindSelect = () => screen.getByLabelText('hecate.externalProxy.bindLabel');
+
+    it('offers automatic, each detected network, all networks and custom', () => {
+      renderDialog();
+      const options = within(bindSelect()).getAllByRole('option').map((o) => o.textContent);
+      expect(options).toEqual([
+        'hecate.externalProxy.bindAuto',
+        'eth0 · 172.18.0.4 (172.18.0.0/16)',
+        'hecate.externalProxy.bindAll',
+        'hecate.externalProxy.bindCustom',
+      ]);
+    });
+
+    it('saves all networks as 0.0.0.0 and shows the passive exposure note instead of the generic warning', () => {
+      renderDialog();
+      fireEvent.change(bindSelect(), { target: { value: 'all' } });
+
+      expect(screen.getByText('hecate.externalProxy.bindAllNote')).toBeInTheDocument();
+      expect(screen.queryByText('hecate.externalProxy.securityWarning')).not.toBeInTheDocument();
+
+      fireEvent.click(screen.getByText('common.save'));
+      expect(mockPatch).toHaveBeenCalledWith(
+        { uuid: 'agent-1', req: { external_proxy_port: 2375, external_proxy_bind: '0.0.0.0' } },
+        expect.any(Object),
+      );
+    });
+
+    it('saves a detected network as its CIDR', () => {
+      renderDialog();
+      fireEvent.change(bindSelect(), { target: { value: 'net:172.18.0.0/16' } });
+
+      fireEvent.click(screen.getByText('common.save'));
+      expect(mockPatch).toHaveBeenCalledWith(
+        { uuid: 'agent-1', req: { external_proxy_port: 2375, external_proxy_bind: '172.18.0.0/16' } },
+        expect.any(Object),
+      );
+    });
+
+    it('saves a typed custom address and disables save while the custom value is blank', () => {
+      renderDialog();
+      fireEvent.change(bindSelect(), { target: { value: 'custom' } });
+      const custom = screen.getByLabelText('hecate.externalProxy.bindCustomLabel');
+
+      fireEvent.change(custom, { target: { value: '   ' } });
+      expect(screen.getByText('common.save')).toBeDisabled();
+
+      fireEvent.change(custom, { target: { value: '10.0.0.5' } });
+      expect(screen.getByText('common.save')).not.toBeDisabled();
+      fireEvent.click(screen.getByText('common.save'));
+      expect(mockPatch).toHaveBeenCalledWith(
+        { uuid: 'agent-1', req: { external_proxy_port: 2375, external_proxy_bind: '10.0.0.5' } },
+        expect.any(Object),
+      );
+    });
+
+    it('seeds the select from a stored subnet', () => {
+      renderDialog({ ...baseAgent, external_proxy_bind: '172.18.0.0/16' });
+      expect(bindSelect()).toHaveValue('net:172.18.0.0/16');
+    });
+
+    it('explains loopback as not reachable from other containers or hosts when automatic resolves to it', () => {
+      mockLocalNetworks = {
+        auto: { address: '127.0.0.1', source: 'loopback_fallback' },
+        networks: [],
+      };
+      renderDialog();
+      expect(screen.getByText('hecate.externalProxy.loopbackNote')).toBeInTheDocument();
+      expect(screen.queryByText(/this server only/i)).not.toBeInTheDocument();
+    });
+
+    it('shows the fallback note when the live session fell back to loopback', () => {
+      mockProxyStatus = {
+        ...activeStatus,
+        active: true,
+        active_bind: '',
+        bind_address: '127.0.0.1:2375',
+        bind_fallback: true,
+      };
+      renderDialog();
+      expect(screen.getByText('hecate.externalProxy.fallbackNote')).toBeInTheDocument();
+    });
+
+    it('shows the reconnect notice when the saved listen setting differs from the live one', () => {
+      mockProxyStatus = {
+        ...activeStatus,
+        configured_bind: '172.18.0.0/16',
+        active_bind: '',
+      };
+      renderDialog();
+      expect(screen.getByText('hecate.externalProxy.bindReconnectNotice')).toBeInTheDocument();
+      expect(screen.queryByText('hecate.externalProxy.reconnectNotice')).not.toBeInTheDocument();
+    });
+
+    it('shows the port reconnect notice only when the port diverges', () => {
+      mockProxyStatus = { ...activeStatus, configured_bind: '', active_bind: '', active_port: 9999 };
+      renderDialog({ ...baseAgent, external_proxy_port: 2375 });
+      expect(screen.getByText('hecate.externalProxy.reconnectNotice')).toBeInTheDocument();
+      expect(screen.queryByText('hecate.externalProxy.bindReconnectNotice')).not.toBeInTheDocument();
+    });
+
+    it('shows the bind-invalid text when the server refuses the listen setting', () => {
+      mockPatch.mockImplementation((_args: unknown, { onError }: { onError: (err: unknown) => void }) => {
+        onError(
+          Object.assign(new Error('bad'), {
+            isAxiosError: true,
+            response: { data: { error_code: 'external_proxy_bind_invalid' } },
+          }),
+        );
+      });
+      renderDialog();
+      fireEvent.click(screen.getByText('common.save'));
+      expect(screen.getByRole('alert')).toHaveTextContent('hecate.externalProxy.bindInvalid');
+    });
+
+    it('shows the generic save error for other failures', () => {
+      mockPatch.mockImplementation((_args: unknown, { onError }: { onError: (err: unknown) => void }) => {
+        onError(new Error('server down'));
+      });
+      renderDialog();
+      fireEvent.click(screen.getByText('common.save'));
+      expect(screen.getByRole('alert')).toHaveTextContent('hecate.externalProxy.saveError');
     });
   });
 

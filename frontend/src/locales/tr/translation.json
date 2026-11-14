@@ -2349,10 +2349,7 @@
     "installWizard": {
       "tabs": {
         "dockerCompose": "Docker Compose",
-        "systemd": "Systemd",
-        "tarball": "Tarball",
-        "kubernetes": "Kubernetes",
-        "homebrew": "Homebrew"
+        "kubernetes": "Kubernetes"
       },
       "dockerGid": {
         "title": "Replace <DOCKER_GID> with your Docker group ID",
@@ -2360,7 +2357,6 @@
         "copyCommand": "Copy command",
         "macHint": "On macOS, use this command instead: stat -f %g /var/run/docker.sock",
         "noteComposeSystemd": "Set PGID to that number. The agent will refuse to start if <DOCKER_GID> is left in place.",
-        "noteTarballHomebrew": "Replace <DOCKER_GID> with that number and keep sudo in front of the command. Without sudo, PUID and PGID are ignored, so your user must be in the docker group instead.",
         "noteKubernetes": "Replace <DOCKER_GID> in supplementalGroups with that number. Kubernetes does not use PUID or PGID."
       }
     },
@@ -2419,7 +2415,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "{{name}} anahtarını döndür",
+      "rotateTitle": "Ajan anahtarını döndür",
+      "rotateDescription": "Mevcut anahtar hemen geçersiz olur ve ajanın bağlantısı kesilir. Ajan, onu yeni anahtarla güncelleyene kadar yeniden bağlanamaz.",
+      "rotateConfirm": "Anahtarı döndür",
+      "rotateSuccessTitle": "{{name}} için yeni anahtar",
+      "rotateSuccessDescription": "Bu anahtarı şimdi kopyalayın. Charon bunu bir daha göstermeyecek. Ajanın anahtar dosyasına koyun, ardından ajanı yeniden başlatarak bağlanmasını sağlayın.",
+      "rotateDone": "Tamam",
+      "rotateError": "Anahtar döndürülemedi. Tekrar deneyin."
     },
     "externalProxy": {
       "title": "External Docker Proxy",
@@ -2433,7 +2437,23 @@
       "statusInactive": "Inactive",
       "copyConnectionString": "Copy Docker connection string",
       "reconnectNotice": "Port change will take effect on next agent reconnect.",
-      "agentOffline": "Agent is offline. Proxy status unavailable."
+      "bindReconnectNotice": "Dinleme adresi değişikliği, ajan yeniden bağlandığında etkin olur.",
+      "agentOffline": "Agent is offline. Proxy status unavailable.",
+      "bindLabel": "Şurada dinle",
+      "bindHint": "Bu vekilin dinlediği ağı seçin. Otomatik, bu sunucunun birincil ağını seçer.",
+      "bindAuto": "Otomatik",
+      "bindAutoResolved": "Otomatik ({{address}})",
+      "bindAll": "Tüm ağlar (0.0.0.0)",
+      "bindCustom": "Özel adres veya alt ağ",
+      "bindCustomLabel": "Adres veya alt ağ",
+      "bindCustomPlaceholder": "192.168.1.10 veya 192.168.1.0/24",
+      "bindAllNote": "Vekilin oturum açma özelliği yoktur. Bu bağlantı noktasına erişebilen herkes bu ana makinenin konteyner ayrıntılarını okuyabilir.",
+      "loopbackNote": "Diğer konteynerlerden veya ana makinelerden erişilemez.",
+      "fallbackNote": "Otomatik, dinlenecek bir ağ bulamadı, bu yüzden vekil loopback üzerinde dinliyor. Bunu değiştirmek için bir ağ seçin.",
+      "bindListening": "{{address}} üzerinde dinliyor",
+      "bindInvalid": "192.168.1.10 veya 192.168.1.0/24 gibi bir IP adresi ya da alt ağ girin.",
+      "saveError": "Vekil ayarları kaydedilemedi. Tekrar deneyin.",
+      "cardAutomaticNote": "Dinleme adresi otomatiktir. Diğer ana makinelerin erişmesi gerekiyorsa vekil ayarlarında bir ağ seçin."
     },
     "writeMode": {
       "title": "Write Access — {{name}}",

@@ -2349,10 +2349,7 @@
     "installWizard": {
       "tabs": {
         "dockerCompose": "Docker Compose",
-        "systemd": "Systemd",
-        "tarball": "Tarball",
-        "kubernetes": "Kubernetes",
-        "homebrew": "Homebrew"
+        "kubernetes": "Kubernetes"
       },
       "dockerGid": {
         "title": "Replace <DOCKER_GID> with your Docker group ID",
@@ -2360,7 +2357,6 @@
         "copyCommand": "Copy command",
         "macHint": "On macOS, use this command instead: stat -f %g /var/run/docker.sock",
         "noteComposeSystemd": "Set PGID to that number. The agent will refuse to start if <DOCKER_GID> is left in place.",
-        "noteTarballHomebrew": "Replace <DOCKER_GID> with that number and keep sudo in front of the command. Without sudo, PUID and PGID are ignored, so your user must be in the docker group instead.",
         "noteKubernetes": "Replace <DOCKER_GID> in supplementalGroups with that number. Kubernetes does not use PUID or PGID."
       }
     },
@@ -2419,7 +2415,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Regenera la clau de {{name}}",
+      "rotateTitle": "Regenera la clau de l'agent",
+      "rotateDescription": "La clau actual deixa de funcionar immediatament i l'agent es desconnecta. L'agent no es podrà tornar a connectar fins que l'actualitzis amb la clau nova.",
+      "rotateConfirm": "Regenera la clau",
+      "rotateSuccessTitle": "Clau nova per a {{name}}",
+      "rotateSuccessDescription": "Copia aquesta clau ara. Charon no la tornarà a mostrar. Posa-la al fitxer de claus de l'agent i després reinicia'l perquè es torni a connectar.",
+      "rotateDone": "Fet",
+      "rotateError": "No s'ha pogut regenerar la clau. Torna-ho a provar."
     },
     "externalProxy": {
       "title": "External Docker Proxy",
@@ -2433,7 +2437,23 @@
       "statusInactive": "Inactive",
       "copyConnectionString": "Copy Docker connection string",
       "reconnectNotice": "Port change will take effect on next agent reconnect.",
-      "agentOffline": "Agent is offline. Proxy status unavailable."
+      "bindReconnectNotice": "El canvi d'adreça d'escolta tindrà efecte quan l'agent es torni a connectar.",
+      "agentOffline": "Agent is offline. Proxy status unavailable.",
+      "bindLabel": "Escolta a",
+      "bindHint": "Tria la xarxa on escolta aquest proxy. Automàtic tria la xarxa principal d'aquest servidor.",
+      "bindAuto": "Automàtic",
+      "bindAutoResolved": "Automàtic ({{address}})",
+      "bindAll": "Totes les xarxes (0.0.0.0)",
+      "bindCustom": "Adreça o subxarxa personalitzada",
+      "bindCustomLabel": "Adreça o subxarxa",
+      "bindCustomPlaceholder": "192.168.1.10 o 192.168.1.0/24",
+      "bindAllNote": "El proxy no té inici de sessió. Qualsevol que pugui arribar a aquest port pot llegir els detalls dels contenidors d'aquest amfitrió.",
+      "loopbackNote": "No es pot accedir-hi des d'altres contenidors o amfitrions.",
+      "fallbackNote": "Automàtic no ha trobat cap xarxa on escoltar, així que el proxy escolta al loopback. Tria una xarxa per canviar-ho.",
+      "bindListening": "Escoltant a {{address}}",
+      "bindInvalid": "Introdueix una adreça IP o una subxarxa, com ara 192.168.1.10 o 192.168.1.0/24.",
+      "saveError": "No s'han pogut desar els paràmetres del proxy. Torna-ho a provar.",
+      "cardAutomaticNote": "L'adreça d'escolta és automàtica. Tria una xarxa als paràmetres del proxy si altres amfitrions necessiten accés."
     },
     "writeMode": {
       "title": "Write Access — {{name}}",

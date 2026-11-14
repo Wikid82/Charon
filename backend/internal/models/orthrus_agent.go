@@ -43,9 +43,16 @@ type OrthrusAgent struct {
 	// set by Charon at assignment time, used as upstream host in Remote Servers.
 	ResolvedAddress *string `json:"resolved_address,omitempty"`
 
-	// ExternalProxyPort is the TCP port bound on 0.0.0.0 for inter-container Docker API access.
-	// 0 = disabled. Valid values: 1024–65535.
+	// ExternalProxyPort is the TCP port the external Docker API proxy listens on, for
+	// inter-container access. 0 = disabled. Valid values: 1024–65535.
 	ExternalProxyPort int `json:"external_proxy_port" gorm:"default:0"`
+
+	// ExternalProxyBind selects where the external proxy listens.
+	// "" = automatic (Charon's primary network address, loopback when that cannot be determined),
+	// "0.0.0.0" or "::" = every interface (explicit choice only),
+	// an IP literal = exactly that local address,
+	// a CIDR prefix = the local address inside that subnet (stable across container restarts).
+	ExternalProxyBind string `json:"external_proxy_bind" gorm:"not null;default:''"`
 
 	// WriteEnabled opts this agent into full, unrestricted Docker Engine API
 	// access through its External Docker Proxy — every endpoint and every

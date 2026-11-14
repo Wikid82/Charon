@@ -79,9 +79,10 @@ type Manager struct {
 	acmeStaging bool
 	securityCfg config.SecurityConfig
 	encSvc      *crypto.EncryptionService
-	orthrusSvc  OrthrusAddrResolver
-	hopSecret   *selfhop.Secret
-	hopPort     string
+	// forwardGuard refuses stored forward targets that reach an agent listener. It is checked before any host is generated.
+	forwardGuard ForwardTargetGuard
+	hopSecret    *selfhop.Secret
+	hopPort      string
 	// adminListen is the admin.listen value written into every generated config. It matches the endpoint the client dials.
 	adminListen string
 	// geoIPState reports the GeoIP database path and whether the proxy may use it. It is read at every apply.
@@ -132,9 +133,9 @@ func (m *Manager) SetEncryptionService(svc *crypto.EncryptionService) {
 	m.encSvc = svc
 }
 
-// SetOrthrusServer configures the Orthrus agent resolver for dynamic upstream host resolution.
-func (m *Manager) SetOrthrusServer(s OrthrusAddrResolver) {
-	m.orthrusSvc = s
+// SetForwardTargetGuard sets the guard that drops stored hosts whose forward target reaches an agent listener.
+func (m *Manager) SetForwardTargetGuard(g ForwardTargetGuard) {
+	m.forwardGuard = g
 }
 
 // SetGeoIPState sets the source of the GeoIP database state. It is read at every apply, so a database loaded or
@@ -163,6 +164,12 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	if err := m.db.Preload("Locations").Preload("Certificate").Preload("AccessList").Preload("SecurityHeaderProfile").Preload("DNSProvider").Find(&hosts).Error; err != nil {
 		return fmt.Errorf("fetch proxy hosts: %w", err)
 	}
+	// Hosts whose stored forward target reaches an agent listener are left out before anything else reads them.
+	kept, filterErr := dropRefusedForwardTargets(m.forwardGuard, hosts)
+	if filterErr != nil {
+		return filterErr
+	}
+	hosts = kept
 
 	// Fetch all redirection hosts from database (peer resource to ProxyHost,
 	// see docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §3/§4.2).
@@ -505,14 +512,10 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		}
 	}
 
-	remoteHosts := orthrusHostUUIDs(hosts)
-	hosts = resolveOrthrusHosts(hosts, m.orthrusSvc)
-
 	var generatedReport *EnforcementReport
 	genOpts := []GenerateConfigOption{
 		WithEncryptionService(m.encSvc),
 		WithRedirectionHosts(redirectHosts),
-		WithRemoteHosts(remoteHosts),
 		WithBouncerKeyPath(bouncerkey.PathFor(m.securityCfg.CrowdSecConfigDir)),
 		WithEnforcementSink(func(report EnforcementReport) { generatedReport = &report }),
 		WithAdminListen(m.adminListen),
@@ -675,6 +678,16 @@ func (m *Manager) rollback(ctx context.Context) error {
 	var conf Config
 	if err := json.Unmarshal(configJSON, &conf); err != nil {
 		return fmt.Errorf("unmarshal snapshot: %w", err)
+	}
+
+	// A snapshot that routes a target the guard now refuses is not reinstated.
+	refused, checkErr := snapshotRoutesRefusedTarget(m.forwardGuard, &conf)
+	if checkErr != nil {
+		return fmt.Errorf("check snapshot targets: %w", checkErr)
+	}
+	if refused {
+		logger.Log().Warn("Rollback skipped: the last snapshot routes a forward target this proxy no longer accepts")
+		return errSnapshotRefusedTarget
 	}
 
 	// Apply the snapshot

@@ -2349,10 +2349,7 @@
     "installWizard": {
       "tabs": {
         "dockerCompose": "Docker Compose",
-        "systemd": "Systemd",
-        "tarball": "Tarball",
-        "kubernetes": "Kubernetes",
-        "homebrew": "Homebrew"
+        "kubernetes": "Kubernetes"
       },
       "dockerGid": {
         "title": "Replace <DOCKER_GID> with your Docker group ID",
@@ -2360,7 +2357,6 @@
         "copyCommand": "Copy command",
         "macHint": "On macOS, use this command instead: stat -f %g /var/run/docker.sock",
         "noteComposeSystemd": "Set PGID to that number. The agent will refuse to start if <DOCKER_GID> is left in place.",
-        "noteTarballHomebrew": "Replace <DOCKER_GID> with that number and keep sudo in front of the command. Without sudo, PUID and PGID are ignored, so your user must be in the docker group instead.",
         "noteKubernetes": "Replace <DOCKER_GID> in supplementalGroups with that number. Kubernetes does not use PUID or PGID."
       }
     },
@@ -2419,7 +2415,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Rotiraj ključ za {{name}}",
+      "rotateTitle": "Rotiraj ključ agenta",
+      "rotateDescription": "Trenutni ključ odmah prestaje da radi i agent se odjavljuje. Agent se ne može ponovo povezati dok ga ne ažurirate novim ključem.",
+      "rotateConfirm": "Rotiraj ključ",
+      "rotateSuccessTitle": "Novi ključ za {{name}}",
+      "rotateSuccessDescription": "Kopirajte ovaj ključ odmah. Charon ga više neće prikazati. Stavite ga u fajl ključa agenta, zatim ponovo pokrenite agent da bi se povezao.",
+      "rotateDone": "Gotovo",
+      "rotateError": "Ključ nije mogao da se rotira. Pokušajte ponovo."
     },
     "externalProxy": {
       "title": "External Docker Proxy",
@@ -2433,7 +2437,23 @@
       "statusInactive": "Inactive",
       "copyConnectionString": "Copy Docker connection string",
       "reconnectNotice": "Port change will take effect on next agent reconnect.",
-      "agentOffline": "Agent is offline. Proxy status unavailable."
+      "bindReconnectNotice": "Промена адресе за слушање ступа на снагу када се агент поново повеже.",
+      "agentOffline": "Agent is offline. Proxy status unavailable.",
+      "bindLabel": "Слушај на",
+      "bindHint": "Изаберите мрежу на којој прокси слуша. Аутоматски бира главну мрежу овог сервера.",
+      "bindAuto": "Аутоматски",
+      "bindAutoResolved": "Аутоматски ({{address}})",
+      "bindAll": "Све мреже (0.0.0.0)",
+      "bindCustom": "Прилагођена адреса или подмрежа",
+      "bindCustomLabel": "Адреса или подмрежа",
+      "bindCustomPlaceholder": "192.168.1.10 или 192.168.1.0/24",
+      "bindAllNote": "Прокси нема пријаву. Свако ко може да дође до овог порта може да чита детаље контејнера на овом хосту.",
+      "loopbackNote": "Није доступно из других контејнера или хостова.",
+      "fallbackNote": "Аутоматски није нашао мрежу на којој би слушао, па прокси слуша на loopback-у. Изаберите мрежу да промените то.",
+      "bindListening": "Слуша на {{address}}",
+      "bindInvalid": "Унесите IP адресу или подмрежу, на пример 192.168.1.10 или 192.168.1.0/24.",
+      "saveError": "Подешавања проксија нису могла да се сачувају. Покушајте поново.",
+      "cardAutomaticNote": "Адреса за слушање је аутоматска. Изаберите мрежу у подешавањима проксија ако је другим хостовима потребан приступ."
     },
     "writeMode": {
       "title": "Write Access — {{name}}",

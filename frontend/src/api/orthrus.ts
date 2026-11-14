@@ -18,6 +18,9 @@ export interface OrthrusAgent {
   resolved_address?: string;
   // External Docker proxy port (0 = disabled, 1024–65535 = enabled)
   external_proxy_port: number;
+  // Listen setting for the external proxy: '' = automatic, '0.0.0.0' = all
+  // networks, an address, or a CIDR subnet (see ExternalProxyBindChoice in the dialog).
+  external_proxy_bind?: string;
   // Opt-in full, unrestricted Docker Engine API access through this agent's
   // External Docker Proxy — every endpoint, every request body, no
   // allowlist. false = read-only (default). This is a deliberate operator
@@ -32,6 +35,7 @@ export interface PatchAgentRequest {
   device_id?: string | null;
   resolved_address?: string | null;
   external_proxy_port?: number;
+  external_proxy_bind?: string;
   write_enabled?: boolean;
 }
 
@@ -44,12 +48,35 @@ export interface ExternalProxyStatus {
   bind_address: string;
   connection_string: string;
   error: string;
+  // configured_bind is the saved listen setting; active_bind is the setting the
+  // live session used. They differ until the agent reconnects.
+  configured_bind: string;
+  active_bind: string;
+  bind_mode: ExternalProxyBindMode;
+  // True when automatic mode found no network and fell back to loopback.
+  bind_fallback: boolean;
   // configured_write_enabled reflects the DB value; active_write_enabled
   // reflects the value the currently-connected session actually negotiated
   // at its last reconnect. The two can differ if an operator toggled
   // write_enabled while the agent was already connected — see reconnectNotice.
   configured_write_enabled: boolean;
   active_write_enabled: boolean;
+}
+
+export type ExternalProxyBindMode = '' | 'auto' | 'all' | 'address' | 'subnet';
+
+export type LocalNetworkSource = 'default_route' | 'single_interface' | 'loopback_fallback' | 'configured';
+
+export interface LocalNetwork {
+  interface: string;
+  address: string;
+  cidr: string;
+  primary: boolean;
+}
+
+export interface LocalNetworks {
+  auto: { address: string; source: LocalNetworkSource };
+  networks: LocalNetwork[];
 }
 
 export interface ProvisionAgentRequest {
@@ -66,9 +93,6 @@ export type ProvisionResponse = ProvisionAgentResponse;
 
 export interface InstallSnippets {
   docker_compose: string;
-  systemd: string;
-  tarball: string;
-  homebrew: string;
   kubernetes_daemonset: string;
 }
 
@@ -104,10 +128,26 @@ export const revokeAgent = async (uuid: string): Promise<{ message: string }> =>
   return data;
 };
 
+// rotateAgentKey replaces the agent's key. The returned key is shown once; the
+// server disconnects the agent, which must reconnect with the new key.
+export interface RotateAgentKeyResponse {
+  auth_key: string;
+}
+
+export const rotateAgentKey = async (uuid: string): Promise<RotateAgentKeyResponse> => {
+  const { data } = await client.post<RotateAgentKeyResponse>(`/orthrus/agents/${uuid}/rotate-key`);
+  return data;
+};
+
 export const getInstallSnippets = async (uuid: string): Promise<InstallSnippets> => {
   const { data } = await client.get<InstallSnippets>(`/orthrus/agents/${uuid}/snippets`, {
     headers: { 'X-Charon-URL': window.location.origin },
   });
+  return data;
+};
+
+export const getLocalNetworks = async (): Promise<LocalNetworks> => {
+  const { data } = await client.get<LocalNetworks>('/orthrus/local-networks');
   return data;
 };
 

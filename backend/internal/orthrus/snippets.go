@@ -6,8 +6,5 @@ package orthrus
 // provisioning time and is never embedded in snippet responses.
 type InstallSnippets struct {
 	DockerCompose       string `json:"docker_compose"`
-	Systemd             string `json:"systemd"`
-	Tarball             string `json:"tarball"`
-	Homebrew            string `json:"homebrew"`
 	KubernetesDaemonSet string `json:"kubernetes_daemonset"`
 }

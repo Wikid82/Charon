@@ -565,6 +565,26 @@ Format-v2 backup archives, a validated safe-restore pipeline, optional archive e
 
 **Frontend:** `frontend/src/pages/Backups.tsx` plus `frontend/src/components/backups/` (`RestoreDialog`, `UploadBackupButton`, schedule/encryption/remote-target cards), backed by `frontend/src/hooks/useBackups.ts` and `frontend/src/api/backups.ts`.
 
+#### Orthrus Agent (`internal/orthrus/`, `agent/`)
+
+Orthrus is a small agent that runs beside a Docker host and dials out to Charon. Charon then reaches that host's Docker API over the agent's connection, so no inbound port or socket mount is needed in Charon. There are two parts:
+
+- **Charon side** (`backend/internal/orthrus/`): the WebSocket endpoint, the handshake, one yamux-multiplexed session per connected agent, the read-only Docker API allow-list (`muzzle.go`), and the optional external Docker proxy listener.
+- **Agent side** (`agent/`, a standalone Go module): reads its key file, drops to the low-privilege PUID/PGID, dials Charon, serves allowed Docker API requests from the local socket, and enforces its own copy of the allow-list.
+
+Key behaviour:
+
+- **Handshake:** the agent names itself by UUID (`X-Orthrus-Name`). Keys are bcrypt-hashed (cost 12) and only the hash is stored. Failures are budgeted per client address and agent (10 per minute), with a global budget for uuid-less scans and at most two concurrent verifications.
+- **Key delivery:** `ORTHRUS_AUTH_KEY_FILE` is preferred. The agent reads it before `privdrop` (`agent/keyfile.go`, at most 4 KiB, trimmed). Precedence is file, then `ORTHRUS_AUTH_KEY`, then `--auth-key`; setting both file and env is fatal. `newAuthKey` is shared by provisioning and rotation.
+- **Rotation:** `POST /orthrus/agents/:uuid/rotate-key` (admin) replaces the hash, disconnects the live session, returns the new key once with `Cache-Control: no-store`, and writes audit event `orthrus_key_rotated` (the key is never logged). UUID, name, bind settings, write mode and remote-server links are unchanged.
+- **External proxy listen address** (`bind.go`): resolved at every agent connect, never cached. Explicit IP or CIDR is used as given (a CIDR with no local match is a status error, with no wildcard fallback). Automatic mode uses the default-route interface, then a single non-loopback interface, then `127.0.0.1` with `bind_fallback` set. Automatic never binds `0.0.0.0`. Each listener caps at 256 connections.
+- **Docker API allow-list:** the backend and agent copies of `muzzle.go` must match; `scripts/ci/check_muzzle_allowlist_parity.go` enforces that at commit time. In read-only sessions, `/distribution/<ref>/json` also requires `registryLookupAllowed` (refuses IP-literal, `localhost`, single-label and numeric-looking registry hosts; mirrored table tests). Ordinary DNS names are not resolved, so that residual is documented.
+- **Environment redaction** (`redact.go`): `GET /containers/*/json` is rewritten in read-only and write-enabled sessions. `Config.Env` values become `[redacted]`, keys are kept, and `Accept-Encoding` is removed upstream. Bodies over 8 MiB, gzip-encoded bodies and invalid JSON return 502 (fail closed). `/images/*/json` and `/containers/*/top` are not rewritten.
+- **Stream bounds:** the agent allows 256 concurrent streams, an accept backlog of 64, and a 10-second deadline for the stream type byte and HTTP request header (cleared before body streaming). Charon's yamux accept backlog is 8, because Charon never accepts agent-opened streams. Unknown stream types, including the removed forwarding type, are closed without dialing.
+- **Unencrypted link rule** (`validateServerURL` in `agent/main.go`, mirrored by `isPrivateAgentHost` in `services/orthrus_service.go`): `wss://` is always accepted. `ws://` is accepted only for private hosts, or with `ORTHRUS_ALLOW_INSECURE_WS=true`. Install snippets add a comment when a `ws://` URL would be refused.
+- **Install snippets** (`services/orthrus_service.go`): Docker Compose and Kubernetes only. The key is delivered as a file secret. The image tag comes from `agentImageTag(version.Version)`: a release `X.Y.Z` pins `X.Y.Z`, `+dev.` maps to `dev`, `+nightly.` maps to `nightly`, and anything else maps to `latest` with a comment.
+- **Release images:** `orthrus-build.yml` is a reusable workflow (`workflow_call`) that `docker-build.yml` calls from its `orthrus-release` job on release commits to `main`, publishing `X.Y.Z` and `X.Y`. The workflow also runs on `agent/**` changes and on manual dispatch, where the `release_version` input backfills tags (main only). The `v*` tag is not a trigger, because release-please creates tags with `GITHUB_TOKEN`, which cannot start workflows.
+
 #### Caddy Manager (`internal/caddy/`)
 
 - **Manager:** Orchestrates Caddy configuration updates
@@ -2038,15 +2058,17 @@ user-facing walkthrough; summarized here:
 3. **A human merges that release PR** — this is the only step that
    actually cuts a release. release-please then tags the merge commit
    `vX.Y.Z` (bare, no component prefix) and creates the GitHub Release.
-4. **`orthrus-build.yml` fires on the new `v*` tag** and publishes
-   semver-tagged Orthrus agent images — the one workflow with a real,
-   live dependency on the tag release-please creates.
+4. **`docker-build.yml` calls `orthrus-build.yml`** when the release commit
+   lands on `main`, publishing the `X.Y.Z` and `X.Y` Orthrus agent images.
+   The `v*` tag is not the trigger: release-please creates tags with
+   `GITHUB_TOKEN`, and events from that token never start workflows.
 
-Outside of release tags, the Orthrus image is only rebuilt when `agent/**`
+Outside of release commits, the Orthrus image is only rebuilt when `agent/**`
 (code, `go.mod`/`go.sum`, `Dockerfile`) changes: `orthrus-build.yml` path-filters
 its branch pushes and PRs, and the nightly Orthrus job is gated on an
 `agent_changed` diff of `agent/` between `nightly` and `development`
-(manual dispatches always rebuild).
+(manual dispatches always rebuild; a `release_version` input backfills a
+release on `main`).
 
 **Automated Docker Image Build (GitHub Actions, `docker-build.yml`):**
 

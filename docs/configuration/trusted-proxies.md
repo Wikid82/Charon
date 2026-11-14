@@ -19,6 +19,8 @@ If you don't list your proxy:
 
 If you connect to Charon directly, with no proxy in front, leave this empty.
 
+This list also applies to [Orthrus agents](../features/orthrus.md) that reach Charon through a proxy: it sets which address Charon uses to count each agent's connection attempts.
+
 ## How to Set It
 
 Add the proxy's address to your Docker Compose file, then restart Charon:

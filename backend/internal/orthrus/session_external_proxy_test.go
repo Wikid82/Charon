@@ -85,7 +85,7 @@ func serveMockDockerOnYamux(clientYamux *yamux.Session, responses map[string]str
 	}()
 }
 
-// U-EXT-01: StartExternalProxy(0) is a no-op — returns nil without binding.
+// U-EXT-01: StartExternalProxy(0, "") is a no-op — returns nil without binding.
 func TestStartExternalProxy_ZeroPortIsNoOp(t *testing.T) {
 	serverConn, done := testWSPair(t)
 	defer done()
@@ -94,7 +94,7 @@ func TestStartExternalProxy_ZeroPortIsNoOp(t *testing.T) {
 	require.NoError(t, err)
 	defer func() { _ = sess.Close() }()
 
-	assert.NoError(t, sess.StartExternalProxy(0))
+	assert.NoError(t, sess.StartExternalProxy(0, ""))
 	status := sess.GetExternalProxyStatus()
 	assert.False(t, status.Active)
 }
@@ -109,7 +109,7 @@ func TestStartExternalProxy_LoopbackNotStarted(t *testing.T) {
 	defer func() { _ = sess.Close() }()
 
 	port := findFreePort(t)
-	err = sess.StartExternalProxy(port)
+	err = sess.StartExternalProxy(port, "127.0.0.1")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "loopback proxy not started")
 }
@@ -124,7 +124,7 @@ func TestStartExternalProxy_FullHTTPChain(t *testing.T) {
 	})
 
 	port := findFreePort(t)
-	require.NoError(t, sess.StartExternalProxy(port))
+	require.NoError(t, sess.StartExternalProxy(port, "127.0.0.1"))
 
 	assert.Eventually(t, func() bool {
 		return sess.GetExternalProxyStatus().Active
@@ -146,9 +146,9 @@ func TestStartExternalProxy_Idempotent(t *testing.T) {
 	defer cleanup()
 
 	port := findFreePort(t)
-	require.NoError(t, sess.StartExternalProxy(port))
+	require.NoError(t, sess.StartExternalProxy(port, "127.0.0.1"))
 
-	err := sess.StartExternalProxy(port)
+	err := sess.StartExternalProxy(port, "127.0.0.1")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "already started")
 }
@@ -159,7 +159,7 @@ func TestStartExternalProxy_MuzzleBlocksPOST(t *testing.T) {
 	defer cleanup()
 
 	port := findFreePort(t)
-	require.NoError(t, sess.StartExternalProxy(port))
+	require.NoError(t, sess.StartExternalProxy(port, "127.0.0.1"))
 
 	assert.Eventually(t, func() bool {
 		return sess.GetExternalProxyStatus().Active
@@ -177,7 +177,7 @@ func TestStartExternalProxy_MuzzleBlocksNonAllowlisted(t *testing.T) {
 	defer cleanup()
 
 	port := findFreePort(t)
-	require.NoError(t, sess.StartExternalProxy(port))
+	require.NoError(t, sess.StartExternalProxy(port, "127.0.0.1"))
 
 	assert.Eventually(t, func() bool {
 		return sess.GetExternalProxyStatus().Active
@@ -207,7 +207,7 @@ func TestGetExternalProxyStatus_Active(t *testing.T) {
 	defer cleanup()
 
 	port := findFreePort(t)
-	require.NoError(t, sess.StartExternalProxy(port))
+	require.NoError(t, sess.StartExternalProxy(port, "127.0.0.1"))
 
 	assert.Eventually(t, func() bool {
 		return sess.GetExternalProxyStatus().Active
@@ -226,7 +226,7 @@ func TestClose_ShutdownsExternalProxy(t *testing.T) {
 	defer cleanup()
 
 	port := findFreePort(t)
-	require.NoError(t, sess.StartExternalProxy(port))
+	require.NoError(t, sess.StartExternalProxy(port, "127.0.0.1"))
 
 	assert.Eventually(t, func() bool {
 		return sess.GetExternalProxyStatus().Active
@@ -244,7 +244,7 @@ func TestStartExternalProxy_PortReusableAfterClose(t *testing.T) {
 	defer cleanup()
 
 	port := findFreePort(t)
-	require.NoError(t, sess.StartExternalProxy(port))
+	require.NoError(t, sess.StartExternalProxy(port, "127.0.0.1"))
 
 	assert.Eventually(t, func() bool {
 		return sess.GetExternalProxyStatus().Active
@@ -256,7 +256,7 @@ func TestStartExternalProxy_PortReusableAfterClose(t *testing.T) {
 	sess2, _, cleanup2 := sessionWithLoopback(t)
 	defer cleanup2()
 
-	require.NoError(t, sess2.StartExternalProxy(port))
+	require.NoError(t, sess2.StartExternalProxy(port, "127.0.0.1"))
 	assert.Eventually(t, func() bool {
 		return sess2.GetExternalProxyStatus().Active
 	}, 2*time.Second, 10*time.Millisecond)

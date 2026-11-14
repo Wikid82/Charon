@@ -187,6 +187,9 @@ func (s *ProxyHostService) checkHostWrite(tx *gorm.DB, host *models.ProxyHost, e
 	if err := s.validateProxyHost(host); err != nil {
 		return err
 	}
+	if err := refuseListenerHostTargets(tx, host); err != nil {
+		return err
+	}
 	if err := validateLocationTargets(host.Locations); err != nil {
 		return err
 	}
@@ -201,6 +204,20 @@ func (s *ProxyHostService) checkHostWrite(tx *gorm.DB, host *models.ProxyHost, e
 		return err
 	}
 	return ensureAdminOnlyFieldsUnchanged(admin, stored, proxyAdminFieldsOf(host))
+}
+
+// refuseListenerHostTargets rejects a host whose own forward target or any location
+// target reaches an agent listener. It runs inside the caller's transaction.
+func refuseListenerHostTargets(tx *gorm.DB, host *models.ProxyHost) error {
+	if err := refuseOrthrusListenerTarget(tx, host.ForwardHost, host.ForwardPort); err != nil {
+		return err
+	}
+	for i := range host.Locations {
+		if err := refuseOrthrusListenerTarget(tx, host.Locations[i].ForwardHost, host.Locations[i].ForwardPort); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // proxyAdminFieldsOf returns the admin-only fields of an incoming proxy host.
@@ -349,6 +366,9 @@ func (s *ProxyHostService) List() ([]models.ProxyHost, error) {
 func (s *ProxyHostService) TestConnection(host string, port int) error {
 	if host == "" || port <= 0 {
 		return errors.New("invalid host or port")
+	}
+	if err := refuseOrthrusListenerTarget(s.db, host, port); err != nil {
+		return err
 	}
 
 	target := net.JoinHostPort(host, strconv.Itoa(port))

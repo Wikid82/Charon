@@ -14,9 +14,13 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/netip"
 	"path"
 	"regexp"
 	"strings"
+	"time"
+
+	"github.com/distribution/reference"
 )
 
 const forbiddenResponse = "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
@@ -138,6 +142,19 @@ var allowedDockerPrefixSuffixPatterns = []struct {
 // full rationale.
 type Filter struct {
 	writeEnabled bool
+	// headerTimeout bounds how long ServeProxy waits for the complete request
+	// header. The deadline is cleared once the header is read, so bodies and
+	// long-lived responses are not affected.
+	headerTimeout time.Duration
+}
+
+// defaultHeaderTimeout is the request header deadline New applies.
+const defaultHeaderTimeout = 10 * time.Second
+
+// readDeadliner is implemented by streams that support read deadlines
+// (yamux streams and net.Conn values).
+type readDeadliner interface {
+	SetReadDeadline(t time.Time) error
 }
 
 // New returns a new Muzzle filter. writeEnabled governs whether this
@@ -145,7 +162,7 @@ type Filter struct {
 // default for any caller not yet passing the negotiated handshake value)
 // preserves the unconditional read-only allowlist behavior.
 func New(writeEnabled bool) *Filter {
-	return &Filter{writeEnabled: writeEnabled}
+	return &Filter{writeEnabled: writeEnabled, headerTimeout: defaultHeaderTimeout}
 }
 
 // Allow returns true if method+reqPath is permitted, after
@@ -188,12 +205,88 @@ func (f *Filter) Allow(method, reqPath string) bool {
 	// allowedDockerPrefixSuffixPatterns for why path.Match is not used
 	// here).
 	for _, ps := range allowedDockerPrefixSuffixPatterns {
-		if strings.HasPrefix(normalizedPath, ps.prefix) && strings.HasSuffix(normalizedPath, ps.suffix) {
+		if prefixSuffixAllowed(ps.prefix, ps.suffix, normalizedPath) {
 			return true
 		}
 	}
 
 	return false
+}
+
+// prefixSuffixAllowed reports whether a normalized path matches one entry of
+// allowedDockerPrefixSuffixPatterns. Registry lookups additionally pass the
+// registry host rule (see registryLookupAllowed); other entries match on
+// prefix and suffix alone.
+func prefixSuffixAllowed(prefix, suffix, normalizedPath string) bool {
+	if !strings.HasPrefix(normalizedPath, prefix) || !strings.HasSuffix(normalizedPath, suffix) {
+		return false
+	}
+	if prefix != "/distribution/" {
+		return true
+	}
+	ref, _ := strings.CutPrefix(normalizedPath, prefix)
+	ref, _ = strings.CutSuffix(ref, suffix)
+	return registryLookupAllowed(ref)
+}
+
+// registryLookupAllowed reports whether a /distribution/<ref>/json lookup may
+// reach the registry named in ref. Refused: unparsable references,
+// IP-literal registries, localhost (and *.localhost), single-label registry
+// hosts, and shorthand IPv4 forms with a numeric last label or hex labels.
+// Docker Hub short names ("nginx", "library/nginx") are allowed.
+//
+// Residual, not covered: an ordinary DNS name that resolves to an internal
+// address. Checking that would need a resolution here that could disagree
+// with the daemon's own lookup, so the read-only proxy can still make the
+// daemon contact registries named by DNS. Keep the external proxy reachable
+// only by trusted tools.
+//
+// backend/internal/orthrus/muzzle.go carries an identical helper; the two are
+// kept aligned by the mirrored table tests, not by the parity script.
+func registryLookupAllowed(ref string) bool {
+	named, err := reference.ParseNormalizedNamed(ref)
+	if err != nil {
+		return false
+	}
+	host := reference.Domain(named)
+	if h, _, splitErr := net.SplitHostPort(host); splitErr == nil {
+		host = h
+	}
+	host = strings.TrimSuffix(strings.TrimPrefix(host, "["), "]")
+	host = strings.ToLower(strings.TrimSuffix(host, "."))
+
+	if _, addrErr := netip.ParseAddr(host); addrErr == nil {
+		return false
+	}
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return false
+	}
+	if !strings.Contains(host, ".") {
+		return false
+	}
+	labels := strings.Split(host, ".")
+	if isAllDigits(labels[len(labels)-1]) {
+		return false
+	}
+	for _, label := range labels {
+		if strings.HasPrefix(label, "0x") {
+			return false
+		}
+	}
+	return true
+}
+
+// isAllDigits reports whether s is non-empty and made only of ASCII digits.
+func isAllDigits(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // ServeProxy reads the HTTP request from r, checks Allow(), then dials the Docker
@@ -209,7 +302,19 @@ func (f *Filter) Allow(method, reqPath string) bool {
 func (f *Filter) ServeProxy(dst string, r io.Reader, w io.Writer) error {
 	bufr := bufio.NewReader(r)
 
+	// Bound the request header only. The deadline is cleared as soon as the
+	// header is parsed, so a body that arrives later, or a long-lived response
+	// such as /events or /logs?follow=1, is never cut by it.
+	dl, hasDeadline := r.(readDeadliner)
+	if hasDeadline {
+		if err := dl.SetReadDeadline(time.Now().Add(f.headerTimeout)); err != nil {
+			return fmt.Errorf("muzzle: set header deadline: %w", err)
+		}
+	}
 	req, err := http.ReadRequest(bufr)
+	if hasDeadline {
+		_ = dl.SetReadDeadline(time.Time{})
+	}
 	if err != nil {
 		return fmt.Errorf("muzzle: read request: %w", err)
 	}

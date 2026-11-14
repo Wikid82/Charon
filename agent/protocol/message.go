@@ -15,9 +15,8 @@ const (
 	// TypePong is a control message response to a ping.
 	TypePong MessageType = 0x01
 
-	// TypePortForward indicates a TCP port-forward data stream.
-	// The stream header is: 2-byte big-endian uint16 length, then the target address bytes.
-	TypePortForward MessageType = 0x02
+	// 0x02 is retired and must not be reused: it was a stream type that is no
+	// longer part of the protocol.
 
 	// TypeDockerSocket indicates a Docker socket proxy data stream.
 	// The stream carries a raw HTTP request followed by the server's response.

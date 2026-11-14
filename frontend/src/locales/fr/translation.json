@@ -2433,10 +2433,7 @@
     "installWizard": {
       "tabs": {
         "dockerCompose": "Docker Compose",
-        "systemd": "Systemd",
-        "tarball": "Tarball",
-        "kubernetes": "Kubernetes",
-        "homebrew": "Homebrew"
+        "kubernetes": "Kubernetes"
       },
       "dockerGid": {
         "title": "Replace <DOCKER_GID> with your Docker group ID",
@@ -2444,7 +2441,6 @@
         "copyCommand": "Copy command",
         "macHint": "On macOS, use this command instead: stat -f %g /var/run/docker.sock",
         "noteComposeSystemd": "Set PGID to that number. The agent will refuse to start if <DOCKER_GID> is left in place.",
-        "noteTarballHomebrew": "Replace <DOCKER_GID> with that number and keep sudo in front of the command. Without sudo, PUID and PGID are ignored, so your user must be in the docker group instead.",
         "noteKubernetes": "Replace <DOCKER_GID> in supplementalGroups with that number. Kubernetes does not use PUID or PGID."
       }
     },
@@ -2503,7 +2499,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Renouveler la clé de {{name}}",
+      "rotateTitle": "Renouveler la clé de l'agent",
+      "rotateDescription": "La clé actuelle cesse immédiatement de fonctionner et l'agent est déconnecté. L'agent ne pourra pas se reconnecter tant que vous ne l'aurez pas mis à jour avec la nouvelle clé.",
+      "rotateConfirm": "Renouveler la clé",
+      "rotateSuccessTitle": "Nouvelle clé pour {{name}}",
+      "rotateSuccessDescription": "Copiez cette clé maintenant. Charon ne l'affichera plus. Placez-la dans le fichier de clé de l'agent, puis redémarrez l'agent pour qu'il se reconnecte.",
+      "rotateDone": "Terminé",
+      "rotateError": "La clé n'a pas pu être renouvelée. Réessayez."
     },
     "externalProxy": {
       "title": "Proxy Docker Externe",
@@ -2517,7 +2521,23 @@
       "statusInactive": "Inactif",
       "copyConnectionString": "Copier la chaîne de connexion Docker",
       "reconnectNotice": "La modification du port prendra effet lors de la prochaine reconnexion de l'agent.",
-      "agentOffline": "L'agent est hors ligne. État du proxy indisponible."
+      "bindReconnectNotice": "Le changement d'adresse d'écoute prend effet lorsque l'agent se reconnecte.",
+      "agentOffline": "L'agent est hors ligne. État du proxy indisponible.",
+      "bindLabel": "Écouter sur",
+      "bindHint": "Choisissez le réseau sur lequel ce proxy écoute. Automatique utilise le réseau principal de ce serveur.",
+      "bindAuto": "Automatique",
+      "bindAutoResolved": "Automatique ({{address}})",
+      "bindAll": "Tous les réseaux (0.0.0.0)",
+      "bindCustom": "Adresse ou sous-réseau personnalisé",
+      "bindCustomLabel": "Adresse ou sous-réseau",
+      "bindCustomPlaceholder": "192.168.1.10 ou 192.168.1.0/24",
+      "bindAllNote": "Le proxy n'a pas de connexion. Quiconque peut atteindre ce port peut lire les détails des conteneurs de cet hôte.",
+      "loopbackNote": "Non accessible depuis les autres conteneurs ou hôtes.",
+      "fallbackNote": "Automatique n'a trouvé aucun réseau d'écoute, le proxy écoute donc sur la boucle locale. Choisissez un réseau pour changer cela.",
+      "bindListening": "Écoute sur {{address}}",
+      "bindInvalid": "Saisissez une adresse IP ou un sous-réseau, par exemple 192.168.1.10 ou 192.168.1.0/24.",
+      "saveError": "Les paramètres du proxy n'ont pas pu être enregistrés. Réessayez.",
+      "cardAutomaticNote": "L'adresse d'écoute est automatique. Choisissez un réseau dans les paramètres du proxy si d'autres hôtes ont besoin d'accès."
     },
     "writeMode": {
       "title": "Write Access — {{name}}",

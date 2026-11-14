@@ -42,10 +42,29 @@ func respondAdminOnlyHostError(c *gin.Context, err error) bool {
 	return true
 }
 
+// forwardTargetRefusedCode is the error_code for a forward target this proxy will not dial.
+const forwardTargetRefusedCode = "forward_target_refused"
+
+// respondForwardTargetRefused writes the 400 for a forward target that reaches one of
+// this proxy's internal listeners and reports whether err was that refusal.
+func respondForwardTargetRefused(c *gin.Context, err error) bool {
+	if !errors.Is(err, services.ErrOrthrusListenerTarget) && !errors.Is(err, services.ErrAdminListenerTarget) && !errors.Is(err, services.ErrAgentForwardTarget) {
+		return false
+	}
+	c.JSON(http.StatusBadRequest, gin.H{
+		"error":      err.Error(),
+		"error_code": forwardTargetRefusedCode,
+	})
+	return true
+}
+
 // respondHostWriteError writes the response for a rejected proxy or redirection
 // host write: 403 for an admin-only field, otherwise 400 with the validation message.
 func respondHostWriteError(c *gin.Context, err error) {
 	if respondAdminOnlyHostError(c, err) {
+		return
+	}
+	if respondForwardTargetRefused(c, err) {
 		return
 	}
 	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

@@ -3,11 +3,15 @@ package services
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"net/netip"
+	"net/url"
 	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/orthrus"
+	"github.com/Wikid82/charon/backend/internal/version"
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 )
@@ -15,18 +19,36 @@ import (
 const (
 	authKeyPrefix  = "ch_orthrus_"
 	authKeyRandLen = 32 // bytes of random hex
-	bcryptCost     = 12
+
+	// maxExternalProxyBindLen bounds the stored listen setting.
+	maxExternalProxyBindLen = 64
 )
+
+// ErrInvalidExternalProxyBind is returned when a listen setting is neither
+// automatic, all interfaces, an address, nor a subnet. The handler maps it to a
+// fixed operator-facing message and error code.
+var ErrInvalidExternalProxyBind = errors.New("external proxy bind is invalid")
+
+// agentDisconnector closes a live agent session. *orthrus.OrthrusServer satisfies
+// it; tests substitute a recorder.
+type agentDisconnector interface {
+	DisconnectAgent(agentUUID string) error
+}
 
 // OrthrusService provides agent lifecycle management on top of OrthrusServer.
 type OrthrusService struct {
 	db     *gorm.DB
-	server *orthrus.OrthrusServer
+	server agentDisconnector
 }
 
-// NewOrthrusService creates an OrthrusService.
+// NewOrthrusService creates an OrthrusService. A nil server leaves session
+// disconnection disabled (no sessions can exist without a server).
 func NewOrthrusService(db *gorm.DB, server *orthrus.OrthrusServer) *OrthrusService {
-	return &OrthrusService{db: db, server: server}
+	svc := &OrthrusService{db: db}
+	if server != nil {
+		svc.server = server
+	}
+	return svc
 }
 
 // List returns all registered OrthrusAgent records.
@@ -38,24 +60,28 @@ func (s *OrthrusService) List() ([]models.OrthrusAgent, error) {
 	return agents, nil
 }
 
+// newAuthKey generates a random agent key and its bcrypt hash. The plaintext is
+// returned once to the caller and never stored.
+func newAuthKey() (plainKey string, hash []byte, err error) {
+	rawBytes := make([]byte, authKeyRandLen)
+	if _, err = rand.Read(rawBytes); err != nil {
+		return "", nil, fmt.Errorf("orthrus: generate auth key: %w", err)
+	}
+	plainKey = authKeyPrefix + hex.EncodeToString(rawBytes)
+
+	hash, err = bcrypt.GenerateFromPassword(orthrus.BcryptInput(plainKey), orthrus.BcryptCost)
+	if err != nil {
+		return "", nil, fmt.Errorf("orthrus: hash auth key: %w", err)
+	}
+	return plainKey, hash, nil
+}
+
 // Provision creates a new agent and returns it along with the plaintext auth key.
 // The key is only available at this point and is not stored in plaintext.
 func (s *OrthrusService) Provision(name string) (models.OrthrusAgent, string, error) {
-	rawBytes := make([]byte, authKeyRandLen)
-	if _, err := rand.Read(rawBytes); err != nil {
-		return models.OrthrusAgent{}, "", fmt.Errorf("orthrus: generate auth key: %w", err)
-	}
-	plainKey := authKeyPrefix + hex.EncodeToString(rawBytes)
-
-	// Truncate to bcrypt's 72-byte input limit so the full key is compared;
-	// bcrypt is the sole password hashing primitive — no pre-hash step needed.
-	keyBytes := []byte(plainKey)
-	if len(keyBytes) >= 72 {
-		keyBytes = keyBytes[:71]
-	}
-	hash, err := bcrypt.GenerateFromPassword(keyBytes, bcryptCost)
+	plainKey, hash, err := newAuthKey()
 	if err != nil {
-		return models.OrthrusAgent{}, "", fmt.Errorf("orthrus: hash auth key: %w", err)
+		return models.OrthrusAgent{}, "", err
 	}
 
 	agent := models.OrthrusAgent{
@@ -80,42 +106,60 @@ func (s *OrthrusService) Get(uuid string) (*models.OrthrusAgent, error) {
 	return &agent, nil
 }
 
-// Patch applies a partial update to an agent. Only non-nil fields are written.
+// AgentPatch is a partial update to an agent. Only non-nil fields are written.
+type AgentPatch struct {
+	Name              *string
+	HecateTunnelUUID  *string
+	DeviceID          *string
+	ResolvedAddress   *string
+	ExternalProxyPort *int
+	ExternalProxyBind *string
+	WriteEnabled      *bool
+}
+
+// Patch applies a partial update to an agent.
 //
-// writeEnabled has no range validation (unlike externalProxyPort) since a
+// WriteEnabled has no range validation (unlike ExternalProxyPort) since a
 // bool has no invalid values; the audit entry for this specific field is
 // emitted by the caller (OrthrusHandler.Patch), not here, matching this
 // codebase's existing convention of logging admin-initiated audit events at
 // the handler layer (see e.g. security_handler.go, crowdsec_handler.go)
 // rather than growing OrthrusService's dependencies to include
 // *services.SecurityService and a *gin.Context-derived actor.
-func (s *OrthrusService) Patch(uuid string, name, hecateTunnelUUID, deviceID, resolvedAddress *string, externalProxyPort *int, writeEnabled *bool) (*models.OrthrusAgent, error) {
+func (s *OrthrusService) Patch(uuid string, p AgentPatch) (*models.OrthrusAgent, error) {
 	updates := map[string]interface{}{}
-	if name != nil {
-		trimmed := strings.TrimSpace(*name)
+	if p.Name != nil {
+		trimmed := strings.TrimSpace(*p.Name)
 		if trimmed == "" {
 			return nil, fmt.Errorf("orthrus: agent name cannot be blank")
 		}
 		updates["name"] = trimmed
 	}
-	if hecateTunnelUUID != nil {
-		updates["hecate_tunnel_uuid"] = *hecateTunnelUUID
+	if p.HecateTunnelUUID != nil {
+		updates["hecate_tunnel_uuid"] = *p.HecateTunnelUUID
 	}
-	if deviceID != nil {
-		updates["device_id"] = *deviceID
+	if p.DeviceID != nil {
+		updates["device_id"] = *p.DeviceID
 	}
-	if resolvedAddress != nil {
-		updates["resolved_address"] = *resolvedAddress
+	if p.ResolvedAddress != nil {
+		updates["resolved_address"] = *p.ResolvedAddress
 	}
-	if externalProxyPort != nil {
-		port := *externalProxyPort
+	if p.ExternalProxyPort != nil {
+		port := *p.ExternalProxyPort
 		if port != 0 && (port < 1024 || port > 65535) {
 			return nil, fmt.Errorf("external_proxy_port must be 0 (disabled) or in range 1024–65535, got %d", port)
 		}
 		updates["external_proxy_port"] = port
 	}
-	if writeEnabled != nil {
-		updates["write_enabled"] = *writeEnabled
+	if p.ExternalProxyBind != nil {
+		bind, err := normalizeExternalProxyBind(*p.ExternalProxyBind)
+		if err != nil {
+			return nil, fmt.Errorf("orthrus: patch external proxy bind: %w", err)
+		}
+		updates["external_proxy_bind"] = bind
+	}
+	if p.WriteEnabled != nil {
+		updates["write_enabled"] = *p.WriteEnabled
 	}
 	if len(updates) == 0 {
 		return s.Get(uuid)
@@ -126,9 +170,9 @@ func (s *OrthrusService) Patch(uuid string, name, hecateTunnelUUID, deviceID, re
 	return s.Get(uuid)
 }
 
-// Rename updates the display name of an agent (backward-compat wrapper around Patch).
+// Rename updates the display name of an agent.
 func (s *OrthrusService) Rename(uuid, newName string) (*models.OrthrusAgent, error) {
-	return s.Patch(uuid, &newName, nil, nil, nil, nil, nil)
+	return s.Patch(uuid, AgentPatch{Name: &newName})
 }
 
 // Delete removes an agent from the database (does not revoke/disconnect first).
@@ -146,7 +190,7 @@ func (s *OrthrusService) Revoke(uuid string) error {
 	if _, err := rand.Read(invalidBytes); err != nil {
 		return fmt.Errorf("orthrus: generate revoke token: %w", err)
 	}
-	invalidHash, err := bcrypt.GenerateFromPassword(invalidBytes[:32], bcryptCost)
+	invalidHash, err := bcrypt.GenerateFromPassword(invalidBytes[:32], orthrus.BcryptCost)
 	if err != nil {
 		return fmt.Errorf("orthrus: hash revoke token: %w", err)
 	}
@@ -157,8 +201,42 @@ func (s *OrthrusService) Revoke(uuid string) error {
 		return fmt.Errorf("orthrus: revoke agent %s: %w", uuid, err)
 	}
 
-	_ = s.server.DisconnectAgent(uuid)
+	s.disconnect(uuid)
 	return nil
+}
+
+// RotateKey replaces an agent's auth key and returns the new plaintext key.
+// The key is only available at this point. The old key stops working at once and
+// any live session is disconnected, so the agent must reconnect with the new key.
+// The UUID, name, provider links and proxy settings are unchanged.
+func (s *OrthrusService) RotateKey(uuid string) (string, error) {
+	plainKey, hash, err := newAuthKey()
+	if err != nil {
+		return "", err
+	}
+
+	res := s.db.Model(&models.OrthrusAgent{}).
+		Where("uuid = ?", uuid).
+		Update("auth_key_hash", string(hash))
+	if res.Error != nil {
+		return "", fmt.Errorf("orthrus: rotate key for agent %s: %w", uuid, res.Error)
+	}
+	if res.RowsAffected == 0 {
+		return "", fmt.Errorf("orthrus: rotate key for agent %s: %w", uuid, gorm.ErrRecordNotFound)
+	}
+
+	s.disconnect(uuid)
+	return plainKey, nil
+}
+
+// disconnect closes the agent's live session if one exists and is safe to call
+// without a server. A close error is ignored: the session is removed from the
+// live table before it is closed, and the stored key has already changed.
+func (s *OrthrusService) disconnect(uuid string) {
+	if s.server == nil {
+		return
+	}
+	_ = s.server.DisconnectAgent(uuid)
 }
 
 // wsURL converts an http/https base URL to the canonical Orthrus WebSocket
@@ -178,6 +256,107 @@ func wsURL(base string) string {
 	return base
 }
 
+// orthrusCGNAT is the carrier-grade NAT range (RFC 6598) used by Tailscale.
+var orthrusCGNAT = netip.MustParsePrefix("100.64.0.0/10")
+
+// orthrusPrivateSuffixes are private-use name suffixes that cannot resolve to
+// public hosts (mDNS, home.arpa, internal).
+var orthrusPrivateSuffixes = []string{".local", ".home.arpa", ".internal"}
+
+// isPrivateAgentHost reports whether an agent may use an unencrypted ws:// link
+// to host without an explicit opt-in. It mirrors the agent's rule in agent/main.go;
+// the two copies are kept in step by table tests on both sides.
+func isPrivateAgentHost(host string) bool {
+	host = strings.TrimSuffix(strings.ToLower(host), ".")
+	if host == "" {
+		return false
+	}
+	if addr, err := netip.ParseAddr(host); err == nil {
+		addr = addr.Unmap()
+		return addr.IsLoopback() || addr.IsPrivate() || orthrusCGNAT.Contains(addr)
+	}
+	if host == "localhost" || strings.HasSuffix(host, ".localhost") {
+		return true
+	}
+	if !strings.Contains(host, ".") {
+		return true
+	}
+	for _, suffix := range orthrusPrivateSuffixes {
+		if strings.HasSuffix(host, suffix) {
+			return true
+		}
+	}
+	return false
+}
+
+// insecureLinkNote returns commented lines for a snippet when serverURL is a
+// ws:// link to a host the agent would refuse without the opt-in. The lines use
+// the given indent and end with a newline; otherwise it returns "".
+func insecureLinkNote(serverURL, indent string) string {
+	u, err := url.Parse(serverURL)
+	if err != nil || u.Scheme != "ws" || isPrivateAgentHost(u.Hostname()) {
+		return ""
+	}
+	return indent + "# This address is not private, so the agent needs wss:// (Charon behind HTTPS) or ORTHRUS_ALLOW_INSECURE_WS=true.\n" +
+		indent + "# - ORTHRUS_ALLOW_INSECURE_WS=true\n"
+}
+
+const (
+	// agentImageRepo is the Docker Hub and GHCR repository for the agent image.
+	agentImageRepo = "wikid82/orthrus"
+	// agentLatestTag is the unpinned fallback for builds without a release version.
+	agentLatestTag = "latest"
+)
+
+// agentImageTag maps a build version to the agent image tag that install
+// snippets reference. pinned is true only for plain release versions, which
+// have a matching X.Y.Z image. Pre-releases and unparsable input fall back to
+// latest because only plain X.Y.Z agent images are published.
+func agentImageTag(v string) (tag string, pinned bool) {
+	if _, ok := version.Canonical(v); !ok {
+		return agentLatestTag, false
+	}
+	base, meta, hasMeta := strings.Cut(v, "+")
+	if strings.Contains(base, "-") {
+		return agentLatestTag, false
+	}
+	if !hasMeta {
+		return base, true
+	}
+	switch {
+	case strings.HasPrefix(meta, "dev."):
+		return "dev", false
+	case strings.HasPrefix(meta, "nightly."):
+		return "nightly", false
+	default:
+		return agentLatestTag, false
+	}
+}
+
+// agentImageNote returns the comment shown above the image line for tag, or ""
+// when the tag needs no explanation.
+func agentImageNote(tag string) string {
+	switch tag {
+	case "dev":
+		return "Development build: this tag follows the development branch."
+	case "nightly":
+		return "Nightly build: this tag follows the nightly channel."
+	case agentLatestTag:
+		return "This Charon build has no release version; use the agent tag that matches your Charon release."
+	default:
+		return ""
+	}
+}
+
+// commentLine renders note as a YAML comment at indent, ending with a newline.
+// It returns "" when note is empty.
+func commentLine(note, indent string) string {
+	if note == "" {
+		return ""
+	}
+	return indent + "# " + note + "\n"
+}
+
 // GetInstallSnippets returns platform-specific install templates for an agent.
 // The placeholder "<AUTH_KEY>" is used in place of the actual key, which is
 // only provided once at Provision time.
@@ -190,14 +369,22 @@ func (s *OrthrusService) GetInstallSnippets(uuid, charonURL string) (*orthrus.In
 	name := agent.Name
 	agentUUID := agent.UUID
 	serverURL := wsURL(charonURL)
+	tag, _ := agentImageTag(version.Version)
+	image := agentImageRepo + ":" + tag
+	imageNote := agentImageNote(tag)
 
 	return &orthrus.InstallSnippets{
 		// The agent drops from root to PUID/PGID at startup (agent/privdrop), so
 		// every snippet starts it as root. PGID must equal the host Docker
 		// socket's group GID: `stat -c %g /var/run/docker.sock`.
-		DockerCompose: fmt.Sprintf(`services:
+		// The key is written to a file secret rather than an environment variable,
+		// so it does not appear in `docker inspect` output or the process environment.
+		// The first <AUTH_KEY> must be the printf line: the wizard fills only the first match.
+		DockerCompose: fmt.Sprintf(`# Save the auth key next to this file first (Charon shows it only once):
+#   printf '%%s' '<AUTH_KEY>' > orthrus_auth_key && chmod 600 orthrus_auth_key
+services:
   %s:
-    image: wikid82/orthrus:latest
+%s    image: %s
     restart: always
     container_name: orthrus
     environment:
@@ -206,43 +393,23 @@ func (s *OrthrusService) GetInstallSnippets(uuid, charonURL string) (*orthrus.In
       - PGID=<DOCKER_GID>
       - TZ=UTC
       - ORTHRUS_SERVER_URL=%s
-      - ORTHRUS_AGENT_ID=%s
-      - ORTHRUS_AUTH_KEY=<AUTH_KEY>
+%s      - ORTHRUS_AGENT_ID=%s
+      # The agent reads the key from this file before it drops privileges.
+      - ORTHRUS_AUTH_KEY_FILE=/run/secrets/orthrus_auth_key
+    secrets:
+      - orthrus_auth_key
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock:ro
-`, name, serverURL, agentUUID),
+secrets:
+  orthrus_auth_key:
+    file: ./orthrus_auth_key
+`, name, commentLine(imageNote, "    "), image, serverURL, insecureLinkNote(serverURL, "      "), agentUUID),
 
-		Systemd: fmt.Sprintf(`[Unit]
-Description=Charon Orthrus Agent (%s)
-After=network.target
-
-[Service]
-# Do not set a non-root account: the agent must start as root to drop to PUID/PGID.
-# PGID must equal the Docker socket's group GID: stat -c %%g /var/run/docker.sock
-Environment="PUID=65532"
-Environment="PGID=<DOCKER_GID>"
-Environment="ORTHRUS_SERVER_URL=%s"
-Environment="ORTHRUS_AGENT_ID=%s"
-Environment="ORTHRUS_AUTH_KEY=<AUTH_KEY>"
-ExecStart=/usr/local/bin/charon-agent
-Restart=on-failure
-
-[Install]
-WantedBy=multi-user.target
-`, name, serverURL, agentUUID),
-
-		// sudo keeps the process root so the agent can drop to PUID/PGID. A
-		// plain (non-root) run ignores PUID/PGID, so that user must be in the
-		// docker group instead. Replace <DOCKER_GID> with: stat -c %%g /var/run/docker.sock
-		Tarball: fmt.Sprintf(`curl -fsSL https://github.com/Wikid82/charon/releases/latest/download/charon-agent-linux-amd64.tar.gz | tar xz
-sudo env PUID=65532 PGID=<DOCKER_GID> ORTHRUS_SERVER_URL=%s ORTHRUS_AGENT_ID=%s ORTHRUS_AUTH_KEY=<AUTH_KEY> ./charon-agent
-`, serverURL, agentUUID),
-
-		Homebrew: fmt.Sprintf(`brew install wikid82/tap/charon-agent
-sudo env PUID=65532 PGID=<DOCKER_GID> ORTHRUS_SERVER_URL=%s ORTHRUS_AGENT_ID=%s ORTHRUS_AUTH_KEY=<AUTH_KEY> charon-agent
-`, serverURL, agentUUID),
-
-		KubernetesDaemonSet: fmt.Sprintf(`apiVersion: apps/v1
+		// The key lives in a Secret mounted as a file. fsGroup and defaultMode 0440
+		// let the non-root container user read it; the Secret is created separately.
+		KubernetesDaemonSet: fmt.Sprintf(`# Create the Secret first (Charon shows the key only once):
+#   kubectl create secret generic orthrus-auth-key --from-literal=auth-key='<AUTH_KEY>'
+apiVersion: apps/v1
 kind: DaemonSet
 metadata:
   name: orthrus-agent
@@ -264,16 +431,19 @@ spec:
         runAsGroup: 65532
         supplementalGroups:
           - <DOCKER_GID>
+        # Group ownership of the mounted Secret files (the auth key) for the non-root user.
+        fsGroup: 65532
       containers:
         - name: agent
-          image: wikid82/orthrus:latest
+%s          image: %s
           env:
             - name: ORTHRUS_SERVER_URL
               value: "%s"
-            - name: ORTHRUS_AGENT_ID
+%s            - name: ORTHRUS_AGENT_ID
               value: "%s"
-            - name: ORTHRUS_AUTH_KEY
-              value: "<AUTH_KEY>"
+            # The agent reads the key from this file before it drops privileges.
+            - name: ORTHRUS_AUTH_KEY_FILE
+              value: "/var/run/secrets/orthrus/auth-key"
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
@@ -284,11 +454,40 @@ spec:
             - name: docker-sock
               mountPath: /var/run/docker.sock
               readOnly: true
+            - name: auth-key
+              mountPath: /var/run/secrets/orthrus
+              readOnly: true
       volumes:
         - name: docker-sock
           hostPath:
             path: /var/run/docker.sock
             type: Socket
-`, serverURL, agentUUID),
+        - name: auth-key
+          secret:
+            secretName: orthrus-auth-key
+            defaultMode: 0440
+`, commentLine(imageNote, "          "), image, serverURL, insecureLinkNote(serverURL, "            "), agentUUID),
 	}, nil
+}
+
+// normalizeExternalProxyBind validates a listen setting and returns its stored
+// form: trimmed, with a subnet masked. Reachability is not checked here,
+// because interfaces can change; the bind result is reported in proxy-status.
+func normalizeExternalProxyBind(raw string) (string, error) {
+	s := strings.TrimSpace(raw)
+	if len(s) > maxExternalProxyBindLen {
+		return "", ErrInvalidExternalProxyBind
+	}
+	mode, addr, prefix, err := orthrus.ParseBindSetting(s)
+	if err != nil {
+		return "", ErrInvalidExternalProxyBind
+	}
+	switch mode {
+	case orthrus.BindModeAuto:
+		return "", nil
+	case orthrus.BindModeSubnet:
+		return prefix.String(), nil
+	default: // all interfaces or one address
+		return addr.String(), nil
+	}
 }

@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-be70b87833d6b412
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:d7317bd44f6bbb18815847ce7d2a2c34fe0e8610387c081dec4a7fd575ac9d9f
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-66f7e58dee5020e1
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:f2226d32c370679de33e9a0ea6172e5ba25859f6f5b346719896bdd974497195
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -898,9 +898,6 @@ RUN set -e; \
     # (a colluding GOPROXY+GOSUMDB pair could forge sumdb tiles / serve module content outside
     # the transparency log). Affects /usr/local/bin/crowdsec and /usr/local/bin/cscli — go mod
     # tidy's MVS resolution otherwise lands on v0.38.0. Fix available at v0.40.0.
-    # CVE-2026-32286: pgproto3/v2 buffer overflow (no v2 fix exists; bump pgx/v4 to latest patch)
-    # renovate: datasource=go depName=github.com/jackc/pgproto3/v2
-    _retry go get github.com/jackc/pgproto3/v2@v2.3.3; \
     _retry go get golang.org/x/mod@v${XMOD_VERSION}; \
     # Re-assert x/crypto, x/net after the x/mod pin: the x/mod pin is a downgrade-prone `go get`
     # whose cascade must not leave them below the pinned CVE floor (see XMOD_VERSION).

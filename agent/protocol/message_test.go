@@ -22,7 +22,6 @@ func TestMessageTypeConstants(t *testing.T) {
 	}{
 		{"TypePing", protocol.TypePing, 0x00},
 		{"TypePong", protocol.TypePong, 0x01},
-		{"TypePortForward", protocol.TypePortForward, 0x02},
 		{"TypeDockerSocket", protocol.TypeDockerSocket, 0x03},
 		{"TypeError", protocol.TypeError, 0x04},
 	}

@@ -67,7 +67,7 @@
     "@eslint/js": "^10.0.1",
     "@eslint/json": "^2.1.1",
     "@eslint/markdown": "^8.0.3",
-    "@playwright/test": "^1.65.0",
+    "@playwright/test": "^1.65.1",
     "@tailwindcss/postcss": "^4.3.5",
     "@tailwindcss/vite": "^4.3.5",
     "@testing-library/dom": "^10.4.2",
@@ -88,7 +88,7 @@
     "@vitest/eslint-plugin": "^1.6.28",
     "@vitest/ui": "^5.1.0",
     "audit-ci": "^7.1.0",
-    "eslint": "^10.14.0",
+    "eslint": "^10.15.0",
     "eslint-formatter-compact": "^9.0.1",
     "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-i18n-json": "^4.0.1",
@@ -105,8 +105,8 @@
     "eslint-plugin-unused-imports": "^4.4.1",
     "jsdom": "^31.0.1",
     "knip": "^6.45.1",
-    "playwright": "^1.65.0",
-    "postcss": "^8.5.32",
+    "playwright": "^1.65.1",
+    "postcss": "^8.5.33",
     "tailwindcss": "^4.3.5",
     "typescript": "npm:@typescript/typescript6@^6.0.2",
     "typescript-eslint": "^8.72.2",
@@ -119,13 +119,13 @@
   },
   "overrides": {
     "eslint-plugin-react-hooks": {
-      "eslint": "^10.14.0"
+      "eslint": "^10.15.0"
     },
     "eslint-plugin-jsx-a11y": {
-      "eslint": "^10.14.0"
+      "eslint": "^10.15.0"
     },
     "eslint-plugin-promise": {
-      "eslint": "^10.14.0"
+      "eslint": "^10.15.0"
     },
     "@vitejs/plugin-react": {
       "vite": "^8.3.8"

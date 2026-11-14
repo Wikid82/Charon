@@ -2349,10 +2349,7 @@
     "installWizard": {
       "tabs": {
         "dockerCompose": "Docker Compose",
-        "systemd": "Systemd",
-        "tarball": "Tarball",
-        "kubernetes": "Kubernetes",
-        "homebrew": "Homebrew"
+        "kubernetes": "Kubernetes"
       },
       "dockerGid": {
         "title": "Replace <DOCKER_GID> with your Docker group ID",
@@ -2360,7 +2357,6 @@
         "copyCommand": "Copy command",
         "macHint": "On macOS, use this command instead: stat -f %g /var/run/docker.sock",
         "noteComposeSystemd": "Set PGID to that number. The agent will refuse to start if <DOCKER_GID> is left in place.",
-        "noteTarballHomebrew": "Replace <DOCKER_GID> with that number and keep sudo in front of the command. Without sudo, PUID and PGID are ignored, so your user must be in the docker group instead.",
         "noteKubernetes": "Replace <DOCKER_GID> in supplementalGroups with that number. Kubernetes does not use PUID or PGID."
       }
     },
@@ -2419,7 +2415,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Roter nøgle for {{name}}",
+      "rotateTitle": "Roter agentnøgle",
+      "rotateDescription": "Den nuværende nøgle holder straks op med at virke, og agenten afbrydes. Agenten kan ikke forbinde igen, før du opdaterer den med den nye nøgle.",
+      "rotateConfirm": "Roter nøgle",
+      "rotateSuccessTitle": "Ny nøgle til {{name}}",
+      "rotateSuccessDescription": "Kopiér denne nøgle nu. Charon viser den ikke igen. Læg den i agentens nøglefil, og genstart derefter agenten, så den kan forbinde igen.",
+      "rotateDone": "Færdig",
+      "rotateError": "Nøglen kunne ikke roteres. Prøv igen."
     },
     "externalProxy": {
       "title": "External Docker Proxy",
@@ -2433,7 +2437,23 @@
       "statusInactive": "Inactive",
       "copyConnectionString": "Copy Docker connection string",
       "reconnectNotice": "Port change will take effect on next agent reconnect.",
-      "agentOffline": "Agent is offline. Proxy status unavailable."
+      "bindReconnectNotice": "Ændringen af lytteadressen træder i kraft, når agenten forbinder igen.",
+      "agentOffline": "Agent is offline. Proxy status unavailable.",
+      "bindLabel": "Lyt på",
+      "bindHint": "Vælg det netværk, proxyen lytter på. Automatisk vælger serverens primære netværk.",
+      "bindAuto": "Automatisk",
+      "bindAutoResolved": "Automatisk ({{address}})",
+      "bindAll": "Alle netværk (0.0.0.0)",
+      "bindCustom": "Egen adresse eller subnet",
+      "bindCustomLabel": "Adresse eller subnet",
+      "bindCustomPlaceholder": "192.168.1.10 eller 192.168.1.0/24",
+      "bindAllNote": "Proxyen har intet login. Enhver, der kan nå denne port, kan læse containerdetaljerne på denne vært.",
+      "loopbackNote": "Ikke tilgængelig fra andre containere eller værter.",
+      "fallbackNote": "Automatisk fandt intet netværk at lytte på, så proxyen lytter på loopback. Vælg et netværk for at ændre det.",
+      "bindListening": "Lytter på {{address}}",
+      "bindInvalid": "Angiv en IP-adresse eller et subnet, f.eks. 192.168.1.10 eller 192.168.1.0/24.",
+      "saveError": "Proxyindstillingerne kunne ikke gemmes. Prøv igen.",
+      "cardAutomaticNote": "Lytteadressen er automatisk. Vælg et netværk i proxyindstillingerne, hvis andre værter har brug for adgang."
     },
     "writeMode": {
       "title": "Write Access — {{name}}",

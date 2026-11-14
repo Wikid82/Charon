@@ -103,7 +103,7 @@ func TestStartExternalProxy_TransportDisablesKeepAlives(t *testing.T) {
 	sess.mu.Unlock()
 
 	extPort := findFreePort(t)
-	require.NoError(t, sess.StartExternalProxy(extPort))
+	require.NoError(t, sess.StartExternalProxy(extPort, "127.0.0.1"))
 
 	assert.Eventually(t, func() bool {
 		return sess.GetExternalProxyStatus().Active

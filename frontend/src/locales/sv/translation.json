@@ -2349,10 +2349,7 @@
     "installWizard": {
       "tabs": {
         "dockerCompose": "Docker Compose",
-        "systemd": "Systemd",
-        "tarball": "Tarball",
-        "kubernetes": "Kubernetes",
-        "homebrew": "Homebrew"
+        "kubernetes": "Kubernetes"
       },
       "dockerGid": {
         "title": "Replace <DOCKER_GID> with your Docker group ID",
@@ -2360,7 +2357,6 @@
         "copyCommand": "Copy command",
         "macHint": "On macOS, use this command instead: stat -f %g /var/run/docker.sock",
         "noteComposeSystemd": "Set PGID to that number. The agent will refuse to start if <DOCKER_GID> is left in place.",
-        "noteTarballHomebrew": "Replace <DOCKER_GID> with that number and keep sudo in front of the command. Without sudo, PUID and PGID are ignored, so your user must be in the docker group instead.",
         "noteKubernetes": "Replace <DOCKER_GID> in supplementalGroups with that number. Kubernetes does not use PUID or PGID."
       }
     },
@@ -2419,7 +2415,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Rotera nyckel för {{name}}",
+      "rotateTitle": "Rotera agentnyckel",
+      "rotateDescription": "Den nuvarande nyckeln slutar fungera direkt och agenten kopplas från. Agenten kan inte ansluta igen förrän du uppdaterar den med den nya nyckeln.",
+      "rotateConfirm": "Rotera nyckel",
+      "rotateSuccessTitle": "Ny nyckel för {{name}}",
+      "rotateSuccessDescription": "Kopiera den här nyckeln nu. Charon visar den inte igen. Lägg den i agentens nyckelfil och starta sedan om agenten så att den ansluter igen.",
+      "rotateDone": "Klar",
+      "rotateError": "Nyckeln kunde inte roteras. Försök igen."
     },
     "externalProxy": {
       "title": "External Docker Proxy",
@@ -2433,7 +2437,23 @@
       "statusInactive": "Inactive",
       "copyConnectionString": "Copy Docker connection string",
       "reconnectNotice": "Port change will take effect on next agent reconnect.",
-      "agentOffline": "Agent is offline. Proxy status unavailable."
+      "bindReconnectNotice": "Ändringen av lyssningsadressen träder i kraft när agenten ansluter igen.",
+      "agentOffline": "Agent is offline. Proxy status unavailable.",
+      "bindLabel": "Lyssna på",
+      "bindHint": "Välj nätverket som proxyn lyssnar på. Automatiskt väljer serverns primära nätverk.",
+      "bindAuto": "Automatiskt",
+      "bindAutoResolved": "Automatiskt ({{address}})",
+      "bindAll": "Alla nätverk (0.0.0.0)",
+      "bindCustom": "Egen adress eller undernät",
+      "bindCustomLabel": "Adress eller undernät",
+      "bindCustomPlaceholder": "192.168.1.10 eller 192.168.1.0/24",
+      "bindAllNote": "Proxyn har ingen inloggning. Den som når den här porten kan läsa värdens containerdetaljer.",
+      "loopbackNote": "Kan inte nås från andra containrar eller värdar.",
+      "fallbackNote": "Automatiskt hittade inget nätverk att lyssna på, så proxyn lyssnar på loopback. Välj ett nätverk för att ändra det.",
+      "bindListening": "Lyssnar på {{address}}",
+      "bindInvalid": "Ange en IP-adress eller ett undernät, till exempel 192.168.1.10 eller 192.168.1.0/24.",
+      "saveError": "Proxyinställningarna kunde inte sparas. Försök igen.",
+      "cardAutomaticNote": "Lyssningsadressen är automatisk. Välj ett nätverk i proxyinställningarna om andra värdar behöver åtkomst."
     },
     "writeMode": {
       "title": "Write Access — {{name}}",

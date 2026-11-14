@@ -109,7 +109,7 @@ func TestStartExternalProxy_SessionClosed(t *testing.T) {
 	require.NoError(t, sess.Close())
 
 	port := findFreePort(t)
-	err := sess.StartExternalProxy(port)
+	err := sess.StartExternalProxy(port, "127.0.0.1")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot start external proxy on closed session")
 }
@@ -126,7 +126,7 @@ func TestStartExternalProxy_BindFailure(t *testing.T) {
 	defer blocker.Close() //nolint:errcheck
 	port := blocker.Addr().(*net.TCPAddr).Port
 
-	err = sess.StartExternalProxy(port)
+	err = sess.StartExternalProxy(port, "127.0.0.1")
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "bind external proxy port")
 
