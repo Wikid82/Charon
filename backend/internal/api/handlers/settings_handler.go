@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -96,18 +97,27 @@ func NewSettingsHandlerWithDeps(db *gorm.DB, caddyMgr CaddyConfigManager, cerber
 	}
 }
 
-// GetSettings returns all settings.
-func (h *SettingsHandler) GetSettings(c *gin.Context) {
-	var settings []models.Setting
-	if err := h.DB.Find(&settings).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch settings"})
-		return
-	}
-	settings = filterInternalSettings(settings)
+// adminOnlySettingKeys are the settings only administrators may read: the admin allow-list and the mail server details.
+// Other callers receive <key>.has_value in place of each one.
+var adminOnlySettingKeys = []string{
+	"security.admin_whitelist",
+	"smtp_host",
+	"smtp_port",
+	"smtp_username",
+	"smtp_from_address",
+	"smtp_encryption",
+}
 
-	// Convert to map for easier frontend consumption
-	settingsMap := make(map[string]any)
+// settingsResponseMap converts settings to the map the settings endpoints answer with. Sensitive values are masked with
+// a has_secret flag and a last_updated time. For a caller that is not an administrator, the admin-only keys are left out
+// and each one is replaced by <key>.has_value.
+func settingsResponseMap(settings []models.Setting, admin bool) map[string]any {
+	settingsMap := make(map[string]any, len(settings))
 	for _, s := range settings {
+		if !admin && slices.Contains(adminOnlySettingKeys, s.Key) {
+			settingsMap[s.Key+".has_value"] = strings.TrimSpace(s.Value) != ""
+			continue
+		}
 		if isSensitiveSettingKey(s.Key) {
 			hasSecret := strings.TrimSpace(s.Value) != ""
 			settingsMap[s.Key] = "********"
@@ -118,8 +128,19 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 
 		settingsMap[s.Key] = s.Value
 	}
+	return settingsMap
+}
 
-	c.JSON(http.StatusOK, settingsMap)
+// GetSettings returns all settings. The admin-only keys are answered to administrators only.
+func (h *SettingsHandler) GetSettings(c *gin.Context) {
+	var settings []models.Setting
+	if err := h.DB.Find(&settings).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch settings"})
+		return
+	}
+	settings = filterInternalSettings(settings)
+
+	c.JSON(http.StatusOK, settingsResponseMap(settings, isAdmin(c)))
 }
 
 // internalSettingPrefixes lists key prefixes reserved for server-managed rows:
@@ -349,8 +370,8 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 		}
 	}
 
-	if models.IsSecurityModuleKey(req.Key) {
-		setting, ok := h.writeModuleSwitchSetting(c, req.Key, req.Value)
+	if models.IsSecurityModuleKey(req.Key) || models.IsCerberusSwitchKey(req.Key) {
+		setting, ok := h.writeSwitchSetting(c, req.Key, req.Value)
 		if ok {
 			c.JSON(http.StatusOK, setting)
 		}
@@ -401,7 +422,7 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 	}
 
 	if req.Key == "security.admin_whitelist" {
-		if err := h.syncAdminWhitelist(req.Value); err != nil {
+		if err := h.syncAdminWhitelist(auditActor(c), req.Value); err != nil {
 			if errors.Is(err, services.ErrInvalidAdminCIDR) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid admin_whitelist"})
 				return
@@ -436,57 +457,34 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 	c.JSON(http.StatusOK, setting)
 }
 
-// writeModuleSwitchSetting stores a module switch from the generic settings API. The value must be true or false. The
-// write and the proxy apply are one unit: a failed apply restores the pre-image and answers 500. It returns the stored
-// setting, or false after answering the request.
-func (h *SettingsHandler) writeModuleSwitchSetting(c *gin.Context, key, value string) (models.Setting, bool) {
+// switches returns the switch writer over this handler's database, proxy and Cerberus cache.
+func (h *SettingsHandler) switches() switchWriter {
+	return switchWriter{db: h.DB, caddy: h.CaddyManager, cerberus: h.Cerberus}
+}
+
+// writeSwitchSetting stores a security switch from the generic settings API: a module key or the Cerberus switch. The
+// value must be true or false, after surrounding whitespace is ignored. The write and the proxy apply are one unit (see
+// switchWriter). It returns the stored setting, or false after answering the request.
+func (h *SettingsHandler) writeSwitchSetting(c *gin.Context, key, value string) (models.Setting, bool) {
 	on, recognised := models.ParseModuleSettingValue(value)
 	if !recognised {
 		c.JSON(http.StatusBadRequest, gin.H{"error": key + " must be true or false"})
 		return models.Setting{}, false
 	}
 
-	actor := auditActor(c)
-	var snapshot models.ModuleStateSnapshot
-	err := services.WithWriteLock(h.DB, &models.Setting{}, func(tx *gorm.DB) error {
-		row, err := models.ReadModuleRow(tx, models.DefaultSecurityConfigName)
-		if err != nil {
-			return err
-		}
-		if snapshot, err = models.CaptureModuleState(tx, models.DefaultSecurityConfigName, row, key); err != nil {
-			return err
-		}
-		if err := models.SetModuleState(tx, key, on, actor); err != nil {
-			return err
-		}
-		return snapshot.Seal(tx)
-	})
-	if err != nil {
+	setting, err := h.switches().write(c.Request.Context(), key, on, auditActor(c))
+	switch {
+	case errors.Is(err, errSwitchApplyFailed):
+		c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
+		return models.Setting{}, false
+	case err != nil:
 		if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
 			return models.Setting{}, false
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save setting"})
 		return models.Setting{}, false
 	}
-
-	if h.Cerberus != nil {
-		h.Cerberus.InvalidateCache()
-	}
-	if h.CaddyManager != nil {
-		if err := applyProxyConfigDetached(c.Request.Context(), h.CaddyManager, proxyApplyTimeout); err != nil {
-			logger.Log().WithError(err).Warn("Failed to reload Caddy config after security setting change")
-			restoreModuleState(h.DB, h.Cerberus, snapshot)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
-			return models.Setting{}, false
-		}
-		logger.Log().WithField("setting_key", sanitizeForLog(key)).Info("Caddy config reloaded after security setting change")
-	}
-
-	stored := "false"
-	if on {
-		stored = "true"
-	}
-	return models.Setting{Key: key, Value: stored, Category: "security", Type: "bool"}, true
+	return setting, true
 }
 
 // updateKeys returns the keys of a flattened settings batch.
@@ -535,10 +533,11 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 
 	adminWhitelist, hasAdminWhitelist := updates["security.admin_whitelist"]
 
-	// Module switches must be true or false. They are refused here, before any write, and written through SetModuleState.
-	moduleSwitches := make(map[string]bool)
+	// Security switches (module keys and the Cerberus switch) must be true or false. They are refused here, before any write,
+	// and written through writeModuleToggle.
+	switchValues := make(map[string]bool)
 	for key, value := range updates {
-		if !models.IsSecurityModuleKey(key) {
+		if !models.IsSecurityModuleKey(key) && !models.IsCerberusSwitchKey(key) {
 			continue
 		}
 		on, recognised := models.ParseModuleSettingValue(value)
@@ -546,11 +545,11 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": key + " must be true or false"})
 			return
 		}
-		moduleSwitches[key] = on
+		switchValues[key] = on
 	}
 
 	// Turning the ACL on from an address the admin allow-list excludes is refused before any write.
-	if on, found := moduleSwitches[models.SecurityACLEnabledSettingKey]; found && on && !allowACLEnable(c, h.DB) {
+	if on, found := switchValues[models.SecurityACLEnabledSettingKey]; found && on && !allowACLEnable(c, h.DB) {
 		return
 	}
 
@@ -588,8 +587,8 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 				return err
 			}
 
-			if on, isModule := moduleSwitches[key]; isModule {
-				if err := models.SetModuleState(tx, key, on, actor); err != nil {
+			if on, isSwitch := switchValues[key]; isSwitch {
+				if err := writeModuleToggle(tx, key, on, actor); err != nil {
 					return err
 				}
 				continue
@@ -608,7 +607,7 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 		}
 
 		if hasAdminWhitelist {
-			if err := h.syncAdminWhitelistWithDB(tx, adminWhitelist); err != nil {
+			if err := syncAdminWhitelistTx(tx, actor, adminWhitelist); err != nil {
 				return err
 			}
 		}
@@ -637,7 +636,7 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 	// Trigger cache invalidation and Caddy reload for security settings
 	needsReload := false
 	for key := range updates {
-		if strings.HasPrefix(key, "security.") {
+		if strings.HasPrefix(key, "security.") || models.IsCerberusSwitchKey(key) {
 			needsReload = true
 			break
 		}
@@ -673,13 +672,8 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 	}
 	settings = filterInternalSettings(settings)
 
-	// Convert to map for response
-	settingsMap := make(map[string]string)
-	for _, s := range settings {
-		settingsMap[s.Key] = s.Value
-	}
-
-	c.JSON(http.StatusOK, settingsMap)
+	// The reply masks the same secrets GET /settings masks. The caller is an administrator (the route is admin-only).
+	c.JSON(http.StatusOK, settingsResponseMap(settings, true))
 }
 
 // flattenConfig converts nested map to flat key-value pairs with dot notation
@@ -810,21 +804,17 @@ func validateKeepaliveCountValue(value string) error {
 	return nil
 }
 
-func (h *SettingsHandler) syncAdminWhitelist(whitelist string) error {
-	return h.syncAdminWhitelistWithDB(h.DB, whitelist)
+// syncAdminWhitelist stores the admin allow-list on the default security row. Only that column is written.
+func (h *SettingsHandler) syncAdminWhitelist(actor, whitelist string) error {
+	_, _, err := services.NewSecurityService(h.DB).ApplyUpdate(actor, models.DefaultSecurityConfigName, services.SecurityConfigUpdate{AdminWhitelist: &whitelist})
+	return err
 }
 
-func (h *SettingsHandler) syncAdminWhitelistWithDB(db *gorm.DB, whitelist string) error {
-	securitySvc := services.NewSecurityService(db)
-	cfg, err := securitySvc.Get()
-	if err != nil {
-		if err != services.ErrSecurityConfigNotFound {
-			return err
-		}
-		cfg = &models.SecurityConfig{Name: models.DefaultSecurityConfigName}
-	}
-	cfg.AdminWhitelist = whitelist
-	return securitySvc.Upsert(cfg)
+// syncAdminWhitelistTx stores the admin allow-list inside the caller's write transaction, so the save commits or rolls
+// back with the caller's other writes. Only the allow-list column is written.
+func syncAdminWhitelistTx(tx *gorm.DB, actor, whitelist string) error {
+	_, err := services.NewSecurityService(tx).ApplyUpdateTx(tx, actor, models.DefaultSecurityConfigName, services.SecurityConfigUpdate{AdminWhitelist: &whitelist})
+	return err
 }
 
 // SMTPConfigRequest represents the request body for SMTP configuration.
@@ -1052,6 +1042,8 @@ func (h *SettingsHandler) TestPublicURL(c *gin.Context) {
 	// and cloud metadata endpoints before any network connection is made.
 	validatedURL, err := security.ValidateExternalURL(req.URL, security.WithAllowHTTP())
 	if err != nil {
+		// Count the refusal in the same series a connectivity test uses, so a refused private address is visible on /metrics.
+		utils.RecordURLRefusal(err)
 		// Return 200 OK for security blocks (maintains existing API behavior)
 		c.JSON(http.StatusOK, gin.H{
 			"reachable": false,

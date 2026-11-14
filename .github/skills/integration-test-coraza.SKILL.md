@@ -105,6 +105,16 @@ For use in GitHub Actions workflows:
 | --- | --- | --- | --- |
 | WAF_ENABLED | No | true | Enable WAF protection for tests |
 | TEST_HOST | No | localhost:8080 | Target host for WAF tests |
+| CHARON_IMAGE | No | charon:local | Image to test; built from the repository when missing |
+| CORAZA_HTTP_PORT | No | ephemeral | Fixed loopback host port for container port 80 |
+| CORAZA_HTTPS_PORT | No | ephemeral | Fixed loopback host port for container port 443 |
+| CORAZA_API_PORT | No | ephemeral | Fixed loopback host port for the Charon API (container port 8080) |
+| CORAZA_DEBUG | No | 0 | Set to `1` to publish the debug port, add SYS_PTRACE, unconfined seccomp and the Docker socket |
+| CORAZA_DEBUG_PORT | No | ephemeral | Loopback host port for the debugger (only with `CORAZA_DEBUG=1`) |
+
+### Run Resources
+
+Each run uses names derived from its PID (`coraza-<pid>`): containers `charon-coraza-<pid>` and `coraza-<pid>-backend`, volumes `charon-coraza-<pid>-data`, `charon-coraza-<pid>-caddy-data` and `charon-coraza-<pid>-caddy-config`, and network `coraza-<pid>-net`. Host ports bind to `127.0.0.1`, and the chosen ports are printed before the first request. The script never uses the shared `charon_data`, `caddy_data` or `caddy_config` volumes, `containers_default`, or the host Docker socket (unless `CORAZA_DEBUG=1`). An EXIT trap removes everything the run created, including after a failure.
 
 ## Outputs
 

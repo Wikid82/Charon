@@ -48,7 +48,8 @@
     "activeCount": "{{count}} active",
     "noHistoryAvailable": "No history available",
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "فشل التحديث"
   },
   "permissions": {
     "adminOnlyError": "يمكن للمسؤولين فقط تغيير هذا الإعداد.",
@@ -745,7 +746,10 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "saveConfiguration": "حفظ الإعدادات",
+    "settingUpdated": "تم تحديث إعداد تحديد المعدل",
+    "invalidValue": "أدخل عددًا صحيحًا أكبر من 0."
   },
   "wafConfig": {
     "title": "WAF Configuration",

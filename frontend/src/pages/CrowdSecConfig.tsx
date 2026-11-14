@@ -528,6 +528,12 @@ export default function CrowdSecConfig() {
     },
   })
 
+  /** Starts a ban from a keyboard shortcut; an empty address or a ban already in flight does nothing. */
+  const submitBanFromKeyboard = () => {
+    if (banMutation.isPending || !banForm.ip.trim()) return
+    banMutation.mutate()
+  }
+
   const unbanMutation = useMutation({
     mutationFn: (ip: string) => unbanIP(ip),
     onSuccess: (_, ip) => {
@@ -1765,7 +1771,7 @@ export default function CrowdSecConfig() {
             role="presentation"
             onKeyDown={(e) => {
               if (e.key === 'Escape') setShowBanModal(false)
-              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) banMutation.mutate()
+              if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) submitBanFromKeyboard()
             }}
           >
             <h3 id="ban-modal-title" className="text-xl font-semibold text-white mb-4 flex items-center gap-2">
@@ -1787,9 +1793,10 @@ export default function CrowdSecConfig() {
                 helperText={t('crowdsecConfig.banModal.ipHint')}
                 ref={banIpInputRef}
                 onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
+                  // Ctrl/Meta+Enter bubbles to the dialog wrapper, which handles it once.
+                  if (e.key === 'Enter' && !e.ctrlKey && !e.metaKey) {
                     e.preventDefault()
-                    if (banForm.ip.trim()) banMutation.mutate()
+                    submitBanFromKeyboard()
                   }
                 }}
               />

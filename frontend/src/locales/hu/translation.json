@@ -48,7 +48,8 @@
     "activeCount": "{{count}} active",
     "noHistoryAvailable": "No history available",
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "A frissítés sikertelen"
   },
   "permissions": {
     "adminOnlyError": "Csak adminisztrátorok módosíthatják ezt a beállítást.",
@@ -745,7 +746,10 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "saveConfiguration": "Konfiguráció mentése",
+    "settingUpdated": "A sebességkorlátozás beállítása frissítve",
+    "invalidValue": "Adjon meg 0-nál nagyobb egész számot."
   },
   "wafConfig": {
     "title": "WAF Configuration",

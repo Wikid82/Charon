@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/geoip"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/util"
@@ -200,9 +200,9 @@ func geoipErrorResponse(c *gin.Context, err error) {
 	}
 	detail := util.SanitizeForLog(err.Error())
 	if f.status >= http.StatusInternalServerError {
-		log.WithField("detail", detail).Error("GeoIP database change failed")
+		logger.Log().WithField("detail", detail).Error("GeoIP database change failed")
 	} else {
-		log.WithField("detail", detail).Warn("GeoIP database change refused")
+		logger.Log().WithField("detail", detail).Warn("GeoIP database change refused")
 	}
 	c.JSON(f.status, body)
 }

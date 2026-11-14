@@ -666,15 +666,12 @@ func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir
 	return h
 }
 
-// isCerberusEnabled returns true when Cerberus is enabled via DB or env flag.
-// This presets gate is deliberately not the shared reader: it accepts "1" and "yes" and trims spaces, and it does
-// not fall through to the legacy key. The reading every other reader uses is models.CerberusSwitchFromSetting.
+// isCerberusEnabled returns true when Cerberus is enabled via DB or env flag. A stored switch key decides through the
+// shared reading (models.ResolveCerberusSwitchKeys). The environment overrides apply only when both keys are absent.
 func (h *CrowdsecHandler) isCerberusEnabled() bool {
 	if h.DB != nil && h.DB.Migrator().HasTable(&models.Setting{}) {
-		var s models.Setting
-		if err := h.DB.Where("key = ?", "feature.cerberus.enabled").First(&s).Error; err == nil {
-			v := strings.ToLower(strings.TrimSpace(s.Value))
-			return v == "true" || v == "1" || v == "yes"
+		if sw, err := models.ResolveCerberusSwitchKeys(h.DB); err == nil && sw != models.CerberusSwitchAbsent {
+			return sw == models.CerberusSwitchOn
 		}
 	}
 
@@ -806,64 +803,45 @@ func (h *CrowdsecHandler) Stop(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"status": "stopped"})
 }
 
-// crowdsecStartSnapshot is the state Start may write, captured before its first write.
-type crowdsecStartSnapshot struct {
-	row      defaultSecurityConfigSnapshot
-	settings map[string]settingSnapshot
-}
-
-// crowdsecStartSettingKeys lists every setting that Start may write.
-var crowdsecStartSettingKeys = []string{
-	models.CrowdSecEnabledSettingKey,
-	"feature.cerberus.enabled",
-	"security.cerberus.enabled",
-}
-
-// snapshotCrowdsecStart captures the default row and the settings that Start writes.
-func (h *CrowdsecHandler) snapshotCrowdsecStart() (crowdsecStartSnapshot, error) {
-	row, err := snapshotDefaultSecurityConfigState(h.DB)
+// persistCrowdsecStart records the intent of a Start in one write-locked transaction: the global switch and Cerberus
+// go on through the shared helper, CrowdSec is set to local on the default row, and the enabled setting is stored. It
+// returns the snapshot of the state it changed, which a failed Start puts back. A failed write rolls the whole
+// transaction back, so nothing is left to revert.
+func (h *CrowdsecHandler) persistCrowdsecStart() (models.ModuleStateSnapshot, error) {
+	var snap models.ModuleStateSnapshot
+	err := services.WithWriteLock(h.DB, &models.Setting{}, func(tx *gorm.DB) error {
+		row, err := models.ReadModuleRow(tx, models.DefaultSecurityConfigName)
+		if err != nil {
+			return fmt.Errorf("read default security config: %w", err)
+		}
+		if snap, err = models.CaptureModuleState(tx, models.DefaultSecurityConfigName, row, models.CrowdSecEnabledSettingKey); err != nil {
+			return fmt.Errorf("snapshot crowdsec start: %w", err)
+		}
+		if err := models.EnableSecurityFramework(tx); err != nil {
+			return fmt.Errorf("enable security framework: %w", err)
+		}
+		if _, err := setDefaultSecurityConfigState(tx, map[string]any{"crowd_sec_mode": "local"}); err != nil {
+			return fmt.Errorf("set crowd_sec_mode: %w", err)
+		}
+		if err := upsertSetting(tx, models.Setting{Key: models.CrowdSecEnabledSettingKey, Value: "true", Category: "security", Type: "bool"}); err != nil {
+			return err
+		}
+		if err := snap.Seal(tx); err != nil {
+			return fmt.Errorf("seal crowdsec start: %w", err)
+		}
+		return nil
+	})
 	if err != nil {
-		return crowdsecStartSnapshot{}, fmt.Errorf("snapshot default security config: %w", err)
+		return models.ModuleStateSnapshot{}, err
 	}
-	settings, err := snapshotSettings(h.DB, crowdsecStartSettingKeys)
-	if err != nil {
-		return crowdsecStartSnapshot{}, fmt.Errorf("snapshot security settings: %w", err)
-	}
-
-	return crowdsecStartSnapshot{row: row, settings: settings}, nil
+	return snap, nil
 }
 
-// persistCrowdsecStart records the intent of a Start. The global switch and Cerberus go on through
-// the shared helper, which the sibling security modules also use. Then CrowdSec is set to local: the
-// row and the enabled setting, which are the only stored decision.
-func (h *CrowdsecHandler) persistCrowdsecStart() error {
-	if err := models.EnableSecurityFramework(h.DB); err != nil {
-		return fmt.Errorf("enable security framework: %w", err)
-	}
-	if _, err := setDefaultSecurityConfigState(h.DB, map[string]any{"crowd_sec_mode": "local"}); err != nil {
-		return fmt.Errorf("set crowd_sec_mode: %w", err)
-	}
-
-	return upsertSetting(h.DB, models.Setting{Key: models.CrowdSecEnabledSettingKey, Value: "true", Category: "security", Type: "bool"})
-}
-
-// revertCrowdsecStart puts back exactly the state captured before Start. A default row that Start
-// created is kept with the seed values (crowd_sec_mode disabled, enabled false). A setting that was
-// absent before is deleted. The revert never forces anything on or off beyond that snapshot.
-func (h *CrowdsecHandler) revertCrowdsecStart(snap crowdsecStartSnapshot) {
-	row := snap.row
-	if !row.exists {
-		row = defaultSecurityConfigSnapshot{exists: true, enabled: false, crowdSecMode: "disabled"}
-	}
-	if err := restoreDefaultSecurityConfigState(h.DB, row); err != nil {
-		logger.Log().WithError(err).Warn("Failed to restore SecurityConfig after failed CrowdSec start")
-	}
-	if _, err := setDefaultSecurityConfigState(h.DB, map[string]any{"crowd_sec_mode": row.crowdSecMode}); err != nil {
-		logger.Log().WithError(err).Warn("Failed to restore CrowdSec mode after failed CrowdSec start")
-	}
-	if err := restoreSettings(h.DB, snap.settings); err != nil {
-		logger.Log().WithError(err).Warn("Failed to restore security settings after failed CrowdSec start")
-	}
+// revertCrowdsecStart puts back exactly the state captured before Start. The shared restore keeps any value a concurrent
+// write changed and deletes a default row that Start created, so readers fall back to the static configuration as they
+// did before Start.
+func (h *CrowdsecHandler) revertCrowdsecStart(snap models.ModuleStateSnapshot) {
+	restoreModuleState(h.DB, nil, snap)
 }
 
 // Status returns running state including LAPI availability check.

@@ -1706,7 +1706,8 @@ func buildSecurityHeaderHandlers(host *models.ProxyHost) []Handler {
 
 	// X-XSS-Protection
 	if cfg.XSSProtection {
-		responseHeaders["X-XSS-Protection"] = []string{"1; mode=block"}
+		// 0 disables the legacy browser XSS filter, which current guidance recommends.
+		responseHeaders["X-XSS-Protection"] = []string{"0"}
 	}
 
 	// Cache-Control

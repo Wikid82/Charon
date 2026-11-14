@@ -67,17 +67,17 @@ func TestEnableSecurityFramework_WithDB(t *testing.T) {
 	require.True(t, cfg.Enabled)
 }
 
-func TestSettingsHandler_SyncAdminWhitelistWithDB(t *testing.T) {
+func TestSettingsHandler_SyncAdminWhitelist(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
 	h := NewSettingsHandler(db)
 
-	require.NoError(t, h.syncAdminWhitelistWithDB(db, "198.51.100.0/24"))
+	require.NoError(t, h.syncAdminWhitelist("test-actor", "198.51.100.0/24"))
 
 	var cfg models.SecurityConfig
 	require.NoError(t, db.Where("name = ?", "default").First(&cfg).Error)
 	require.Equal(t, "198.51.100.0/24", cfg.AdminWhitelist)
 
-	require.NoError(t, h.syncAdminWhitelistWithDB(db, "203.0.113.0/24"))
+	require.NoError(t, syncAdminWhitelistTx(db, "test-actor", "203.0.113.0/24"))
 	require.NoError(t, db.Where("name = ?", "default").First(&cfg).Error)
 	require.Equal(t, "203.0.113.0/24", cfg.AdminWhitelist)
 }

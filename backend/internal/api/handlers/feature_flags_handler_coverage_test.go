@@ -28,7 +28,7 @@ func TestFeatureFlagsHandler_GetFlags_DBPrecedence(t *testing.T) {
 	// Set env var that should be ignored (DB takes precedence)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "true")
 
-	h := NewFeatureFlagsHandler(db)
+	h := NewFeatureFlagsHandler(db, nil, nil)
 	r := gin.New()
 	r.GET("/api/v1/feature-flags", h.GetFlags)
 
@@ -52,7 +52,7 @@ func TestFeatureFlagsHandler_GetFlags_EnvFallback(t *testing.T) {
 	// Set env var (no DB value exists)
 	t.Setenv("FEATURE_CERBERUS_ENABLED", "false")
 
-	h := NewFeatureFlagsHandler(db)
+	h := NewFeatureFlagsHandler(db, nil, nil)
 	r := gin.New()
 	r.GET("/api/v1/feature-flags", h.GetFlags)
 
@@ -76,7 +76,7 @@ func TestFeatureFlagsHandler_GetFlags_EnvShortForm(t *testing.T) {
 	// Set short form env var (CERBERUS_ENABLED instead of FEATURE_CERBERUS_ENABLED)
 	t.Setenv("CERBERUS_ENABLED", "false")
 
-	h := NewFeatureFlagsHandler(db)
+	h := NewFeatureFlagsHandler(db, nil, nil)
 	r := gin.New()
 	r.GET("/api/v1/feature-flags", h.GetFlags)
 
@@ -100,7 +100,7 @@ func TestFeatureFlagsHandler_GetFlags_EnvNumeric(t *testing.T) {
 	// Set numeric env var (1/0 instead of true/false)
 	t.Setenv("FEATURE_UPTIME_ENABLED", "0")
 
-	h := NewFeatureFlagsHandler(db)
+	h := NewFeatureFlagsHandler(db, nil, nil)
 	r := gin.New()
 	r.GET("/api/v1/feature-flags", h.GetFlags)
 
@@ -122,7 +122,7 @@ func TestFeatureFlagsHandler_GetFlags_DefaultTrue(t *testing.T) {
 	db := setupFlagsDB(t)
 
 	// No DB value, no env var - check defaults
-	h := NewFeatureFlagsHandler(db)
+	h := NewFeatureFlagsHandler(db, nil, nil)
 	r := gin.New()
 	r.GET("/api/v1/feature-flags", h.GetFlags)
 
@@ -145,7 +145,7 @@ func TestFeatureFlagsHandler_GetFlags_DefaultTrue(t *testing.T) {
 func TestFeatureFlagsHandler_GetFlags_AllDefaultFlagsPresent(t *testing.T) {
 	db := setupFlagsDB(t)
 
-	h := NewFeatureFlagsHandler(db)
+	h := NewFeatureFlagsHandler(db, nil, nil)
 	r := gin.New()
 	r.GET("/api/v1/feature-flags", h.GetFlags)
 
@@ -169,7 +169,7 @@ func TestFeatureFlagsHandler_GetFlags_AllDefaultFlagsPresent(t *testing.T) {
 func TestFeatureFlagsHandler_UpdateFlags_Success(t *testing.T) {
 	db := setupFlagsDB(t)
 
-	h := NewFeatureFlagsHandler(db)
+	h := NewFeatureFlagsHandler(db, nil, nil)
 	r := gin.New()
 	r.PUT("/api/v1/feature-flags", h.UpdateFlags)
 
@@ -211,7 +211,7 @@ func TestFeatureFlagsHandler_UpdateFlags_Upsert(t *testing.T) {
 		Category: "feature",
 	})
 
-	h := NewFeatureFlagsHandler(db)
+	h := NewFeatureFlagsHandler(db, nil, nil)
 	r := gin.New()
 	r.PUT("/api/v1/feature-flags", h.UpdateFlags)
 
@@ -243,7 +243,7 @@ func TestFeatureFlagsHandler_UpdateFlags_Upsert(t *testing.T) {
 func TestFeatureFlagsHandler_UpdateFlags_InvalidJSON(t *testing.T) {
 	db := setupFlagsDB(t)
 
-	h := NewFeatureFlagsHandler(db)
+	h := NewFeatureFlagsHandler(db, nil, nil)
 	r := gin.New()
 	r.PUT("/api/v1/feature-flags", h.UpdateFlags)
 
@@ -258,7 +258,7 @@ func TestFeatureFlagsHandler_UpdateFlags_InvalidJSON(t *testing.T) {
 func TestFeatureFlagsHandler_UpdateFlags_OnlyAllowedKeys(t *testing.T) {
 	db := setupFlagsDB(t)
 
-	h := NewFeatureFlagsHandler(db)
+	h := NewFeatureFlagsHandler(db, nil, nil)
 	r := gin.New()
 	r.PUT("/api/v1/feature-flags", h.UpdateFlags)
 
@@ -290,7 +290,7 @@ func TestFeatureFlagsHandler_UpdateFlags_OnlyAllowedKeys(t *testing.T) {
 func TestFeatureFlagsHandler_UpdateFlags_EmptyPayload(t *testing.T) {
 	db := setupFlagsDB(t)
 
-	h := NewFeatureFlagsHandler(db)
+	h := NewFeatureFlagsHandler(db, nil, nil)
 	r := gin.New()
 	r.PUT("/api/v1/feature-flags", h.UpdateFlags)
 
@@ -338,7 +338,7 @@ func TestFeatureFlagsHandler_GetFlags_DBValueVariants(t *testing.T) {
 				Category: "feature",
 			})
 
-			h := NewFeatureFlagsHandler(db)
+			h := NewFeatureFlagsHandler(db, nil, nil)
 			r := gin.New()
 			r.GET("/api/v1/feature-flags", h.GetFlags)
 
@@ -380,7 +380,7 @@ func TestFeatureFlagsHandler_GetFlags_EnvValueVariants(t *testing.T) {
 			// Set env var (no DB value)
 			t.Setenv("FEATURE_CERBERUS_ENABLED", tt.envValue)
 
-			h := NewFeatureFlagsHandler(db)
+			h := NewFeatureFlagsHandler(db, nil, nil)
 			r := gin.New()
 			r.GET("/api/v1/feature-flags", h.GetFlags)
 
@@ -414,7 +414,7 @@ func TestFeatureFlagsHandler_UpdateFlags_BoolValues(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			db := setupFlagsDB(t)
 
-			h := NewFeatureFlagsHandler(db)
+			h := NewFeatureFlagsHandler(db, nil, nil)
 			r := gin.New()
 			r.PUT("/api/v1/feature-flags", h.UpdateFlags)
 
@@ -440,7 +440,7 @@ func TestFeatureFlagsHandler_UpdateFlags_BoolValues(t *testing.T) {
 
 func TestFeatureFlagsHandler_NewFeatureFlagsHandler(t *testing.T) {
 	db := setupFlagsDB(t)
-	h := NewFeatureFlagsHandler(db)
+	h := NewFeatureFlagsHandler(db, nil, nil)
 
 	assert.NotNil(t, h)
 	assert.NotNil(t, h.DB)
@@ -450,7 +450,7 @@ func TestFeatureFlagsHandler_NewFeatureFlagsHandler(t *testing.T) {
 func TestFeatureFlagsHandler_GetFlags_EmailFlagDefaultFalse(t *testing.T) {
 	db := setupFlagsDB(t)
 
-	h := NewFeatureFlagsHandler(db)
+	h := NewFeatureFlagsHandler(db, nil, nil)
 	r := gin.New()
 	r.GET("/api/v1/feature-flags", h.GetFlags)
 

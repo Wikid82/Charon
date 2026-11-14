@@ -453,7 +453,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 			// - SecRuleEngine DetectionOnly: monitor mode (logs but doesn't block)
 			// - SecRequestBodyAccess On: allows inspecting POST body content
 			content := rs.Content
-			if !strings.Contains(strings.ToLower(content), "secruleengine") {
+			if !models.HasEngineDirective(content) {
 				// Determine WAF engine mode: per-ruleset mode takes precedence,
 				// then global WAFMode, defaulting to blocking if neither is set
 				engineMode := "On" // default to blocking

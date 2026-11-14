@@ -16,7 +16,6 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
-	"gorm.io/gorm"
 )
 
 // Tests for UpdateConfig handler to improve coverage (currently 46%)
@@ -954,60 +953,6 @@ func TestSecurityHandler_ToggleSecurityModule_SnapshotSecurityConfigError(t *tes
 
 	require.Equal(t, http.StatusInternalServerError, w.Code)
 	require.Contains(t, w.Body.String(), "Failed to update security module")
-}
-
-func TestSecurityHandler_SnapshotAndRestoreHelpers(t *testing.T) {
-	db := setupTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}))
-
-	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
-	t.Cleanup(handler.Close)
-	require.NoError(t, db.Create(&models.Setting{Key: "k1", Value: "v1", Category: "security", Type: "string"}).Error)
-
-	snapshots, err := snapshotSettings(db, []string{"k1", "k1", "k2"})
-	require.NoError(t, err)
-	require.Len(t, snapshots, 2)
-	require.True(t, snapshots["k1"].exists)
-	require.False(t, snapshots["k2"].exists)
-
-	require.NoError(t, restoreSettings(db, map[string]settingSnapshot{
-		"k1": snapshots["k1"],
-		"k2": snapshots["k2"],
-	}))
-
-	require.NoError(t, db.Exec("DROP TABLE settings").Error)
-	err = restoreSettings(db, map[string]settingSnapshot{
-		"k1": snapshots["k1"],
-	})
-	require.Error(t, err)
-}
-
-func TestSecurityHandler_DefaultSecurityConfigStateHelpers(t *testing.T) {
-	db := setupTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}))
-
-	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
-	t.Cleanup(handler.Close)
-
-	snap, err := snapshotDefaultSecurityConfigState(db)
-	require.NoError(t, err)
-	require.False(t, snap.exists)
-	require.False(t, snap.enabled)
-
-	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", Enabled: true}).Error)
-	snap, err = snapshotDefaultSecurityConfigState(db)
-	require.NoError(t, err)
-	require.True(t, snap.exists)
-	require.True(t, snap.enabled)
-
-	require.NoError(t, restoreDefaultSecurityConfigState(db, defaultSecurityConfigSnapshot{exists: true, enabled: false}))
-	var cfg models.SecurityConfig
-	require.NoError(t, db.Where("name = ?", "default").First(&cfg).Error)
-	require.False(t, cfg.Enabled)
-
-	require.NoError(t, restoreDefaultSecurityConfigState(db, defaultSecurityConfigSnapshot{}))
-	err = db.Where("name = ?", "default").First(&cfg).Error
-	require.ErrorIs(t, err, gorm.ErrRecordNotFound)
 }
 
 func TestEnableSecurityFramework_Helper(t *testing.T) {

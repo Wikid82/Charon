@@ -215,21 +215,18 @@ func TestCrowdsecLifecycleReset_ResetThenFailedStartKeepsResetValues(t *testing.
 	eng := &recordingEngine{startErr: errors.New("engine refused to start")}
 	h := newResetLifecycleHandler(t, eng, &lifecycleLAPIFake{readyAt: 1}, &recordingApplier{})
 	em := newResetEmergencyHandler(t, h)
-	preState, err := h.snapshotCrowdsecStart()
-	require.NoError(t, err)
-	var afterReset crowdsecStartSnapshot
+	preState := crowdsecStartStateOf(t, h.DB)
+	var afterReset crowdsecStartState
 	h.hooks.afterPersist = func() {
 		runEmergencyReset(t, em)
-		afterReset, err = h.snapshotCrowdsecStart()
-		require.NoError(t, err)
+		afterReset = crowdsecStartStateOf(t, h.DB)
 	}
 
-	_, err = h.StartCrowdSec(context.Background())
+	_, err := h.StartCrowdSec(context.Background())
 
 	require.ErrorIs(t, err, errCrowdsecStateChanged)
 	waitForResetStops(t, h)
-	finalState, err := h.snapshotCrowdsecStart()
-	require.NoError(t, err)
+	finalState := crowdsecStartStateOf(t, h.DB)
 	require.NotEqual(t, preState, afterReset, "the Start's persist must have changed state the reset did not restore")
 	require.Equal(t, afterReset, finalState, "a Start overtaken by a reset must not revert to its snapshot")
 	require.False(t, eng.isRunning())

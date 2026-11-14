@@ -111,18 +111,16 @@ func TestCrowdsecHandler_Start_FailureRestoresPreStartSnapshot(t *testing.T) {
 	require.False(t, ok, "a setting absent before Start must be deleted again")
 }
 
-// A failed Start keeps a default row that it created, with the seed values.
-func TestCrowdsecHandler_Start_FailureKeepsRowCreatedByStart(t *testing.T) {
+// A failed Start removes a default row that it created, so readers fall back to the static configuration as before.
+func TestCrowdsecHandler_Start_FailureRemovesRowCreatedByStart(t *testing.T) {
 	t.Parallel()
 	db := setupCrowdDB(t)
 
 	h := newTestCrowdsecHandler(t, db, &fakeExec{startErr: fmt.Errorf("boom")}, "/bin/false", t.TempDir())
 	require.Equal(t, http.StatusInternalServerError, postCrowdsec(t, h, "start").Code)
 
-	cfg, err := models.FindDefaultSecurityConfig(db)
-	require.NoError(t, err, "the row created by the failed Start must be kept")
-	require.False(t, cfg.Enabled)
-	require.Equal(t, "disabled", cfg.CrowdSecMode)
+	_, err := models.FindDefaultSecurityConfig(db)
+	require.ErrorIs(t, err, gorm.ErrRecordNotFound, "the row created by the failed Start must be removed")
 }
 
 // Start must refuse to write when the settings it snapshots cannot be read.

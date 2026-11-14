@@ -21,11 +21,11 @@ func TestBlocker3_SecurityProviderEventsFlagInResponse(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Run migrations
-	err = db.AutoMigrate(&models.Setting{})
+	err = db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{})
 	assert.NoError(t, err)
 
 	// Create handler
-	handler := NewFeatureFlagsHandler(db)
+	handler := NewFeatureFlagsHandler(db, nil, nil)
 
 	// Create test context
 	w := httptest.NewRecorder()
@@ -55,11 +55,11 @@ func TestBlocker3_SecurityProviderEventsFlagDefaultValue(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Run migrations
-	err = db.AutoMigrate(&models.Setting{})
+	err = db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{})
 	assert.NoError(t, err)
 
 	// Create handler
-	handler := NewFeatureFlagsHandler(db)
+	handler := NewFeatureFlagsHandler(db, nil, nil)
 
 	// Create test context
 	w := httptest.NewRecorder()
@@ -89,7 +89,7 @@ func TestBlocker3_SecurityProviderEventsFlagCanBeEnabled(t *testing.T) {
 	assert.NoError(t, err)
 
 	// Run migrations
-	err = db.AutoMigrate(&models.Setting{})
+	err = db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{})
 	assert.NoError(t, err)
 
 	// Create setting with flag enabled
@@ -102,7 +102,7 @@ func TestBlocker3_SecurityProviderEventsFlagCanBeEnabled(t *testing.T) {
 	assert.NoError(t, db.Create(&setting).Error)
 
 	// Create handler
-	handler := NewFeatureFlagsHandler(db)
+	handler := NewFeatureFlagsHandler(db, nil, nil)
 
 	// Create test context
 	w := httptest.NewRecorder()

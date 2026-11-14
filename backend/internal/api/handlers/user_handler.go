@@ -636,12 +636,8 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 	}
 
 	err = h.DB.Transaction(func(tx *gorm.DB) error {
-		if txErr := tx.Create(&user).Error; txErr != nil {
-			return txErr
-		}
-
-		// Explicitly disable user (bypass GORM's default:true)
-		if txErr := tx.Model(&user).Update("enabled", false).Error; txErr != nil {
+		// The invite is created disabled. The helper keeps enabled=false in the row and in user, where GORM would apply its default.
+		if txErr := services.CreateKeepingSent(tx, &user, []string{"enabled"}); txErr != nil {
 			return txErr
 		}
 

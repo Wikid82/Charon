@@ -1,13 +1,14 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 )
@@ -26,25 +27,84 @@ const (
 	msgModuleWriteFailed      = "Failed to update security module"
 )
 
-// writeModuleToggle writes one switch for the toggle routes inside tx. The module keys go through SetModuleState, which
-// also enables the framework when the module is switched on. The Cerberus feature switch keeps its own two keys.
+// writeModuleToggle writes one switch inside tx: a module key goes through SetModuleState, which also enables the
+// framework when the module is switched on. Any other key is the Cerberus switch, written on both of its keys.
 func writeModuleToggle(tx *gorm.DB, settingKey string, enabled bool, actor string) error {
 	if models.IsSecurityModuleKey(settingKey) {
 		return models.SetModuleState(tx, settingKey, enabled, actor)
 	}
+	return models.SetCerberusSwitch(tx, enabled)
+}
 
-	value := "false"
-	if enabled {
-		value = "true"
+// errSwitchApplyFailed is returned by switchWriter.write when the proxy refuses the change. The pre-image is restored
+// before it is returned.
+var errSwitchApplyFailed = errors.New("security switch proxy apply failed")
+
+// switchWriter writes one security switch, a module key or the Cerberus switch, with its proxy apply as one unit: the
+// write and its snapshot share a write-locked transaction, the Cerberus cache is invalidated and the proxy is applied,
+// and a refused apply restores the pre-image.
+type switchWriter struct {
+	db       *gorm.DB
+	caddy    CaddyConfigManager
+	cerberus CacheInvalidator
+}
+
+// write stores the switch and applies the proxy. It returns the stored setting. A storage failure is returned as it
+// is. A refused apply restores the pre-image and returns errSwitchApplyFailed.
+func (w switchWriter) write(ctx context.Context, key string, on bool, actor string) (models.Setting, error) {
+	if err := w.writeBatch(ctx, actor, key, on, nil, nil); err != nil {
+		return models.Setting{}, err
 	}
-	category := "security"
-	if settingKey == models.CerberusFeatureSettingKey {
+	stored, category := "false", "security"
+	if on {
+		stored = "true"
+	}
+	if key == models.CerberusFeatureSettingKey {
 		category = "feature"
 	}
-	if err := upsertSetting(tx, models.Setting{Key: settingKey, Value: value, Category: category, Type: "bool"}); err != nil {
+	return models.Setting{Key: key, Value: stored, Category: category, Type: "bool"}, nil
+}
+
+// writeBatch stores the switch together with the extra writes, in one write-locked transaction, and then applies the
+// proxy. The extra writes run in the same transaction, so a storage failure in them rolls the switch back too. The keys
+// in extraKeys are imaged with the switch, so a refused apply restores them as well. A refused apply restores the
+// pre-image and returns errSwitchApplyFailed.
+func (w switchWriter) writeBatch(ctx context.Context, actor, key string, on bool, extraKeys []string, extra func(tx *gorm.DB) error) error {
+	var snapshot models.ModuleStateSnapshot
+	err := services.WithWriteLock(w.db, &models.Setting{}, func(tx *gorm.DB) error {
+		row, err := models.ReadModuleRow(tx, models.DefaultSecurityConfigName)
+		if err != nil {
+			return err
+		}
+		if snapshot, err = models.CaptureModuleState(tx, models.DefaultSecurityConfigName, row, append([]string{key}, extraKeys...)...); err != nil {
+			return err
+		}
+		if err := writeModuleToggle(tx, key, on, actor); err != nil {
+			return err
+		}
+		if extra != nil {
+			if err := extra(tx); err != nil {
+				return err
+			}
+		}
+		return snapshot.Seal(tx)
+	})
+	if err != nil {
 		return err
 	}
-	return upsertSetting(tx, models.Setting{Key: models.CerberusLegacySettingKey, Value: value, Category: "security", Type: "bool"})
+
+	if w.cerberus != nil {
+		w.cerberus.InvalidateCache()
+	}
+	if w.caddy != nil {
+		if err := applyProxyConfigDetached(ctx, w.caddy, proxyApplyTimeout); err != nil {
+			logger.Log().WithError(err).Warn("Failed to reload Caddy config after security setting change")
+			restoreModuleState(w.db, w.cerberus, snapshot)
+			return errSwitchApplyFailed
+		}
+		logger.Log().WithField("setting_key", sanitizeForLog(key)).Info("Caddy config reloaded after security setting change")
+	}
+	return nil
 }
 
 // restoreModuleState puts back the values a failed module write changed and drops the Cerberus cache so the restored
@@ -55,11 +115,11 @@ func writeModuleToggle(tx *gorm.DB, settingKey string, enabled bool, actor strin
 func restoreModuleState(db *gorm.DB, cerberus CacheInvalidator, snapshot models.ModuleStateSnapshot) {
 	err := services.WithWriteLock(db, &models.Setting{}, snapshot.RestoreSettings)
 	if err != nil {
-		log.WithError(err).Error("Failed to restore settings after the proxy apply failed")
+		logger.Log().WithError(err).Error("Failed to restore settings after the proxy apply failed")
 	}
 	err = services.WithWriteLock(db, &models.Setting{}, snapshot.RestoreRow)
 	if err != nil {
-		log.WithError(err).Error("Failed to restore security config after the proxy apply failed")
+		logger.Log().WithError(err).Error("Failed to restore security config after the proxy apply failed")
 	}
 	if cerberus != nil {
 		cerberus.InvalidateCache()
@@ -78,7 +138,7 @@ func respondConfigUpdateError(c *gin.Context, err error) {
 	case errors.As(err, &invalid):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	default:
-		log.WithError(err).Error("Failed to save security config")
+		logger.Log().WithError(err).Error("Failed to save security config")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save security config"})
 	}
 }

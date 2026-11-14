@@ -74,11 +74,22 @@ func (h *SecurityHeadersHandler) GetProfile(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"profile": profile})
 }
 
-// CreateProfile creates a new security header profile
+// CreateProfile creates a new security header profile. The fields the client sends are stored as sent, so an option
+// switched off on create stays off. The client cannot mark a profile as a preset.
 // POST /api/v1/security/headers/profiles
 func (h *SecurityHeadersHandler) CreateProfile(c *gin.Context) {
+	raw, err := c.GetRawData()
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
 	var req models.SecurityHeaderProfile
-	if err := c.ShouldBindJSON(&req); err != nil {
+	if err := json.Unmarshal(raw, &req); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	var sent map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &sent); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -89,15 +100,21 @@ func (h *SecurityHeadersHandler) CreateProfile(c *gin.Context) {
 		return
 	}
 
-	// Generate UUID
+	req.IsPreset = false
+	req.PresetType = ""
 	req.UUID = uuid.New().String()
 
 	// Calculate security score
 	scoreResult := services.CalculateSecurityScore(&req)
 	req.SecurityScore = scoreResult.TotalScore
 
-	// Create profile
-	if err := h.db.Create(&req).Error; err != nil {
+	if err := h.db.Transaction(func(tx *gorm.DB) error {
+		columns, colErr := services.SentDefaultColumns(tx, &models.SecurityHeaderProfile{}, requestKeys(sent))
+		if colErr != nil {
+			return colErr
+		}
+		return services.CreateKeepingSent(tx, &req, columns)
+	}); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -136,9 +153,12 @@ func (h *SecurityHeadersHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	// Preserve ID and UUID
+	// Preserve ID, UUID, creation time and the preset markers, which the client cannot change
 	updates.ID = existing.ID
 	updates.UUID = existing.UUID
+	updates.CreatedAt = existing.CreatedAt
+	updates.IsPreset = existing.IsPreset
+	updates.PresetType = existing.PresetType
 
 	// Recalculate security score
 	scoreResult := services.CalculateSecurityScore(&updates)

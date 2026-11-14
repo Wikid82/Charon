@@ -696,7 +696,7 @@ func TestBuildSecurityHeadersHandler_CompleteProfile(t *testing.T) {
 	require.Equal(t, []string{"same-origin-allow-popups"}, headers["Cross-Origin-Opener-Policy"])
 	require.Equal(t, []string{"cross-origin"}, headers["Cross-Origin-Resource-Policy"])
 	require.Equal(t, []string{"require-corp"}, headers["Cross-Origin-Embedder-Policy"])
-	require.Equal(t, []string{"1; mode=block"}, headers["X-XSS-Protection"])
+	require.Equal(t, []string{"0"}, headers["X-XSS-Protection"])
 	require.Equal(t, []string{"no-store"}, headers["Cache-Control"])
 
 	// Verify Permissions-Policy

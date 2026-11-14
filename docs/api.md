@@ -69,13 +69,19 @@ Expose internal counters for scraping.
 GET /metrics
 ```
 
-No authentication required. Primary WAF metrics:
+No authentication required. Primary security metrics:
 
 ```text
 charon_waf_requests_total
 charon_waf_blocked_total
-charon_waf_monitored_total
+charon_crowdsec_requests_total
+charon_crowdsec_blocked_total
+charon_url_validation_total
+charon_ssrf_blocks_total
+charon_url_test_duration_seconds
 ```
+
+The `*_blocked_total` counters count requests blocked on your proxied sites, read from the access log when the block can be identified there (not every block can be yet, so treat them as a lower bound). The `*_requests_total` counters count only requests to Charon's management API. `charon_waf_monitored_total` has been removed.
 
 ---
 
@@ -175,6 +181,7 @@ The WAF and rate limit switches are set through the same save:
 - **`rate_limit_enable`**: `true` turns the rate limit on and `false` turns it off. If a save sends only `rate_limit_mode`, the value `enabled` turns it on, any other non-empty value turns it off, and an empty value clears the saved choice.
 - **An unchanged value changes nothing.** A switch is written only when the value sent differs from the value already saved in the config. A read, edit one field, and save cycle therefore never turns a module on or off. To turn the WAF on when its saved mode is already `block` but the WAF is off, use `POST /security/waf/enable` or `PATCH /security/waf` instead.
 - **Turning a module on also turns on the security framework**, unless the same request also sends `"enabled": false`.
+- **Turning Cerberus on or off with the feature switch** (`PUT /feature-flags`) applies to the proxy straight away. If the proxy refuses the change, Charon restores the previous value and answers `500`. Adding or deleting a WAF exclusion works the same way.
 - **Rate limit numbers.** When the rate limit is turned on, any request count, time window or burst that is not set is filled with the standard values: 100 requests, a 60 second window and a burst of 20. Numbers sent in the same request are kept. A value of `0` counts as not set, so it is filled the same way.
 - **`waf_rules_source`** (the rule set the WAF uses) must be empty, the name of an existing rule set, or an `http://` or `https://` address. Any other name is refused with `422` and the code `waf_rules_source_unknown`. A value that is already saved is always accepted, so unrelated saves do not fail.
 - **If the proxy cannot apply the change**, Charon restores the values from before the save and answers `500` with the message `Failed to reload configuration`.

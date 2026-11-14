@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'vitest'
 
+import { usedTranslationKeys } from '../../__tests__/utils/localeKeys'
+
 type Json = { [key: string]: Json | string }
 
 const LOCALES = ['de', 'en', 'es', 'fr', 'zh'] as const
@@ -25,13 +27,7 @@ const leafKeys = (node: Json | string, prefix: string): string[] =>
     ? [prefix]
     : Object.entries(node).flatMap(([k, v]) => leafKeys(v, `${prefix}.${k}`))
 
-const usedKeys = (): string[] => {
-  const keys = new Set<string>()
-  for (const src of Object.values(sourceModules)) {
-    for (const m of src.matchAll(/\bt\(\s*'([A-Za-z0-9_.]+)'/g)) keys.add(m[1])
-  }
-  return [...keys]
-}
+const usedKeys = (): string[] => [...new Set(Object.values(sourceModules).flatMap(usedTranslationKeys))]
 
 // Calls and assignments whose string arguments reach the user, so they must go through t().
 const USER_VISIBLE_CALL = /\b(?:toast\.(?:success|error|info|warning)|setPresetStatusMessage|setValidationError|getServerErrorMessage)\(/g

@@ -127,7 +127,11 @@ export interface SecurityConfigPayload {
 /** Stored security configuration fields the UI reads. Other stored fields are not listed. */
 export interface SecurityConfigRecord {
   name?: string
+  /** Omitted for standard users; `has_admin_whitelist` tells them whether one is set. */
   admin_whitelist?: string
+  has_admin_whitelist?: boolean
+  /** Omitted for standard users; `has_rate_limit_bypass_list` tells them whether one is set. */
+  has_rate_limit_bypass_list?: boolean
   waf_mode?: string
   waf_rules_source?: string
   rate_limit_requests?: number | null
@@ -236,10 +240,15 @@ export const createDecision = async (payload: CreateDecisionPayload) => {
 export interface SecurityRuleSet {
   uuid: string
   name: string
-  source_url: string
+  /** Omitted for standard users. */
+  source_url?: string
   mode: string
   last_updated: string
-  content: string
+  /** Omitted for standard users; `has_content` and `content_line_count` describe it instead. */
+  content?: string
+  has_content?: boolean
+  /** Non-blank lines in the rule content. Sent to standard users in place of `content`. */
+  content_line_count?: number
 }
 
 /** Response containing WAF rulesets. */

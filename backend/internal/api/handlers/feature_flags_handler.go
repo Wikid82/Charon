@@ -1,9 +1,11 @@
 package handlers
 
 import (
+	"errors"
 	"log"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -14,13 +16,20 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
-// FeatureFlagsHandler exposes simple DB-backed feature flags with env fallback.
+// FeatureFlagsHandler exposes simple DB-backed feature flags with env fallback. The Cerberus flag is a security switch and
+// is written through the same switch writer as the settings API.
 type FeatureFlagsHandler struct {
-	DB *gorm.DB
+	DB       *gorm.DB
+	switches switchWriter
 }
 
-func NewFeatureFlagsHandler(db *gorm.DB) *FeatureFlagsHandler {
-	return &FeatureFlagsHandler{DB: db}
+// NewFeatureFlagsHandler returns the handler. caddyMgr and cerberus are the proxy apply and the Cerberus cache that a
+// Cerberus flag write uses; either may be nil.
+func NewFeatureFlagsHandler(db *gorm.DB, caddyMgr CaddyConfigManager, cerberus CacheInvalidator) *FeatureFlagsHandler {
+	return &FeatureFlagsHandler{
+		DB:       db,
+		switches: switchWriter{db: db, caddy: caddyMgr, cerberus: cerberus},
+	}
 }
 
 // defaultFlags lists the canonical feature flags we expose.
@@ -123,7 +132,9 @@ func (h *FeatureFlagsHandler) GetFlags(c *gin.Context) {
 	c.JSON(http.StatusOK, result)
 }
 
-// UpdateFlags accepts a JSON object map[string]bool and upserts settings.
+// UpdateFlags accepts a JSON object map[string]bool and upserts settings. The batch is atomic. When it includes the
+// Cerberus flag, the flag goes through the switch writer together with the other flags, in one write-locked
+// transaction, so a failed flag write rolls the switch back and a refused proxy apply restores every key in the batch.
 func (h *FeatureFlagsHandler) UpdateFlags(c *gin.Context) {
 	// Phase 0: Performance instrumentation
 	startTime := time.Now()
@@ -138,32 +149,49 @@ func (h *FeatureFlagsHandler) UpdateFlags(c *gin.Context) {
 		return
 	}
 
-	// Phase 1: Transaction wrapping - all updates in single atomic transaction
-	if err := h.DB.Transaction(func(tx *gorm.DB) error {
-		for k, v := range payload {
-			// Only allow keys in the default list to avoid arbitrary settings
-			allowed := false
-			for _, ak := range defaultFlags {
-				if ak == k {
-					allowed = true
-					break
-				}
-			}
-			if !allowed {
-				continue
-			}
+	cerberusOn, cerberusRequested := payload[models.CerberusFeatureSettingKey]
+	delete(payload, models.CerberusFeatureSettingKey)
+	writeFlags := func(tx *gorm.DB) error { return upsertFlags(tx, payload) }
 
-			s := models.Setting{Key: k, Value: strconv.FormatBool(v), Type: "bool", Category: "feature"}
-			if err := tx.Where(models.Setting{Key: k}).Assign(s).FirstOrCreate(&s).Error; err != nil {
-				return err // Rollback on error
-			}
+	if !cerberusRequested {
+		if err := h.DB.Transaction(writeFlags); err != nil {
+			log.Printf("[ERROR] Failed to update feature flags: %v", err)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update feature flags"})
+			return
 		}
-		return nil
-	}); err != nil {
+		c.JSON(http.StatusOK, gin.H{"status": "ok"})
+		return
+	}
+
+	batchKeys := make([]string, 0, len(payload))
+	for key := range payload {
+		batchKeys = append(batchKeys, key)
+	}
+	err := h.switches.writeBatch(c.Request.Context(), auditActor(c), models.CerberusFeatureSettingKey, cerberusOn, batchKeys, writeFlags)
+	switch {
+	case errors.Is(err, errSwitchApplyFailed):
+		log.Printf("[ERROR] Failed to apply feature flags: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
+		return
+	case err != nil:
 		log.Printf("[ERROR] Failed to update feature flags: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update feature flags"})
 		return
 	}
-
 	c.JSON(http.StatusOK, gin.H{"status": "ok"})
+}
+
+// upsertFlags stores the flags in payload that are declared in defaultFlags, as feature settings. Other keys are ignored,
+// so the handler cannot write arbitrary settings.
+func upsertFlags(tx *gorm.DB, payload map[string]bool) error {
+	for k, v := range payload {
+		if !slices.Contains(defaultFlags, k) {
+			continue
+		}
+		s := models.Setting{Key: k, Value: strconv.FormatBool(v), Type: "bool", Category: "feature"}
+		if err := tx.Where(models.Setting{Key: k}).Assign(s).FirstOrCreate(&s).Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }

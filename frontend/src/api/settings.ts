@@ -1,6 +1,9 @@
 import client from './client'
 
-/** Map of setting keys to string values. */
+/**
+ * Map of setting keys to string values. Standard users do not receive the admin-only keys (the admin allow-list and
+ * the mail server details); each one is replaced by a `<key>.has_value` flag that says whether it is set.
+ */
 export interface SettingsMap {
   [key: string]: string
 }
