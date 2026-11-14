@@ -190,17 +190,26 @@ test.describe('Emergency Access & Rate Limiting', () => {
       await waitForSettings(token, request, STAGE_A_LIMITS);
     });
 
-    await test.step('Security status check (Stage A only)', async () => {
-      const statusResponse = await request.get('/api/v1/security/status', {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-
-      if (statusResponse.ok()) {
-        const status = await statusResponse.json();
-        if (status?.rate_limit?.enabled !== undefined) {
-          expect(status.rate_limit.enabled).toBe(true);
-        }
-      }
+    await test.step('Security status reports rate limiting enabled (Stage A only)', async () => {
+      // The rate limit change is applied asynchronously, so the status is polled rather than read once.
+      await expect
+        .poll(
+          async () => {
+            const statusResponse = await request.get('/api/v1/security/status', {
+              headers: { Authorization: `Bearer ${token}` },
+            });
+            if (!statusResponse.ok()) {
+              return undefined;
+            }
+            const status = await statusResponse.json();
+            return status?.rate_limit?.enabled;
+          },
+          {
+            timeout: 30_000,
+            message: 'rate limiting should be reported as enabled after Stage A',
+          }
+        )
+        .toBe(true);
     });
   });
 
