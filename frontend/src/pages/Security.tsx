@@ -92,11 +92,14 @@ export default function Security() {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const { data: status, isLoading } = useSecurityStatus()
   const { data: securityConfig } = useSecurityConfig()
   // Draft is null until the user edits; the displayed value falls back to the server value.
   const [adminWhitelistDraft, setAdminWhitelistDraft] = useState<string | null>(null)
   const adminWhitelist = adminWhitelistDraft ?? securityConfig?.config?.admin_whitelist ?? ''
+  // The server omits the list for standard users; a read-only field with Save disabled keeps them from overwriting it.
+  const allowListHidden = !isAdmin && securityConfig?.config?.has_admin_whitelist === true
   const updateSecurityConfigMutation = useUpdateSecurityConfig()
   const generateBreakGlassMutation = useGenerateBreakGlassToken()
   const queryClient = useQueryClient()
@@ -385,11 +388,13 @@ export default function Security() {
                   className="flex-1 px-3 py-2 rounded-md border border-border bg-surface-elevated text-content-primary focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
                   value={adminWhitelist}
                   onChange={(e) => setAdminWhitelistDraft(e.target.value)}
-                  placeholder="192.168.1.0/24, 10.0.0.1"
+                  readOnly={allowListHidden}
+                  placeholder={allowListHidden ? t('permissions.hiddenForRole') : '192.168.1.0/24, 10.0.0.1'}
                 />
                 <Button
                   size="sm"
                   variant="primary"
+                  disabled={allowListHidden}
                   onClick={() =>
                     updateSecurityConfigMutation.mutate(
                       { name: 'default', admin_whitelist: adminWhitelist },
@@ -425,8 +430,8 @@ export default function Security() {
         )}
 
         {/* Sign-in throttling is always on, so this sits outside the Cerberus-enabled sections */}
-        {user?.role === 'admin' && <LoginProtectionCard />}
-        {user?.role === 'admin' && <GeoIPDatabaseCard />}
+        {isAdmin && <LoginProtectionCard />}
+        {isAdmin && <GeoIPDatabaseCard />}
 
         <Outlet />
 

@@ -6,6 +6,7 @@ import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { SecurityEnforcementNote } from '../components/SecurityEnforcementNote'
 import { Button } from '../components/ui/Button'
 import { Input } from '../components/ui/Input'
+import { useAuth } from '../hooks/useAuth'
 import {
   useRuleSets,
   useUpsertRuleSet,
@@ -116,6 +117,12 @@ function ConfirmDialog({
 }
 
 /**
+ * Number of non-blank rule lines. Standard users get the count from the server, since it withholds the content.
+ */
+const ruleLineCount = (rs: SecurityRuleSet): number =>
+  rs.content_line_count ?? (rs.content ?? '').split('\n').filter((line) => line.trim()).length
+
+/**
  * Form for creating/editing a WAF rule set
  */
 function RuleSetForm({
@@ -123,12 +130,15 @@ function RuleSetForm({
   onSubmit,
   onCancel,
   isLoading,
+  contentHidden = false,
   t,
 }: {
   initialData?: SecurityRuleSet
   onSubmit: (data: UpsertRuleSetPayload) => void
   onCancel: () => void
   isLoading?: boolean
+  /** True for a standard user editing a rule set whose content the server withholds. */
+  contentHidden?: boolean
   t: (key: string) => string
 }) {
   const [name, setName] = useState(initialData?.name || '')
@@ -250,14 +260,20 @@ function RuleSetForm({
         <label className="block text-sm font-medium text-gray-300 mb-1.5">
           {t('wafConfig.ruleContent')} <span className="text-red-400">*</span>
         </label>
-        <textarea
-          value={content}
-          onChange={(e) => setContent(e.target.value)}
-          placeholder={`SecRule REQUEST_URI "@contains /admin" "id:1000,phase:1,deny,status:403"`}
-          rows={10}
-          className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white font-mono text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-          data-testid="ruleset-content-input"
-        />
+        {contentHidden ? (
+          <p className="text-sm text-gray-400 italic" data-testid="ruleset-content-hidden">
+            {t('permissions.hiddenForRole')}
+          </p>
+        ) : (
+          <textarea
+            value={content}
+            onChange={(e) => setContent(e.target.value)}
+            placeholder={`SecRule REQUEST_URI "@contains /admin" "id:1000,phase:1,deny,status:403"`}
+            rows={10}
+            className="w-full bg-gray-900 border border-gray-700 rounded-lg px-4 py-2 text-white font-mono text-sm placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+            data-testid="ruleset-content-input"
+          />
+        )}
         <p className="mt-1 text-xs text-gray-500">
           {t('wafConfig.ruleContentHelper')}
         </p>
@@ -284,6 +300,8 @@ export default function WafConfig() {
   const upsertMutation = useUpsertRuleSet()
   const deleteMutation = useDeleteRuleSet()
   const { data: status } = useSecurityStatus()
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
   const { data: securityConfig } = useSecurityConfig()
   const updateRulesSourceMutation = useUpdateWafRulesSource()
 
@@ -472,6 +490,7 @@ export default function WafConfig() {
             onSubmit={handleUpdate}
             onCancel={() => setEditingRuleSet(null)}
             isLoading={upsertMutation.isPending}
+            contentHidden={!isAdmin && editingRuleSet.has_content === true}
             t={t}
           />
         </div>
@@ -536,9 +555,9 @@ export default function WafConfig() {
                 <tr key={rs.uuid} className="hover:bg-gray-900/30">
                   <td className="px-6 py-4">
                     <p className="font-medium text-white">{rs.name}</p>
-                    {rs.content && (
+                    {(rs.has_content ?? Boolean(rs.content)) && (
                       <p className="text-xs text-gray-500 mt-1">
-                        {t('wafConfig.ruleCount', { count: rs.content.split('\n').filter((l) => l.trim()).length })}
+                        {t('wafConfig.ruleCount', { count: ruleLineCount(rs) })}
                       </p>
                     )}
                   </td>
