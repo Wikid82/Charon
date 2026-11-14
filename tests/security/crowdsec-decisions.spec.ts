@@ -19,7 +19,9 @@ import { getToastLocator } from '../utils/ui-helpers';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
 import {
   crowdsecFixtures,
+  HUB_PRESET_TITLE,
   stubCrowdSecApi,
+  stubHubPreset,
   type CrowdSecStubOptions,
 } from '../utils/crowdsec-stubs';
 
@@ -36,7 +38,11 @@ const DECISIONS = [
   crowdsecFixtures.decision({ id: 'decision-2', ip: '203.0.113.8', reason: '', duration: '4h', source: '' }),
 ];
 
-/** Installs the stubs (CrowdSec in local mode), loads the CrowdSec page and waits for the Banned IPs card. */
+/**
+ * Installs the stubs (CrowdSec in local mode), loads the CrowdSec page and waits for the Banned IPs card.
+ * The preset catalog renders above the card; it is stubbed with one entry and awaited so the card does not
+ * move between a click's press and release (the real hub catalog lists thousands of items and loads late).
+ */
 async function openBannedIps(page: Page, options: CrowdSecStubOptions = {}) {
   const recorder = await stubCrowdSecApi(page, {
     crowdsecMode: 'local',
@@ -44,9 +50,13 @@ async function openBannedIps(page: Page, options: CrowdSecStubOptions = {}) {
     banApi: {},
     ...options,
   });
+  await stubHubPreset(page);
   await page.goto('/security/crowdsec');
   await waitForLoadingComplete(page);
   await expect(bannedIpsHeading(page)).toBeVisible();
+  if (options.crowdsecMode !== 'disabled') {
+    await expect(page.getByRole('button', { name: new RegExp(HUB_PRESET_TITLE, 'i') })).toBeVisible();
+  }
   return recorder;
 }
 
@@ -203,7 +213,7 @@ test.describe('CrowdSec Banned IPs Management', () => {
     });
 
     // GitHub #1855: Ctrl+Enter in the address field sent the ban twice (field handler, then the dialog-wide shortcut).
-    test.fixme('should send one ban when Ctrl+Enter is pressed in the IP field', async ({ page }) => {
+    test('should send one ban when Ctrl+Enter is pressed in the IP field', async ({ page }) => {
       const stubs = await openBannedIps(page);
 
       await page.getByRole('button', { name: 'Ban IP', exact: true }).click();

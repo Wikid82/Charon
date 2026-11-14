@@ -133,7 +133,7 @@ test.describe('Security Headers Enforcement', () => {
 
   test.describe('X-XSS-Protection value', () => {
     // GitHub #1437: an enabled X-XSS-Protection option was sent as "1" instead of "0".
-    test.fixme('should send X-XSS-Protection 0 when the profile turns it on', async () => {
+    test('should send X-XSS-Protection 0 when the profile turns it on', async () => {
       const container = findE2EContainer();
       const domain = `xss-value-${Date.now()}.example.test`;
       const profileName = `XSS On ${Date.now()}`;
@@ -236,7 +236,7 @@ test.describe('Security Headers Enforcement', () => {
     });
 
     // GitHub #1437 companion: a profile that turns X-XSS-Protection off must not send the header at all.
-    test.fixme('should omit X-XSS-Protection when the profile turns it off', async () => {
+    test('should omit X-XSS-Protection when the profile turns it off', async () => {
       const response = await fetchFromContainer(container, { host: domain, path: '/' });
 
       expect(response.status).toBe(403);

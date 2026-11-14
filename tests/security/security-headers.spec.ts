@@ -11,8 +11,29 @@
  * @see /projects/Charon/docs/plans/current_spec.md
  */
 
+import type { Locator, Page } from '@playwright/test';
 import { test, expect, loginUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete } from '../utils/wait-helpers';
+
+/**
+ * The HSTS switch sits beside its card heading and has no label of its own. The switch renders as a checkbox,
+ * so it is found through the heading that shares its row.
+ */
+function hstsSwitch(dialog: Locator): Locator {
+  return dialog
+    .getByRole('heading', { name: 'HTTP Strict Transport Security (HSTS)' })
+    .locator('xpath=..')
+    .getByRole('checkbox');
+}
+
+/**
+ * Flips a switch from the keyboard. Its checkbox is visually hidden and the row around it takes pointer clicks,
+ * so focusing the checkbox and pressing Space is the reliable way to toggle it.
+ */
+async function toggleSwitch(page: Page, toggle: Locator): Promise<void> {
+  await toggle.focus();
+  await page.keyboard.press('Space');
+}
 
 test.describe('Security Headers Configuration @security', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -198,7 +219,7 @@ test.describe('Security Headers Configuration @security', () => {
 
   test.describe('Profile Persistence', () => {
     // GitHub #1416: a header option switched off while creating a profile was stored as on.
-    test.fixme('should keep HSTS and X-XSS-Protection off after a profile is saved with them off', async ({ page }) => {
+    test('should keep HSTS and X-XSS-Protection off after a profile is saved with them off', async ({ page }) => {
       const profileName = `Headers Off ${Date.now()}`;
 
       await test.step('Create a profile with HSTS and X-XSS-Protection switched off', async () => {
@@ -210,9 +231,8 @@ test.describe('Security Headers Configuration @security', () => {
 
         const dialog = page.getByRole('dialog');
         await dialog.getByLabel('Profile Name').fill(profileName);
-        // The HSTS switch is the first switch in the form; it has no accessible name of its own.
-        await dialog.getByRole('switch').first().click();
-        await dialog.getByRole('switch', { name: 'X-XSS-Protection' }).click();
+        await toggleSwitch(page, hstsSwitch(dialog));
+        await toggleSwitch(page, dialog.getByRole('checkbox', { name: 'X-XSS-Protection' }));
         await dialog.getByRole('button', { name: 'Save Profile' }).click();
       });
 
@@ -220,18 +240,18 @@ test.describe('Security Headers Configuration @security', () => {
         await page.reload();
         await waitForLoadingComplete(page);
 
-        // The "View" button opens the profile form; it is scoped to the card that carries the new profile's name.
+        // The "Edit" button on a custom profile card opens the profile form; the card is the nearest ancestor of the name.
         const card = page
           .getByRole('main')
           .getByRole('heading', { name: profileName })
-          .locator('xpath=ancestor::div[.//button[normalize-space()="View"]][1]');
-        await card.getByRole('button', { name: 'View', exact: true }).click();
+          .locator('xpath=ancestor::div[.//button[normalize-space()="Edit"]][1]');
+        await card.getByRole('button', { name: 'Edit', exact: true }).click();
       });
 
       await test.step('HSTS and X-XSS-Protection are shown as off', async () => {
         const dialog = page.getByRole('dialog');
-        await expect(dialog.getByRole('switch', { name: 'X-XSS-Protection' })).not.toBeChecked();
-        await expect(dialog.getByRole('switch').first()).not.toBeChecked();
+        await expect(dialog.getByRole('checkbox', { name: 'X-XSS-Protection' })).not.toBeChecked();
+        await expect(hstsSwitch(dialog)).not.toBeChecked();
       });
     });
   });

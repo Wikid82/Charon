@@ -276,7 +276,7 @@ test.describe('Security config save applies only the fields in the request', () 
   });
 
   // GitHub #1759: the allow-list field's visible label was not associated with the input.
-  test.fixme('Security page allow-list input is found by its label and saves the entered value', async ({ page }) => {
+  test('Security page allow-list input is found by its label and saves the entered value', async ({ page }) => {
     await showConfigControls();
     const before = await seedState(context);
     const newWhitelist = `${RUNNER_WHITELIST},${EXTRA_WHITELIST_CIDR}`;
