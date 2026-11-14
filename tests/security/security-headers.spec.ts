@@ -233,11 +233,24 @@ test.describe('Security Headers Configuration @security', () => {
         await dialog.getByLabel('Profile Name').fill(profileName);
         await toggleSwitch(page, hstsSwitch(dialog));
         await toggleSwitch(page, dialog.getByRole('checkbox', { name: 'X-XSS-Protection' }));
+
+        // The form returns without a request when the name is empty, so the name is confirmed before saving and the
+        // POST is awaited, which makes a save that never reaches the API fail here with a clear reason.
+        await expect(dialog.getByLabel('Profile Name')).toHaveValue(profileName);
+        const created = page.waitForResponse(
+          (response) => response.url().endsWith('/api/v1/security/headers/profiles') && response.request().method() === 'POST',
+        );
         await dialog.getByRole('button', { name: 'Save Profile' }).click();
+        expect((await created).status()).toBe(201);
+        await expect(dialog).toBeHidden();
       });
 
       await test.step('Reopen the saved profile after a reload', async () => {
+        const listLoaded = page.waitForResponse(
+          (response) => response.url().endsWith('/api/v1/security/headers/profiles') && response.request().method() === 'GET',
+        );
         await page.reload();
+        await listLoaded;
         await waitForLoadingComplete(page);
 
         // The "Edit" button on a custom profile card opens the profile form; the card is the nearest ancestor of the name.

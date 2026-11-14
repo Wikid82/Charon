@@ -8,10 +8,12 @@ import { TestDataManager } from '../utils/TestDataManager';
 import { TEST_PASSWORD, loginUser, type TestUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete, waitForModal } from '../utils/wait-helpers';
 import { deleteAccessList } from '../utils/proxy-refusal-helpers';
+import { setSecurityModuleEnabled } from '../utils/security-helpers';
 import {
   RUNNER_WHITELIST,
   createRuleSet,
   deleteRuleSetByName,
+  getSecurityStatus,
   restoreSecurityState,
   saveConfig,
   snapshotSecurityState,
@@ -1045,21 +1047,36 @@ test.describe('Standard user management permissions (PR 32)', () => {
     });
 
     test('standard user sees the hidden note in place of the allow-list and rule set content', async ({ page }) => {
-      // The allow-list is hidden only when the stored config has one, so the admin sets one first. A rule set created
-      // as admin gives the standard user a row whose edit form shows the hidden content note.
+      // The Security page renders the allow-list card only while Cerberus is on, and the card's input is hidden for a
+      // standard user only when the stored config has an allow-list. Cerberus defaults to off and specs earlier in the
+      // shard leave it off, so this test turns it on for its own run and restores it afterwards. A rule set created as
+      // admin gives the standard user a row whose edit form shows the hidden content note.
       const ruleSetName = `rbac-hidden-waf-${Date.now()}`;
       const before = await snapshotSecurityState(adminApi);
 
       try {
-        await saveConfig(adminApi, { name: 'default', admin_whitelist: RUNNER_WHITELIST });
-        await createRuleSet(adminApi, ruleSetName);
+        await test.step('Enable Cerberus and store an allow-list and a rule set as admin', async () => {
+          await setSecurityModuleEnabled(adminApi, 'cerberus', true);
+          await expect
+            .poll(async () => (await getSecurityStatus(adminApi)).cerberus.enabled, {
+              message: 'Cerberus is reported enabled before the Security page is opened',
+            })
+            .toBe(true);
+          await saveConfig(adminApi, { name: 'default', admin_whitelist: RUNNER_WHITELIST });
+          await createRuleSet(adminApi, ruleSetName);
+        });
 
         await test.step('Sign in as the standard user', async () => {
           await loginUser(page, standardUser);
         });
 
         await test.step('Security page shows the note as the read-only allow-list placeholder', async () => {
+          // The card's state comes from the config response, so wait for that response before asserting on the input.
+          const configLoaded = page.waitForResponse(
+            (response) => response.url().endsWith('/api/v1/security/config') && response.request().method() === 'GET',
+          );
           await page.goto('/security');
+          await configLoaded;
           await waitForLoadingComplete(page);
 
           const allowList = page.getByPlaceholder('Hidden for your role.', { exact: true });
