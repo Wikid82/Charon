@@ -48,7 +48,8 @@
     "activeCount": "{{count}} active",
     "noHistoryAvailable": "No history available",
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "Bijwerken mislukt"
   },
   "permissions": {
     "adminOnlyError": "Alleen beheerders kunnen deze instelling wijzigen.",
@@ -745,7 +746,10 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "saveConfiguration": "Configuratie opslaan",
+    "settingUpdated": "Instelling voor snelheidslimiet bijgewerkt",
+    "invalidValue": "Voer een geheel getal groter dan 0 in."
   },
   "wafConfig": {
     "title": "WAF Configuration",

@@ -378,9 +378,10 @@ export default function Security() {
               <CardDescription>{t('security.adminWhitelistDescription')}</CardDescription>
             </CardHeader>
             <CardContent>
-              <label className="text-sm text-content-secondary">{t('security.commaSeparatedCIDR')}</label>
+              <label htmlFor="admin-whitelist" className="text-sm text-content-secondary">{t('security.commaSeparatedCIDR')}</label>
               <div className="flex gap-2 mt-2">
                 <input
+                  id="admin-whitelist"
                   className="flex-1 px-3 py-2 rounded-md border border-border bg-surface-elevated text-content-primary focus:outline-none focus:ring-2 focus:ring-brand-500 focus:border-transparent"
                   value={adminWhitelist}
                   onChange={(e) => setAdminWhitelistDraft(e.target.value)}

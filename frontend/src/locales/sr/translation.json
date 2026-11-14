@@ -48,7 +48,8 @@
     "activeCount": "{{count}} active",
     "noHistoryAvailable": "No history available",
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "Ажурирање није успело"
   },
   "permissions": {
     "adminOnlyError": "Samo administratori mogu da promene ovo podešavanje.",
@@ -745,7 +746,10 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "saveConfiguration": "Сачувај конфигурацију",
+    "settingUpdated": "Подешавање ограничења учесталости је ажурирано",
+    "invalidValue": "Унесите цео број већи од 0."
   },
   "wafConfig": {
     "title": "WAF Configuration",

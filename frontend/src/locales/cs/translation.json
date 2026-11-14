@@ -48,7 +48,8 @@
     "activeCount": "{{count}} active",
     "noHistoryAvailable": "No history available",
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "Aktualizace se nezdařila"
   },
   "permissions": {
     "adminOnlyError": "Toto nastavení mohou měnit jen správci.",
@@ -745,7 +746,10 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "saveConfiguration": "Uložit konfiguraci",
+    "settingUpdated": "Nastavení omezení rychlosti bylo aktualizováno",
+    "invalidValue": "Zadejte celé číslo větší než 0."
   },
   "wafConfig": {
     "title": "WAF Configuration",

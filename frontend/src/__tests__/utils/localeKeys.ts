@@ -35,3 +35,11 @@ export function missingLocaleKeys(keys: readonly string[]): string[] {
       .map((key) => `${path} ${key}`),
   );
 }
+
+/** Matches a static key passed as the first argument of `t('...')`. */
+const STATIC_T_CALL = /\bt\(\s*'([A-Za-z0-9_.]+)'/g
+
+/** Returns the distinct static translation keys (`t('a.b')`) that a component source passes to `t()`. */
+export function usedTranslationKeys(source: string): string[] {
+  return [...new Set([...source.matchAll(STATIC_T_CALL)].map((match) => match[1]))]
+}

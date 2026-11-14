@@ -367,6 +367,92 @@ describe('RateLimiting page', () => {
     })
   })
 
+  it('explains what the page does with the real text when enabled', async () => {
+    vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockStatusEnabled)
+    vi.mocked(securityApi.getSecurityConfig).mockResolvedValue(mockSecurityConfig)
+
+    renderWithProviders(<RateLimiting />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Rate limiting is active and protecting your services')).toBeInTheDocument()
+    })
+    expect(screen.getByText('10 requests/sec • Burst: 5 • Window: 60s')).toBeInTheDocument()
+    expect(screen.getByText('Time window for rate calculations')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Save Configuration' })).toBeInTheDocument()
+    expect(screen.queryByText('rateLimiting.activeDescription')).not.toBeInTheDocument()
+    expect(screen.queryByText('rateLimiting.saveConfiguration')).not.toBeInTheDocument()
+  })
+
+  it('explains how to turn rate limiting on with the real text when disabled', async () => {
+    vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockStatusDisabled)
+    vi.mocked(securityApi.getSecurityConfig).mockResolvedValue(mockSecurityConfig)
+
+    renderWithProviders(<RateLimiting />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Rate Limiting Disabled')).toBeInTheDocument()
+    })
+    expect(
+      screen.getByText('Enable rate limiting to configure request limits and protect your services')
+    ).toBeInTheDocument()
+    expect(screen.getByText('Enable to start limiting request rates')).toBeInTheDocument()
+    expect(screen.queryByText('rateLimiting.disabledTitle')).not.toBeInTheDocument()
+    expect(screen.queryByText('rateLimiting.disabledDescription')).not.toBeInTheDocument()
+  })
+
+  it('confirms a toggle with the localized success message', async () => {
+    vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockStatusDisabled)
+    vi.mocked(securityApi.getSecurityConfig).mockResolvedValue(mockSecurityConfig)
+    vi.mocked(settingsApi.updateSetting).mockResolvedValue()
+    const successSpy = vi.spyOn(toast, 'success')
+
+    renderWithProviders(<RateLimiting />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('rate-limit-toggle')).toBeInTheDocument()
+    })
+
+    await userEvent.click(screen.getByTestId('rate-limit-toggle'))
+
+    await waitFor(() => {
+      expect(successSpy).toHaveBeenCalledWith('Rate limiting setting updated')
+    })
+  })
+
+  it('reports a failed toggle with the localized error prefix', async () => {
+    vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockStatusDisabled)
+    vi.mocked(securityApi.getSecurityConfig).mockResolvedValue(mockSecurityConfig)
+    vi.mocked(settingsApi.updateSetting).mockRejectedValue(new Error('boom'))
+    const errorSpy = vi.spyOn(toast, 'error')
+
+    renderWithProviders(<RateLimiting />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('rate-limit-toggle')).toBeInTheDocument()
+    })
+
+    await userEvent.click(screen.getByTestId('rate-limit-toggle'))
+
+    await waitFor(() => {
+      expect(errorSpy).toHaveBeenCalledWith('Failed to update: boom')
+    })
+  })
+
+  it('shows the localized validation message for an empty field', async () => {
+    vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockStatusEnabled)
+    vi.mocked(securityApi.getSecurityConfig).mockResolvedValue(mockSecurityConfig)
+
+    renderWithProviders(<RateLimiting />)
+
+    await waitFor(() => {
+      expect(screen.getByTestId('rate-limit-rps')).toHaveValue(10)
+    })
+    await userEvent.clear(screen.getByTestId('rate-limit-rps'))
+    await userEvent.click(screen.getByTestId('save-rate-limit-btn'))
+
+    expect(await screen.findByTestId('rate-limit-rps-error')).toHaveTextContent('Enter a whole number greater than 0.')
+  })
+
   it('shows an error toast when the toggle fails', async () => {
     vi.mocked(securityApi.getSecurityStatus).mockResolvedValue(mockStatusDisabled)
     vi.mocked(securityApi.getSecurityConfig).mockResolvedValue(mockSecurityConfig)
