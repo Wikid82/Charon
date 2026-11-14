@@ -55,13 +55,13 @@ func TestSecurityService_Upsert_ValidateAdminWhitelist(t *testing.T) {
 
 	// Invalid CIDR in admin whitelist should fail
 	cfg := &models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "invalid-cidr"}
-	err := svc.Upsert(cfg)
+	err := UpsertSecurityConfig(db, cfg)
 	assert.Error(t, err)
 	assert.Equal(t, ErrInvalidAdminCIDR, err)
 
 	// Valid CIDR should succeed
 	cfg.AdminWhitelist = "192.168.1.0/24, 10.0.0.1"
-	err = svc.Upsert(cfg)
+	err = UpsertSecurityConfig(db, cfg)
 	assert.NoError(t, err)
 
 	// Verify stored
@@ -76,7 +76,7 @@ func TestSecurityService_BreakGlassTokenLifecycle(t *testing.T) {
 
 	// Create record
 	cfg := &models.SecurityConfig{Name: "default", Enabled: false}
-	err := svc.Upsert(cfg)
+	err := UpsertSecurityConfig(db, cfg)
 	assert.NoError(t, err)
 
 	token, err := svc.GenerateBreakGlassToken("default")
@@ -179,21 +179,20 @@ func TestSecurityService_DeleteRuleSet(t *testing.T) {
 
 func TestSecurityService_Upsert_RejectExternalMode(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := newTestSecurityService(t, db)
 
 	// External mode should be rejected by validation
 	cfg := &models.SecurityConfig{Name: "default", Enabled: true, CrowdSecMode: "external"}
-	err := svc.Upsert(cfg)
+	err := UpsertSecurityConfig(db, cfg)
 	assert.Error(t, err)
 
 	// Unknown mode should also be rejected
 	cfg.CrowdSecMode = "unknown"
-	err = svc.Upsert(cfg)
+	err = UpsertSecurityConfig(db, cfg)
 	assert.Error(t, err)
 
 	// Local mode should be accepted
 	cfg.CrowdSecMode = "local"
-	err = svc.Upsert(cfg)
+	err = UpsertSecurityConfig(db, cfg)
 	assert.NoError(t, err)
 }
 
@@ -225,7 +224,7 @@ func TestSecurityService_GenerateBreakGlassToken_UpdateExisting(t *testing.T) {
 
 	// Create initial config
 	cfg := &models.SecurityConfig{Name: "default", Enabled: true}
-	err := svc.Upsert(cfg)
+	err := UpsertSecurityConfig(db, cfg)
 	assert.NoError(t, err)
 
 	// Generate first token
@@ -265,7 +264,7 @@ func TestSecurityService_VerifyBreakGlassToken_NoHash(t *testing.T) {
 
 	// Create config without break-glass hash
 	cfg := &models.SecurityConfig{Name: "default", Enabled: true, BreakGlassHash: ""}
-	err := svc.Upsert(cfg)
+	err := UpsertSecurityConfig(db, cfg)
 	assert.NoError(t, err)
 
 	// Verify should fail with no hash
@@ -328,7 +327,7 @@ func TestSecurityService_Upsert_PreserveBreakGlassHash(t *testing.T) {
 	// Update other fields
 	cfg.Enabled = true
 	cfg.AdminWhitelist = "10.0.0.0/8"
-	err = svc.Upsert(&cfg)
+	err = UpsertSecurityConfig(db, &cfg)
 	assert.NoError(t, err)
 
 	// Verify hash is preserved
@@ -379,7 +378,7 @@ func TestSecurityService_Upsert_RateLimitFieldsPersist(t *testing.T) {
 		CrowdSecAPIURL:     "http://localhost:8080",
 		WAFRulesSource:     "owasp-crs",
 	}
-	err := svc.Upsert(initialCfg)
+	err := UpsertSecurityConfig(db, initialCfg)
 	assert.NoError(t, err)
 
 	// Verify initial values
@@ -404,7 +403,7 @@ func TestSecurityService_Upsert_RateLimitFieldsPersist(t *testing.T) {
 		CrowdSecAPIURL:     "http://crowdsec:8080",
 		WAFRulesSource:     "custom-rules",
 	}
-	err = svc.Upsert(updatedCfg)
+	err = UpsertSecurityConfig(db, updatedCfg)
 	assert.NoError(t, err)
 
 	// 3. Verify all fields persisted correctly via Get()
@@ -572,13 +571,12 @@ func TestSecurityService_ListRuleSets_Empty(t *testing.T) {
 
 func TestSecurityService_Upsert_InvalidCrowdSecMode(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := newTestSecurityService(t, db)
 
 	// Test various invalid modes
 	invalidModes := []string{"", "invalid", "External", "LOCAL", "disabled123"}
 	for _, mode := range invalidModes {
 		cfg := &models.SecurityConfig{Name: "default", CrowdSecMode: mode}
-		err := svc.Upsert(cfg)
+		err := UpsertSecurityConfig(db, cfg)
 		if mode == "" {
 			// Empty mode is valid (defaults to disabled)
 			continue
@@ -990,7 +988,7 @@ func TestSecurityService_Get_Singleton(t *testing.T) {
 
 		// Create only non-default config: the proxy never reads it, so Get must not return it
 		cfg := &models.SecurityConfig{Name: "custom", Enabled: false}
-		assert.NoError(t, svc.Upsert(cfg))
+		assert.NoError(t, UpsertSecurityConfig(db, cfg))
 
 		_, err := svc.Get()
 		assert.Equal(t, ErrSecurityConfigNotFound, err)
@@ -1003,7 +1001,7 @@ func TestSecurityService_Get_Singleton(t *testing.T) {
 
 		// Create default config
 		defaultCfg := &models.SecurityConfig{Name: "default", Enabled: true}
-		assert.NoError(t, svc.Upsert(defaultCfg))
+		assert.NoError(t, UpsertSecurityConfig(db, defaultCfg))
 
 		// Get should return "default" config
 		got, err := svc.Get()
@@ -1092,12 +1090,11 @@ func TestValidateCrowdSecMode(t *testing.T) {
 
 func TestSecurityService_Upsert_KeepsStoredCrowdSecMode(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := newTestSecurityService(t, db)
 	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", Enabled: true, CrowdSecMode: "local"}).Error)
 
 	// A save that carries another mode, or none, must leave the stored column alone.
 	for _, mode := range []string{"disabled", ""} {
-		require.NoError(t, svc.Upsert(&models.SecurityConfig{Name: "default", Enabled: true, CrowdSecMode: mode, WAFMode: "block"}))
+		require.NoError(t, UpsertSecurityConfig(db, &models.SecurityConfig{Name: "default", Enabled: true, CrowdSecMode: mode, WAFMode: "block"}))
 
 		var stored models.SecurityConfig
 		require.NoError(t, db.Where("name = ?", "default").First(&stored).Error)
@@ -1107,10 +1104,9 @@ func TestSecurityService_Upsert_KeepsStoredCrowdSecMode(t *testing.T) {
 
 func TestSecurityService_Upsert_RefusesInvalidCrowdSecModeWithoutWriting(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := newTestSecurityService(t, db)
 	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", Enabled: true, WAFMode: "disabled"}).Error)
 
-	err := svc.Upsert(&models.SecurityConfig{Name: "default", Enabled: true, CrowdSecMode: "external", WAFMode: "block"})
+	err := UpsertSecurityConfig(db, &models.SecurityConfig{Name: "default", Enabled: true, CrowdSecMode: "external", WAFMode: "block"})
 	require.EqualError(t, err, "invalid crowdsec mode: external")
 
 	var stored models.SecurityConfig

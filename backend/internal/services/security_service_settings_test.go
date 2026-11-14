@@ -13,10 +13,9 @@ import (
 // default row, such as the enabled flag.
 func TestSecurityService_Upsert_SavesGeneralColumns(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := newTestSecurityService(t, db)
 	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", Enabled: true, CrowdSecMode: "local"}).Error)
 
-	require.NoError(t, svc.Upsert(&models.SecurityConfig{Name: "default", Enabled: false, CrowdSecMode: "local"}))
+	require.NoError(t, UpsertSecurityConfig(db, &models.SecurityConfig{Name: "default", Enabled: false, CrowdSecMode: "local"}))
 
 	var stored models.SecurityConfig
 	require.NoError(t, db.Where("name = ?", "default").First(&stored).Error)
@@ -28,7 +27,6 @@ func TestSecurityService_Upsert_SavesGeneralColumns(t *testing.T) {
 // copying the WAF mode and rate-limit mode and enable columns onto the stored row.
 func TestSecurityService_Upsert_DoesNotCopyModuleColumns(t *testing.T) {
 	db := setupSecurityTestDB(t)
-	svc := newTestSecurityService(t, db)
 	require.NoError(t, db.Create(&models.SecurityConfig{
 		Name:               "default",
 		Enabled:            true,
@@ -41,7 +39,7 @@ func TestSecurityService_Upsert_DoesNotCopyModuleColumns(t *testing.T) {
 	}).Error)
 
 	// A save that carries other module values, read from a stale copy, must not change the stored module columns.
-	require.NoError(t, svc.Upsert(&models.SecurityConfig{
+	require.NoError(t, UpsertSecurityConfig(db, &models.SecurityConfig{
 		Name:            "default",
 		Enabled:         false,
 		WAFMode:         "monitor",

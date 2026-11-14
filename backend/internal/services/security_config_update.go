@@ -429,3 +429,9 @@ func applyUpdateLocked(tx *gorm.DB, actor, name string, build func(stored models
 	}
 	return &stored, snapshot, nil
 }
+
+// ErrWAFExclusionExists is returned when a WAF exclusion with the same rule_id and target is already stored.
+var ErrWAFExclusionExists = errors.New("waf exclusion already exists")
+
+// ErrWAFExclusionNotFound is returned when no stored WAF exclusion matches the rule_id and target.
+var ErrWAFExclusionNotFound = errors.New("waf exclusion not found")

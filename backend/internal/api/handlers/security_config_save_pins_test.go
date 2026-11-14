@@ -175,9 +175,8 @@ func TestSecurityConfigSave_DeleteWAFExclusionChangesOnlyExclusions(t *testing.T
 func TestSecurityConfigSave_SyncAdminWhitelistChangesOnlyAllowList(t *testing.T) {
 	_, _, db := newSecurityPinRouter(t)
 	before := seedFullSecurityRow(t, db, true)
-	settings := NewSettingsHandler(db)
 
-	require.NoError(t, settings.syncAdminWhitelistWithDB(db, "203.0.113.0/24"))
+	require.NoError(t, syncAdminWhitelistTx(db, "test-actor", "203.0.113.0/24"))
 
 	after := loadDefaultSecurityRow(t, db)
 	assert.Equal(t, "203.0.113.0/24", after.AdminWhitelist)

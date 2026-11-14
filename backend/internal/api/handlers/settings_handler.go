@@ -401,7 +401,7 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 	}
 
 	if req.Key == "security.admin_whitelist" {
-		if err := h.syncAdminWhitelist(req.Value); err != nil {
+		if err := h.syncAdminWhitelist(auditActor(c), req.Value); err != nil {
 			if errors.Is(err, services.ErrInvalidAdminCIDR) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid admin_whitelist"})
 				return
@@ -586,7 +586,7 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 		}
 
 		if hasAdminWhitelist {
-			if err := h.syncAdminWhitelistWithDB(tx, adminWhitelist); err != nil {
+			if err := syncAdminWhitelistTx(tx, actor, adminWhitelist); err != nil {
 				return err
 			}
 		}
@@ -788,21 +788,17 @@ func validateKeepaliveCountValue(value string) error {
 	return nil
 }
 
-func (h *SettingsHandler) syncAdminWhitelist(whitelist string) error {
-	return h.syncAdminWhitelistWithDB(h.DB, whitelist)
+// syncAdminWhitelist stores the admin allow-list on the default security row. Only that column is written.
+func (h *SettingsHandler) syncAdminWhitelist(actor, whitelist string) error {
+	_, _, err := services.NewSecurityService(h.DB).ApplyUpdate(actor, models.DefaultSecurityConfigName, services.SecurityConfigUpdate{AdminWhitelist: &whitelist})
+	return err
 }
 
-func (h *SettingsHandler) syncAdminWhitelistWithDB(db *gorm.DB, whitelist string) error {
-	securitySvc := services.NewSecurityService(db)
-	cfg, err := securitySvc.Get()
-	if err != nil {
-		if err != services.ErrSecurityConfigNotFound {
-			return err
-		}
-		cfg = &models.SecurityConfig{Name: models.DefaultSecurityConfigName}
-	}
-	cfg.AdminWhitelist = whitelist
-	return securitySvc.Upsert(cfg)
+// syncAdminWhitelistTx stores the admin allow-list inside the caller's write transaction, so the save commits or rolls
+// back with the caller's other writes. Only the allow-list column is written.
+func syncAdminWhitelistTx(tx *gorm.DB, actor, whitelist string) error {
+	_, err := services.NewSecurityService(tx).ApplyUpdateTx(tx, actor, models.DefaultSecurityConfigName, services.SecurityConfigUpdate{AdminWhitelist: &whitelist})
+	return err
 }
 
 // SMTPConfigRequest represents the request body for SMTP configuration.
