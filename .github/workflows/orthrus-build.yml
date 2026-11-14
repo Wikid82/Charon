@@ -130,7 +130,7 @@ jobs:
 
       # Reuse the exact same tag-computation logic as docker-build.yml so that
       # feature branches (feature/hecate → feature-hecate-abc1234) and PRs
-      # (pr-983-abc1234) get matching, pull-able tags on both images.
+      # (pr-983) get matching, pull-able tags on both images.
       - name: Compute branch tags
         id: branch-tags
         run: |
@@ -232,7 +232,7 @@ jobs:
             type=raw,value=${{ steps.branch-tags.outputs.pr_feature_branch_sha_tag }},enable=${{ github.event_name == 'pull_request' && steps.branch-tags.outputs.pr_feature_branch_sha_tag != '' }}
             type=raw,value=${{ steps.branch-tags.outputs.feature_branch_tag }},enable=${{ github.event_name != 'pull_request' && startsWith(github.ref, 'refs/heads/feature/') && steps.branch-tags.outputs.feature_branch_tag != '' }}
             type=raw,value=${{ steps.branch-tags.outputs.branch_sha_tag }},enable=${{ github.event_name != 'pull_request' && steps.branch-tags.outputs.branch_sha_tag != '' }}
-            type=raw,value=pr-${{ github.event.pull_request.number }}-{{sha}},enable=${{ github.event_name == 'pull_request' }},prefix=,suffix=
+            type=raw,value=pr-${{ github.event.pull_request.number }},enable=${{ github.event_name == 'pull_request' }},prefix=,suffix=
           flavor: |
             latest=false
           labels: |
