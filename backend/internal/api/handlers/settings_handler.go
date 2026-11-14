@@ -672,13 +672,8 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 	}
 	settings = filterInternalSettings(settings)
 
-	// Convert to map for response
-	settingsMap := make(map[string]string)
-	for _, s := range settings {
-		settingsMap[s.Key] = s.Value
-	}
-
-	c.JSON(http.StatusOK, settingsMap)
+	// The reply masks the same secrets GET /settings masks. The caller is an administrator (the route is admin-only).
+	c.JSON(http.StatusOK, settingsResponseMap(settings, true))
 }
 
 // flattenConfig converts nested map to flat key-value pairs with dot notation
