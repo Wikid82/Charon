@@ -75,7 +75,7 @@ func (h *SecurityHeadersHandler) GetProfile(c *gin.Context) {
 }
 
 // CreateProfile creates a new security header profile. The fields the client sends are stored as sent, so an option
-// switched off on create stays off.
+// switched off on create stays off. The client cannot mark a profile as a preset.
 // POST /api/v1/security/headers/profiles
 func (h *SecurityHeadersHandler) CreateProfile(c *gin.Context) {
 	raw, err := c.GetRawData()
@@ -100,6 +100,8 @@ func (h *SecurityHeadersHandler) CreateProfile(c *gin.Context) {
 		return
 	}
 
+	req.IsPreset = false
+	req.PresetType = ""
 	req.UUID = uuid.New().String()
 
 	// Calculate security score
@@ -151,9 +153,12 @@ func (h *SecurityHeadersHandler) UpdateProfile(c *gin.Context) {
 		return
 	}
 
-	// Preserve ID and UUID
+	// Preserve ID, UUID, creation time and the preset markers, which the client cannot change
 	updates.ID = existing.ID
 	updates.UUID = existing.UUID
+	updates.CreatedAt = existing.CreatedAt
+	updates.IsPreset = existing.IsPreset
+	updates.PresetType = existing.PresetType
 
 	// Recalculate security score
 	scoreResult := services.CalculateSecurityScore(&updates)
