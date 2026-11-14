@@ -186,8 +186,8 @@ func TestApplyUpdate_RateLimitModeRule(t *testing.T) {
 		{"enable false without a mode gives disabled", `{"rate_limit_enable":false}`, true, "enabled", false, "disabled"},
 		{"enable false with an empty mode gives disabled", `{"rate_limit_enable":false,"rate_limit_mode":""}`, true, "enabled", false, "disabled"},
 		{"enable false with a null mode gives disabled", `{"rate_limit_enable":false,"rate_limit_mode":null}`, true, "enabled", false, "disabled"},
-		{"mode only is applied and enable is kept", `{"rate_limit_mode":"disabled"}`, true, "enabled", true, "disabled"},
-		{"empty mode only is stored as sent and enable is kept", `{"rate_limit_mode":""}`, true, "enabled", true, ""},
+		{"mode only is applied and enable follows it", `{"rate_limit_mode":"disabled"}`, true, "enabled", false, "disabled"},
+		{"empty mode only is stored as sent and enable turns off", `{"rate_limit_mode":""}`, true, "enabled", false, ""},
 		{"three numbers leave enable and mode untouched", `{"rate_limit_requests":20,"rate_limit_burst":4,"rate_limit_window_sec":30}`, true, "enabled", true, "enabled"},
 	}
 	for _, c := range cases {

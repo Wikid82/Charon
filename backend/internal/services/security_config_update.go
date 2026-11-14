@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"gorm.io/gorm"
 
@@ -282,8 +283,10 @@ func (u SecurityConfigUpdate) applyTo(row *models.SecurityConfig) []string {
 		row.RateLimitMode = ResolveRateLimitMode(*u.RateLimitEnable, mode)
 		columns = append(columns, "rate_limit_enable", "rate_limit_mode")
 	case u.RateLimitMode != nil:
+		// The enable flag mirrors the mode, so clearing the mode can never leave the flag on.
 		row.RateLimitMode = *u.RateLimitMode
-		columns = append(columns, "rate_limit_mode")
+		row.RateLimitEnable = strings.EqualFold(*u.RateLimitMode, "enabled")
+		columns = append(columns, "rate_limit_mode", "rate_limit_enable")
 	}
 	if u.RateLimitBurst != nil {
 		row.RateLimitBurst = *u.RateLimitBurst
