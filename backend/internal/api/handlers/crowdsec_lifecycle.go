@@ -256,20 +256,20 @@ func (h *CrowdsecHandler) StartCrowdSec(reqCtx context.Context) (CrowdsecStartRe
 	}
 	runHook(h.hooks.afterStatus)
 
-	// Capture the state Start writes, so a failed Start can put back exactly what was there.
-	snap, err := h.snapshotCrowdsecStart()
-	if err != nil {
-		logger.Log().WithError(err).Error("Failed to snapshot SecurityConfig before CrowdSec start")
-		return CrowdsecStartResult{}, fmt.Errorf("%w: %w", errCrowdsecPersist, err)
-	}
-
-	if persistErr := h.writeIfCurrent(gen, h.persistCrowdsecStart); persistErr != nil {
+	// The persist writes the state Start changes in one transaction and returns the snapshot a failed Start puts back.
+	var snap models.ModuleStateSnapshot
+	persistErr := h.writeIfCurrent(gen, func() error {
+		var err error
+		snap, err = h.persistCrowdsecStart()
+		return err
+	})
+	if persistErr != nil {
 		if errors.Is(persistErr, errCrowdsecStateChanged) {
 			return CrowdsecStartResult{}, h.abortStartAfterReset(ctx)
 		}
 		logger.Log().WithError(persistErr).Error("Failed to persist SecurityConfig")
 		runHook(h.hooks.afterFailedPersist)
-		if revertErr := h.revertCrowdsecStartIfCurrent(gen, snap); errors.Is(revertErr, errCrowdsecStateChanged) {
+		if h.stateChangedSince(gen) {
 			return CrowdsecStartResult{}, h.abortStartAfterReset(ctx)
 		}
 		return CrowdsecStartResult{}, fmt.Errorf("%w: %w", errCrowdsecPersist, persistErr)
@@ -540,7 +540,7 @@ func (h *CrowdsecHandler) writeIfCurrent(gen uint64, write func() error) error {
 
 // revertCrowdsecStartIfCurrent restores the snapshot unless an emergency reset has taken the state since gen was
 // recorded. A reset that did take it keeps its own values, and the caller answers with abortStartAfterReset.
-func (h *CrowdsecHandler) revertCrowdsecStartIfCurrent(gen uint64, snap crowdsecStartSnapshot) error {
+func (h *CrowdsecHandler) revertCrowdsecStartIfCurrent(gen uint64, snap models.ModuleStateSnapshot) error {
 	return h.writeIfCurrent(gen, func() error {
 		h.revertCrowdsecStart(snap)
 		return nil
@@ -550,7 +550,7 @@ func (h *CrowdsecHandler) revertCrowdsecStartIfCurrent(gen uint64, snap crowdsec
 // failStartEngineExited ends a Start whose engine died before LAPI answered. As for a failed Executor.Start, the
 // recorded snapshot is put back and the proxy is not applied. A reset that took the state in the meantime wins, and
 // the Start answers errCrowdsecStateChanged instead.
-func (h *CrowdsecHandler) failStartEngineExited(ctx context.Context, gen uint64, snap crowdsecStartSnapshot, pid int) error {
+func (h *CrowdsecHandler) failStartEngineExited(ctx context.Context, gen uint64, snap models.ModuleStateSnapshot, pid int) error {
 	logger.Log().WithField("pid", pid).Warn("CrowdSec exited while it was starting")
 	if revertErr := h.revertCrowdsecStartIfCurrent(gen, snap); errors.Is(revertErr, errCrowdsecStateChanged) {
 		return h.abortStartAfterReset(ctx)
