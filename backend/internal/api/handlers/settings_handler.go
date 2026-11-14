@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -96,18 +97,27 @@ func NewSettingsHandlerWithDeps(db *gorm.DB, caddyMgr CaddyConfigManager, cerber
 	}
 }
 
-// GetSettings returns all settings.
-func (h *SettingsHandler) GetSettings(c *gin.Context) {
-	var settings []models.Setting
-	if err := h.DB.Find(&settings).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch settings"})
-		return
-	}
-	settings = filterInternalSettings(settings)
+// adminOnlySettingKeys are the settings only administrators may read: the admin allow-list and the mail server details.
+// Other callers receive <key>.has_value in place of each one.
+var adminOnlySettingKeys = []string{
+	"security.admin_whitelist",
+	"smtp_host",
+	"smtp_port",
+	"smtp_username",
+	"smtp_from_address",
+	"smtp_encryption",
+}
 
-	// Convert to map for easier frontend consumption
-	settingsMap := make(map[string]any)
+// settingsResponseMap converts settings to the map the settings endpoints answer with. Sensitive values are masked with
+// a has_secret flag and a last_updated time. For a caller that is not an administrator, the admin-only keys are left out
+// and each one is replaced by <key>.has_value.
+func settingsResponseMap(settings []models.Setting, admin bool) map[string]any {
+	settingsMap := make(map[string]any, len(settings))
 	for _, s := range settings {
+		if !admin && slices.Contains(adminOnlySettingKeys, s.Key) {
+			settingsMap[s.Key+".has_value"] = strings.TrimSpace(s.Value) != ""
+			continue
+		}
 		if isSensitiveSettingKey(s.Key) {
 			hasSecret := strings.TrimSpace(s.Value) != ""
 			settingsMap[s.Key] = "********"
@@ -118,8 +128,19 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 
 		settingsMap[s.Key] = s.Value
 	}
+	return settingsMap
+}
 
-	c.JSON(http.StatusOK, settingsMap)
+// GetSettings returns all settings. The admin-only keys are answered to administrators only.
+func (h *SettingsHandler) GetSettings(c *gin.Context) {
+	var settings []models.Setting
+	if err := h.DB.Find(&settings).Error; err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to fetch settings"})
+		return
+	}
+	settings = filterInternalSettings(settings)
+
+	c.JSON(http.StatusOK, settingsResponseMap(settings, isAdmin(c)))
 }
 
 // internalSettingPrefixes lists key prefixes reserved for server-managed rows:

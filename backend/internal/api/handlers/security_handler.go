@@ -292,6 +292,41 @@ func latestConfigApplyState(db *gorm.DB) gin.H {
 	return state
 }
 
+// securityConfigRedactedFields are the security config fields only administrators may read: the admin allow-list, the
+// rate limit bypass list and the CrowdSec API address. Other callers receive the has_* flags in their place.
+var securityConfigRedactedFields = []string{"admin_whitelist", "rate_limit_bypass_list", "crowdsec_api_url"}
+
+// securityConfigFlags derives the response flags for a security config row.
+func securityConfigFlags(cfg *models.SecurityConfig) map[string]any {
+	return map[string]any{
+		"has_admin_whitelist":        cfg.AdminWhitelist != "",
+		"has_rate_limit_bypass_list": cfg.RateLimitBypassList != "",
+	}
+}
+
+// ruleSetRedactedFields are the rule set fields only administrators may read: the rule text and the download address,
+// which can carry credentials. Other callers receive has_content and content_line_count in their place.
+var ruleSetRedactedFields = []string{"content", "source_url"}
+
+// ruleSetFlags derives the response flags for a rule set.
+func ruleSetFlags(rs models.SecurityRuleSet) map[string]any {
+	return map[string]any{
+		"has_content":        rs.Content != "",
+		"content_line_count": countNonBlankLines(rs.Content),
+	}
+}
+
+// countNonBlankLines counts the lines of content that hold anything besides whitespace.
+func countNonBlankLines(content string) int {
+	count := 0
+	for _, line := range strings.Split(content, "\n") {
+		if strings.TrimSpace(line) != "" {
+			count++
+		}
+	}
+	return count
+}
+
 // GetConfig returns the site security configuration from DB or default
 func (h *SecurityHandler) GetConfig(c *gin.Context) {
 	cfg, err := h.svc.Get()
@@ -303,7 +338,12 @@ func (h *SecurityHandler) GetConfig(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read security config"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"config": cfg})
+	redacted, err := redactForRole(c, cfg, securityConfigRedactedFields, securityConfigFlags)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build response"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"config": redacted})
 }
 
 // UpdateConfig creates or updates the SecurityConfig in DB
@@ -432,7 +472,12 @@ func (h *SecurityHandler) ListRuleSets(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list rule sets"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"rulesets": list})
+	body, err := redactListForRole(c, list, ruleSetRedactedFields, ruleSetFlags)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build response"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"rulesets": body})
 }
 
 // UpsertRuleSet uploads or updates a ruleset
