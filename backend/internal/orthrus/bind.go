@@ -3,6 +3,7 @@ package orthrus
 import (
 	"bufio"
 	"bytes"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"net"
@@ -325,4 +326,47 @@ func (e netEnv) LocalNetworks() ([]LocalNetwork, netip.Addr, BindSource) {
 // LocalNetworks is LocalNetworks on the real host.
 func LocalNetworks() ([]LocalNetwork, netip.Addr, BindSource) {
 	return systemNetEnv().LocalNetworks()
+}
+
+// HostSideAddrs returns the addresses that name the host side of the networks
+// this process is attached to: each IPv4 default gateway from the route table,
+// and the first address of each directly attached IPv4 network, where Docker
+// places its bridge gateway. It returns nil when neither source can be read.
+func HostSideAddrs() []netip.Addr {
+	env := systemNetEnv()
+	var out []netip.Addr
+	if table, err := env.routeTable(); err == nil {
+		out = append(out, defaultGatewayAddrs(table)...)
+	}
+	if locals, err := env.localAddrs(); err == nil {
+		for _, l := range locals {
+			if l.addr.Is4() && !l.addr.IsLoopback() {
+				out = append(out, l.prefix.Masked().Addr().Next())
+			}
+		}
+	}
+	return out
+}
+
+// defaultGatewayAddrs returns the gateways of the IPv4 default routes in a
+// /proc/net/route table. The table stores each address as little-endian hex.
+func defaultGatewayAddrs(table []byte) []netip.Addr {
+	var out []netip.Addr
+	scanner := bufio.NewScanner(bytes.NewReader(table))
+	for scanner.Scan() {
+		fields := strings.Fields(scanner.Text())
+		if len(fields) < 4 || fields[1] != "00000000" {
+			continue
+		}
+		flags, err := strconv.ParseUint(fields[3], 16, 32)
+		if err != nil || flags&rtfUp == 0 || flags&rtfGateway == 0 {
+			continue
+		}
+		raw, err := hex.DecodeString(fields[2])
+		if err != nil || len(raw) != 4 {
+			continue
+		}
+		out = append(out, netip.AddrFrom4([4]byte{raw[3], raw[2], raw[1], raw[0]}))
+	}
+	return out
 }

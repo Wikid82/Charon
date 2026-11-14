@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
@@ -12,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/orthrus"
 	"github.com/Wikid82/charon/backend/internal/services"
@@ -27,6 +29,11 @@ type orthrusProxyStatusResolver interface {
 // listen setting.
 const invalidExternalProxyBindMessage = "Listen address must be automatic, all interfaces, an address or a subnet"
 
+// proxyConfigApplier re-applies the proxy config. The caddy manager satisfies it.
+type proxyConfigApplier interface {
+	ApplyConfig(ctx context.Context) error
+}
+
 type OrthrusHandler struct {
 	svc             *services.OrthrusService
 	proxyResolver   orthrusProxyStatusResolver
@@ -34,6 +41,14 @@ type OrthrusHandler struct {
 	// localNetworks reports the host networks Charon can bind; a field so tests
 	// can stub the host view.
 	localNetworks func() ([]orthrus.LocalNetwork, netip.Addr, orthrus.BindSource)
+	// configApplier re-evaluates stored proxy hosts after an external proxy port or bind changes.
+	configApplier proxyConfigApplier
+}
+
+// SetConfigApplier sets the applier that re-evaluates proxy hosts after an external
+// proxy change. A nil applier skips the re-evaluation.
+func (h *OrthrusHandler) SetConfigApplier(a proxyConfigApplier) {
+	h.configApplier = a
 }
 
 // NewOrthrusHandler creates an OrthrusHandler backed by the given service.
@@ -174,6 +189,12 @@ func (h *OrthrusHandler) Patch(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		}
 		return
+	}
+	if (req.ExternalProxyPort != nil || req.ExternalProxyBind != nil) && h.configApplier != nil {
+		// A port or bind change can make a stored host target a listener. The failure is logged, not returned: the agent change itself is saved.
+		if err := h.configApplier.ApplyConfig(c.Request.Context()); err != nil {
+			logger.Log().WithError(err).Warn("orthrus: re-apply proxy config after external proxy change failed")
+		}
 	}
 
 	if req.WriteEnabled != nil && h.securityService != nil {

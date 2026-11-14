@@ -8,7 +8,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
@@ -644,7 +643,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 			locHandlers := append(append([]Handler{}, prefixHandlers...), handlers...)
 			// Determine if standard headers should be enabled (default true if nil)
 			enableStdHeaders := host.EnableStandardHeaders == nil || *host.EnableStandardHeaders
-			locHandlers = append(locHandlers, resolvedOpts.proxyHandler(dial, false, host.Application, enableStdHeaders))
+			locHandlers = append(locHandlers, resolvedOpts.proxyHandler(dial, host.Application, enableStdHeaders))
 			locPath := proxyLiteral(loc.Path)
 			locRoute := &Route{
 				Match: []Match{
@@ -709,8 +708,8 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		// so it is emitted only for a host whose upstream is Charon itself, and it
 		// matches the exact reset paths only. The reset endpoint performs its own
 		// token and management-network checks.
-		if resolvedOpts.selfHop.isSelfUpstream(dial, resolvedOpts.isRemoteHost(host.UUID)) {
-			recoveryHandlers := append(append(append([]Handler{}, headerHandlers...), handlers...), resolvedOpts.proxyHandler(dial, resolvedOpts.isRemoteHost(host.UUID), host.Application, enableStdHeaders))
+		if resolvedOpts.selfHop.isSelfUpstream(dial) {
+			recoveryHandlers := append(append(append([]Handler{}, headerHandlers...), handlers...), resolvedOpts.proxyHandler(dial, host.Application, enableStdHeaders))
 			recoveryRoute := &Route{
 				Match: []Match{
 					{
@@ -732,7 +731,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		}
 
 		mainHandlers := append(append([]Handler{}, prefixHandlers...), handlers...)
-		mainHandlers = append(mainHandlers, resolvedOpts.proxyHandler(dial, resolvedOpts.isRemoteHost(host.UUID), host.Application, enableStdHeaders))
+		mainHandlers = append(mainHandlers, resolvedOpts.proxyHandler(dial, host.Application, enableStdHeaders))
 
 		route := &Route{
 			Match: []Match{
@@ -1865,41 +1864,4 @@ func dedupeDomains(domains []string) []string {
 		}
 	}
 	return result
-}
-
-// orthrusHostPrefix marks a ForwardHost that names an Orthrus agent target.
-const orthrusHostPrefix = "orthrus:"
-
-// OrthrusAddrResolver resolves the live proxy address for an Orthrus agent.
-// This interface breaks the import cycle between caddy and orthrus packages.
-type OrthrusAddrResolver interface {
-	GetProxyAddr(agentUUID string) (string, bool)
-}
-
-// resolveOrthrusHosts replaces ForwardHost values prefixed with "orthrus:<uuid>"
-// with the live host/port provided by the Orthrus session manager.
-func resolveOrthrusHosts(hosts []models.ProxyHost, server OrthrusAddrResolver) []models.ProxyHost {
-	if server == nil {
-		return hosts
-	}
-	out := make([]models.ProxyHost, len(hosts))
-	copy(out, hosts)
-	for i, h := range out {
-		if !strings.HasPrefix(h.ForwardHost, orthrusHostPrefix) {
-			continue
-		}
-		agentUUID := strings.TrimPrefix(h.ForwardHost, orthrusHostPrefix)
-		addr, ok := server.GetProxyAddr(agentUUID)
-		if !ok {
-			continue
-		}
-		parts := strings.SplitN(addr, ":", 2)
-		if len(parts) == 2 {
-			if port, convErr := strconv.Atoi(parts[1]); convErr == nil {
-				out[i].ForwardHost = parts[0]
-				out[i].ForwardPort = port
-			}
-		}
-	}
-	return out
 }

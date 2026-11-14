@@ -457,3 +457,20 @@ func (s *AgentSession) GetProxyAddr() string {
 func (s *AgentSession) IsAlive() bool {
 	return !s.session.IsClosed()
 }
+
+// listenerPorts returns the bound loopback proxy port and the active external
+// proxy port of this session. Ports that are not bound are omitted.
+func (s *AgentSession) listenerPorts() []int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var ports []int
+	if s.proxyPort != 0 {
+		ports = append(ports, s.proxyPort)
+	}
+	if s.extListener != nil {
+		if tcp, ok := s.extListener.Addr().(*net.TCPAddr); ok {
+			ports = append(ports, tcp.Port)
+		}
+	}
+	return ports
+}

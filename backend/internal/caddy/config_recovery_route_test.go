@@ -91,17 +91,6 @@ func recoveryHostCases(t *testing.T) []recoveryHostCase {
 			opts: []GenerateConfigOption{WithSelfHop(secret, "8080")},
 		},
 		{
-			name:   "self port on a remote host",
-			domain: "remote.example.com",
-			host: models.ProxyHost{
-				UUID: "remote", DomainNames: "remote.example.com", ForwardHost: "127.0.0.1", ForwardPort: 8080, Enabled: true,
-			},
-			opts: []GenerateConfigOption{
-				WithSelfHop(secret, "8080"),
-				WithRemoteHosts(map[string]struct{}{"remote": {}}),
-			},
-		},
-		{
 			name:   "self upstream",
 			domain: "self.example.com",
 			host: models.ProxyHost{

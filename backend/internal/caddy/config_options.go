@@ -30,7 +30,6 @@ type generateConfigOptions struct {
 	// adminListen is the admin.listen value of the generated config. It is set to the default socket when no option supplies it.
 	adminListen string
 	selfHop     *selfHopConfig
-	remoteHosts map[string]struct{}
 	enforcement func(EnforcementReport)
 	// bouncerKeyPath is the saved CrowdSec bouncer key file the proxy reads.
 	bouncerKeyPath string
@@ -80,18 +79,6 @@ func WithSelfHop(secret *selfhop.Secret, port string) GenerateConfigOption {
 	return func(o *generateConfigOptions) {
 		o.selfHop = &selfHopConfig{secret: secret, port: port, local: selfhop.NewLocalAddrs()}
 	}
-}
-
-// WithRemoteHosts lists proxy host UUIDs whose upstream lives on another
-// machine (such as an agent-resolved target). Those routes never receive hop
-// headers, whatever address the upstream resolved to.
-func WithRemoteHosts(uuids map[string]struct{}) GenerateConfigOption {
-	return func(o *generateConfigOptions) { o.remoteHosts = uuids }
-}
-
-func (o *generateConfigOptions) isRemoteHost(uuid string) bool {
-	_, ok := o.remoteHosts[uuid]
-	return ok
 }
 
 // WithBouncerKeyPath sets the saved CrowdSec bouncer key file the proxy reads. Manager passes

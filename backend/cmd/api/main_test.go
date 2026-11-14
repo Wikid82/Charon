@@ -357,7 +357,7 @@ func TestMain_DefaultStartupGracefulShutdown_Subprocess(t *testing.T) {
 
 		go func() {
 			if signalPort != "" {
-				_ = waitForTCPReady("127.0.0.1:"+signalPort, 10*time.Second)
+				_ = waitForTCPReady("127.0.0.1:"+signalPort, serverReadyTimeout)
 			}
 			process, err := os.FindProcess(os.Getpid())
 			if err == nil {
@@ -433,7 +433,7 @@ func TestMain_DefaultStartupGracefulShutdown_InProcess(t *testing.T) {
 	}
 	probes := make(chan []probe, 1)
 	go func() {
-		_ = waitForTCPReady("127.0.0.1:"+httpPort, 10*time.Second)
+		_ = waitForTCPReady("127.0.0.1:"+httpPort, serverReadyTimeout)
 		var results []probe
 		for _, path := range []string{"/api/v1/health", "/api/v1/maintenance/status"} {
 			p := probe{path: path}
@@ -482,6 +482,13 @@ func findFreeTCPPort() (string, error) {
 
 	return fmt.Sprintf("%d", addr.Port), nil
 }
+
+// serverReadyTimeout bounds the wait for main() to bind its listener before the
+// test sends SIGTERM. The signal handler is installed just before the bind, so a
+// signal sent after a timed-out wait kills the test binary instead of stopping
+// the server. Startup under -race on a loaded runner can take well over ten
+// seconds, so the bound is generous.
+const serverReadyTimeout = 60 * time.Second
 
 func waitForTCPReady(address string, timeout time.Duration) error {
 	deadline := time.Now().Add(timeout)
