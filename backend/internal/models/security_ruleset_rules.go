@@ -58,3 +58,15 @@ func isRuleDirectiveName(name string) bool {
 	}
 	return false
 }
+
+// HasEngineDirective reports whether a rule set sets its own engine mode on a directive line: a SecRuleEngine line that
+// is not a comment and not part of a continued line, matched case-insensitively. A comment that mentions SecRuleEngine
+// does not count, so Charon still prepends its own engine line for such a rule set.
+func HasEngineDirective(content string) bool {
+	return scanDirectiveLines(content, isEngineDirectiveName)
+}
+
+// isEngineDirectiveName reports whether a directive name is SecRuleEngine.
+func isEngineDirectiveName(name string) bool {
+	return strings.EqualFold(name, "SecRuleEngine")
+}
