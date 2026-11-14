@@ -643,7 +643,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management.POST("/settings/test-url", middleware.RequireRole(models.RoleAdmin), settingsHandler.TestPublicURL)
 
 		// Feature flags (DB-backed with env fallback)
-		featureFlagsHandler := handlers.NewFeatureFlagsHandler(db)
+		featureFlagsHandler := handlers.NewFeatureFlagsHandler(db, caddyManager, cerb)
 		management.GET("/feature-flags", featureFlagsHandler.GetFlags)
 		management.PUT("/feature-flags", middleware.RequireRole(models.RoleAdmin), featureFlagsHandler.UpdateFlags)
 

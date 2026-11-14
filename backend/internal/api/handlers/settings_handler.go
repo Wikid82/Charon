@@ -349,8 +349,8 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 		}
 	}
 
-	if models.IsSecurityModuleKey(req.Key) {
-		setting, ok := h.writeModuleSwitchSetting(c, req.Key, req.Value)
+	if models.IsSecurityModuleKey(req.Key) || models.IsCerberusSwitchKey(req.Key) {
+		setting, ok := h.writeSwitchSetting(c, req.Key, req.Value)
 		if ok {
 			c.JSON(http.StatusOK, setting)
 		}
@@ -436,57 +436,34 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 	c.JSON(http.StatusOK, setting)
 }
 
-// writeModuleSwitchSetting stores a module switch from the generic settings API. The value must be true or false. The
-// write and the proxy apply are one unit: a failed apply restores the pre-image and answers 500. It returns the stored
-// setting, or false after answering the request.
-func (h *SettingsHandler) writeModuleSwitchSetting(c *gin.Context, key, value string) (models.Setting, bool) {
+// switches returns the switch writer over this handler's database, proxy and Cerberus cache.
+func (h *SettingsHandler) switches() switchWriter {
+	return switchWriter{db: h.DB, caddy: h.CaddyManager, cerberus: h.Cerberus}
+}
+
+// writeSwitchSetting stores a security switch from the generic settings API: a module key or the Cerberus switch. The
+// value must be true or false, after surrounding whitespace is ignored. The write and the proxy apply are one unit (see
+// switchWriter). It returns the stored setting, or false after answering the request.
+func (h *SettingsHandler) writeSwitchSetting(c *gin.Context, key, value string) (models.Setting, bool) {
 	on, recognised := models.ParseModuleSettingValue(value)
 	if !recognised {
 		c.JSON(http.StatusBadRequest, gin.H{"error": key + " must be true or false"})
 		return models.Setting{}, false
 	}
 
-	actor := auditActor(c)
-	var snapshot models.ModuleStateSnapshot
-	err := services.WithWriteLock(h.DB, &models.Setting{}, func(tx *gorm.DB) error {
-		row, err := models.ReadModuleRow(tx, models.DefaultSecurityConfigName)
-		if err != nil {
-			return err
-		}
-		if snapshot, err = models.CaptureModuleState(tx, models.DefaultSecurityConfigName, row, key); err != nil {
-			return err
-		}
-		if err := models.SetModuleState(tx, key, on, actor); err != nil {
-			return err
-		}
-		return snapshot.Seal(tx)
-	})
-	if err != nil {
+	setting, err := h.switches().write(c.Request.Context(), key, on, auditActor(c))
+	switch {
+	case errors.Is(err, errSwitchApplyFailed):
+		c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
+		return models.Setting{}, false
+	case err != nil:
 		if respondPermissionError(c, h.SecuritySvc, "settings_save_failed", err, h.DataRoot) {
 			return models.Setting{}, false
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to save setting"})
 		return models.Setting{}, false
 	}
-
-	if h.Cerberus != nil {
-		h.Cerberus.InvalidateCache()
-	}
-	if h.CaddyManager != nil {
-		if err := applyProxyConfigDetached(c.Request.Context(), h.CaddyManager, proxyApplyTimeout); err != nil {
-			logger.Log().WithError(err).Warn("Failed to reload Caddy config after security setting change")
-			restoreModuleState(h.DB, h.Cerberus, snapshot)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
-			return models.Setting{}, false
-		}
-		logger.Log().WithField("setting_key", sanitizeForLog(key)).Info("Caddy config reloaded after security setting change")
-	}
-
-	stored := "false"
-	if on {
-		stored = "true"
-	}
-	return models.Setting{Key: key, Value: stored, Category: "security", Type: "bool"}, true
+	return setting, true
 }
 
 // updateKeys returns the keys of a flattened settings batch.
@@ -535,10 +512,11 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 
 	adminWhitelist, hasAdminWhitelist := updates["security.admin_whitelist"]
 
-	// Module switches must be true or false. They are refused here, before any write, and written through SetModuleState.
-	moduleSwitches := make(map[string]bool)
+	// Security switches (module keys and the Cerberus switch) must be true or false. They are refused here, before any write,
+	// and written through writeModuleToggle.
+	switchValues := make(map[string]bool)
 	for key, value := range updates {
-		if !models.IsSecurityModuleKey(key) {
+		if !models.IsSecurityModuleKey(key) && !models.IsCerberusSwitchKey(key) {
 			continue
 		}
 		on, recognised := models.ParseModuleSettingValue(value)
@@ -546,11 +524,11 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": key + " must be true or false"})
 			return
 		}
-		moduleSwitches[key] = on
+		switchValues[key] = on
 	}
 
 	// Turning the ACL on from an address the admin allow-list excludes is refused before any write.
-	if on, found := moduleSwitches[models.SecurityACLEnabledSettingKey]; found && on && !allowACLEnable(c, h.DB) {
+	if on, found := switchValues[models.SecurityACLEnabledSettingKey]; found && on && !allowACLEnable(c, h.DB) {
 		return
 	}
 
@@ -588,8 +566,8 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 				return err
 			}
 
-			if on, isModule := moduleSwitches[key]; isModule {
-				if err := models.SetModuleState(tx, key, on, actor); err != nil {
+			if on, isSwitch := switchValues[key]; isSwitch {
+				if err := writeModuleToggle(tx, key, on, actor); err != nil {
 					return err
 				}
 				continue
@@ -637,7 +615,7 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 	// Trigger cache invalidation and Caddy reload for security settings
 	needsReload := false
 	for key := range updates {
-		if strings.HasPrefix(key, "security.") {
+		if strings.HasPrefix(key, "security.") || models.IsCerberusSwitchKey(key) {
 			needsReload = true
 			break
 		}

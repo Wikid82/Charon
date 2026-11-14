@@ -17,7 +17,7 @@ import (
 
 func setupFlagsDB(t *testing.T) *gorm.DB {
 	db := OpenTestDB(t)
-	if err := db.AutoMigrate(&models.Setting{}); err != nil {
+	if err := db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}); err != nil {
 		t.Fatalf("auto migrate failed: %v", err)
 	}
 	return db
@@ -26,7 +26,7 @@ func setupFlagsDB(t *testing.T) *gorm.DB {
 func TestFeatureFlags_GetAndUpdate(t *testing.T) {
 	db := setupFlagsDB(t)
 
-	h := NewFeatureFlagsHandler(db)
+	h := NewFeatureFlagsHandler(db, nil, nil)
 
 	r := gin.New()
 	r.GET("/api/v1/feature-flags", h.GetFlags)
@@ -79,7 +79,7 @@ func TestFeatureFlags_EnvFallback(t *testing.T) {
 
 	db := setupFlagsDB(t)
 	// Do not write any settings so DB lookup fails and env is used
-	h := NewFeatureFlagsHandler(db)
+	h := NewFeatureFlagsHandler(db, nil, nil)
 	r := gin.New()
 	r.GET("/api/v1/feature-flags", h.GetFlags)
 
@@ -107,7 +107,7 @@ func setupBenchmarkFlagsDB(b *testing.B) *gorm.DB {
 	if err != nil {
 		b.Fatal(err)
 	}
-	if err := db.AutoMigrate(&models.Setting{}); err != nil {
+	if err := db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}); err != nil {
 		b.Fatal(err)
 	}
 	return db
@@ -122,7 +122,7 @@ func BenchmarkGetFlags(b *testing.B) {
 	db.Create(&models.Setting{Key: "feature.uptime.enabled", Value: "false", Type: "bool", Category: "feature"})
 	db.Create(&models.Setting{Key: "feature.crowdsec.console_enrollment", Value: "true", Type: "bool", Category: "feature"})
 
-	h := NewFeatureFlagsHandler(db)
+	h := NewFeatureFlagsHandler(db, nil, nil)
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.GET("/api/v1/feature-flags", h.GetFlags)
@@ -142,7 +142,7 @@ func BenchmarkGetFlags(b *testing.B) {
 func BenchmarkUpdateFlags(b *testing.B) {
 	db := setupBenchmarkFlagsDB(b)
 
-	h := NewFeatureFlagsHandler(db)
+	h := NewFeatureFlagsHandler(db, nil, nil)
 	gin.SetMode(gin.ReleaseMode)
 	r := gin.New()
 	r.PUT("/api/v1/feature-flags", h.UpdateFlags)
@@ -175,7 +175,7 @@ func TestGetFlags_BatchQuery(t *testing.T) {
 	db.Create(&models.Setting{Key: "feature.uptime.enabled", Value: "false", Type: "bool", Category: "feature"})
 	db.Create(&models.Setting{Key: "feature.crowdsec.console_enrollment", Value: "true", Type: "bool", Category: "feature"})
 
-	h := NewFeatureFlagsHandler(db)
+	h := NewFeatureFlagsHandler(db, nil, nil)
 	r := gin.New()
 	r.GET("/api/v1/feature-flags", h.GetFlags)
 
@@ -215,7 +215,7 @@ func TestUpdateFlags_TransactionRollback(t *testing.T) {
 	}
 	_ = sqlDB.Close()
 
-	h := NewFeatureFlagsHandler(db)
+	h := NewFeatureFlagsHandler(db, nil, nil)
 	r := gin.New()
 	r.PUT("/api/v1/feature-flags", h.UpdateFlags)
 
@@ -239,7 +239,7 @@ func TestUpdateFlags_TransactionRollback(t *testing.T) {
 func TestUpdateFlags_TransactionAtomic(t *testing.T) {
 	db := setupFlagsDB(t)
 
-	h := NewFeatureFlagsHandler(db)
+	h := NewFeatureFlagsHandler(db, nil, nil)
 	r := gin.New()
 	r.PUT("/api/v1/feature-flags", h.UpdateFlags)
 

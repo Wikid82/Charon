@@ -166,6 +166,33 @@ func mirrorRateLimitRow(tx *gorm.DB) error {
 	return nil
 }
 
+// IsCerberusSwitchKey reports whether key is one of the two Cerberus switch keys. Both are written together by
+// SetCerberusSwitch.
+func IsCerberusSwitchKey(key string) bool {
+	return key == CerberusFeatureSettingKey || key == CerberusLegacySettingKey
+}
+
+// SetCerberusSwitch writes the Cerberus switch on both keys as exactly "true" or "false". The feature key is in the
+// feature category and the legacy mirror in the security category. Both are written in the caller's transaction, so the
+// two keys never disagree.
+func SetCerberusSwitch(tx *gorm.DB, on bool) error {
+	value := "false"
+	if on {
+		value = "true"
+	}
+	for _, key := range []string{CerberusFeatureSettingKey, CerberusLegacySettingKey} {
+		category := "security"
+		if key == CerberusFeatureSettingKey {
+			category = "feature"
+		}
+		setting := Setting{Key: key, Value: value, Category: category, Type: "bool"}
+		if err := tx.Where(Setting{Key: key}).Assign(setting).FirstOrCreate(&setting).Error; err != nil {
+			return fmt.Errorf("save setting %s: %w", key, err)
+		}
+	}
+	return nil
+}
+
 // EnableSecurityFramework turns the global security switch and Cerberus on. It is the one path shared by the module
 // enables, the settings save and a successful CrowdSec start. A missing default row is seeded first.
 func EnableSecurityFramework(tx *gorm.DB) error {
@@ -180,16 +207,7 @@ func EnableSecurityFramework(tx *gorm.DB) error {
 	if err := tx.Model(&SecurityConfig{}).Where("name = ?", DefaultSecurityConfigName).Update("enabled", true).Error; err != nil {
 		return fmt.Errorf("enable default security config: %w", err)
 	}
-	for _, key := range []string{CerberusFeatureSettingKey, CerberusLegacySettingKey} {
-		setting := Setting{Key: key, Value: "true", Category: "security", Type: "bool"}
-		if key == CerberusFeatureSettingKey {
-			setting.Category = "feature"
-		}
-		if err := tx.Where(Setting{Key: key}).Assign(setting).FirstOrCreate(&setting).Error; err != nil {
-			return fmt.Errorf("save setting %s: %w", key, err)
-		}
-	}
-	return nil
+	return SetCerberusSwitch(tx, true)
 }
 
 // ReconcileWAFDetectionMode is the start-up step that gives a WAF that is on with no stored mode the monitor mode.

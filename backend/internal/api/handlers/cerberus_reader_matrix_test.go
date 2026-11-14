@@ -197,7 +197,7 @@ func stepFeatureFlag(value bool) func(t *testing.T, db *gorm.DB, h *SecurityHand
 		c, _ := gin.CreateTestContext(w)
 		c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/feature-flags", strings.NewReader(body))
 		c.Request.Header.Set("Content-Type", "application/json")
-		NewFeatureFlagsHandler(db).UpdateFlags(c)
+		NewFeatureFlagsHandler(db, nil, nil).UpdateFlags(c)
 		require.Equal(t, http.StatusOK, w.Code)
 	}
 }
