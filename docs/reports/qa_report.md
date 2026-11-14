@@ -1,167 +1,157 @@
-# QA Report: Management Permissions for Standard Users
+# QA Report: Orthrus Agent and Connections
 
-- Branch: `fix/management-permissions` (11 commits on `origin/development`, up to `74bfc4fda`)
-- Spec: `docs/plans/cerberus_hardening_batch7_spec.md`, section 7
-- Scope: backend (host write checks, role-aware response helpers, monitor routes, container list, forward target
-  validation, administration interface hardening), frontend (proxy host form, redirection host form, Uptime,
-  Notifications, DNS providers, locales), container image and entrypoint, integration scripts, Playwright specs,
-  docs.
-- Image under test: `charon:local` from `docker-rebuild-e2e`, rebuilt for this round.
-- Date: 2026-11-13
-- This is the second QA round. The first round found one high issue (H1); this round checks the fix and the other
-  changes made since.
+- Branch: `fix/orthrus-transport` (15 commits on `origin/development`, up to `4b96d4016`)
+- Spec: `docs/plans/cerberus_hardening_batch7_spec.md`, section 8 (PR 33)
+- Scope: backend (agent handshakes, external Docker proxy listen address, inspect responses, request filtering,
+  key rotation, install instructions), agent (key file, link rule, stream limits, request filtering), frontend
+  (listen address setting, rotate key dialog, install wizard, locales), compose examples, release workflow for
+  agent image tags, Playwright specs, docs.
+- Images under test: `charon:local` from `docker-rebuild-e2e`, and a throwaway agent image built from `agent/`.
+- Toolchain: Go 1.27.4.
+- Date: 2026-11-14
 
 ## Verdict
 
-**Approved.** Nothing blocking is left. H1 from the first round is fixed: the proxy's administration interface is
-no longer reachable over the network, and the earlier reproduction now fails. QA found one gap in that fix (the
-socket directory was not private) and fixed it with a one-line change in the entrypoint and the Dockerfile (M1).
-QA also added tests to close the coverage gaps, and fixed one stale script comment. Five low findings remain open;
-each is suggested as a separate follow-up (see Findings).
+**Approved.** Nothing blocking. All gates pass, and the container gate matches the plan on every step. QA added
+tests to both copies of the request filter (see "Changes made by QA"). Three low findings and four informational
+notes remain. Each is suggested as a follow-up (see Findings).
 
 ## Gates run (all foreground)
 
 | Gate | Result |
 | --- | --- |
-| `docker-rebuild-e2e` | Pass, container healthy (rebuilt for this round, and again after the QA Dockerfile change) |
-| Playwright `authorization-rbac.spec.ts --project=security-tests` | Pass, 116/116 (on the image rebuilt with the QA Dockerfile change) |
-| Playwright `tests/security/self-proxy-requests.spec.ts --project=security-tests` (Firefox locally) | Pass, 8/8. The spec reads the per-process hop value through the new admin path and requires a non-empty 32+ character value, so a failed read fails the test instead of weakening it |
-| Firefox UI pass on the throwaway container (standard user) | Pass (see below) |
-| `scripts/go-test-coverage.sh` (with `-race`, 60m timeout) | Pass, 93.7% statements / 92.7% lines (gate 87%), 0 failures, no races (re-run with the QA tests) |
-| `scripts/frontend-test-coverage.sh` | Pass, 355 files / 4526 tests, 91.8% statements |
-| `bash scripts/local-patch-report.sh` | Before QA tests: backend 392/439 (89.3%), frontend 67/70. After: backend 434/439 (98.9%), frontend 69/70 (the two Notifications lines confirmed with a targeted coverage run). Remaining lines are listed under "Patch coverage" |
-| `make lint-backend` (full golangci-lint) | Pass, 0 issues |
-| `golangci-lint-fast` (backend and agent) after QA tests | Pass, 0 issues |
-| `npm run lint` (max warnings 0), `npm run type-check`, `tsc6 --noEmit` (TypeScript 6.0.3) | Pass |
-| `lefthook run pre-commit --all-files` | Pass, all 20 hooks (semgrep, type-check and lint included) |
+| `docker-rebuild-e2e` | Pass, container healthy |
+| Playwright `orthrus-agents`, `orthrus-external-proxy`, `orthrus-agent-install` (`--project=firefox`) | Pass, 58/58 |
+| `scripts/go-test-coverage.sh` | Pass, 93.8% statements / 92.7% lines (gate 87%), 0 failures |
+| `scripts/agent-test-coverage.sh` | Pass, 86.0% statements / 86.6% lines with the QA tests (84.8% / 85.0% before) |
+| `scripts/frontend-test-coverage.sh` | Pass, 362 files / 4579 tests, 91.9% statements / 92.8% lines |
+| `bash scripts/local-patch-report.sh` (fresh coverage inputs) | Pass. Overall 837/873 (95.9%); backend 666/697 (95.6%); frontend 98/100 (98.0%); agent 73/76 (96.1%) |
+| `./scripts/scan-gorm-security.sh --check` (new column) | Pass, 0 critical/high/medium |
 | `lefthook run codeql` (Go and JS) | Pass. Go: 0 blocking (4 existing suppressed results, none in files this PR changes). JS: 0 |
-| `./scripts/scan-gorm-security.sh --check` | Pass, 0 critical/high/medium |
-| `shellcheck` on the entrypoint and every changed script | No new findings compared with `origin/development` (the hook gate is `--severity=error`; existing lower-severity notes are unchanged) |
-| bats | No bats suite covers the changed scripts |
-| actionlint | Not needed: no workflow changes |
-| `docker compose -f .docker/compose/docker-compose.playwright-local.yml config` (with the `.env` values exported, as the file requires) | Valid. Publishes `127.0.0.1:2020` for the emergency server; no admin port anywhere |
-| docs-site `sync-docs.sh` + `zensical build --strict` | Pass, no issues |
-| markdownlint on changed Markdown | Pass (existing issues in a file outside the docs tree are untouched) |
-| Trivy | Deferred to CI |
+| Trivy filesystem (`security-scan-trivy`) | No findings in this branch's manifests. Hits come only from leftover local `.claude/worktrees/` copies and an untracked, git-ignored local key file that is not in the image |
+| Trivy image (`charon:local`) | Alpine and the Charon binary: 0 high/critical. Bundled Caddy and CrowdSec binaries: existing items with no upstream fix, already listed in `.trivyignore` and `SECURITY.md` |
+| `npm run type-check`, `npm run lint` (max warnings 0) | Pass |
+| Builds: `go build ./...` (backend, agent), `npm run build` | Pass |
+| `actionlint` on `orthrus-build.yml` and `docker-build.yml` | Pass |
+| `docker compose config` checks (see below) | Pass |
+| `lefthook run pre-commit --all-files` | Pass |
+| `make lint-backend`, `make lint-agent` (full golangci-lint with gosec, run last) | Pass, 0 issues. The first backend run found one `errcheck` issue in a new test (`session_bounds_test.go`); QA fixed it and the re-run is clean |
 
-## Integration scripts (run in their real flow)
+### Compose checks
 
-The shared E2E container was stopped while scripts that publish its ports ran, then restarted. The dev container
-was not touched. Coraza ran with its port variables moved off ports 80 and 443.
-
-| Script | Result |
-| --- | --- |
-| `rate_limit_integration.sh` | Pass; its readiness step reads the admin socket ("Caddy admin API is ready") |
-| `waf_integration.sh` | Pass |
-| `cerberus_integration.sh` | Pass |
-| `coraza_integration.sh` | Pass |
-| `security_headers_integration.sh` | Pass |
-| `debug_rate_limit.sh` | Runs; it prints the full route list read through the admin socket |
-| `integration-test.sh` | The readiness command works against a running container, but the script stops earlier at setup (L4) |
-| `verify_crowdsec_app_config.sh` | The printed commands use the new path and work when run by hand |
-
-## Throwaway container gate
-
-A fresh `charon:local` container on random loopback ports with its own volume, an administrator and a standard
-user, checked with real HTTP calls and a real Firefox session. All throwaway containers, volumes and networks
-were removed afterwards.
+These ran in a scratch copy of `.docker/compose/` with no `orthrus_auth_key` file and a minimal `.env`. The files
+already require `DOCKER_SOCK` and `CHARON_EMERGENCY_TOKEN`; that is unchanged from `origin/development`.
 
 | Check | Result |
 | --- | --- |
-| Start-up logs | Clean: no refusal, no address-in-use. Caddy logs one generic line about host checking on the socket (L1) |
-| Admin socket | `srw------- charon`. Directory: `drwxr-sr-x` on the image as built (M1); `drwx------ charon` with the QA fix |
-| `caddy-admin get /config/` | JSON with `admin.listen` = `unix//app/data/run/caddy-admin.sock\|0600` |
-| TCP admin listener | None: no port 2019 in the listening sockets, and a request to `127.0.0.1:2019` inside the container fails |
-| Config reload | Creating and editing a proxy host is served at once; the old domain is no longer routed |
-| `docker restart` (same volume) | Clean start, readiness passes |
-| Hard kill, then start on the same volume | The stale socket left on the volume is cleared and Caddy starts; no address-in-use |
-| Legacy setting `CHARON_CADDY_ADMIN_API=http://localhost:2019` | Starts with a warning to remove the setting; still no TCP listener |
-| Setting that names another host or address | Start-up stops with a clear error |
-| First-round H1 reproduction (as a standard user) | Hosts that name local-only targets on the old admin port can still be created, but every request to them gets 502 and the admin interface does not answer on any path |
-| Forward hosts that look like socket paths, or contain `/`, `\`, `@`, `?`, `#` or spaces (hosts and locations) | 400 for every role |
-| Ordinary forward hosts (`10.0.0.5`, service names with `_`) | Accepted |
-| UI as a standard user: Notifications, DNS providers | No add, edit, delete, test or template controls; no secret values |
-| UI as a standard user: proxy host form | No uptime option, no advanced editor; editing and saving works |
+| `docker-compose.yml config`, `docker-compose.local.yml config` without a key file | Valid; `--services` lists only `charon` |
+| Same files with `--profile orthrus` and a key file | Valid; `orthrus` listed |
+| `docker-compose.remote.yml`, `docker-compose.dev.yml` with a key file | Valid |
+
+## Throwaway container gate
+
+A fresh `charon:local` container and agent containers on their own random-named networks (`pr33-*`), with the API
+published on loopback only. Shared and live containers were not touched. All throwaway containers, networks and
+images were removed afterwards.
+
+| Check | Result |
+| --- | --- |
+| Agent start with `ORTHRUS_AUTH_KEY_FILE` (root-owned file, then privilege drop) | Connects; startup log shows `auth_key_source=file`, key redacted; container env holds no key |
+| Default listen address | Listener on the container's network address (`172.21.0.2:23750`), not `0.0.0.0`; `bind_mode` `auto`, source `default_route` |
+| Container inspect through the external proxy | Every `Config.Env` value is `[redacted]`, names kept. Same with gzip requested, with a raw `Accept-Encoding: gzip` header, with a version prefix and with an encoded path. Path variants the daemon does not serve return a redirect or 404 with no environment data. Charon's own container inspected the same way: no value shown |
+| Registry lookups through the read-only proxy | 403 for `127.0.0.1:5000`, `127.1:5000`, `10.1`, `0x7f.1`, `0x7f.0x0.0x0.0x1:5000`, `localhost`, `myregistry:5000`, `[::1]:5000`, `2130706433:5000`, and the versioned `127.1` path; `nginx` is forwarded (200) |
+| Second network attached to Charon | Listed by `GET /orthrus/local-networks`. A client on it cannot connect with the automatic setting; after choosing that subnet it can, and the first network no longer can |
+| Listen address validation | Interface names, zoned addresses and malformed subnets: 400. A valid address that is not local: status error, no listener at all (no fallback to all interfaces) |
+| `ws://` to a public name or public IP | Agent exits with the opt-in message |
+| `ws://` with `ORTHRUS_ALLOW_INSECURE_WS=true`, and `ws://charon.home.arpa` | Agent proceeds to dial |
+| `ORTHRUS_ALLOW_INSECURE_WS` set to an unparsable value | Agent exits with a clear message |
+| Failed handshakes naming agent A from one client | 401 ×10, then 429 with `Retry-After` |
+| Agent B from the same client, correct key | Upgrades (101) |
+| Failures that name no known agent, same client | Separate budget, still 401 |
+| Agent A from its own address | Stays connected |
+| Cost of a failed handshake | About one key check for an existing agent, an unknown agent ID and an unknown name (see L2) |
+| Rotate key for agent A | 200 with `Cache-Control: no-store` and a new key. A is disconnected and the old key gets 401. The audit entry `orthrus_key_rotated` holds only the agent name; the key is not in the audit log. After the key file is updated and A is restarted, A reconnects with the same UUID, listen setting and remote server link |
+| Key file edge cases | Empty or whitespace-only file: "the agent key is not set yet; paste the key shown in Charon into this file". Relative path, directory and missing file: clear messages. Key file plus `ORTHRUS_AUTH_KEY` (non-empty file): "set only one of". No message contains the key |
 
 ## Security review
 
-- **Administration interface.** The proxy's admin API is now a unix socket inside the container. No TCP listener
-  is opened, even when an older loopback URL is configured, and other addresses are refused at start-up. The
-  socket is mode 0600 and owned by the charon user, so only Charon and Caddy can connect. With the QA fix (M1)
-  the directory is 0700 as documented. No proxy target, user setting or published port can reach it.
-- **Forward target validation.** Forward hosts are now limited to a host, an optional port and an optional
-  `http://` or `https://` prefix, for proxy hosts and their locations, for every role. Values that a later step
-  would shorten into a different target are refused instead. An existing host could not have used the refused
-  characters, because Caddy would not load such a target, so the stricter check does not break working hosts.
-- **Write checks and read redaction** (unchanged since the first round). Every user-facing write path goes through
-  the service-level admin-only field check. All responses that carry the sensitive fields are redacted for
-  non-admin callers. Imports are administrator-only. Roles fail closed.
-- **Other users of the old port.** The image no longer exposes it. Health checks use the application port.
-  Workflows, the agent and the docs-site do not reference the admin API. The integration scripts, compose
-  comments, Playwright helpers and user docs use the new command.
+- **Agent handshakes.** Failed attempts are throttled per client address and per named agent before any key is
+  checked, and successful connections are never charged. Key checks are limited to two at a time; a re-check after
+  a slot is taken counts failures recorded while waiting. Each failure path costs one key check, except the bounded
+  legacy scan for agents that send no agent ID. That scan has its own global budget and costs one check per
+  registered agent, as designed. Follow-ups: L1, L2.
+- **Inspect responses.** The flag that asks for redaction is set from the same normalized path the allow-list
+  uses, in read-only and write-enabled sessions. Compressed, oversized or undecodable bodies are refused (502), so
+  an unredacted body is never forwarded. Verified on a real daemon above.
+- **Request filtering.** The registry rule is identical in the backend and agent copies, and both mirrored test
+  tables now include the hex-label forms. The allow-list parity script passes. Write-enabled sessions are
+  unchanged by design.
+- **Agent key.** The key file is read before the privilege drop, must be an absolute path to a regular file of at
+  most 4 KiB, and is never logged. Compose examples and generated snippets use the file; the main and local
+  compose files keep the agent behind a profile, so a fresh install without a key still starts.
+- **Commit subjects.** Exactly three `(security)` subjects, all with empty bodies and category-level wording. No
+  other subject or body names a cause or path. Shipped text (code comments, tests, docs, locales) contains no
+  tracker identifiers.
 
 ## Findings
 
-### High
+### High / Medium
 
-None open. **H1 (first round): fixed** by moving the administration interface off the network (verified above).
-
-### Medium
-
-- **M1 (fixed by QA): the admin socket directory was not private.** The image and the entrypoint both create the
-  socket directory with the default mode before the binary's 0700 setting could apply, so the directory was
-  world-readable on every install. The socket's own 0600 mode still limited who could connect, but the documented
-  directory mode was not in effect. Fix: `chmod 700` in the entrypoint (runs on every start, so it also corrects
-  existing volumes) and in the Dockerfile (fresh volumes copy the image's mode). Verified in a container; a test
-  now checks both files.
+None.
 
 ### Low
 
-- **L1 (open, suggest follow-up): misleading Caddy log line.** On every start Caddy logs a warning that host
-  checking is disabled for the admin endpoint. On a 0600 socket this has no effect, but it reads like a problem in
-  operators' logs. Suggested approach: set the admin `origins` value Charon already sends, or document the line in
-  the troubleshooting page.
-- **L2 (open, carried from the first round): a failed proxy host save leaves an unhandled promise.**
-  `ProxyHostForm` shows the error and then re-throws it from the form's submit handler, which nothing awaits.
-  Suggested approach: stop re-throwing and add a test for the refused save.
-- **L3 (open, existing behaviour, suggest an issue): some forward hosts pass validation but fail later.** A forward
-  host with a scheme, a port or a bare IPv6 address passes the service checks, but Caddy then refuses the config,
-  so the API answers 500 and nothing is saved. The UI does not send these forms. Suggested approach: either strip
-  the scheme and port when building the upstream address, or refuse these forms with a 400 at validation.
-- **L4 (open, existing, suggest an issue): `scripts/integration-test.sh` no longer completes.** The deprecated script
-  (still called from the Makefile) sends first-run setup without the setup code that is now required, so it stops
-  before its readiness step. Suggested approach: retire it in favour of the skill it points to, or pass the code.
-- **L5 (open, cosmetic): template empty state for standard users.** When there are no templates, a standard user
-  sees "Use the form above to create one", but the form is administrator-only.
-- **Informational.** Some historical design notes under `docs/implementation/` and `docs/security/` still describe
-  the old TCP admin port. They are not published to the docs site.
-- **Informational.** The CodeQL JS hook deletes `frontend/coverage` and `test-results` before it scans, so running
-  it at the same time as frontend coverage breaks the coverage run. Run them one after the other.
+- **L1 (open, suggest follow-up, track privately): handshake budget keying for legacy agent lookups.** The budget
+  for handshakes that identify an agent the legacy way can be tightened. Suggested approach: give legacy lookups a
+  budget key separate from the agent-ID path, and keep recommending `CHARON_TRUSTED_PROXIES` when agents connect
+  through another proxy. Details go to the maintainer, not to a public issue.
+- **L2 (open, suggest follow-up): the comparison hash for unknown agents is created on first use.** The plan
+  creates it when the handshake guard is built. Today the first failure for an unknown agent costs one extra key
+  check, once per process. Suggested approach: create it in `newHandshakeGuard`.
+- **L3 (open, existing behaviour, suggest a public issue): the proxy connection string ignores the listen
+  address.** `connection_string` in proxy-status is built from the host the browser used. With the loopback
+  fallback or a non-primary subnet, it can name an address that cannot reach the proxy. The dialog also shows the
+  real listening address beside it. Suggested approach: hide or adjust the connection string when the listener is
+  on loopback, or build it from the bound address when that is not the primary network.
+
+### Informational
+
+- A key rotation that lands while a handshake for the same agent is being verified can let that one connection
+  open after the disconnect. It closes at the agent's next reconnect. Revoke behaves the same way. Suggested
+  approach: re-check the stored hash after the session is registered.
+- The `ws://` rule treats any single-label host as private, including an all-digit one. That matters only with a
+  resolver that reads such names as addresses; the agent is built with the pure Go resolver.
+- The provision response, which also returns a key once, does not set `Cache-Control: no-store` like the rotate
+  response does. This is existing behaviour; suggested as a small follow-up.
+- `agent/leash/leash.go:226-229`: the error branch for setting the stream type deadline cannot run, because yamux
+  never returns an error there. The comment a few lines below says the same thing about clearing it.
+- Leftover local `.claude/worktrees/` copies (from older sessions) hold old dependency manifests that Trivy
+  filesystem scans report. They are not part of the repository; removing them keeps local scans clean.
 
 ## Patch coverage
 
-After the QA tests, the changed lines that are still uncovered are:
+After the QA tests, the changed lines that are still uncovered are error branches that cannot be reached in
+tests:
 
-- `backend/internal/caddy/client.go:53-54`: a type check on the HTTP transport that cannot fail.
-- `backend/internal/caddy/client.go:119-120`: logging when closing a response body fails.
-- `backend/internal/services/proxyhost_service.go:170`: an error branch on re-encoding JSON that was just parsed.
-- `backend/cmd/api/main.go:96-97`: the `caddy-admin` dispatch, which exits the process. A new subprocess test runs
-  this path, but coverage from the child process is not collected.
-- `frontend/src/components/ProxyHostForm.tsx:623`: the refused-save message; see L2.
+- `backend/internal/orthrus/handshake.go`, `server.go`: failures of the system random source, and limiter
+  construction errors for fixed, valid settings.
+- `backend/internal/orthrus/redact.go:86-97`: re-encoding errors for values that were just decoded.
+- `backend/internal/orthrus/bind.go`, `backend/internal/services/orthrus_service.go`: unreachable branches of
+  address parsing and key generation.
+- `agent/leash/leash.go:227-229`: see the informational note above.
+- `frontend/src/components/hecate/RotateAgentKeyDialog.tsx:44`, `AgentExternalProxyDialog.tsx:56`: one fallback
+  branch each.
+
+The backend `muzzle.go` lines listed in the report (hex labels and the empty-label check) are covered by the QA
+tests below. The report predates them because the backend coverage run was not repeated for these tests.
 
 ## Changes made by QA (uncommitted, in the working tree)
 
-- `.docker/docker-entrypoint.sh`, `Dockerfile`: make the admin socket directory 0700 (M1).
-- `backend/internal/caddy/proxy_admin_loopback_test.go`: the entrypoint and Dockerfile restrict the socket
-  directory before Caddy starts.
-- `backend/internal/caddy/admin_socket_test.go`: `caddy-admin` usage and failure paths (extra arguments, a
-  directory that cannot be created, a failed write, an invalid setting); `PrepareAdminSocket` failures
-  (unreadable directory, a socket that cannot be checked, a stale socket that cannot be removed; skipped when
-  running as root); `Fetch` failures (no base address, no context, missing socket, truncated body).
-- `backend/internal/config/caddy_admin_test.go`: path handling when the working directory cannot be resolved.
-- `backend/internal/services/host_permissions_test.go`: the forward target helper's fallbacks.
-- `backend/cmd/api/main_caddy_admin_test.go`: the binary answers `caddy-admin listen` without starting the server.
-- `frontend/src/pages/__tests__/Notifications.roles.test.tsx`: an administrator can open the template form and
-  delete a provider after confirming.
-- `scripts/integration-test.sh`: comment updated to describe the admin socket.
+- `backend/internal/orthrus/muzzle_registry_test.go`: two hex-label registry cases, and a test for the empty-label
+  check.
+- `backend/internal/orthrus/session_bounds_test.go`: check the value received from the accept channel (full lint
+  `errcheck`); the failure message now includes it.
+- `agent/muzzle/registry_test.go`: the same two registry cases (keeps the mirrored tables identical).
+- `agent/muzzle/registry_internal_test.go` (new): the empty-label check, and a test that a stream that cannot take a
+  header deadline is refused.
 - `docs/reports/qa_report.md`: this report.
