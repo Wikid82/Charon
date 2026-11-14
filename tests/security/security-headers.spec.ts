@@ -196,6 +196,46 @@ test.describe('Security Headers Configuration @security', () => {
     });
   });
 
+  test.describe('Profile Persistence', () => {
+    // GitHub #1416: a header option switched off while creating a profile was stored as on.
+    test.fixme('should keep HSTS and X-XSS-Protection off after a profile is saved with them off', async ({ page }) => {
+      const profileName = `Headers Off ${Date.now()}`;
+
+      await test.step('Create a profile with HSTS and X-XSS-Protection switched off', async () => {
+        await page
+          .getByRole('main')
+          .getByRole('button', { name: /(?:create|new|add)[\s\w]*profile/i })
+          .first()
+          .click();
+
+        const dialog = page.getByRole('dialog');
+        await dialog.getByLabel('Profile Name').fill(profileName);
+        // The HSTS switch is the first switch in the form; it has no accessible name of its own.
+        await dialog.getByRole('switch').first().click();
+        await dialog.getByRole('switch', { name: 'X-XSS-Protection' }).click();
+        await dialog.getByRole('button', { name: 'Save Profile' }).click();
+      });
+
+      await test.step('Reopen the saved profile after a reload', async () => {
+        await page.reload();
+        await waitForLoadingComplete(page);
+
+        // The "View" button opens the profile form; it is scoped to the card that carries the new profile's name.
+        const card = page
+          .getByRole('main')
+          .getByRole('heading', { name: profileName })
+          .locator('xpath=ancestor::div[.//button[normalize-space()="View"]][1]');
+        await card.getByRole('button', { name: 'View', exact: true }).click();
+      });
+
+      await test.step('HSTS and X-XSS-Protection are shown as off', async () => {
+        const dialog = page.getByRole('dialog');
+        await expect(dialog.getByRole('switch', { name: 'X-XSS-Protection' })).not.toBeChecked();
+        await expect(dialog.getByRole('switch').first()).not.toBeChecked();
+      });
+    });
+  });
+
   test.describe('Save Configuration', () => {
     test('should have save button', async ({ page }) => {
       const saveButton = page.getByRole('button', { name: /save|apply|update/i });

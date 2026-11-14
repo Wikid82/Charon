@@ -131,6 +131,57 @@ test.describe('Security Headers Enforcement', () => {
     }
   });
 
+  test.describe('X-XSS-Protection value', () => {
+    // GitHub #1437: an enabled X-XSS-Protection option was sent as "1" instead of "0".
+    test.fixme('should send X-XSS-Protection 0 when the profile turns it on', async () => {
+      const container = findE2EContainer();
+      const domain = `xss-value-${Date.now()}.example.test`;
+      const profileName = `XSS On ${Date.now()}`;
+      let profile: HeaderProfile | undefined;
+      let proxyUuid: string | undefined;
+
+      try {
+        const created = await requestContext.post('/api/v1/security/headers/profiles', {
+          data: {
+            name: profileName,
+            hsts_enabled: false,
+            csp_enabled: false,
+            x_frame_options: 'DENY',
+            x_content_type_options: true,
+            referrer_policy: 'no-referrer',
+            xss_protection: true,
+            cache_control_no_store: false,
+          },
+        });
+        expect(created.ok(), `create header profile: ${created.status()}`).toBe(true);
+        profile = ((await created.json()) as { profile: HeaderProfile }).profile;
+
+        proxyUuid = await createProxyHost(requestContext, {
+          domain,
+          forwardPort: DEAD_UPSTREAM_PORT,
+          name: 'XSS value host',
+          headerProfileUuid: profile.uuid,
+        });
+
+        // The dead upstream answers 502 once the route is loaded; a missing route answers the catch-all page (200).
+        await expect
+          .poll(async () => (await fetchFromContainer(container, { host: domain, path: '/' })).status, {
+            timeout: 30_000,
+            message: 'X-XSS-Protection host route should be loaded',
+          })
+          .toBe(502);
+
+        const response = await fetchFromContainer(container, { host: domain, path: '/' });
+        expect(response.headers['x-xss-protection']).toBe('0');
+      } finally {
+        await runCleanupSteps([
+          ...(proxyUuid ? [() => deleteProxyHost(requestContext, proxyUuid as string)] : []),
+          ...(profile ? [() => deleteHeaderProfile(requestContext, profile as HeaderProfile)] : []),
+        ]);
+      }
+    });
+  });
+
   test.describe('Headers on access list refusals', () => {
     const domain = `refusal-headers-acl-${Date.now()}.example.test`;
     let snapshot: SecurityStateSnapshot | undefined;
@@ -182,6 +233,14 @@ test.describe('Security Headers Enforcement', () => {
         ...(proxyContext ? [() => (proxyContext as APIRequestContext).dispose()] : []),
         ...(snapshot ? [() => restoreSecurityState(requestContext, snapshot as SecurityStateSnapshot)] : []),
       ]);
+    });
+
+    // GitHub #1437 companion: a profile that turns X-XSS-Protection off must not send the header at all.
+    test.fixme('should omit X-XSS-Protection when the profile turns it off', async () => {
+      const response = await fetchFromContainer(container, { host: domain, path: '/' });
+
+      expect(response.status).toBe(403);
+      expect(response.headers).not.toHaveProperty('x-xss-protection');
     });
 
     test('should send the profile security headers with an access list refusal', async () => {

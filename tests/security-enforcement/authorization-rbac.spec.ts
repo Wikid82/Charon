@@ -5,7 +5,7 @@
 import { test, expect, request as playwrightRequest, type APIRequestContext, type APIResponse } from '@playwright/test';
 import { STORAGE_STATE, TEST_PASSWORD as SETUP_ADMIN_PASSWORD } from '../constants';
 import { TestDataManager } from '../utils/TestDataManager';
-import { TEST_PASSWORD } from '../fixtures/auth-fixtures';
+import { TEST_PASSWORD, loginUser, type TestUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete, waitForModal } from '../utils/wait-helpers';
 import { deleteAccessList } from '../utils/proxy-refusal-helpers';
 
@@ -697,6 +697,7 @@ test.describe('Standard user management permissions (PR 32)', () => {
   let testData: TestDataManager;
   let adminApi: APIRequestContext;
   let userApi: APIRequestContext;
+  let standardUser: TestUser;
   /** Provider reference: the API resolves a UUID for the DNS provider fields and routes. */
   let dnsProviderRef: string;
   let domainCounter = 0;
@@ -765,6 +766,7 @@ test.describe('Standard user management permissions (PR 32)', () => {
     });
     expect(admin.token, 'role=admin fixture token').toBeTruthy();
     expect(standard.token, 'role=user fixture token').toBeTruthy();
+    standardUser = { id: standard.id, email: standard.email, token: standard.token, role: 'user' };
 
     adminApi = await playwrightRequest.newContext({
       baseURL: BASE_URL,
@@ -966,6 +968,63 @@ test.describe('Standard user management permissions (PR 32)', () => {
       await test.step('Administrator provider list includes the URL', async () => {
         const entry = (await listBy(adminApi, '/api/v1/notifications/providers')).find((p) => p.name === name);
         expect(entry?.url).toBe(url);
+      });
+    });
+  });
+
+  test.describe('Admin-only security lists and settings', () => {
+    test.fixme('standard user reads of the security config omit the admin allow-list and rate limit bypass list', async () => {
+      const response = await userApi.get('/api/v1/security/config');
+      expect(response.status()).toBe(200);
+      const config = (await response.json()) as JsonObject;
+
+      expect(config).not.toHaveProperty('admin_whitelist');
+      expect(config).not.toHaveProperty('rate_limit_bypass_list');
+    });
+
+    test.fixme('standard user rule set list omits rule set contents', async () => {
+      const response = await userApi.get('/api/v1/security/rulesets');
+      expect(response.status()).toBe(200);
+      const ruleSets = (await response.json()) as JsonObject[];
+
+      expect(Array.isArray(ruleSets)).toBe(true);
+      for (const ruleSet of ruleSets) {
+        expect(ruleSet).not.toHaveProperty('content');
+      }
+    });
+
+    test.fixme('standard user settings map omits admin-only keys and mail server details', async () => {
+      const response = await userApi.get('/api/v1/settings');
+      expect(response.status()).toBe(200);
+      const settings = (await response.json()) as JsonObject;
+
+      for (const key of [
+        'security.admin_whitelist',
+        'smtp_host',
+        'smtp_port',
+        'smtp_username',
+        'smtp_from_address',
+        'smtp_encryption',
+      ]) {
+        expect(settings, key).not.toHaveProperty(key);
+      }
+    });
+
+    test.fixme('standard user sees the hidden note in place of the allow-list and rule set content', async ({ page }) => {
+      await test.step('Sign in as the standard user', async () => {
+        await loginUser(page, standardUser);
+      });
+
+      await test.step('Security page shows the note instead of the admin allow-list', async () => {
+        await page.goto('/security');
+        await waitForLoadingComplete(page);
+        await expect(page.getByText('Hidden for your role.', { exact: true })).toHaveCount(1);
+      });
+
+      await test.step('WAF page shows the note instead of rule set content', async () => {
+        await page.goto('/security/waf');
+        await waitForLoadingComplete(page);
+        await expect(page.getByText('Hidden for your role.', { exact: true }).first()).toBeVisible();
       });
     });
   });

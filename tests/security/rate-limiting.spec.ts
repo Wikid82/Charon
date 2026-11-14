@@ -201,6 +201,15 @@ test.describe('Rate Limiting Configuration @security', () => {
     });
   });
 
+  test.describe('Page Text', () => {
+    // GitHub #1758: several strings the page uses had no translation in any locale, so raw keys were rendered.
+    test.fixme('should show readable text instead of translation keys', async ({ page }) => {
+      await test.step('No raw translation key is rendered on the page', async () => {
+        await expect(page.locator('body')).not.toContainText(/\b(rateLimiting|common)\.[a-zA-Z]+\b/);
+      });
+    });
+  });
+
   test.describe('Navigation', () => {
     test('should navigate back to security dashboard', async ({ page }) => {
       const backLink = page.getByRole('link', { name: /security|back/i });

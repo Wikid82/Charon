@@ -202,6 +202,19 @@ test.describe('CrowdSec Banned IPs Management', () => {
       expect(stubs.bans).toEqual([{ ip: '198.51.100.10', duration: '24h', reason: '' }]);
     });
 
+    // GitHub #1855: Ctrl+Enter in the address field sent the ban twice (field handler, then the dialog-wide shortcut).
+    test.fixme('should send one ban when Ctrl+Enter is pressed in the IP field', async ({ page }) => {
+      const stubs = await openBannedIps(page);
+
+      await page.getByRole('button', { name: 'Ban IP', exact: true }).click();
+      await banDialog(page).getByLabel('IP Address').fill('198.51.100.11');
+      await page.keyboard.press('Control+Enter');
+
+      await expect(successToast(page, 'IP 198.51.100.11 has been banned')).toBeVisible();
+      await expect(banDialog(page)).toBeHidden();
+      expect(stubs.bans).toEqual([{ ip: '198.51.100.11', duration: '24h', reason: '' }]);
+    });
+
     test('should keep the ban button disabled while the IP is blank', async ({ page }) => {
       const stubs = await openBannedIps(page);
 
