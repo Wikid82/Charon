@@ -4,12 +4,15 @@ import {
   deleteAgent,
   getAgentProxyStatus,
   getInstallSnippets,
+  getLocalNetworks,
   listAgents,
   patchAgent,
   provisionAgent,
   renameAgent,
   revokeAgent,
+  rotateAgentKey,
   type ExternalProxyStatus,
+  type LocalNetworks,
   type OrthrusAgent,
   type PatchAgentRequest,
   type ProvisionAgentRequest,
@@ -54,6 +57,16 @@ export const usePatchAgent = () => {
   });
 };
 
+export const useRotateAgentKey = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (uuid: string) => rotateAgentKey(uuid),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: AGENTS_QUERY_KEY });
+    },
+  });
+};
+
 export const useDeleteAgent = () => {
   const queryClient = useQueryClient();
   return useMutation({
@@ -70,6 +83,15 @@ export const useAgentProxyStatus = (agentUUID: string, enabled: boolean) =>
     queryFn: () => getAgentProxyStatus(agentUUID),
     enabled,
     staleTime: 10_000,
+  });
+
+/** Host networks the external proxy can listen on. Only fetched while `enabled` (the dialog is open). */
+export const useLocalNetworks = (enabled: boolean) =>
+  useQuery<LocalNetworks>({
+    queryKey: ['orthrus', 'local-networks'],
+    queryFn: getLocalNetworks,
+    enabled,
+    staleTime: 30_000,
   });
 
 export const useOrthrus = () => {

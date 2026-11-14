@@ -2433,10 +2433,7 @@
     "installWizard": {
       "tabs": {
         "dockerCompose": "Docker Compose",
-        "systemd": "Systemd",
-        "tarball": "Tarball",
-        "kubernetes": "Kubernetes",
-        "homebrew": "Homebrew"
+        "kubernetes": "Kubernetes"
       },
       "dockerGid": {
         "title": "Replace <DOCKER_GID> with your Docker group ID",
@@ -2444,7 +2441,6 @@
         "copyCommand": "Copy command",
         "macHint": "On macOS, use this command instead: stat -f %g /var/run/docker.sock",
         "noteComposeSystemd": "Set PGID to that number. The agent will refuse to start if <DOCKER_GID> is left in place.",
-        "noteTarballHomebrew": "Replace <DOCKER_GID> with that number and keep sudo in front of the command. Without sudo, PUID and PGID are ignored, so your user must be in the docker group instead.",
         "noteKubernetes": "Replace <DOCKER_GID> in supplementalGroups with that number. Kubernetes does not use PUID or PGID."
       }
     },
@@ -2503,7 +2499,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Rotate key for {{name}}",
+      "rotateTitle": "Rotate agent key",
+      "rotateDescription": "The current key stops working immediately and the agent is disconnected. The agent cannot reconnect until you update it with the new key.",
+      "rotateConfirm": "Rotate key",
+      "rotateSuccessTitle": "New key for {{name}}",
+      "rotateSuccessDescription": "Copy this key now. Charon will not show it again. Put it in the agent's key file, then restart the agent so it reconnects.",
+      "rotateDone": "Done",
+      "rotateError": "The key could not be rotated. Try again."
     },
     "externalProxy": {
       "title": "External Docker Proxy",
@@ -2517,7 +2521,23 @@
       "statusInactive": "Inactive",
       "copyConnectionString": "Copy Docker connection string",
       "reconnectNotice": "Port change will take effect on next agent reconnect.",
-      "agentOffline": "Agent is offline. Proxy status unavailable."
+      "bindReconnectNotice": "The listen address change takes effect when the agent reconnects.",
+      "agentOffline": "Agent is offline. Proxy status unavailable.",
+      "bindLabel": "Listen on",
+      "bindHint": "Choose the network this proxy listens on. Automatic picks this server's primary network.",
+      "bindAuto": "Automatic",
+      "bindAutoResolved": "Automatic ({{address}})",
+      "bindAll": "All networks (0.0.0.0)",
+      "bindCustom": "Custom address or subnet",
+      "bindCustomLabel": "Address or subnet",
+      "bindCustomPlaceholder": "192.168.1.10 or 192.168.1.0/24",
+      "bindAllNote": "The proxy has no login. Anything that can reach this port can read this host's container details.",
+      "loopbackNote": "Not reachable from other containers or hosts.",
+      "fallbackNote": "Automatic found no network to listen on, so the proxy listens on loopback. Choose a network to change this.",
+      "bindListening": "Listening on {{address}}",
+      "bindInvalid": "Enter an IP address or a subnet, such as 192.168.1.10 or 192.168.1.0/24.",
+      "saveError": "The proxy settings could not be saved. Try again.",
+      "cardAutomaticNote": "Listen address is automatic. Choose a network in the proxy settings if other hosts need access."
     },
     "writeMode": {
       "title": "Write Access — {{name}}",

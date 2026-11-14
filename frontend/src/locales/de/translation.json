@@ -2433,10 +2433,7 @@
     "installWizard": {
       "tabs": {
         "dockerCompose": "Docker Compose",
-        "systemd": "Systemd",
-        "tarball": "Tarball",
-        "kubernetes": "Kubernetes",
-        "homebrew": "Homebrew"
+        "kubernetes": "Kubernetes"
       },
       "dockerGid": {
         "title": "Replace <DOCKER_GID> with your Docker group ID",
@@ -2444,7 +2441,6 @@
         "copyCommand": "Copy command",
         "macHint": "On macOS, use this command instead: stat -f %g /var/run/docker.sock",
         "noteComposeSystemd": "Set PGID to that number. The agent will refuse to start if <DOCKER_GID> is left in place.",
-        "noteTarballHomebrew": "Replace <DOCKER_GID> with that number and keep sudo in front of the command. Without sudo, PUID and PGID are ignored, so your user must be in the docker group instead.",
         "noteKubernetes": "Replace <DOCKER_GID> in supplementalGroups with that number. Kubernetes does not use PUID or PGID."
       }
     },
@@ -2503,7 +2499,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Schlüssel für {{name}} erneuern",
+      "rotateTitle": "Agent-Schlüssel erneuern",
+      "rotateDescription": "Der aktuelle Schlüssel funktioniert sofort nicht mehr und der Agent wird getrennt. Der Agent kann sich erst wieder verbinden, wenn du ihn mit dem neuen Schlüssel aktualisierst.",
+      "rotateConfirm": "Schlüssel erneuern",
+      "rotateSuccessTitle": "Neuer Schlüssel für {{name}}",
+      "rotateSuccessDescription": "Kopiere diesen Schlüssel jetzt. Charon zeigt ihn nicht erneut an. Trage ihn in die Schlüsseldatei des Agenten ein und starte den Agenten neu, damit er sich wieder verbindet.",
+      "rotateDone": "Fertig",
+      "rotateError": "Der Schlüssel konnte nicht erneuert werden. Versuche es erneut."
     },
     "externalProxy": {
       "title": "Externer Docker-Proxy",
@@ -2517,7 +2521,23 @@
       "statusInactive": "Inaktiv",
       "copyConnectionString": "Docker-Verbindungszeichenfolge kopieren",
       "reconnectNotice": "Portänderung wird bei der nächsten Agentenverbindung wirksam.",
-      "agentOffline": "Agent ist offline. Proxy-Status nicht verfügbar."
+      "bindReconnectNotice": "Die Änderung der Listen-Adresse wird wirksam, wenn sich der Agent erneut verbindet.",
+      "agentOffline": "Agent ist offline. Proxy-Status nicht verfügbar.",
+      "bindLabel": "Abhören auf",
+      "bindHint": "Wähle das Netzwerk, auf dem der Proxy lauscht. Automatisch nimmt das primäre Netzwerk dieses Servers.",
+      "bindAuto": "Automatisch",
+      "bindAutoResolved": "Automatisch ({{address}})",
+      "bindAll": "Alle Netzwerke (0.0.0.0)",
+      "bindCustom": "Eigene Adresse oder Subnetz",
+      "bindCustomLabel": "Adresse oder Subnetz",
+      "bindCustomPlaceholder": "192.168.1.10 oder 192.168.1.0/24",
+      "bindAllNote": "Der Proxy hat keine Anmeldung. Wer diesen Port erreichen kann, kann die Container-Details dieses Hosts lesen.",
+      "loopbackNote": "Nicht von anderen Containern oder Hosts erreichbar.",
+      "fallbackNote": "Automatisch wurde kein Netzwerk zum Lauschen gefunden, daher lauscht der Proxy auf Loopback. Wähle ein Netzwerk, um das zu ändern.",
+      "bindListening": "Lauscht auf {{address}}",
+      "bindInvalid": "Gib eine IP-Adresse oder ein Subnetz ein, zum Beispiel 192.168.1.10 oder 192.168.1.0/24.",
+      "saveError": "Die Proxy-Einstellungen konnten nicht gespeichert werden. Versuche es erneut.",
+      "cardAutomaticNote": "Die Listen-Adresse ist automatisch. Wähle in den Proxy-Einstellungen ein Netzwerk, wenn andere Hosts Zugriff brauchen."
     },
     "writeMode": {
       "title": "Write Access — {{name}}",

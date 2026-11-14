@@ -2349,10 +2349,7 @@
     "installWizard": {
       "tabs": {
         "dockerCompose": "Docker Compose",
-        "systemd": "Systemd",
-        "tarball": "Tarball",
-        "kubernetes": "Kubernetes",
-        "homebrew": "Homebrew"
+        "kubernetes": "Kubernetes"
       },
       "dockerGid": {
         "title": "Replace <DOCKER_GID> with your Docker group ID",
@@ -2360,7 +2357,6 @@
         "copyCommand": "Copy command",
         "macHint": "On macOS, use this command instead: stat -f %g /var/run/docker.sock",
         "noteComposeSystemd": "Set PGID to that number. The agent will refuse to start if <DOCKER_GID> is left in place.",
-        "noteTarballHomebrew": "Replace <DOCKER_GID> with that number and keep sudo in front of the command. Without sudo, PUID and PGID are ignored, so your user must be in the docker group instead.",
         "noteKubernetes": "Replace <DOCKER_GID> in supplementalGroups with that number. Kubernetes does not use PUID or PGID."
       }
     },
@@ -2419,7 +2415,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Kulcs cseréje: {{name}}",
+      "rotateTitle": "Ügynökkulcs cseréje",
+      "rotateDescription": "A jelenlegi kulcs azonnal érvényét veszti, és az ügynök leválasztásra kerül. Az ügynök nem tud újra csatlakozni, amíg az új kulccsal nem frissíti.",
+      "rotateConfirm": "Kulcs cseréje",
+      "rotateSuccessTitle": "Új kulcs ehhez: {{name}}",
+      "rotateSuccessDescription": "Másolja ki most ezt a kulcsot. A Charon nem fogja újra megjeleníteni. Helyezze az ügynök kulcsfájljába, majd indítsa újra az ügynököt, hogy újra csatlakozzon.",
+      "rotateDone": "Kész",
+      "rotateError": "A kulcsot nem sikerült lecserélni. Próbálja újra."
     },
     "externalProxy": {
       "title": "External Docker Proxy",
@@ -2433,7 +2437,23 @@
       "statusInactive": "Inactive",
       "copyConnectionString": "Copy Docker connection string",
       "reconnectNotice": "Port change will take effect on next agent reconnect.",
-      "agentOffline": "Agent is offline. Proxy status unavailable."
+      "bindReconnectNotice": "A figyelési cím változása az ügynök újracsatlakozásakor lép életbe.",
+      "agentOffline": "Agent is offline. Proxy status unavailable.",
+      "bindLabel": "Figyelés ezen",
+      "bindHint": "Válaszd ki a hálózatot, amelyen a proxy figyel. Az automatikus a szerver elsődleges hálózatát választja.",
+      "bindAuto": "Automatikus",
+      "bindAutoResolved": "Automatikus ({{address}})",
+      "bindAll": "Minden hálózat (0.0.0.0)",
+      "bindCustom": "Egyéni cím vagy alhálózat",
+      "bindCustomLabel": "Cím vagy alhálózat",
+      "bindCustomPlaceholder": "192.168.1.10 vagy 192.168.1.0/24",
+      "bindAllNote": "A proxynak nincs bejelentkezése. Bárki, aki eléri ezt a portot, olvashatja a gazdagép konténereinek adatait.",
+      "loopbackNote": "Más konténerekből vagy gazdagépekről nem érhető el.",
+      "fallbackNote": "Az automatikus mód nem talált hálózatot a figyeléshez, ezért a proxy a loopbacken figyel. Válassz hálózatot ennek megváltoztatásához.",
+      "bindListening": "Figyel ezen: {{address}}",
+      "bindInvalid": "Adj meg egy IP-címet vagy alhálózatot, például 192.168.1.10 vagy 192.168.1.0/24.",
+      "saveError": "A proxy beállításait nem sikerült menteni. Próbáld újra.",
+      "cardAutomaticNote": "A figyelési cím automatikus. Ha más gazdagépeknek hozzáférés kell, válassz hálózatot a proxy beállításaiban."
     },
     "writeMode": {
       "title": "Write Access — {{name}}",

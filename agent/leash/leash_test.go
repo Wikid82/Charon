@@ -20,16 +20,11 @@ import (
 	"github.com/Wikid82/charon/agent/leash"
 )
 
-// streamTypeDocker and streamTypePortForward mirror the unexported marker
-// bytes leash.go's handleStream switches on (streamTypeDocker = 0x01,
-// streamTypePortForward = 0x02). They can't be imported (leash_test is an
-// external test package and the constants are unexported), so the literal
-// values are duplicated here deliberately, matching the wire protocol
-// leash.go documents in its own handleStream/handlePortForward comments.
-const (
-	streamTypeDocker      = byte(0x01)
-	streamTypePortForward = byte(0x02)
-)
+// streamTypeDocker mirrors the unexported marker byte leash.go's handleStream
+// switches on (streamTypeDocker = 0x01). It can't be imported (leash_test is an
+// external test package and the constant is unexported), so the literal value
+// is duplicated here deliberately, matching the wire protocol leash.go documents.
+const streamTypeDocker = byte(0x01)
 
 // newYamuxServerSession wraps a server-side (already-upgraded) WebSocket
 // connection as a net.Conn via leash.NewWSNetConn (the same helper
@@ -234,32 +229,27 @@ func TestLeash_Connect_DockerStreamDispatchesThroughFilter(t *testing.T) {
 	}
 }
 
-// TestLeash_Connect_PortForwardStreamDialsTarget proves handlePortForward's
-// successful-dial path (and its deferred conn.Close(), leash.go line 232)
-// actually runs for a real accepted stream, the port-forward counterpart to
-// the docker-stream test above.
-//
-// Same harness: the test server opens a stream and writes the
-// streamTypePortForward marker byte followed by a 2-byte big-endian address
-// length and the address bytes of a fake TCP target listener. Success is
-// that target listener's Accept() returning within a bounded timeout,
-// proving handleStream's streamTypePortForward case dispatched into
-// handlePortForward and it reached net.Dial("tcp", targetAddr) rather than
-// one of its early-return error paths (invalid address length, dial
-// failure) that are the only parts any pre-existing test exercised.
-func TestLeash_Connect_PortForwardStreamDialsTarget(t *testing.T) {
+// retiredStreamType is not a defined stream type. The agent must close a
+// stream that carries it like any other unknown type, without dialing anything.
+const retiredStreamType = byte(0x02)
+
+// TestLeash_Connect_RetiredStreamTypeClosedWithoutDial sends the retired stream
+// type followed by a target address and proves the agent closes the stream and
+// does not dial the address.
+func TestLeash_Connect_RetiredStreamTypeClosedWithoutDial(t *testing.T) {
 	targetLn, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)
 	defer func() { _ = targetLn.Close() }()
 
-	targetAccepted := make(chan net.Conn, 1)
+	dialed := make(chan net.Conn, 1)
 	go func() {
 		conn, acceptErr := targetLn.Accept()
 		if acceptErr == nil {
-			targetAccepted <- conn
+			dialed <- conn
 		}
 	}()
 
+	streamClosed := make(chan error, 1)
 	serverDone := make(chan struct{})
 	defer close(serverDone)
 
@@ -276,13 +266,14 @@ func TestLeash_Connect_PortForwardStreamDialsTarget(t *testing.T) {
 		defer func() { _ = stream.Close() }()
 
 		addr := targetLn.Addr().String()
-		require.LessOrEqual(t, len(addr), 255, "target address must fit handlePortForward's 1-byte length encoding")
-		lenBuf := []byte{byte((len(addr) >> 8) & 0xff), byte(len(addr) & 0xff)}
-
-		payload := append([]byte{streamTypePortForward}, lenBuf...)
-		payload = append(payload, []byte(addr)...)
+		payload := []byte{retiredStreamType, byte((len(addr) >> 8) & 0xff), byte(len(addr) & 0xff)}
+		payload = append(payload, addr...)
 		_, writeErr := stream.Write(payload)
 		require.NoError(t, writeErr)
+
+		// Reading to EOF returns once the agent closes its end of the stream.
+		_, readErr := io.ReadAll(stream)
+		streamClosed <- readErr
 
 		<-serverDone
 	}))
@@ -306,9 +297,16 @@ func TestLeash_Connect_PortForwardStreamDialsTarget(t *testing.T) {
 	go func() { _ = l.Run(ctx) }()
 
 	select {
-	case conn := <-targetAccepted:
-		_ = conn.Close()
+	case readErr := <-streamClosed:
+		assert.NoError(t, readErr)
 	case <-time.After(5 * time.Second):
-		t.Fatal("timed out waiting for the port-forward stream to dial the fake target listener")
+		t.Fatal("agent did not close the stream")
+	}
+
+	select {
+	case conn := <-dialed:
+		_ = conn.Close()
+		t.Fatal("agent dialed the target address of a retired stream type")
+	case <-time.After(200 * time.Millisecond):
 	}
 }

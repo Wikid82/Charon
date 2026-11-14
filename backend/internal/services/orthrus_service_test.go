@@ -8,6 +8,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/orthrus"
 	"github.com/Wikid82/charon/backend/internal/services"
+	"github.com/Wikid82/charon/backend/internal/version"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
@@ -144,15 +145,9 @@ func TestOrthrusService_GetInstallSnippets(t *testing.T) {
 	const expectedWSURL = "wss://charon.example.com/api/v1/ws/orthrus/connect"
 
 	assert.Contains(t, snippets.DockerCompose, "<AUTH_KEY>")
-	assert.Contains(t, snippets.Systemd, "<AUTH_KEY>")
-	assert.Contains(t, snippets.Tarball, "<AUTH_KEY>")
-	assert.Contains(t, snippets.Homebrew, "<AUTH_KEY>")
 	assert.Contains(t, snippets.KubernetesDaemonSet, "<AUTH_KEY>")
 
 	assert.Contains(t, snippets.DockerCompose, expectedWSURL, "Docker Compose snippet must use wss:// URL")
-	assert.Contains(t, snippets.Systemd, expectedWSURL, "systemd snippet must use wss:// URL")
-	assert.Contains(t, snippets.Tarball, expectedWSURL, "tarball snippet must use wss:// URL")
-	assert.Contains(t, snippets.Homebrew, expectedWSURL, "homebrew snippet must use wss:// URL")
 	assert.Contains(t, snippets.KubernetesDaemonSet, expectedWSURL, "Kubernetes snippet must use wss:// URL")
 	assert.Contains(t, snippets.DockerCompose, "snippet-agent")
 }
@@ -176,16 +171,6 @@ func TestOrthrusService_GetInstallSnippets_PermissionSettings(t *testing.T) {
 	assert.Contains(t, snippets.DockerCompose, "- PGID=<DOCKER_GID>")
 	assert.Contains(t, snippets.DockerCompose, "- TZ=UTC")
 	assert.Contains(t, snippets.DockerCompose, "/var/run/docker.sock:/var/run/docker.sock:ro")
-
-	// Systemd: the agent only drops privileges when started as root, so the
-	// unit must not set User=; PUID/PGID are passed as environment instead.
-	assert.Contains(t, snippets.Systemd, `Environment="PUID=65532"`)
-	assert.Contains(t, snippets.Systemd, `Environment="PGID=<DOCKER_GID>"`)
-	assert.NotContains(t, snippets.Systemd, "User=")
-
-	// Tarball and Homebrew: sudo keeps the process root so privdrop applies.
-	assert.Contains(t, snippets.Tarball, "sudo env PUID=65532 PGID=<DOCKER_GID> ")
-	assert.Contains(t, snippets.Homebrew, "sudo env PUID=65532 PGID=<DOCKER_GID> ")
 
 	// Kubernetes: container starts non-root and mounts the socket read-only.
 	assert.Contains(t, snippets.KubernetesDaemonSet, "runAsNonRoot: true")
@@ -310,9 +295,6 @@ func TestOrthrusService_GetInstallSnippets_URLConversions(t *testing.T) {
 			snippets, err := svc.GetInstallSnippets(agent.UUID, tc.inputURL)
 			require.NoError(t, err)
 			assert.Contains(t, snippets.DockerCompose, tc.expectedURL)
-			assert.Contains(t, snippets.Systemd, tc.expectedURL)
-			assert.Contains(t, snippets.Tarball, tc.expectedURL)
-			assert.Contains(t, snippets.Homebrew, tc.expectedURL)
 			assert.Contains(t, snippets.KubernetesDaemonSet, tc.expectedURL)
 		})
 	}
@@ -399,7 +381,7 @@ func TestOrthrusService_Patch_NameOnly(t *testing.T) {
 	require.NoError(t, err)
 
 	newName := "updated-name"
-	got, err := svc.Patch(agent.UUID, &newName, nil, nil, nil, nil, nil)
+	got, err := svc.Patch(agent.UUID, services.AgentPatch{Name: &newName})
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "updated-name", got.Name)
@@ -417,7 +399,7 @@ func TestOrthrusService_Patch_ProviderFields(t *testing.T) {
 	deviceID := "device-id-456"
 	resolved := "10.0.0.1"
 
-	got, err := svc.Patch(agent.UUID, nil, &tunnelUUID, &deviceID, &resolved, nil, nil)
+	got, err := svc.Patch(agent.UUID, services.AgentPatch{HecateTunnelUUID: &tunnelUUID, DeviceID: &deviceID, ResolvedAddress: &resolved})
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "provider-agent", got.Name)
@@ -437,7 +419,7 @@ func TestOrthrusService_Patch_BlankName(t *testing.T) {
 	require.NoError(t, err)
 
 	blank := "   "
-	_, err = svc.Patch(agent.UUID, &blank, nil, nil, nil, nil, nil)
+	_, err = svc.Patch(agent.UUID, services.AgentPatch{Name: &blank})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cannot be blank")
 }
@@ -449,7 +431,7 @@ func TestOrthrusService_Patch_EmptyUpdate(t *testing.T) {
 	agent, _, err := svc.Provision("no-change-agent")
 	require.NoError(t, err)
 
-	got, err := svc.Patch(agent.UUID, nil, nil, nil, nil, nil, nil)
+	got, err := svc.Patch(agent.UUID, services.AgentPatch{})
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "no-change-agent", got.Name)
@@ -461,7 +443,7 @@ func TestOrthrusService_Patch_UnknownUUID(t *testing.T) {
 	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
 
 	newName := "irrelevant"
-	_, err := svc.Patch("00000000-0000-0000-0000-000000000000", &newName, nil, nil, nil, nil, nil)
+	_, err := svc.Patch("00000000-0000-0000-0000-000000000000", services.AgentPatch{Name: &newName})
 	require.Error(t, err)
 	assert.ErrorIs(t, err, gorm.ErrRecordNotFound)
 }
@@ -488,7 +470,7 @@ func TestOrthrusService_Patch_ExternalProxyPort_Zero(t *testing.T) {
 	require.NoError(t, err)
 
 	port := 0
-	got, err := svc.Patch(agent.UUID, nil, nil, nil, nil, &port, nil)
+	got, err := svc.Patch(agent.UUID, services.AgentPatch{ExternalProxyPort: &port})
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, 0, got.ExternalProxyPort)
@@ -502,7 +484,7 @@ func TestOrthrusService_Patch_ExternalProxyPort_Valid(t *testing.T) {
 	require.NoError(t, err)
 
 	port := 2375
-	got, err := svc.Patch(agent.UUID, nil, nil, nil, nil, &port, nil)
+	got, err := svc.Patch(agent.UUID, services.AgentPatch{ExternalProxyPort: &port})
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, 2375, got.ExternalProxyPort)
@@ -516,7 +498,7 @@ func TestOrthrusService_Patch_ExternalProxyPort_TooLow(t *testing.T) {
 	require.NoError(t, err)
 
 	port := 1023
-	_, err = svc.Patch(agent.UUID, nil, nil, nil, nil, &port, nil)
+	_, err = svc.Patch(agent.UUID, services.AgentPatch{ExternalProxyPort: &port})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "external_proxy_port")
 }
@@ -529,7 +511,7 @@ func TestOrthrusService_Patch_ExternalProxyPort_TooHigh(t *testing.T) {
 	require.NoError(t, err)
 
 	port := 70000
-	_, err = svc.Patch(agent.UUID, nil, nil, nil, nil, &port, nil)
+	_, err = svc.Patch(agent.UUID, services.AgentPatch{ExternalProxyPort: &port})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "external_proxy_port")
 }
@@ -542,7 +524,7 @@ func TestOrthrusService_Patch_ExternalProxyPort_Negative(t *testing.T) {
 	require.NoError(t, err)
 
 	port := -1
-	_, err = svc.Patch(agent.UUID, nil, nil, nil, nil, &port, nil)
+	_, err = svc.Patch(agent.UUID, services.AgentPatch{ExternalProxyPort: &port})
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "external_proxy_port")
 }
@@ -564,7 +546,7 @@ func TestOrthrusService_Patch_WriteEnabled_True(t *testing.T) {
 	require.NoError(t, err)
 
 	enabled := true
-	got, err := svc.Patch(agent.UUID, nil, nil, nil, nil, nil, &enabled)
+	got, err := svc.Patch(agent.UUID, services.AgentPatch{WriteEnabled: &enabled})
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.True(t, got.WriteEnabled)
@@ -578,11 +560,11 @@ func TestOrthrusService_Patch_WriteEnabled_BackToFalse(t *testing.T) {
 	require.NoError(t, err)
 
 	enabled := true
-	_, err = svc.Patch(agent.UUID, nil, nil, nil, nil, nil, &enabled)
+	_, err = svc.Patch(agent.UUID, services.AgentPatch{WriteEnabled: &enabled})
 	require.NoError(t, err)
 
 	disabled := false
-	got, err := svc.Patch(agent.UUID, nil, nil, nil, nil, nil, &disabled)
+	got, err := svc.Patch(agent.UUID, services.AgentPatch{WriteEnabled: &disabled})
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.False(t, got.WriteEnabled)
@@ -596,13 +578,160 @@ func TestOrthrusService_Patch_WriteEnabled_NilLeavesUnchanged(t *testing.T) {
 	require.NoError(t, err)
 
 	enabled := true
-	_, err = svc.Patch(agent.UUID, nil, nil, nil, nil, nil, &enabled)
+	_, err = svc.Patch(agent.UUID, services.AgentPatch{WriteEnabled: &enabled})
 	require.NoError(t, err)
 
 	newName := "renamed-agent"
-	got, err := svc.Patch(agent.UUID, &newName, nil, nil, nil, nil, nil)
+	got, err := svc.Patch(agent.UUID, services.AgentPatch{Name: &newName})
 	require.NoError(t, err)
 	require.NotNil(t, got)
 	assert.Equal(t, "renamed-agent", got.Name)
 	assert.True(t, got.WriteEnabled, "write_enabled must be untouched by an unrelated Patch call")
+}
+
+func TestOrthrusService_GetInstallSnippets_ComposeUsesAuthKeyFileSecret(t *testing.T) {
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+
+	agent, _, err := svc.Provision("secret-compose-agent")
+	require.NoError(t, err)
+
+	snippets, err := svc.GetInstallSnippets(agent.UUID, "https://charon.example.com")
+	require.NoError(t, err)
+
+	compose := snippets.DockerCompose
+	assert.NotContains(t, compose, "ORTHRUS_AUTH_KEY=", "the key must not be passed as a plain environment variable")
+	assert.Contains(t, compose, "- ORTHRUS_AUTH_KEY_FILE=/run/secrets/orthrus_auth_key")
+	assert.Contains(t, compose, "file: ./orthrus_auth_key")
+	assert.Contains(t, compose, "printf '%s' '<AUTH_KEY>' > orthrus_auth_key && chmod 600 orthrus_auth_key")
+
+	// The wizard fills only the first <AUTH_KEY> it finds, so the first one must
+	// be the line that writes the key file.
+	assert.Less(t, strings.Index(compose, "<AUTH_KEY>"), strings.Index(compose, "services:"))
+
+	var doc struct {
+		Services map[string]struct {
+			Environment []string `yaml:"environment"`
+			Secrets     []string `yaml:"secrets"`
+		} `yaml:"services"`
+		Secrets map[string]struct {
+			File string `yaml:"file"`
+		} `yaml:"secrets"`
+	}
+	require.NoError(t, yaml.Unmarshal([]byte(compose), &doc))
+	svcDef, ok := doc.Services["secret-compose-agent"]
+	require.True(t, ok)
+	assert.Contains(t, svcDef.Environment, "ORTHRUS_AUTH_KEY_FILE=/run/secrets/orthrus_auth_key")
+	assert.Equal(t, []string{"orthrus_auth_key"}, svcDef.Secrets)
+	assert.Equal(t, "./orthrus_auth_key", doc.Secrets["orthrus_auth_key"].File)
+}
+
+func TestOrthrusService_GetInstallSnippets_KubernetesUsesSecretVolume(t *testing.T) {
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+
+	agent, _, err := svc.Provision("secret-k8s-agent")
+	require.NoError(t, err)
+
+	snippets, err := svc.GetInstallSnippets(agent.UUID, "https://charon.example.com")
+	require.NoError(t, err)
+
+	ds := snippets.KubernetesDaemonSet
+	assert.Contains(t, ds, "kubectl create secret generic orthrus-auth-key --from-literal=auth-key='<AUTH_KEY>'")
+	assert.Less(t, strings.Index(ds, "<AUTH_KEY>"), strings.Index(ds, "apiVersion:"))
+	assert.NotContains(t, ds, "name: ORTHRUS_AUTH_KEY\n")
+	assert.Contains(t, ds, "- name: ORTHRUS_AUTH_KEY_FILE")
+	assert.Contains(t, ds, `value: "/var/run/secrets/orthrus/auth-key"`)
+	assert.Contains(t, ds, "fsGroup: 65532")
+	assert.Contains(t, ds, "defaultMode: 0440")
+	assert.Contains(t, ds, "secretName: orthrus-auth-key")
+	assert.Contains(t, ds, "mountPath: /var/run/secrets/orthrus")
+}
+
+func TestOrthrusService_GetInstallSnippets_InsecureLinkNote(t *testing.T) {
+	const note = "ORTHRUS_ALLOW_INSECURE_WS=true"
+	tests := []struct {
+		name     string
+		charon   string
+		wantNote bool
+	}{
+		{"https public host has no note", "https://charon.example.com", false},
+		{"http private IP has no note", "http://10.0.0.5:8080", false},
+		{"http compose service name has no note", "http://charon:8080", false},
+		{"http dotted LAN name gets note", "http://charon.lan:8080", true},
+		{"http public host gets note", "http://8.8.8.8:8080", true},
+		{"http link-local gets note", "http://169.254.1.1:8080", true},
+	}
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+	agent, _, err := svc.Provision("insecure-note-agent")
+	require.NoError(t, err)
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			snippets, err := svc.GetInstallSnippets(agent.UUID, tc.charon)
+			require.NoError(t, err)
+			for label, rendered := range map[string]string{
+				"compose":    snippets.DockerCompose,
+				"kubernetes": snippets.KubernetesDaemonSet,
+			} {
+				if tc.wantNote {
+					assert.Contains(t, rendered, "This address is not private", label)
+					assert.Contains(t, rendered, note, label)
+				} else {
+					assert.NotContains(t, rendered, note, label)
+				}
+			}
+		})
+	}
+}
+
+func TestOrthrusService_GetInstallSnippets_ImageTag(t *testing.T) {
+	origVersion := version.Version
+	t.Cleanup(func() { version.Version = origVersion })
+
+	db := setupOrthrusTestDB(t)
+	svc := services.NewOrthrusService(db, setupOrthrusServer(t, db))
+	agent, _, err := svc.Provision("image-agent")
+	require.NoError(t, err)
+
+	tests := []struct {
+		name        string
+		version     string
+		wantImage   string
+		wantComment string
+	}{
+		{name: "release pins the matching image", version: "0.49.1", wantImage: "wikid82/orthrus:0.49.1"},
+		{
+			name:        "dev build follows the dev tag",
+			version:     "0.49.1+dev.abc1234",
+			wantImage:   "wikid82/orthrus:dev",
+			wantComment: "Development build: this tag follows the development branch.",
+		},
+		{
+			name:        "unversioned build falls back to latest",
+			version:     "dev",
+			wantImage:   "wikid82/orthrus:latest",
+			wantComment: "This Charon build has no release version; use the agent tag that matches your Charon release.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			version.Version = tt.version
+			snippets, err := svc.GetInstallSnippets(agent.UUID, "https://charon.example.com")
+			require.NoError(t, err)
+
+			assert.Contains(t, snippets.DockerCompose, "    image: "+tt.wantImage+"\n")
+			assert.Contains(t, snippets.KubernetesDaemonSet, "          image: "+tt.wantImage+"\n")
+
+			if tt.wantComment == "" {
+				assert.NotContains(t, snippets.DockerCompose, "no release version")
+				assert.NotContains(t, snippets.KubernetesDaemonSet, "no release version")
+				return
+			}
+			assert.Contains(t, snippets.DockerCompose, "    # "+tt.wantComment+"\n    image: ")
+			assert.Contains(t, snippets.KubernetesDaemonSet, "          # "+tt.wantComment+"\n          image: ")
+		})
+	}
 }

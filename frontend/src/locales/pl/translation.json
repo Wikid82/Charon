@@ -2349,10 +2349,7 @@
     "installWizard": {
       "tabs": {
         "dockerCompose": "Docker Compose",
-        "systemd": "Systemd",
-        "tarball": "Tarball",
-        "kubernetes": "Kubernetes",
-        "homebrew": "Homebrew"
+        "kubernetes": "Kubernetes"
       },
       "dockerGid": {
         "title": "Replace <DOCKER_GID> with your Docker group ID",
@@ -2360,7 +2357,6 @@
         "copyCommand": "Copy command",
         "macHint": "On macOS, use this command instead: stat -f %g /var/run/docker.sock",
         "noteComposeSystemd": "Set PGID to that number. The agent will refuse to start if <DOCKER_GID> is left in place.",
-        "noteTarballHomebrew": "Replace <DOCKER_GID> with that number and keep sudo in front of the command. Without sudo, PUID and PGID are ignored, so your user must be in the docker group instead.",
         "noteKubernetes": "Replace <DOCKER_GID> in supplementalGroups with that number. Kubernetes does not use PUID or PGID."
       }
     },
@@ -2419,7 +2415,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Obróć klucz dla {{name}}",
+      "rotateTitle": "Obróć klucz agenta",
+      "rotateDescription": "Obecny klucz przestaje działać natychmiast, a agent zostaje rozłączony. Agent nie połączy się ponownie, dopóki nie zaktualizujesz go nowym kluczem.",
+      "rotateConfirm": "Obróć klucz",
+      "rotateSuccessTitle": "Nowy klucz dla {{name}}",
+      "rotateSuccessDescription": "Skopiuj ten klucz teraz. Charon nie pokaże go ponownie. Zapisz go w pliku klucza agenta, a następnie uruchom agenta ponownie, aby się połączył.",
+      "rotateDone": "Gotowe",
+      "rotateError": "Nie udało się obrócić klucza. Spróbuj ponownie."
     },
     "externalProxy": {
       "title": "External Docker Proxy",
@@ -2433,7 +2437,23 @@
       "statusInactive": "Inactive",
       "copyConnectionString": "Copy Docker connection string",
       "reconnectNotice": "Port change will take effect on next agent reconnect.",
-      "agentOffline": "Agent is offline. Proxy status unavailable."
+      "bindReconnectNotice": "Zmiana adresu nasłuchiwania zacznie obowiązywać po ponownym połączeniu agenta.",
+      "agentOffline": "Agent is offline. Proxy status unavailable.",
+      "bindLabel": "Nasłuchuj na",
+      "bindHint": "Wybierz sieć, na której nasłuchuje ten serwer proxy. Automatycznie wybiera główną sieć tego serwera.",
+      "bindAuto": "Automatycznie",
+      "bindAutoResolved": "Automatycznie ({{address}})",
+      "bindAll": "Wszystkie sieci (0.0.0.0)",
+      "bindCustom": "Własny adres lub podsieć",
+      "bindCustomLabel": "Adres lub podsieć",
+      "bindCustomPlaceholder": "192.168.1.10 lub 192.168.1.0/24",
+      "bindAllNote": "Serwer proxy nie wymaga logowania. Każdy, kto może połączyć się z tym portem, może odczytać szczegóły kontenerów tego hosta.",
+      "loopbackNote": "Niedostępne z innych kontenerów lub hostów.",
+      "fallbackNote": "Automatycznie nie znaleziono sieci do nasłuchiwania, więc serwer proxy nasłuchuje na pętli zwrotnej. Wybierz sieć, aby to zmienić.",
+      "bindListening": "Nasłuchuje na {{address}}",
+      "bindInvalid": "Wpisz adres IP lub podsieć, na przykład 192.168.1.10 lub 192.168.1.0/24.",
+      "saveError": "Nie udało się zapisać ustawień serwera proxy. Spróbuj ponownie.",
+      "cardAutomaticNote": "Adres nasłuchiwania jest automatyczny. Wybierz sieć w ustawieniach serwera proxy, jeśli inne hosty potrzebują dostępu."
     },
     "writeMode": {
       "title": "Write Access — {{name}}",

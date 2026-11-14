@@ -11,6 +11,8 @@ import {
   patchAgent,
   renameAgent,
   getAgentProxyStatus,
+  rotateAgentKey,
+  getLocalNetworks,
 } from '../orthrus'
 
 vi.mock('../client', () => ({
@@ -156,9 +158,6 @@ describe('orthrus API', () => {
     it('calls snippets endpoint with X-Charon-URL header', async () => {
       const snippets = {
         docker_compose: 'compose-snippet',
-        systemd: 'systemd-snippet',
-        tarball: 'tarball-snippet',
-        homebrew: 'brew-snippet',
         kubernetes_daemonset: 'k8s-snippet',
       }
       vi.mocked(client.get).mockResolvedValue({ data: snippets })
@@ -174,6 +173,26 @@ describe('orthrus API', () => {
     it('propagates errors', async () => {
       vi.mocked(client.get).mockRejectedValue(new Error('snippets failed'))
       await expect(getInstallSnippets('agent-uuid')).rejects.toThrow('snippets failed')
+    })
+  })
+
+  describe('getLocalNetworks', () => {
+    it('calls the local-networks endpoint and returns the automatic address and networks', async () => {
+      const payload = {
+        auto: { address: '172.18.0.4', source: 'default_route' },
+        networks: [{ interface: 'eth0', address: '172.18.0.4', cidr: '172.18.0.0/16', primary: true }],
+      }
+      vi.mocked(client.get).mockResolvedValue({ data: payload })
+
+      const result = await getLocalNetworks()
+
+      expect(client.get).toHaveBeenCalledWith('/orthrus/local-networks')
+      expect(result).toEqual(payload)
+    })
+
+    it('propagates errors', async () => {
+      vi.mocked(client.get).mockRejectedValue(new Error('network error'))
+      await expect(getLocalNetworks()).rejects.toThrow('network error')
     })
   })
 
@@ -201,5 +220,26 @@ describe('orthrus API', () => {
       vi.mocked(client.get).mockRejectedValue(new Error('proxy status failed'))
       await expect(getAgentProxyStatus('agent-uuid')).rejects.toThrow('proxy status failed')
     })
+  })
+})
+
+describe('rotateAgentKey', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('posts to the rotate-key endpoint and returns the new key', async () => {
+    vi.mocked(client.post).mockResolvedValue({ data: { auth_key: 'ch_orthrus_new' } })
+
+    const result = await rotateAgentKey('agent-uuid')
+
+    expect(client.post).toHaveBeenCalledWith('/orthrus/agents/agent-uuid/rotate-key')
+    expect(result).toEqual({ auth_key: 'ch_orthrus_new' })
+  })
+
+  it('propagates request failures', async () => {
+    vi.mocked(client.post).mockRejectedValue(new Error('not found'))
+
+    await expect(rotateAgentKey('missing')).rejects.toThrow('not found')
   })
 })

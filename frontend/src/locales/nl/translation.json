@@ -2349,10 +2349,7 @@
     "installWizard": {
       "tabs": {
         "dockerCompose": "Docker Compose",
-        "systemd": "Systemd",
-        "tarball": "Tarball",
-        "kubernetes": "Kubernetes",
-        "homebrew": "Homebrew"
+        "kubernetes": "Kubernetes"
       },
       "dockerGid": {
         "title": "Replace <DOCKER_GID> with your Docker group ID",
@@ -2360,7 +2357,6 @@
         "copyCommand": "Copy command",
         "macHint": "On macOS, use this command instead: stat -f %g /var/run/docker.sock",
         "noteComposeSystemd": "Set PGID to that number. The agent will refuse to start if <DOCKER_GID> is left in place.",
-        "noteTarballHomebrew": "Replace <DOCKER_GID> with that number and keep sudo in front of the command. Without sudo, PUID and PGID are ignored, so your user must be in the docker group instead.",
         "noteKubernetes": "Replace <DOCKER_GID> in supplementalGroups with that number. Kubernetes does not use PUID or PGID."
       }
     },
@@ -2419,7 +2415,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Sleutel voor {{name}} vernieuwen",
+      "rotateTitle": "Agentsleutel vernieuwen",
+      "rotateDescription": "De huidige sleutel werkt meteen niet meer en de agent wordt losgekoppeld. De agent kan pas weer verbinden als je hem met de nieuwe sleutel bijwerkt.",
+      "rotateConfirm": "Sleutel vernieuwen",
+      "rotateSuccessTitle": "Nieuwe sleutel voor {{name}}",
+      "rotateSuccessDescription": "Kopieer deze sleutel nu. Charon toont hem niet opnieuw. Zet hem in het sleutelbestand van de agent en start de agent daarna opnieuw op zodat hij weer verbindt.",
+      "rotateDone": "Klaar",
+      "rotateError": "De sleutel kon niet worden vernieuwd. Probeer het opnieuw."
     },
     "externalProxy": {
       "title": "External Docker Proxy",
@@ -2433,7 +2437,23 @@
       "statusInactive": "Inactive",
       "copyConnectionString": "Copy Docker connection string",
       "reconnectNotice": "Port change will take effect on next agent reconnect.",
-      "agentOffline": "Agent is offline. Proxy status unavailable."
+      "bindReconnectNotice": "De wijziging van het luisteradres gaat in zodra de agent opnieuw verbinding maakt.",
+      "agentOffline": "Agent is offline. Proxy status unavailable.",
+      "bindLabel": "Luisteren op",
+      "bindHint": "Kies het netwerk waarop deze proxy luistert. Automatisch kiest het primaire netwerk van deze server.",
+      "bindAuto": "Automatisch",
+      "bindAutoResolved": "Automatisch ({{address}})",
+      "bindAll": "Alle netwerken (0.0.0.0)",
+      "bindCustom": "Eigen adres of subnet",
+      "bindCustomLabel": "Adres of subnet",
+      "bindCustomPlaceholder": "192.168.1.10 of 192.168.1.0/24",
+      "bindAllNote": "De proxy heeft geen login. Iedereen die deze poort kan bereiken, kan de containergegevens van deze host lezen.",
+      "loopbackNote": "Niet bereikbaar vanuit andere containers of hosts.",
+      "fallbackNote": "Automatisch vond geen netwerk om op te luisteren, dus de proxy luistert op loopback. Kies een netwerk om dit te wijzigen.",
+      "bindListening": "Luistert op {{address}}",
+      "bindInvalid": "Voer een IP-adres of subnet in, zoals 192.168.1.10 of 192.168.1.0/24.",
+      "saveError": "De proxy-instellingen konden niet worden opgeslagen. Probeer het opnieuw.",
+      "cardAutomaticNote": "Het luisteradres is automatisch. Kies een netwerk in de proxy-instellingen als andere hosts toegang nodig hebben."
     },
     "writeMode": {
       "title": "Write Access — {{name}}",

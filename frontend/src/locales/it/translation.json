@@ -2349,10 +2349,7 @@
     "installWizard": {
       "tabs": {
         "dockerCompose": "Docker Compose",
-        "systemd": "Systemd",
-        "tarball": "Tarball",
-        "kubernetes": "Kubernetes",
-        "homebrew": "Homebrew"
+        "kubernetes": "Kubernetes"
       },
       "dockerGid": {
         "title": "Replace <DOCKER_GID> with your Docker group ID",
@@ -2360,7 +2357,6 @@
         "copyCommand": "Copy command",
         "macHint": "On macOS, use this command instead: stat -f %g /var/run/docker.sock",
         "noteComposeSystemd": "Set PGID to that number. The agent will refuse to start if <DOCKER_GID> is left in place.",
-        "noteTarballHomebrew": "Replace <DOCKER_GID> with that number and keep sudo in front of the command. Without sudo, PUID and PGID are ignored, so your user must be in the docker group instead.",
         "noteKubernetes": "Replace <DOCKER_GID> in supplementalGroups with that number. Kubernetes does not use PUID or PGID."
       }
     },
@@ -2419,7 +2415,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Ruota chiave per {{name}}",
+      "rotateTitle": "Ruota chiave dell'agente",
+      "rotateDescription": "La chiave attuale smette subito di funzionare e l'agente viene disconnesso. L'agente non potrà riconnettersi finché non lo aggiornerai con la nuova chiave.",
+      "rotateConfirm": "Ruota chiave",
+      "rotateSuccessTitle": "Nuova chiave per {{name}}",
+      "rotateSuccessDescription": "Copia subito questa chiave. Charon non la mostrerà di nuovo. Inseriscila nel file della chiave dell'agente, poi riavvia l'agente perché si riconnetta.",
+      "rotateDone": "Fatto",
+      "rotateError": "Impossibile ruotare la chiave. Riprova."
     },
     "externalProxy": {
       "title": "External Docker Proxy",
@@ -2433,7 +2437,23 @@
       "statusInactive": "Inactive",
       "copyConnectionString": "Copy Docker connection string",
       "reconnectNotice": "Port change will take effect on next agent reconnect.",
-      "agentOffline": "Agent is offline. Proxy status unavailable."
+      "bindReconnectNotice": "La modifica dell'indirizzo di ascolto ha effetto quando l'agente si riconnette.",
+      "agentOffline": "Agent is offline. Proxy status unavailable.",
+      "bindLabel": "Ascolta su",
+      "bindHint": "Scegli la rete su cui ascolta questo proxy. Automatico usa la rete principale di questo server.",
+      "bindAuto": "Automatico",
+      "bindAutoResolved": "Automatico ({{address}})",
+      "bindAll": "Tutte le reti (0.0.0.0)",
+      "bindCustom": "Indirizzo o sottorete personalizzati",
+      "bindCustomLabel": "Indirizzo o sottorete",
+      "bindCustomPlaceholder": "192.168.1.10 o 192.168.1.0/24",
+      "bindAllNote": "Il proxy non ha un accesso protetto. Chiunque possa raggiungere questa porta può leggere i dettagli dei container di questo host.",
+      "loopbackNote": "Non raggiungibile da altri container o host.",
+      "fallbackNote": "Automatico non ha trovato una rete su cui ascoltare, quindi il proxy ascolta sul loopback. Scegli una rete per cambiarlo.",
+      "bindListening": "In ascolto su {{address}}",
+      "bindInvalid": "Inserisci un indirizzo IP o una sottorete, ad esempio 192.168.1.10 o 192.168.1.0/24.",
+      "saveError": "Impossibile salvare le impostazioni del proxy. Riprova.",
+      "cardAutomaticNote": "L'indirizzo di ascolto è automatico. Scegli una rete nelle impostazioni del proxy se altri host hanno bisogno di accedervi."
     },
     "writeMode": {
       "title": "Write Access — {{name}}",

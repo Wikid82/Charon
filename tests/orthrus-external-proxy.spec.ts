@@ -7,6 +7,7 @@ const ORTHRUS_AGENT_API = '**/api/v1/orthrus/agents/*';
 const ORTHRUS_PROXY_STATUS_API = '**/api/v1/orthrus/agents/*/proxy-status';
 const REMOTE_SERVERS_API = '**/api/v1/remote-servers*';
 const HECATE_STATUS_API = '**/api/v1/hecate/status*';
+const LOCAL_NETWORKS_API = '**/api/v1/orthrus/local-networks';
 
 const MOCK_AGENT_UUID = 'aaaabbbb-cccc-dddd-eeee-ffffffffffff';
 const MOCK_AGENT_NAME = 'proxy-test-agent';
@@ -26,14 +27,25 @@ const MOCK_AGENT_WITH_PROXY = {
   external_proxy_port: 2375,
 };
 
+const MOCK_LOCAL_NETWORKS = {
+  auto: { address: '172.18.0.4', source: 'default_route' },
+  networks: [
+    { interface: 'eth0', address: '172.18.0.4', cidr: '172.18.0.0/16', primary: true },
+  ],
+};
+
 const MOCK_PROXY_ACTIVE = {
   agent_uuid: MOCK_AGENT_UUID,
   configured_port: 2375,
   agent_online: true,
   active: true,
   active_port: 2375,
-  bind_address: '0.0.0.0:2375',
+  bind_address: '172.18.0.4:2375',
   connection_string: 'tcp://charon:2375',
+  configured_bind: '',
+  active_bind: '',
+  bind_mode: 'auto',
+  bind_fallback: false,
 };
 
 const MOCK_PROXY_INACTIVE = {
@@ -45,6 +57,10 @@ const MOCK_PROXY_INACTIVE = {
   bind_address: '',
   connection_string: '',
   error: '',
+  configured_bind: '',
+  active_bind: '',
+  bind_mode: '',
+  bind_fallback: false,
 };
 
 const MOCK_PROXY_ERROR = {
@@ -56,6 +72,10 @@ const MOCK_PROXY_ERROR = {
   bind_address: '',
   connection_string: '',
   error: 'bind tcp 0.0.0.0:2375: bind: address already in use',
+  configured_bind: '',
+  active_bind: '',
+  bind_mode: 'auto',
+  bind_fallback: false,
 };
 
 async function setupAgentPage(
@@ -93,8 +113,9 @@ async function openProxyDialog(page: import('@playwright/test').Page, agentName:
 }
 
 test.describe('External Docker Proxy', () => {
-  test.beforeEach(async ({ request }) => {
+  test.beforeEach(async ({ request, page }) => {
     await waitForAPIHealth(request);
+    await page.route(LOCAL_NETWORKS_API, (route) => route.fulfill({ json: MOCK_LOCAL_NETWORKS }));
   });
 
   test('configure proxy port — saves port and shows success', async ({ page }) => {
@@ -268,6 +289,157 @@ test.describe('External Docker Proxy', () => {
       const errorAlert = dialog.locator('[role="alert"]');
       await expect(errorAlert).toBeVisible({ timeout: 5000 });
       await expect(errorAlert).toContainText(/address already in use/i);
+    });
+  });
+
+  test('listen on all networks — saves 0.0.0.0 and shows the exposure note', async ({ page }) => {
+    let patchBody: Record<string, unknown> | null = null;
+
+    await setupAgentPage(page, [MOCK_AGENT_WITH_PROXY], MOCK_PROXY_ACTIVE);
+    await page.route(ORTHRUS_AGENT_API, async (route) => {
+      if (route.request().method() === 'PATCH') {
+        patchBody = await route.request().postDataJSON() as Record<string, unknown>;
+        await route.fulfill({ json: { ...MOCK_AGENT_WITH_PROXY, external_proxy_bind: '0.0.0.0' } });
+      } else {
+        await route.continue();
+      }
+    });
+
+    const dialog = await openProxyDialog(page, MOCK_AGENT_NAME);
+
+    await test.step('Choose all networks', async () => {
+      await dialog.getByLabel('Listen on').selectOption({ value: 'all' });
+      await expect(dialog.getByText(/no login/i)).toBeVisible();
+    });
+
+    await test.step('Save sends 0.0.0.0 as the listen setting', async () => {
+      await dialog.getByRole('button', { name: /save/i }).click();
+      await expect(dialog).not.toBeVisible({ timeout: 8000 });
+      expect(patchBody?.external_proxy_bind).toBe('0.0.0.0');
+    });
+  });
+
+  test('listen on a detected network — saves its CIDR', async ({ page }) => {
+    let patchBody: Record<string, unknown> | null = null;
+
+    await setupAgentPage(page, [MOCK_AGENT_WITH_PROXY], MOCK_PROXY_ACTIVE);
+    await page.route(ORTHRUS_AGENT_API, async (route) => {
+      if (route.request().method() === 'PATCH') {
+        patchBody = await route.request().postDataJSON() as Record<string, unknown>;
+        await route.fulfill({ json: { ...MOCK_AGENT_WITH_PROXY, external_proxy_bind: '172.18.0.0/16' } });
+      } else {
+        await route.continue();
+      }
+    });
+
+    const dialog = await openProxyDialog(page, MOCK_AGENT_NAME);
+
+    await test.step('Choose the detected eth0 network', async () => {
+      await dialog.getByLabel('Listen on').selectOption({ label: 'eth0 · 172.18.0.4 (172.18.0.0/16)' });
+    });
+
+    await test.step('Save sends the CIDR', async () => {
+      await dialog.getByRole('button', { name: /save/i }).click();
+      await expect(dialog).not.toBeVisible({ timeout: 8000 });
+      expect(patchBody?.external_proxy_bind).toBe('172.18.0.0/16');
+    });
+  });
+
+  test('server refusal of a custom listen address is shown in the dialog', async ({ page }) => {
+    await setupAgentPage(page, [MOCK_AGENT_WITH_PROXY], MOCK_PROXY_ACTIVE);
+    await page.route(ORTHRUS_AGENT_API, async (route) => {
+      if (route.request().method() === 'PATCH') {
+        await route.fulfill({
+          status: 400,
+          json: {
+            error: 'Listen address must be automatic, all interfaces, an address or a subnet',
+            error_code: 'external_proxy_bind_invalid',
+          },
+        });
+      } else {
+        await route.continue();
+      }
+    });
+
+    const dialog = await openProxyDialog(page, MOCK_AGENT_NAME);
+
+    await test.step('Enter a custom value the server rejects', async () => {
+      await dialog.getByLabel('Listen on').selectOption({ value: 'custom' });
+      await dialog.getByLabel('Address or subnet').fill('not-an-address');
+      await dialog.getByRole('button', { name: /save/i }).click();
+    });
+
+    await test.step('Refusal is shown as an alert and the dialog stays open', async () => {
+      await expect(dialog.getByRole('alert')).toContainText(/IP address or a subnet/i);
+      await expect(dialog).toBeVisible();
+    });
+  });
+
+  test('loopback fallback — explains it is not reachable from other containers or hosts', async ({ page }) => {
+    const fallbackStatus = {
+      ...MOCK_PROXY_ACTIVE,
+      bind_address: '127.0.0.1:2375',
+      bind_fallback: true,
+    };
+    await page.route(LOCAL_NETWORKS_API, (route) =>
+      route.fulfill({
+        json: { auto: { address: '127.0.0.1', source: 'loopback_fallback' }, networks: [] },
+      }),
+    );
+
+    await setupAgentPage(page, [MOCK_AGENT_WITH_PROXY], fallbackStatus);
+
+    await test.step('Agent card carries the passive note', async () => {
+      await expect(
+        page.getByText('Not reachable from other containers or hosts.').first(),
+      ).toBeVisible({ timeout: 8000 });
+    });
+
+    const dialog = await openProxyDialog(page, MOCK_AGENT_NAME);
+
+    await test.step('Dialog explains the fallback and never says "this server only"', async () => {
+      await expect(dialog.getByText(/found no network/i)).toBeVisible();
+      await expect(dialog.getByText('Not reachable from other containers or hosts.').first()).toBeVisible();
+      await expect(dialog.getByText(/this server only/i)).toHaveCount(0);
+    });
+  });
+
+  test('reconnect notice shown when the saved listen setting differs from the live one', async ({ page }) => {
+    const divergedStatus = {
+      ...MOCK_PROXY_ACTIVE,
+      configured_bind: '172.18.0.0/16',
+      active_bind: '',
+    };
+
+    await setupAgentPage(page, [MOCK_AGENT_WITH_PROXY], divergedStatus);
+
+    const dialog = await openProxyDialog(page, MOCK_AGENT_NAME);
+
+    await test.step('Listen address reconnect notice is visible', async () => {
+      await expect(
+        dialog.getByText('The listen address change takes effect when the agent reconnects.'),
+      ).toBeVisible({ timeout: 5000 });
+    });
+  });
+
+  test('routable automatic listener — shows the bound address and no fallback or loopback note', async ({ page }) => {
+    await setupAgentPage(page, [MOCK_AGENT_WITH_PROXY], MOCK_PROXY_ACTIVE);
+
+    await test.step('Agent card notes the automatic listen address', async () => {
+      await expect(
+        page.getByText('Listen address is automatic. Choose a network in the proxy settings if other hosts need access.').first(),
+      ).toBeVisible({ timeout: 8000 });
+    });
+
+    const dialog = await openProxyDialog(page, MOCK_AGENT_NAME);
+
+    await test.step('Dialog shows the live bound address', async () => {
+      await expect(dialog.getByText('Listening on 172.18.0.4:2375')).toBeVisible({ timeout: 5000 });
+    });
+
+    await test.step('Neither the fallback nor the loopback explanation is shown', async () => {
+      await expect(dialog.getByText(/found no network/i)).toHaveCount(0);
+      await expect(dialog.getByText('Not reachable from other containers or hosts.')).toHaveCount(0);
     });
   });
 

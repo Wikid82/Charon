@@ -2349,10 +2349,7 @@
     "installWizard": {
       "tabs": {
         "dockerCompose": "Docker Compose",
-        "systemd": "Systemd",
-        "tarball": "Tarball",
-        "kubernetes": "Kubernetes",
-        "homebrew": "Homebrew"
+        "kubernetes": "Kubernetes"
       },
       "dockerGid": {
         "title": "Replace <DOCKER_GID> with your Docker group ID",
@@ -2360,7 +2357,6 @@
         "copyCommand": "Copy command",
         "macHint": "On macOS, use this command instead: stat -f %g /var/run/docker.sock",
         "noteComposeSystemd": "Set PGID to that number. The agent will refuse to start if <DOCKER_GID> is left in place.",
-        "noteTarballHomebrew": "Replace <DOCKER_GID> with that number and keep sudo in front of the command. Without sudo, PUID and PGID are ignored, so your user must be in the docker group instead.",
         "noteKubernetes": "Replace <DOCKER_GID> in supplementalGroups with that number. Kubernetes does not use PUID or PGID."
       }
     },
@@ -2419,7 +2415,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "Ανανέωση κλειδιού για {{name}}",
+      "rotateTitle": "Ανανέωση κλειδιού πράκτορα",
+      "rotateDescription": "Το τρέχον κλειδί παύει να ισχύει αμέσως και ο πράκτορας αποσυνδέεται. Ο πράκτορας δεν μπορεί να συνδεθεί ξανά έως ότου τον ενημερώσετε με το νέο κλειδί.",
+      "rotateConfirm": "Ανανέωση κλειδιού",
+      "rotateSuccessTitle": "Νέο κλειδί για {{name}}",
+      "rotateSuccessDescription": "Αντιγράψτε αυτό το κλειδί τώρα. Το Charon δεν θα το εμφανίσει ξανά. Τοποθετήστε το στο αρχείο κλειδιού του πράκτορα και μετά επανεκκινήστε τον πράκτορα ώστε να συνδεθεί ξανά.",
+      "rotateDone": "Τέλος",
+      "rotateError": "Δεν ήταν δυνατή η ανανέωση του κλειδιού. Δοκιμάστε ξανά."
     },
     "externalProxy": {
       "title": "External Docker Proxy",
@@ -2433,7 +2437,23 @@
       "statusInactive": "Inactive",
       "copyConnectionString": "Copy Docker connection string",
       "reconnectNotice": "Port change will take effect on next agent reconnect.",
-      "agentOffline": "Agent is offline. Proxy status unavailable."
+      "bindReconnectNotice": "Η αλλαγή της διεύθυνσης ακρόασης ισχύει όταν ο πράκτορας επανασυνδεθεί.",
+      "agentOffline": "Agent is offline. Proxy status unavailable.",
+      "bindLabel": "Ακρόαση σε",
+      "bindHint": "Επιλέξτε το δίκτυο στο οποίο ακούει αυτός ο διακομιστής μεσολάβησης. Το αυτόματο επιλέγει το κύριο δίκτυο αυτού του διακομιστή.",
+      "bindAuto": "Αυτόματο",
+      "bindAutoResolved": "Αυτόματο ({{address}})",
+      "bindAll": "Όλα τα δίκτυα (0.0.0.0)",
+      "bindCustom": "Προσαρμοσμένη διεύθυνση ή υποδίκτυο",
+      "bindCustomLabel": "Διεύθυνση ή υποδίκτυο",
+      "bindCustomPlaceholder": "192.168.1.10 ή 192.168.1.0/24",
+      "bindAllNote": "Ο διακομιστής μεσολάβησης δεν έχει σύνδεση. Όποιος μπορεί να φτάσει σε αυτή τη θύρα μπορεί να διαβάσει τις λεπτομέρειες των κοντέινερ αυτού του κεντρικού υπολογιστή.",
+      "loopbackNote": "Μη προσβάσιμο από άλλα κοντέινερ ή κεντρικούς υπολογιστές.",
+      "fallbackNote": "Το αυτόματο δεν βρήκε δίκτυο για ακρόαση, οπότε ο διακομιστής ακούει στο loopback. Επιλέξτε δίκτυο για να το αλλάξετε.",
+      "bindListening": "Ακούει στο {{address}}",
+      "bindInvalid": "Εισαγάγετε μια διεύθυνση IP ή ένα υποδίκτυο, όπως 192.168.1.10 ή 192.168.1.0/24.",
+      "saveError": "Οι ρυθμίσεις του διακομιστή μεσολάβησης δεν μπόρεσαν να αποθηκευτούν. Δοκιμάστε ξανά.",
+      "cardAutomaticNote": "Η διεύθυνση ακρόασης είναι αυτόματη. Επιλέξτε δίκτυο στις ρυθμίσεις του διακομιστή μεσολάβησης αν άλλοι κεντρικοί υπολογιστές χρειάζονται πρόσβαση."
     },
     "writeMode": {
       "title": "Write Access — {{name}}",

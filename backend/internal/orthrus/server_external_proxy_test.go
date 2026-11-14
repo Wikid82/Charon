@@ -84,7 +84,7 @@ func TestOrthrusServer_DisconnectAgent_ClosesExternalProxy(t *testing.T) {
 	require.NoError(t, sess.StartDockerProxy())
 
 	port := findFreePort(t)
-	require.NoError(t, sess.StartExternalProxy(port))
+	require.NoError(t, sess.StartExternalProxy(port, "127.0.0.1"))
 
 	assert.Eventually(t, func() bool {
 		return sess.GetExternalProxyStatus().Active

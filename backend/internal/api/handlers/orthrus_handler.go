@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"reflect"
 
@@ -22,10 +23,17 @@ type orthrusProxyStatusResolver interface {
 }
 
 // OrthrusHandler handles REST requests for Orthrus agent management.
+// invalidExternalProxyBindMessage is the operator-facing text for a rejected
+// listen setting.
+const invalidExternalProxyBindMessage = "Listen address must be automatic, all interfaces, an address or a subnet"
+
 type OrthrusHandler struct {
 	svc             *services.OrthrusService
 	proxyResolver   orthrusProxyStatusResolver
 	securityService *services.SecurityService
+	// localNetworks reports the host networks Charon can bind; a field so tests
+	// can stub the host view.
+	localNetworks func() ([]orthrus.LocalNetwork, netip.Addr, orthrus.BindSource)
 }
 
 // NewOrthrusHandler creates an OrthrusHandler backed by the given service.
@@ -37,7 +45,11 @@ type OrthrusHandler struct {
 // the handler layer rather than inside the service (compare
 // security_handler.go, crowdsec_handler.go).
 func NewOrthrusHandler(orthrsuSvc *services.OrthrusService, securityService *services.SecurityService) *OrthrusHandler {
-	return &OrthrusHandler{svc: orthrsuSvc, securityService: securityService}
+	return &OrthrusHandler{
+		svc:             orthrsuSvc,
+		securityService: securityService,
+		localNetworks:   orthrus.LocalNetworks,
+	}
 }
 
 // SetProxyResolver wires a live OrthrusServer so that GetProxyStatus can
@@ -68,8 +80,10 @@ func (h *OrthrusHandler) RegisterRoutes(read, admin *gin.RouterGroup) {
 	admin.PATCH("/orthrus/agents/:uuid", h.Patch)
 	admin.DELETE("/orthrus/agents/:uuid", h.Delete)
 	admin.POST("/orthrus/agents/:uuid/revoke", h.Revoke)
+	admin.POST("/orthrus/agents/:uuid/rotate-key", h.RotateKey)
 	admin.GET("/orthrus/agents/:uuid/snippets", h.GetInstallSnippets)
 	admin.GET("/orthrus/agents/:uuid/proxy-status", h.GetProxyStatus)
+	admin.GET("/orthrus/local-networks", h.LocalNetworks)
 }
 
 // List returns all registered Orthrus agents.
@@ -123,6 +137,7 @@ type patchAgentRequest struct {
 	DeviceID          *string `json:"device_id"`
 	ResolvedAddress   *string `json:"resolved_address"`
 	ExternalProxyPort *int    `json:"external_proxy_port"`
+	ExternalProxyBind *string `json:"external_proxy_bind"`
 	WriteEnabled      *bool   `json:"write_enabled"`
 }
 
@@ -138,10 +153,23 @@ func (h *OrthrusHandler) Patch(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
-	agent, err := h.svc.Patch(uuid, req.Name, req.HecateTunnelUUID, req.DeviceID, req.ResolvedAddress, req.ExternalProxyPort, req.WriteEnabled)
+	agent, err := h.svc.Patch(uuid, services.AgentPatch{
+		Name:              req.Name,
+		HecateTunnelUUID:  req.HecateTunnelUUID,
+		DeviceID:          req.DeviceID,
+		ResolvedAddress:   req.ResolvedAddress,
+		ExternalProxyPort: req.ExternalProxyPort,
+		ExternalProxyBind: req.ExternalProxyBind,
+		WriteEnabled:      req.WriteEnabled,
+	})
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+		} else if errors.Is(err, services.ErrInvalidExternalProxyBind) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":      invalidExternalProxyBindMessage,
+				"error_code": "external_proxy_bind_invalid",
+			})
 		} else {
 			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		}
@@ -183,6 +211,39 @@ func (h *OrthrusHandler) Revoke(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, gin.H{"message": "revoked"})
+}
+
+// RotateKey replaces an agent's auth key and returns the new key exactly once.
+// The response is never cached. A security audit entry records the rotation
+// without the key.
+func (h *OrthrusHandler) RotateKey(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	uuid := c.Param("uuid")
+	authKey, err := h.svc.RotateKey(uuid)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			c.JSON(http.StatusNotFound, gin.H{"error": "agent not found"})
+		} else {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
+		return
+	}
+
+	if h.securityService != nil {
+		agentName := ""
+		if agent, getErr := h.svc.Get(uuid); getErr == nil {
+			agentName = agent.Name
+		}
+		_ = h.securityService.LogAudit(&models.SecurityAudit{
+			Actor:         auditActor(c),
+			Action:        "orthrus_key_rotated",
+			EventCategory: "orthrus_agent",
+			ResourceUUID:  uuid,
+			Details:       fmt.Sprintf(`{"agent_name":%q}`, agentName),
+		})
+	}
+
+	c.JSON(http.StatusOK, gin.H{"auth_key": authKey})
 }
 
 // GetInstallSnippets returns platform install templates for an agent.
@@ -245,10 +306,14 @@ func (h *OrthrusHandler) GetProxyStatus(c *gin.Context) {
 		"agent_uuid":               agent.UUID,
 		"agent_online":             false,
 		"configured_port":          agent.ExternalProxyPort,
+		"configured_bind":          agent.ExternalProxyBind,
 		"configured_write_enabled": agent.WriteEnabled,
 		"active_write_enabled":     false,
 		"active":                   false,
 		"active_port":              0,
+		"active_bind":              "",
+		"bind_mode":                "",
+		"bind_fallback":            false,
 		"bind_address":             "",
 		"connection_string":        "",
 		"error":                    "",
@@ -259,6 +324,9 @@ func (h *OrthrusHandler) GetProxyStatus(c *gin.Context) {
 			resp["active"] = status.Active
 			resp["active_port"] = status.ActivePort
 			resp["bind_address"] = status.BoundAddress
+			resp["active_bind"] = status.ActiveBind
+			resp["bind_mode"] = string(status.BindMode)
+			resp["bind_fallback"] = status.BindFallback
 			resp["active_write_enabled"] = status.WriteEnabled
 			if status.Active && status.ActivePort > 0 {
 				resp["connection_string"] = fmt.Sprintf("tcp://%s:%d", resolveExternalProxyHost(c), status.ActivePort)
@@ -269,4 +337,29 @@ func (h *OrthrusHandler) GetProxyStatus(c *gin.Context) {
 		}
 	}
 	c.JSON(http.StatusOK, resp)
+}
+
+// localNetworksResponse is the payload of GET /orthrus/local-networks.
+type localNetworksResponse struct {
+	Auto     localNetworksAuto      `json:"auto"`
+	Networks []orthrus.LocalNetwork `json:"networks"`
+}
+
+// localNetworksAuto is the address the automatic listen setting resolves to.
+type localNetworksAuto struct {
+	Address string             `json:"address"`
+	Source  orthrus.BindSource `json:"source"`
+}
+
+// LocalNetworks lists the host networks the external proxy can listen on, with
+// the address the automatic setting would choose.
+func (h *OrthrusHandler) LocalNetworks(c *gin.Context) {
+	networks, auto, source := h.localNetworks()
+	if networks == nil {
+		networks = []orthrus.LocalNetwork{}
+	}
+	c.JSON(http.StatusOK, localNetworksResponse{
+		Auto:     localNetworksAuto{Address: auto.String(), Source: source},
+		Networks: networks,
+	})
 }

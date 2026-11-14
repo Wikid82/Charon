@@ -2349,10 +2349,7 @@
     "installWizard": {
       "tabs": {
         "dockerCompose": "Docker Compose",
-        "systemd": "Systemd",
-        "tarball": "Tarball",
-        "kubernetes": "Kubernetes",
-        "homebrew": "Homebrew"
+        "kubernetes": "Kubernetes"
       },
       "dockerGid": {
         "title": "Replace <DOCKER_GID> with your Docker group ID",
@@ -2360,7 +2357,6 @@
         "copyCommand": "Copy command",
         "macHint": "On macOS, use this command instead: stat -f %g /var/run/docker.sock",
         "noteComposeSystemd": "Set PGID to that number. The agent will refuse to start if <DOCKER_GID> is left in place.",
-        "noteTarballHomebrew": "Replace <DOCKER_GID> with that number and keep sudo in front of the command. Without sudo, PUID and PGID are ignored, so your user must be in the docker group instead.",
         "noteKubernetes": "Replace <DOCKER_GID> in supplementalGroups with that number. Kubernetes does not use PUID or PGID."
       }
     },
@@ -2419,7 +2415,15 @@
       "saveProviderAssignment": "Save Assignment",
       "removeProviderAssignment": "Remove Provider",
       "configureProxy": "Configure proxy for {{name}}",
-      "writeMode": "Write mode for {{name}}"
+      "writeMode": "Write mode for {{name}}",
+      "rotateLabel": "החלפת מפתח עבור {{name}}",
+      "rotateTitle": "החלפת מפתח הסוכן",
+      "rotateDescription": "המפתח הנוכחי מפסיק לפעול מיד והסוכן מנותק. הסוכן לא יוכל להתחבר מחדש עד שתעדכן אותו במפתח החדש.",
+      "rotateConfirm": "החלף מפתח",
+      "rotateSuccessTitle": "מפתח חדש עבור {{name}}",
+      "rotateSuccessDescription": "העתק את המפתח הזה עכשיו. Charon לא יציג אותו שוב. שמור אותו בקובץ המפתח של הסוכן, והפעל אותו מחדש כדי שיתחבר.",
+      "rotateDone": "סיום",
+      "rotateError": "לא ניתן היה להחליף את המפתח. נסה שוב."
     },
     "externalProxy": {
       "title": "External Docker Proxy",
@@ -2433,7 +2437,23 @@
       "statusInactive": "Inactive",
       "copyConnectionString": "Copy Docker connection string",
       "reconnectNotice": "Port change will take effect on next agent reconnect.",
-      "agentOffline": "Agent is offline. Proxy status unavailable."
+      "bindReconnectNotice": "שינוי כתובת ההאזנה ייכנס לתוקף כאשר הסוכן יתחבר מחדש.",
+      "agentOffline": "Agent is offline. Proxy status unavailable.",
+      "bindLabel": "האזנה ב",
+      "bindHint": "בחרו את הרשת שבה הפרוקסי מאזין. אוטומטי בוחר את הרשת הראשית של השרת.",
+      "bindAuto": "אוטומטי",
+      "bindAutoResolved": "אוטומטי ({{address}})",
+      "bindAll": "כל הרשתות (0.0.0.0)",
+      "bindCustom": "כתובת או תת-רשת מותאמת אישית",
+      "bindCustomLabel": "כתובת או תת-רשת",
+      "bindCustomPlaceholder": "192.168.1.10 או 192.168.1.0/24",
+      "bindAllNote": "לפרוקסי אין כניסה עם סיסמה. כל מי שיכול להגיע ליציאה הזאת יכול לקרוא את פרטי המכולות של המארח.",
+      "loopbackNote": "לא נגיש ממכולות או ממארחים אחרים.",
+      "fallbackNote": "במצב אוטומטי לא נמצאה רשת להאזנה, ולכן הפרוקסי מאזין ב-loopback. בחרו רשת כדי לשנות זאת.",
+      "bindListening": "מאזין ב-{{address}}",
+      "bindInvalid": "הזינו כתובת IP או תת-רשת, למשל 192.168.1.10 או 192.168.1.0/24.",
+      "saveError": "לא ניתן לשמור את הגדרות הפרוקסי. נסו שוב.",
+      "cardAutomaticNote": "כתובת ההאזנה היא אוטומטית. בחרו רשת בהגדרות הפרוקסי אם מארחים אחרים צריכים גישה."
     },
     "writeMode": {
       "title": "Write Access — {{name}}",

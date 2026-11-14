@@ -65,6 +65,8 @@ services:
     image: wikid82/orthrus:latest
     restart: always
     container_name: orthrus
+    # Opt-in: start the agent with `docker compose --profile orthrus up -d` after saving its key (see the secrets section).
+    profiles: ["orthrus"]
     environment:
       # User and group the agent runs as. PGID must match your Docker socket's group (see docs/features/orthrus.md).
       - PUID=${PUID}
@@ -76,12 +78,19 @@ services:
       - ORTHRUS_SERVER_URL=${ORTHRUS_SERVER_URL}
       # The agent ID shown when you registered this agent in Charon (Hecate -> Agent -> Add Agent)
       - ORTHRUS_AGENT_ID=${ORTHRUS_AGENT_ID}
-      # The one-time auth key shown when you registered this agent
-      - ORTHRUS_AUTH_KEY=${ORTHRUS_AUTH_KEY}
+      # The agent reads its key from the orthrus_auth_key file (a Compose secret, below) before it drops privileges.
+      # Save the key next to this file first: printf '%s' '<your-key>' > orthrus_auth_key && chmod 600 orthrus_auth_key
+      - ORTHRUS_AUTH_KEY_FILE=/run/secrets/orthrus_auth_key
+    secrets:
+      - orthrus_auth_key
     volumes:
       # Read-only access to the host Docker socket (DOCKER_SOCK in your .env). The agent is read-only by default;
       # write access is an explicit per-agent opt-in in Charon (see docs/features/orthrus.md).
       - ${DOCKER_SOCK}:/var/run/docker.sock:ro
+
+secrets:
+  orthrus_auth_key:
+    file: ./orthrus_auth_key
 
 volumes:
   cpm_data:

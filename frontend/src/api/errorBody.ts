@@ -100,6 +100,16 @@ export function wafErrorMessage(err: unknown, t: TFunction, fallback: string): s
 }
 
 /**
+ * Translated text for a refused external proxy listen setting (`external_proxy_bind_invalid`).
+ * @param err - The value thrown by the request
+ * @param t - The translation function of the calling component or hook
+ * @returns The text, or null when the refusal is for another reason
+ */
+export function externalProxyBindErrorMessage(err: unknown, t: TFunction): string | null {
+  return getApiErrorCode(err, ['external_proxy_bind_invalid'] as const) ? t('hecate.externalProxy.bindInvalid') : null
+}
+
+/**
  * Coded access-list save refusals with a translated text of their own, keyed by the server's `error_code`.
  * Every other code keeps the generic error toast.
  */

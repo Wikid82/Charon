@@ -4,7 +4,9 @@ import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 
 import * as api from '../../api/orthrus'
-import { useOrthrus, useAgentList, useProvisionAgent, useRenameAgent, useDeleteAgent, useAgentProxyStatus, AGENTS_QUERY_KEY } from '../useOrthrus'
+import { useOrthrus, useAgentList, useProvisionAgent, useRenameAgent, useDeleteAgent, useAgentProxyStatus, useRotateAgentKey, useLocalNetworks, AGENTS_QUERY_KEY } from '../useOrthrus'
+
+import type { ExternalProxyStatus } from '../../api/orthrus'
 
 vi.mock('../../api/orthrus', () => ({
   listAgents: vi.fn(),
@@ -12,8 +14,10 @@ vi.mock('../../api/orthrus', () => ({
   renameAgent: vi.fn(),
   deleteAgent: vi.fn(),
   revokeAgent: vi.fn(),
+  rotateAgentKey: vi.fn(),
   getInstallSnippets: vi.fn(),
   getAgentProxyStatus: vi.fn(),
+  getLocalNetworks: vi.fn(),
 }))
 
 const createWrapper = () => {
@@ -196,9 +200,6 @@ describe('useOrthrus', () => {
   it('getInstallSnippets calls API', async () => {
     const snippets: api.InstallSnippets = {
       docker_compose: 'compose',
-      systemd: 'systemd',
-      tarball: 'tar',
-      homebrew: 'brew',
       kubernetes_daemonset: 'k8s',
     }
     vi.mocked(api.getInstallSnippets).mockResolvedValue(snippets)
@@ -227,7 +228,7 @@ describe('useOrthrus', () => {
 
 describe('useAgentProxyStatus', () => {
   it('fetches proxy status when enabled', async () => {
-    const status = {
+    const status: ExternalProxyStatus = {
       agent_uuid: 'agent-1',
       agent_online: true,
       configured_port: 2375,
@@ -237,6 +238,10 @@ describe('useAgentProxyStatus', () => {
       connection_string: 'tcp://charon:2375',
       configured_write_enabled: false,
       active_write_enabled: false,
+      configured_bind: '',
+      active_bind: '',
+      bind_mode: '',
+      bind_fallback: false,
       error: '',
     }
     vi.mocked(api.getAgentProxyStatus).mockResolvedValue(status)
@@ -259,5 +264,45 @@ describe('useAgentProxyStatus', () => {
 
     expect(result.current.fetchStatus).toBe('idle')
     expect(api.getAgentProxyStatus).not.toHaveBeenCalled()
+  })
+})
+
+describe('useRotateAgentKey', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('calls rotateAgentKey with the uuid and returns the new key', async () => {
+    vi.mocked(api.rotateAgentKey).mockResolvedValue({ auth_key: 'ch_orthrus_new' })
+    vi.mocked(api.listAgents).mockResolvedValue([mockAgent])
+
+    const { result } = renderHook(() => useRotateAgentKey(), { wrapper: createWrapper() })
+
+    let response: api.RotateAgentKeyResponse | undefined
+    await act(async () => {
+      response = await result.current.mutateAsync('agent-1')
+    })
+
+    expect(api.rotateAgentKey).toHaveBeenCalledWith('agent-1')
+    expect(response).toEqual({ auth_key: 'ch_orthrus_new' })
+  })
+})
+
+describe('useLocalNetworks', () => {
+  beforeEach(() => vi.clearAllMocks())
+
+  it('loads the local networks when enabled', async () => {
+    const payload = { auto: { address: '127.0.0.1', source: 'loopback_fallback' as const }, networks: [] }
+    vi.mocked(api.getLocalNetworks).mockResolvedValue(payload)
+
+    const { result } = renderHook(() => useLocalNetworks(true), { wrapper: createWrapper() })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.data).toEqual(payload)
+    expect(api.getLocalNetworks).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not request the networks while disabled', () => {
+    renderHook(() => useLocalNetworks(false), { wrapper: createWrapper() })
+
+    expect(api.getLocalNetworks).not.toHaveBeenCalled()
   })
 })

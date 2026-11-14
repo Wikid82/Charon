@@ -105,6 +105,8 @@ services:
     image: wikid82/orthrus:latest
     restart: always
     container_name: orthrus
+    # Opt-in: start the agent with `docker compose --profile orthrus up -d` after saving its key (see the secrets section).
+    profiles: ["orthrus"]
     environment:
       # User and group the agent runs as. PGID must match your Docker socket's group (see the Orthrus guide).
       - PUID=${PUID}
@@ -114,12 +116,19 @@ services:
       - ORTHRUS_SERVER_URL=${ORTHRUS_SERVER_URL}
       # The agent ID shown when you registered this agent in Charon (Hecate -> Agent -> Add Agent)
       - ORTHRUS_AGENT_ID=${ORTHRUS_AGENT_ID}
-      # The one-time auth key shown when you registered this agent
-      - ORTHRUS_AUTH_KEY=${ORTHRUS_AUTH_KEY}
+      # The agent reads its key from the orthrus_auth_key file (a Compose secret, below) before it drops privileges.
+      # Save the key next to this file first: printf '%s' '<your-key>' > orthrus_auth_key && chmod 600 orthrus_auth_key
+      - ORTHRUS_AUTH_KEY_FILE=/run/secrets/orthrus_auth_key
+    secrets:
+      - orthrus_auth_key
     volumes:
       # Read-only access to the host Docker socket. The agent is read-only by default;
       # write access is an explicit per-agent opt-in in Charon (see docs/features/orthrus.md).
       - ${DOCKER_SOCK}:/var/run/docker.sock:ro
+
+secrets:
+  orthrus_auth_key:
+    file: ./orthrus_auth_key
 ```
 
 ### 2️⃣ Create remote `docker-compose.yml`
@@ -141,12 +150,19 @@ services:
       - ORTHRUS_SERVER_URL=${ORTHRUS_SERVER_URL}
       # The agent ID shown when you registered this agent in Charon (Hecate -> Agent -> Add Agent)
       - ORTHRUS_AGENT_ID=${ORTHRUS_AGENT_ID}
-      # The one-time auth key shown when you registered this agent
-      - ORTHRUS_AUTH_KEY=${ORTHRUS_AUTH_KEY}
+      # The agent reads its key from the orthrus_auth_key file (a Compose secret, below) before it drops privileges.
+      # Save the key next to this file first: printf '%s' '<your-key>' > orthrus_auth_key && chmod 600 orthrus_auth_key
+      - ORTHRUS_AUTH_KEY_FILE=/run/secrets/orthrus_auth_key
+    secrets:
+      - orthrus_auth_key
     volumes:
       # Read-only access to the host Docker socket. The agent is read-only by default;
       # write access is an explicit per-agent opt-in in Charon (see docs/features/orthrus.md).
       - ${DOCKER_SOCK}:/var/run/docker.sock:ro
+
+secrets:
+  orthrus_auth_key:
+    file: ./orthrus_auth_key
 ```
 
 ### 3️⃣ Create env in same directory as compose file(s)`.env`
@@ -160,6 +176,8 @@ services:
 CHARON_EMERGENCY_TOKEN=
 
 # Orthrus Agent Variables (only the orthrus service above uses these)
+# The agent key is not stored here. Save it to a file named orthrus_auth_key next to this file:
+#   printf '%s' '<your-key>' > orthrus_auth_key && chmod 600 orthrus_auth_key
 # PUID: the user the agent runs as. Leave it at 65532.
 # PGID: the group the agent runs as. Set it to your Docker socket's group. Find it with:
 #   stat -c '%g' /var/run/docker.sock
@@ -171,7 +189,6 @@ TZ=America/New_York
 DOCKER_SOCK=/var/run/docker.sock
 ORTHRUS_SERVER_URL=
 ORTHRUS_AGENT_ID=
-ORTHRUS_AUTH_KEY=
 ```
 
 > **Recommended: connect Docker with Orthrus.** Orthrus is a small helper that holds the Docker socket so Charon never has to. It is the more secure way to let Charon find your containers, and it works on the same server or a different one. See the [Orthrus guide](docs/features/orthrus.md). Mounting the socket directly (as above) is still fully supported.
