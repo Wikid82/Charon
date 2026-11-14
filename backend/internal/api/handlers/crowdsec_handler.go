@@ -666,15 +666,12 @@ func NewCrowdsecHandler(db *gorm.DB, executor CrowdsecExecutor, binPath, dataDir
 	return h
 }
 
-// isCerberusEnabled returns true when Cerberus is enabled via DB or env flag.
-// This presets gate is deliberately not the shared reader: it accepts "1" and "yes" and trims spaces, and it does
-// not fall through to the legacy key. The reading every other reader uses is models.CerberusSwitchFromSetting.
+// isCerberusEnabled returns true when Cerberus is enabled via DB or env flag. A stored switch key decides through the
+// shared reading (models.ResolveCerberusSwitchKeys). The environment overrides apply only when both keys are absent.
 func (h *CrowdsecHandler) isCerberusEnabled() bool {
 	if h.DB != nil && h.DB.Migrator().HasTable(&models.Setting{}) {
-		var s models.Setting
-		if err := h.DB.Where("key = ?", "feature.cerberus.enabled").First(&s).Error; err == nil {
-			v := strings.ToLower(strings.TrimSpace(s.Value))
-			return v == "true" || v == "1" || v == "yes"
+		if sw, err := models.ResolveCerberusSwitchKeys(h.DB); err == nil && sw != models.CerberusSwitchAbsent {
+			return sw == models.CerberusSwitchOn
 		}
 	}
 

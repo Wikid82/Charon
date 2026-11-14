@@ -53,7 +53,7 @@ var readerStatics = map[string]config.SecurityConfig{
 var (
 	readerStaticNames = []string{"on", "off", "zero"}
 	readerRowNames    = []string{"absent", "enabled", "disabled"}
-	readerKeyValues   = []string{readerKeyAbsent, "true", "false", "TRUE", "1", "yes", "", "garbage"}
+	readerKeyValues   = []string{readerKeyAbsent, "true", "false", "TRUE", "1", "yes", "", "garbage", " true", "true "}
 	readerEnvValues   = []string{
 		"FEATURE_CERBERUS_ENABLED=false",
 		"FEATURE_CERBERUS_ENABLED=1",

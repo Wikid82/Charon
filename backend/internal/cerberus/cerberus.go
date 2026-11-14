@@ -123,13 +123,9 @@ func (c *Cerberus) IsEnabled() bool {
 		}
 
 		// Runtime feature flag (highest priority after break-glass disable), then the legacy key for backward
-		// compatibility. A stored key decides even when blank (Off), so only an absent key falls through.
-		for _, key := range []string{models.CerberusFeatureSettingKey, models.CerberusLegacySettingKey} {
-			var s models.Setting // fresh per key, so no value leaks from the previous query
-			err := c.db.Where("key = ?", key).First(&s).Error
-			if sw := models.CerberusSwitchFromSetting(s.Value, err == nil); sw != models.CerberusSwitchAbsent {
-				return sw == models.CerberusSwitchOn
-			}
+		// compatibility. A stored switch decides, whatever its value.
+		if sw, err := models.ResolveCerberusSwitchKeys(c.db); err == nil && sw != models.CerberusSwitchAbsent {
+			return sw == models.CerberusSwitchOn
 		}
 	}
 

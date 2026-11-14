@@ -97,13 +97,10 @@ const (
 	CerberusSwitchOff
 )
 
-// CerberusSwitchFromSetting is the one reading of a Cerberus switch key shared by the proxy, the status endpoint and
-// the middleware. The caller looks the key up and passes stored=false when no row exists. A stored value is On only
-// when it equals "true" ignoring case; every other stored value, blank included, is Off. The value is not trimmed,
-// so padded input is Off.
-//
-// Readers differ on some values and handle those before calling this: the status endpoint treats a blank value as
-// no opinion, and the presets gate (CrowdsecHandler.isCerberusEnabled) also accepts "1" and "yes" and trims spaces.
+// CerberusSwitchFromSetting is the one reading of a Cerberus switch key, used by every reader: the proxy, the status
+// endpoint, the middleware and the presets gate. The caller looks the key up and passes stored=false when no row
+// exists. A stored value is On only when it equals "true" ignoring case; every other stored value, blank, padded and
+// unknown included, is Off. The value is not trimmed. Only the writers normalise input (see SetCerberusSwitch).
 func CerberusSwitchFromSetting(value string, stored bool) CerberusSwitch {
 	switch {
 	case !stored:
@@ -113,6 +110,45 @@ func CerberusSwitchFromSetting(value string, stored bool) CerberusSwitch {
 	default:
 		return CerberusSwitchOn
 	}
+}
+
+// ResolveCerberusSwitchKeys reads the Cerberus switch the way every reader does. The feature key decides whenever it is
+// stored, whatever its value; the legacy key is read only when the feature key is absent. It returns
+// CerberusSwitchAbsent when neither key is stored, so the caller falls through to its next source, and the read error
+// when a query fails.
+func ResolveCerberusSwitchKeys(db *gorm.DB) (CerberusSwitch, error) {
+	for _, key := range []string{CerberusFeatureSettingKey, CerberusLegacySettingKey} {
+		var setting Setting // fresh per key, so no value leaks from the previous query
+		err := db.Where("key = ?", key).First(&setting).Error
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+			return CerberusSwitchAbsent, fmt.Errorf("read %s: %w", key, err)
+		}
+		if sw := CerberusSwitchFromSetting(setting.Value, err == nil); sw != CerberusSwitchAbsent {
+			return sw, nil
+		}
+	}
+	return CerberusSwitchAbsent, nil
+}
+
+// UnrecognisedCerberusSwitchKeys returns the Cerberus switch keys that are stored with a value other than exactly "true"
+// or "false" (any case). Such a value reads as Off, so the list names the keys an operator should look at. Nothing is
+// rewritten.
+func UnrecognisedCerberusSwitchKeys(db *gorm.DB) ([]string, error) {
+	var unrecognised []string
+	for _, key := range []string{CerberusFeatureSettingKey, CerberusLegacySettingKey} {
+		var setting Setting
+		err := db.Where("key = ?", key).First(&setting).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("read %s: %w", key, err)
+		}
+		if !strings.EqualFold(setting.Value, "true") && !strings.EqualFold(setting.Value, "false") {
+			unrecognised = append(unrecognised, key)
+		}
+	}
+	return unrecognised, nil
 }
 
 // wrapModuleError adds the setting key to a resolution error. A nil error stays nil.
