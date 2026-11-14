@@ -1128,6 +1128,11 @@ newly added privileged route cannot silently land on an under-guarded group.
 | Uptime monitor create, update, delete, manual check, sync | 403 | Allowed | `managementAdmin` group (`routes.go`) |
 | Docker container list for a disabled remote server | Refused (400) | Refused (400) | `docker_handler.go` |
 | Forward target that names a local host on the admin TCP port (2019) | Refused | Refused | Shared helper `refuseAdminListenerTarget`, used by proxy host and location validation. The admin API is a socket by default, so this is defense in depth |
+| Security config `admin_whitelist`, `rate_limit_bypass_list`, `crowdsec_api_url` | Read redacted (`has_admin_whitelist`, `has_rate_limit_bypass_list` flags instead) | Visible | Response redaction (`securityConfigRedactedFields`, `security_handler.go`) |
+| Rule set `content`, `source_url` | Read redacted (`has_content`, `content_line_count` instead) | Visible | Response redaction (`ruleSetRedactedFields`) |
+| SMTP settings and `security.admin_whitelist` in `/settings` | Left out; each replaced by `<key>.has_value` | Visible | `adminOnlySettingKeys`, `settingsResponseMap` (`settings_handler.go`) |
+
+Blocked-request counters (`charon_waf_blocked_total`, `charon_crowdsec_blocked_total`) are fed by the access-log watcher (`LogWatcher`), not by the request middleware. Every metric collector is registered through `metrics.Register`, never on the default registry.
 
 **Role-aware response helpers** (`backend/internal/api/handlers/permission_helpers.go`):
 `redactForRole` and `redactListForRole` return the item unchanged for administrators.

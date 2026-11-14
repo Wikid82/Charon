@@ -48,7 +48,8 @@
     "activeCount": "{{count}} active",
     "noHistoryAvailable": "No history available",
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "Actualizarea a eșuat"
   },
   "permissions": {
     "adminOnlyError": "Doar administratorii pot modifica această setare.",
@@ -745,7 +746,10 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "saveConfiguration": "Salvează configurația",
+    "settingUpdated": "Setarea limitării ratei a fost actualizată",
+    "invalidValue": "Introduceți un număr întreg mai mare decât 0."
   },
   "wafConfig": {
     "title": "WAF Configuration",

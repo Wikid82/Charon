@@ -48,7 +48,8 @@
     "activeCount": "{{count}} active",
     "noHistoryAvailable": "No history available",
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "Не удалось обновить"
   },
   "permissions": {
     "adminOnlyError": "Только администраторы могут изменить этот параметр.",
@@ -745,7 +746,10 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "saveConfiguration": "Сохранить конфигурацию",
+    "settingUpdated": "Настройка ограничения частоты обновлена",
+    "invalidValue": "Введите целое число больше 0."
   },
   "wafConfig": {
     "title": "WAF Configuration",

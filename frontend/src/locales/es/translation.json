@@ -48,7 +48,8 @@
     "activeCount": "{{count}} activo",
     "noHistoryAvailable": "Sin historial disponible",
     "autoRefreshing": "Actualizando cada {{seconds}}s",
-    "score": "Puntuación"
+    "score": "Puntuación",
+    "failedToUpdate": "Error al actualizar"
   },
   "permissions": {
     "adminOnlyError": "Solo los administradores pueden cambiar este ajuste.",
@@ -771,7 +772,9 @@
     "enableToConfigureMessage": "Habilita la limitación de tasa para configurar límites de solicitudes y proteger tus servicios",
     "adjustingGates": "Ajustando las puertas...",
     "configurationUpdating": "Configuración de limitación de tasa actualizándose",
-    "invalidValue": "Introduce un número entero mayor que 0."
+    "invalidValue": "Introduce un número entero mayor que 0.",
+    "saveConfiguration": "Guardar configuración",
+    "settingUpdated": "Ajuste de limitación de tasa actualizado"
   },
   "wafConfig": {
     "title": "Configuración WAF",

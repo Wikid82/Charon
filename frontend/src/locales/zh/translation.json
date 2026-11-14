@@ -48,7 +48,8 @@
     "activeCount": "{{count}} 个活动",
     "noHistoryAvailable": "无可用历史",
     "autoRefreshing": "每 {{seconds}} 秒自动刷新",
-    "score": "评分"
+    "score": "评分",
+    "failedToUpdate": "更新失败"
   },
   "permissions": {
     "adminOnlyError": "只有管理员可以更改此设置。",
@@ -771,7 +772,9 @@
     "enableToConfigureMessage": "启用速率限制以配置请求限制并保护您的服务",
     "adjustingGates": "调整门禁……",
     "configurationUpdating": "速率限制配置更新中",
-    "invalidValue": "请输入大于 0 的整数。"
+    "invalidValue": "请输入大于 0 的整数。",
+    "saveConfiguration": "保存配置",
+    "settingUpdated": "速率限制设置已更新"
   },
   "wafConfig": {
     "title": "WAF配置",

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"strings"
 
 	"gorm.io/gorm"
 
@@ -282,8 +283,10 @@ func (u SecurityConfigUpdate) applyTo(row *models.SecurityConfig) []string {
 		row.RateLimitMode = ResolveRateLimitMode(*u.RateLimitEnable, mode)
 		columns = append(columns, "rate_limit_enable", "rate_limit_mode")
 	case u.RateLimitMode != nil:
+		// The enable flag mirrors the mode, so clearing the mode can never leave the flag on.
 		row.RateLimitMode = *u.RateLimitMode
-		columns = append(columns, "rate_limit_mode")
+		row.RateLimitEnable = strings.EqualFold(*u.RateLimitMode, "enabled")
+		columns = append(columns, "rate_limit_mode", "rate_limit_enable")
 	}
 	if u.RateLimitBurst != nil {
 		row.RateLimitBurst = *u.RateLimitBurst
@@ -317,78 +320,121 @@ func newSecurityConfigRow(name string) models.SecurityConfig {
 // the pre-image of the module state it may have changed (see models.ModuleStateSnapshot). The pre-image is what the
 // caller restores when the proxy apply fails.
 //
-// It validates the update first, then runs inside a write transaction: every query goes through tx, because the
-// connection pool holds a single connection. A missing row is created from the model defaults. An existing row is
-// updated in the present columns only, so columns the request does not carry keep their stored values. An update
-// with no present column issues no UPDATE. For the default row the module keys follow the save (applyModuleKeys).
+// It validates the update first, so an invalid update never reaches the database. The write runs in a write transaction
+// (see applyUpdateLocked). A missing row is created from the model defaults. An existing row is updated in the present
+// columns only, so columns the request does not carry keep their stored values.
 func (s *SecurityService) ApplyUpdate(actor, name string, u SecurityConfigUpdate) (*models.SecurityConfig, models.ModuleStateSnapshot, error) {
 	if err := u.validate(); err != nil {
 		return nil, models.ModuleStateSnapshot{}, err
 	}
+	return s.ApplyUpdateFunc(actor, name, func(models.SecurityConfig) (SecurityConfigUpdate, error) {
+		return u, nil
+	})
+}
 
-	var stored models.SecurityConfig
+// ApplyUpdateFunc is ApplyUpdate for a save that depends on the stored row. The row is read inside the write lock, and
+// build derives the update from it, so the check and the write see the same row. A build error aborts the transaction
+// before any write and is returned as it is.
+func (s *SecurityService) ApplyUpdateFunc(actor, name string, build func(stored models.SecurityConfig) (SecurityConfigUpdate, error)) (*models.SecurityConfig, models.ModuleStateSnapshot, error) {
+	var stored *models.SecurityConfig
 	var snapshot models.ModuleStateSnapshot
 	err := WithWriteLock(s.db, &models.SecurityConfig{}, func(tx *gorm.DB) error {
-		var row models.SecurityConfig
-		before := newSecurityConfigRow(name)
-		exists := true
-		findErr := tx.Where("name = ?", name).First(&row).Error
-		switch {
-		case errors.Is(findErr, gorm.ErrRecordNotFound):
-			exists = false
-			row = before
-		case findErr != nil:
-			return fmt.Errorf("find security config %q: %w", name, findErr)
-		default:
-			before = row
-		}
-
-		// The pre-image is taken from the row read above, before any column is applied.
-		var current *models.SecurityConfig
-		if exists {
-			current = &before
-		}
 		var err error
-		if snapshot, err = models.CaptureModuleState(tx, name, current); err != nil {
-			return fmt.Errorf("capture security state %q: %w", name, err)
-		}
-
-		if err := u.checkValues(before); err != nil {
-			return err
-		}
-		if err := u.checkRulesSource(tx, before); err != nil {
-			return err
-		}
-
-		if !exists {
-			u.applyTo(&row)
-			if err := tx.Create(&row).Error; err != nil {
-				return fmt.Errorf("create security config %q: %w", name, err)
-			}
-		} else if columns := u.applyTo(&row); len(columns) > 0 {
-			// An empty column list would make GORM write every non-zero field of row, so it is skipped.
-			if err := tx.Model(&row).Select(columns).Updates(&row).Error; err != nil {
-				return fmt.Errorf("update security config %q: %w", name, err)
-			}
-		}
-
-		if isDefaultRowName(name) {
-			if err := u.applyModuleKeys(tx, before, actor); err != nil {
-				return fmt.Errorf("apply security module keys: %w", err)
-			}
-		}
-
-		if err := snapshot.Seal(tx); err != nil {
-			return fmt.Errorf("seal security state %q: %w", name, err)
-		}
-
-		if err := tx.Where("name = ?", name).First(&stored).Error; err != nil {
-			return fmt.Errorf("read security config %q: %w", name, err)
-		}
-		return nil
+		stored, snapshot, err = applyUpdateLocked(tx, actor, name, build)
+		return err
 	})
 	if err != nil {
 		return nil, models.ModuleStateSnapshot{}, err
 	}
+	return stored, snapshot, nil
+}
+
+// ApplyUpdateTx applies u to the named row inside the caller's transaction. The caller holds the write lock and has
+// captured its own module state snapshot, so no snapshot is returned here.
+func (s *SecurityService) ApplyUpdateTx(tx *gorm.DB, actor, name string, u SecurityConfigUpdate) (*models.SecurityConfig, error) {
+	if err := u.validate(); err != nil {
+		return nil, err
+	}
+	stored, _, err := applyUpdateLocked(tx, actor, name, func(models.SecurityConfig) (SecurityConfigUpdate, error) {
+		return u, nil
+	})
+	return stored, err
+}
+
+// applyUpdateLocked is the body of every config save. It runs on tx, which must hold the write lock: every query goes
+// through tx, because the connection pool holds a single connection. build receives the stored row (the model defaults
+// when none exists) and returns the update; the update is validated, checked against that row and applied. For the
+// default row the module keys follow the save (applyModuleKeys). It returns the stored row and the pre-image snapshot.
+func applyUpdateLocked(tx *gorm.DB, actor, name string, build func(stored models.SecurityConfig) (SecurityConfigUpdate, error)) (*models.SecurityConfig, models.ModuleStateSnapshot, error) {
+	var row models.SecurityConfig
+	before := newSecurityConfigRow(name)
+	exists := true
+	findErr := tx.Where("name = ?", name).First(&row).Error
+	switch {
+	case errors.Is(findErr, gorm.ErrRecordNotFound):
+		exists = false
+		row = before
+	case findErr != nil:
+		return nil, models.ModuleStateSnapshot{}, fmt.Errorf("find security config %q: %w", name, findErr)
+	default:
+		before = row
+	}
+
+	// The pre-image is taken from the row read above, before any column is applied.
+	var current *models.SecurityConfig
+	if exists {
+		current = &before
+	}
+	snapshot, err := models.CaptureModuleState(tx, name, current)
+	if err != nil {
+		return nil, models.ModuleStateSnapshot{}, fmt.Errorf("capture security state %q: %w", name, err)
+	}
+
+	u, err := build(before)
+	if err != nil {
+		return nil, models.ModuleStateSnapshot{}, err
+	}
+	if err := u.validate(); err != nil {
+		return nil, models.ModuleStateSnapshot{}, err
+	}
+	if err := u.checkValues(before); err != nil {
+		return nil, models.ModuleStateSnapshot{}, err
+	}
+	if err := u.checkRulesSource(tx, before); err != nil {
+		return nil, models.ModuleStateSnapshot{}, err
+	}
+
+	if !exists {
+		u.applyTo(&row)
+		if err := tx.Create(&row).Error; err != nil {
+			return nil, models.ModuleStateSnapshot{}, fmt.Errorf("create security config %q: %w", name, err)
+		}
+	} else if columns := u.applyTo(&row); len(columns) > 0 {
+		// An empty column list would make GORM write every non-zero field of row, so it is skipped.
+		if err := tx.Model(&row).Select(columns).Updates(&row).Error; err != nil {
+			return nil, models.ModuleStateSnapshot{}, fmt.Errorf("update security config %q: %w", name, err)
+		}
+	}
+
+	if isDefaultRowName(name) {
+		if err := u.applyModuleKeys(tx, before, actor); err != nil {
+			return nil, models.ModuleStateSnapshot{}, fmt.Errorf("apply security module keys: %w", err)
+		}
+	}
+
+	if err := snapshot.Seal(tx); err != nil {
+		return nil, models.ModuleStateSnapshot{}, fmt.Errorf("seal security state %q: %w", name, err)
+	}
+
+	var stored models.SecurityConfig
+	if err := tx.Where("name = ?", name).First(&stored).Error; err != nil {
+		return nil, models.ModuleStateSnapshot{}, fmt.Errorf("read security config %q: %w", name, err)
+	}
 	return &stored, snapshot, nil
 }
+
+// ErrWAFExclusionExists is returned when a WAF exclusion with the same rule_id and target is already stored.
+var ErrWAFExclusionExists = errors.New("waf exclusion already exists")
+
+// ErrWAFExclusionNotFound is returned when no stored WAF exclusion matches the rule_id and target.
+var ErrWAFExclusionNotFound = errors.New("waf exclusion not found")

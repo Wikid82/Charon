@@ -10,6 +10,7 @@ import WafConfig from '../WafConfig'
 import type { SecurityRuleSet, RuleSetsResponse } from '../../api/security'
 
 vi.mock('../../api/security')
+vi.mock('../../hooks/useAuth', () => ({ useAuth: () => ({ user: { role: 'admin' } }) }))
 
 const createQueryClient = () =>
   new QueryClient({

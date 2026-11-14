@@ -5,9 +5,19 @@
 import { test, expect, request as playwrightRequest, type APIRequestContext, type APIResponse } from '@playwright/test';
 import { STORAGE_STATE, TEST_PASSWORD as SETUP_ADMIN_PASSWORD } from '../constants';
 import { TestDataManager } from '../utils/TestDataManager';
-import { TEST_PASSWORD } from '../fixtures/auth-fixtures';
+import { TEST_PASSWORD, loginUser, type TestUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete, waitForModal } from '../utils/wait-helpers';
 import { deleteAccessList } from '../utils/proxy-refusal-helpers';
+import { setSecurityModuleEnabled } from '../utils/security-helpers';
+import {
+  RUNNER_WHITELIST,
+  createRuleSet,
+  deleteRuleSetByName,
+  getSecurityStatus,
+  restoreSecurityState,
+  saveConfig,
+  snapshotSecurityState,
+} from '../utils/security-settings-api';
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080';
 
@@ -697,6 +707,7 @@ test.describe('Standard user management permissions (PR 32)', () => {
   let testData: TestDataManager;
   let adminApi: APIRequestContext;
   let userApi: APIRequestContext;
+  let standardUser: TestUser;
   /** Provider reference: the API resolves a UUID for the DNS provider fields and routes. */
   let dnsProviderRef: string;
   let domainCounter = 0;
@@ -765,6 +776,7 @@ test.describe('Standard user management permissions (PR 32)', () => {
     });
     expect(admin.token, 'role=admin fixture token').toBeTruthy();
     expect(standard.token, 'role=user fixture token').toBeTruthy();
+    standardUser = { id: standard.id, email: standard.email, token: standard.token, role: 'user' };
 
     adminApi = await playwrightRequest.newContext({
       baseURL: BASE_URL,
@@ -967,6 +979,127 @@ test.describe('Standard user management permissions (PR 32)', () => {
         const entry = (await listBy(adminApi, '/api/v1/notifications/providers')).find((p) => p.name === name);
         expect(entry?.url).toBe(url);
       });
+    });
+  });
+
+  test.describe('Admin-only security lists and settings', () => {
+    test('standard user reads of the security config omit the admin allow-list and rate limit bypass list', async () => {
+      const response = await userApi.get('/api/v1/security/config');
+      expect(response.status()).toBe(200);
+      const config = (await response.json()) as JsonObject;
+
+      expect(config).not.toHaveProperty('admin_whitelist');
+      expect(config).not.toHaveProperty('rate_limit_bypass_list');
+    });
+
+    test('standard user rule set list omits rule set contents', async () => {
+      // Created as admin first: the list must hold a rule set with content, or the checks below would pass on an empty list.
+      const name = `rbac-hidden-content-${Date.now()}`;
+      await createRuleSet(adminApi, name);
+
+      try {
+        const response = await userApi.get('/api/v1/security/rulesets');
+        expect(response.status()).toBe(200);
+        const body = (await response.json()) as { rulesets: JsonObject[] };
+
+        const ruleSet = body.rulesets.find((entry) => entry.name === name);
+        expect(ruleSet, 'admin-created rule set is listed for the standard user').toBeDefined();
+        expect(ruleSet).not.toHaveProperty('content');
+        expect(ruleSet).not.toHaveProperty('source_url');
+        expect(ruleSet?.has_content).toBe(true);
+        expect(ruleSet?.content_line_count).toBeGreaterThan(0);
+      } finally {
+        await deleteRuleSetByName(adminApi, name);
+      }
+    });
+
+    test('standard user settings map omits admin-only keys and mail server details', async () => {
+      const hiddenKeys = [
+        'security.admin_whitelist',
+        'smtp_host',
+        'smtp_port',
+        'smtp_username',
+        'smtp_from_address',
+        'smtp_encryption',
+      ];
+
+      const adminResponse = await adminApi.get('/api/v1/settings');
+      expect(adminResponse.status()).toBe(200);
+      const adminSettings = (await adminResponse.json()) as JsonObject;
+      // Precondition: the admin sees a stored allow-list, so the standard user's flag for it must be a real check.
+      expect(adminSettings, 'admin sees a stored allow-list').toHaveProperty(['security.admin_whitelist']);
+
+      const response = await userApi.get('/api/v1/settings');
+      expect(response.status()).toBe(200);
+      const settings = (await response.json()) as JsonObject;
+
+      for (const key of hiddenKeys) {
+        const hasValueKey = `${key}.has_value`;
+        expect(Object.keys(settings), key).not.toContain(key);
+
+        // A stored key is replaced by a has_value flag that says whether it holds a value; an absent key gets no flag.
+        if (key in adminSettings) {
+          expect(settings[hasValueKey], hasValueKey).toBe(String(adminSettings[key]).trim() !== '');
+        } else {
+          expect(Object.keys(settings), hasValueKey).not.toContain(hasValueKey);
+        }
+      }
+    });
+
+    test('standard user sees the hidden note in place of the allow-list and rule set content', async ({ page }) => {
+      // The Security page renders the allow-list card only while Cerberus is on, and the card's input is hidden for a
+      // standard user only when the stored config has an allow-list. Cerberus defaults to off and specs earlier in the
+      // shard leave it off, so this test turns it on for its own run and restores it afterwards. A rule set created as
+      // admin gives the standard user a row whose edit form shows the hidden content note.
+      const ruleSetName = `rbac-hidden-waf-${Date.now()}`;
+      const before = await snapshotSecurityState(adminApi);
+
+      try {
+        await test.step('Enable Cerberus and store an allow-list and a rule set as admin', async () => {
+          await setSecurityModuleEnabled(adminApi, 'cerberus', true);
+          await expect
+            .poll(async () => (await getSecurityStatus(adminApi)).cerberus.enabled, {
+              message: 'Cerberus is reported enabled before the Security page is opened',
+            })
+            .toBe(true);
+          await saveConfig(adminApi, { name: 'default', admin_whitelist: RUNNER_WHITELIST });
+          await createRuleSet(adminApi, ruleSetName);
+        });
+
+        await test.step('Sign in as the standard user', async () => {
+          await loginUser(page, standardUser);
+        });
+
+        await test.step('Security page shows the note as the read-only allow-list placeholder', async () => {
+          // The card's state comes from the config response, so wait for that response before asserting on the input.
+          const configLoaded = page.waitForResponse(
+            (response) => response.url().endsWith('/api/v1/security/config') && response.request().method() === 'GET',
+          );
+          await page.goto('/security');
+          await configLoaded;
+          await waitForLoadingComplete(page);
+
+          const allowList = page.getByPlaceholder('Hidden for your role.', { exact: true });
+          await expect(allowList).toBeVisible();
+          await expect(allowList).toHaveAttribute('readonly');
+          await expect(allowList.locator('xpath=..').getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+        });
+
+        await test.step('WAF rule set edit form shows the note instead of rule set content', async () => {
+          await page.goto('/security/waf');
+          await waitForLoadingComplete(page);
+
+          await page
+            .getByRole('row')
+            .filter({ hasText: ruleSetName })
+            .getByRole('button', { name: 'Edit', exact: true })
+            .click();
+          await expect(page.getByText('Hidden for your role.', { exact: true })).toBeVisible();
+        });
+      } finally {
+        // Restores the stored config row and removes the rule set the test added.
+        await restoreSecurityState(adminApi, before);
+      }
     });
   });
 

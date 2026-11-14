@@ -48,6 +48,11 @@ Here is what a standard user can and cannot do:
   details such as the last error message and zone filter. Charon hides these on
   the page and leaves them out of the information it sends to a standard user's
   browser. Charon still shows whether a notification address is set.
+- **Cannot see these hidden security details:** the admin allow-list, the rate
+  limit bypass list, the CrowdSec API address, the mail server details (host, port,
+  username, sender address and encryption), and the text inside each WAF rule set.
+  Charon shows each of these as hidden instead of its value. Standard users still
+  see the names of the WAF rule sets.
 
 Some limits apply to every account, administrators included:
 

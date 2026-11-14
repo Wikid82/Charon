@@ -157,7 +157,7 @@ func TestCoverageBoost_SecurityService_AdditionalPaths(t *testing.T) {
 			Name:         "default",
 			CrowdSecMode: "local",
 		}
-		err := svc.Upsert(cfg)
+		err := UpsertSecurityConfig(db, cfg)
 		require.NoError(t, err)
 	})
 

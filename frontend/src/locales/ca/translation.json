@@ -48,7 +48,8 @@
     "activeCount": "{{count}} active",
     "noHistoryAvailable": "No history available",
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "No s'ha pogut actualitzar"
   },
   "permissions": {
     "adminOnlyError": "Només els administradors poden canviar aquesta configuració.",
@@ -745,7 +746,10 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "saveConfiguration": "Desa la configuració",
+    "settingUpdated": "Configuració del límit de peticions actualitzada",
+    "invalidValue": "Introdueix un nombre enter superior a 0."
   },
   "wafConfig": {
     "title": "WAF Configuration",

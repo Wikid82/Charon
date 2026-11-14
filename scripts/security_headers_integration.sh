@@ -324,13 +324,6 @@ if [ "$API_STATUS" != "201" ]; then
 fi
 PLAIN_UUID=$(echo "$API_BODY" | jq -r '.uuid')
 
-# The API cannot turn security_headers_enabled off (the column defaults to true,
-# so a false on create is swallowed, and update ignores the field). Flip it in
-# the database directly, then touch the host through the API so Charon
-# regenerates and reloads the Caddy config.
-docker exec "${CONTAINER_NAME}" sqlite3 /app/data/charon.db \
-    "UPDATE proxy_hosts SET security_headers_enabled = 0 WHERE uuid = '${PLAIN_UUID}';"
-api_call PUT "/proxy-hosts/${PLAIN_UUID}" '{"name": "secheaders-plain"}'
 PLAIN_ENABLED=$(curl -s -b "${TMP_COOKIE}" "${API_URL}/proxy-hosts/${PLAIN_UUID}" | jq -r '.security_headers_enabled')
 if [ "$PLAIN_ENABLED" != "false" ]; then
     echo "✗ Could not disable security headers on the plain host (got ${PLAIN_ENABLED})"

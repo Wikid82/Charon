@@ -48,7 +48,8 @@
     "activeCount": "{{count}} aktiv",
     "noHistoryAvailable": "Kein Verlauf verfügbar",
     "autoRefreshing": "Automatische Aktualisierung alle {{seconds}}s",
-    "score": "Bewertung"
+    "score": "Bewertung",
+    "failedToUpdate": "Aktualisierung fehlgeschlagen"
   },
   "permissions": {
     "adminOnlyError": "Nur Administratoren können diese Einstellung ändern.",
@@ -771,7 +772,9 @@
     "enableToConfigureMessage": "Aktivieren Sie Ratenbegrenzung, um Anforderungslimits zu konfigurieren und Ihre Dienste zu schützen",
     "adjustingGates": "Tore werden angepasst...",
     "configurationUpdating": "Ratenbegrenzungskonfiguration wird aktualisiert",
-    "invalidValue": "Gib eine ganze Zahl größer als 0 ein."
+    "invalidValue": "Gib eine ganze Zahl größer als 0 ein.",
+    "saveConfiguration": "Konfiguration speichern",
+    "settingUpdated": "Einstellung der Ratenbegrenzung aktualisiert"
   },
   "wafConfig": {
     "title": "WAF-Konfiguration",

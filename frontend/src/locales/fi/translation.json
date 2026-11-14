@@ -48,7 +48,8 @@
     "activeCount": "{{count}} active",
     "noHistoryAvailable": "No history available",
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "Päivitys epäonnistui"
   },
   "permissions": {
     "adminOnlyError": "Vain ylläpitäjät voivat muuttaa tätä asetusta.",
@@ -745,7 +746,10 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "saveConfiguration": "Tallenna asetukset",
+    "settingUpdated": "Nopeusrajoituksen asetus päivitetty",
+    "invalidValue": "Anna kokonaisluku, joka on suurempi kuin 0."
   },
   "wafConfig": {
     "title": "WAF Configuration",

@@ -48,7 +48,8 @@
     "activeCount": "{{count}} actif",
     "noHistoryAvailable": "Aucun historique disponible",
     "autoRefreshing": "Actualisation automatique toutes les {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "Échec de la mise à jour"
   },
   "permissions": {
     "adminOnlyError": "Seuls les administrateurs peuvent modifier ce paramètre.",
@@ -771,7 +772,9 @@
     "enableToConfigureMessage": "Activez la limitation de débit pour configurer les limites de requêtes et protéger vos services",
     "adjustingGates": "Ajustement des portes...",
     "configurationUpdating": "Configuration de la limitation de débit en cours de mise à jour",
-    "invalidValue": "Saisissez un nombre entier supérieur à 0."
+    "invalidValue": "Saisissez un nombre entier supérieur à 0.",
+    "saveConfiguration": "Enregistrer la configuration",
+    "settingUpdated": "Paramètre de limitation de débit mis à jour"
   },
   "wafConfig": {
     "title": "Configuration WAF",

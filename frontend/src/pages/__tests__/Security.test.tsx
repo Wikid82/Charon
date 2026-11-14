@@ -170,6 +170,14 @@ describe('Security', () => {
       expect(screen.getByDisplayValue('10.0.0.0/8')).toBeInTheDocument()
     })
 
+    it('should label the allow-list input', async () => {
+      await renderSecurityPage()
+
+      const input = await screen.findByLabelText('Comma-separated CIDR/IPs')
+      expect(input).toHaveValue('10.0.0.0/8')
+      expect(input.id).toBe('admin-whitelist')
+    })
+
     it('should update admin whitelist on save', async () => {
       const user = userEvent.setup()
       const mockMutate = vi.fn()

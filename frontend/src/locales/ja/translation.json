@@ -48,7 +48,8 @@
     "activeCount": "{{count}} active",
     "noHistoryAvailable": "No history available",
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "更新に失敗しました"
   },
   "permissions": {
     "adminOnlyError": "この設定を変更できるのは管理者のみです。",
@@ -745,7 +746,10 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "saveConfiguration": "設定を保存",
+    "settingUpdated": "レート制限の設定を更新しました",
+    "invalidValue": "0より大きい整数を入力してください。"
   },
   "wafConfig": {
     "title": "WAF Configuration",

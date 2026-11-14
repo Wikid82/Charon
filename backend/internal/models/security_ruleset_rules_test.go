@@ -49,3 +49,28 @@ func TestHasRuleLines(t *testing.T) {
 		})
 	}
 }
+
+// TestHasEngineDirective describes the engine line check: only a real SecRuleEngine directive line counts.
+func TestHasEngineDirective(t *testing.T) {
+	tests := []struct {
+		name    string
+		content string
+		want    bool
+	}{
+		{name: "own directive line", content: "SecRuleEngine On\nSecRule ARGS \"x\"", want: true},
+		{name: "lower case", content: "secruleengine detectiononly", want: true},
+		{name: "tab after the name", content: "SecRuleEngine\tOn", want: true},
+		{name: "directive after a comment", content: "# tuned for the app\nSecRuleEngine DetectionOnly", want: true},
+		{name: "comment mentioning the directive", content: "# SecRuleEngine On is set by Charon\nSecRule ARGS \"x\"", want: false},
+		{name: "mention inside a rule argument", content: "SecRule ARGS \"SecRuleEngine\" \"id:1\"", want: false},
+		{name: "continued line holding the directive", content: "SecRule ARGS \"x\" \\\nSecRuleEngine On", want: false},
+		{name: "longer directive name", content: "SecRuleEngineExtra On", want: false},
+		{name: "byte order mark before the directive", content: "\uFEFFSecRuleEngine On", want: true},
+		{name: "empty content", content: "", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, models.HasEngineDirective(tt.content))
+		})
+	}
+}

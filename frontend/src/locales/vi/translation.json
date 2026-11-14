@@ -48,7 +48,8 @@
     "activeCount": "{{count}} active",
     "noHistoryAvailable": "No history available",
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "Cập nhật thất bại"
   },
   "permissions": {
     "adminOnlyError": "Chỉ quản trị viên mới có thể thay đổi cài đặt này.",
@@ -745,7 +746,10 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "saveConfiguration": "Lưu cấu hình",
+    "settingUpdated": "Đã cập nhật cài đặt giới hạn tốc độ",
+    "invalidValue": "Nhập một số nguyên lớn hơn 0."
   },
   "wafConfig": {
     "title": "WAF Configuration",

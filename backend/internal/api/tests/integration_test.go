@@ -71,10 +71,14 @@ func TestIntegration_WAF_BlockAndMonitor(t *testing.T) {
 		t.Fatalf("metrics not served: %d", wM.Code)
 	}
 	body := wM.Body.String()
-	required := []string{"charon_waf_requests_total", "charon_waf_blocked_total", "charon_waf_monitored_total"}
+	required := []string{"charon_waf_requests_total", "charon_waf_blocked_total", "charon_crowdsec_blocked_total"}
 	for _, k := range required {
 		if !strings.Contains(body, k) {
 			t.Fatalf("missing metric %s in /metrics output", k)
 		}
+	}
+	// The monitored series was removed: a detection-only WAF match leaves no trace in the access log to count.
+	if strings.Contains(body, "charon_waf_monitored_total") {
+		t.Fatal("unexpected metric charon_waf_monitored_total in /metrics output")
 	}
 }

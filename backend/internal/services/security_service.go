@@ -23,6 +23,10 @@ var (
 	ErrSecurityConfigNotFound = errors.New("security config not found")
 	ErrInvalidAdminCIDR       = errors.New("invalid admin whitelist CIDR")
 	ErrBreakGlassInvalid      = errors.New("break-glass token invalid")
+	// ErrAdminWhitelistMissing is returned when an enable has neither an allow-list nor a break-glass token.
+	ErrAdminWhitelistMissing = errors.New("admin whitelist missing")
+	// ErrAdminIPNotAllowed is returned when an enable comes from an address the allow-list does not hold.
+	ErrAdminIPNotAllowed = errors.New("admin IP not present in admin_whitelist")
 )
 
 type SecurityService struct {
@@ -97,12 +101,6 @@ func (s *SecurityService) GetByName(name string) (*models.SecurityConfig, error)
 		return nil, fmt.Errorf("find security config %q: %w", name, err)
 	}
 	return &cfg, nil
-}
-
-// Upsert replaces every column from cfg. Callers must pass a row they just read, with the fields they do not change
-// still set to their stored values. Request handlers must use ApplyUpdate, which writes only the fields a request carries.
-func (s *SecurityService) Upsert(cfg *models.SecurityConfig) error {
-	return UpsertSecurityConfig(s.db, cfg)
 }
 
 // UpsertSecurityConfig is Upsert on the given handle. A caller that writes inside its own write transaction passes that
@@ -191,13 +189,56 @@ func (s *SecurityService) VerifyBreakGlassToken(name, token string) (bool, error
 		}
 		return false, err
 	}
-	if cfg.BreakGlassHash == "" {
-		return false, ErrBreakGlassInvalid
-	}
-	if err := bcrypt.CompareHashAndPassword([]byte(cfg.BreakGlassHash), []byte(token)); err != nil {
+	if !BreakGlassTokenMatches(cfg.BreakGlassHash, token) {
 		return false, ErrBreakGlassInvalid
 	}
 	return true, nil
+}
+
+// BreakGlassTokenMatches reports whether token matches the stored break-glass hash. It runs no query, so a caller inside a
+// write transaction can use it on the row it has already read.
+func BreakGlassTokenMatches(hash, token string) bool {
+	return hash != "" && bcrypt.CompareHashAndPassword([]byte(hash), []byte(token)) == nil
+}
+
+// CheckCerberusEnable is the allow-list or break-glass check a Cerberus enable must pass against the stored row. A
+// token must match the stored hash. Without a token the request IP must be on the admin allow-list, and an empty
+// allow-list with no token refuses the enable. A row that does not exist yet (ID 0) has nothing to check.
+func CheckCerberusEnable(stored models.SecurityConfig, clientIP, token string) error {
+	if stored.ID == 0 {
+		return nil
+	}
+	if token != "" {
+		if !BreakGlassTokenMatches(stored.BreakGlassHash, token) {
+			return ErrBreakGlassInvalid
+		}
+		return nil
+	}
+	if stored.AdminWhitelist == "" {
+		return ErrAdminWhitelistMissing
+	}
+	if !adminWhitelistContains(stored.AdminWhitelist, clientIP) {
+		return ErrAdminIPNotAllowed
+	}
+	return nil
+}
+
+// adminWhitelistContains reports whether ip is an entry of the comma-separated allow-list, either exactly or inside one
+// of its CIDR ranges.
+func adminWhitelistContains(whitelist, ip string) bool {
+	for _, entry := range strings.Split(whitelist, ",") {
+		entry = strings.TrimSpace(entry)
+		if entry == "" {
+			continue
+		}
+		if entry == ip {
+			return true
+		}
+		if _, cidr, err := net.ParseCIDR(entry); err == nil && cidr.Contains(net.ParseIP(ip)) {
+			return true
+		}
+	}
+	return false
 }
 
 // LogDecision stores a security decision record

@@ -32,7 +32,7 @@ func TestPersistCrowdsecStart_EnabledWriteFailureIsReturned(t *testing.T) {
 	gormfault.Inject(t, db, gormfault.Query, "settings", whereEqualsKey(models.CrowdSecEnabledSettingKey))
 	h := &CrowdsecHandler{DB: db}
 
-	err := h.persistCrowdsecStart()
+	_, err := h.persistCrowdsecStart()
 
 	require.Error(t, err)
 	_, found := storedSettingValue(t, db, models.CrowdSecEnabledSettingKey)

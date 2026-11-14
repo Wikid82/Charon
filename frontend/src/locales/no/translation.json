@@ -48,7 +48,8 @@
     "activeCount": "{{count}} active",
     "noHistoryAvailable": "No history available",
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "Kunne ikke oppdatere"
   },
   "permissions": {
     "adminOnlyError": "Bare administratorer kan endre denne innstillingen.",
@@ -745,7 +746,10 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "saveConfiguration": "Lagre konfigurasjon",
+    "settingUpdated": "Innstilling for hastighetsbegrensning oppdatert",
+    "invalidValue": "Skriv inn et heltall større enn 0."
   },
   "wafConfig": {
     "title": "WAF Configuration",

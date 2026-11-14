@@ -267,6 +267,8 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		logger.Log().WithError(err).Warn("Failed to reconcile WAF detection mode — continuing startup")
 	}
 
+	warnUnrecognisedCerberusSwitches(db)
+
 	// Let's Encrypt certs are auto-managed by Caddy and should not be assigned via certificate_id
 	logger.Log().Info("Cleaning up invalid Let's Encrypt certificate associations...")
 	cleanInvalidLetsEncryptCertAssignments(db, "proxy_hosts", func(h models.ProxyHost) string { return h.DomainNames })
@@ -641,7 +643,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management.POST("/settings/test-url", middleware.RequireRole(models.RoleAdmin), settingsHandler.TestPublicURL)
 
 		// Feature flags (DB-backed with env fallback)
-		featureFlagsHandler := handlers.NewFeatureFlagsHandler(db)
+		featureFlagsHandler := handlers.NewFeatureFlagsHandler(db, caddyManager, cerb)
 		management.GET("/feature-flags", featureFlagsHandler.GetFlags)
 		management.PUT("/feature-flags", middleware.RequireRole(models.RoleAdmin), featureFlagsHandler.UpdateFlags)
 
@@ -1337,4 +1339,17 @@ func reapplyProxyConfig(mgr proxyConfigReapplier) {
 // goroutine, so the caller never waits for Caddy.
 func backgroundReapply(mgr proxyConfigReapplier) func() {
 	return func() { go reapplyProxyConfig(mgr) }
+}
+
+// warnUnrecognisedCerberusSwitches logs one warning per Cerberus switch key that holds a value other than true or false.
+// Such a value reads as off everywhere; nothing is rewritten, and saving the Cerberus toggle stores a recognised value.
+func warnUnrecognisedCerberusSwitches(db *gorm.DB) {
+	keys, err := models.UnrecognisedCerberusSwitchKeys(db)
+	if err != nil {
+		logger.Log().WithError(err).Warn("Failed to check the Cerberus switch values — continuing startup")
+		return
+	}
+	for _, key := range keys {
+		logger.Log().WithField("setting_key", key).Warn("Cerberus switch holds a value other than true or false and reads as off; save the Cerberus toggle to store a recognised value")
+	}
 }

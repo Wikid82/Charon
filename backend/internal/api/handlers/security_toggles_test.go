@@ -6,17 +6,18 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/testutil/gormfault"
 )
@@ -317,14 +318,13 @@ func patchWAFEnable(t *testing.T, h *SecurityHandler) *httptest.ResponseRecorder
 	return w
 }
 
-// captureLogrusOutput routes the logrus standard logger, which the security handlers write to, into a buffer
-// for the rest of the test.
+// captureLogrusOutput routes the shared application logger, which the security handlers write to, into a buffer for
+// the rest of the test. The logger has no writer getter, so the test restores the default output (stdout) on cleanup.
 func captureLogrusOutput(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	buf := &bytes.Buffer{}
-	previous := log.StandardLogger().Out
-	log.SetOutput(buf)
-	t.Cleanup(func() { log.SetOutput(previous) })
+	logger.Init(false, buf)
+	t.Cleanup(func() { logger.Init(false, os.Stdout) })
 	return buf
 }
 

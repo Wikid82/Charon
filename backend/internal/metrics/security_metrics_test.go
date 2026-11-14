@@ -49,23 +49,22 @@ func TestRecordSSRFBlock(t *testing.T) {
 	tests := []struct {
 		name   string
 		ipType string
-		userID string
 	}{
-		{"Private IP block", "private", "user123"},
-		{"Loopback block", "loopback", "user456"},
-		{"Link-local block", "linklocal", "user789"},
-		{"Metadata endpoint block", "metadata", "system"},
+		{"Private IP block", "private"},
+		{"Loopback block", "loopback"},
+		{"Link-local block", "linklocal"},
+		{"Metadata endpoint block", "metadata"},
 	}
 
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.name, func(t *testing.T) {
 			t.Parallel()
-			initialCount := testutil.ToFloat64(SSRFBlockCounter.WithLabelValues(tt.ipType, tt.userID))
+			initialCount := testutil.ToFloat64(SSRFBlockCounter.WithLabelValues(tt.ipType))
 
-			RecordSSRFBlock(tt.ipType, tt.userID)
+			RecordSSRFBlock(tt.ipType)
 
-			finalCount := testutil.ToFloat64(SSRFBlockCounter.WithLabelValues(tt.ipType, tt.userID))
+			finalCount := testutil.ToFloat64(SSRFBlockCounter.WithLabelValues(tt.ipType))
 			if finalCount != initialCount+1 {
 				t.Errorf("Expected counter to increment by 1, got %f -> %f", initialCount, finalCount)
 			}
@@ -109,8 +108,7 @@ func TestMetricsRegistration(t *testing.T) {
 	registry := prometheus.NewRegistry()
 
 	// Attempt to register the metrics
-	// Note: In the actual code, metrics are auto-registered via promauto
-	// This test verifies they can also be manually registered without error
+	// This test verifies a metric can be registered on a fresh registry without error
 	err := registry.Register(prometheus.NewCounter(prometheus.CounterOpts{
 		Name: "test_charon_url_validation_total",
 		Help: "Test metric",

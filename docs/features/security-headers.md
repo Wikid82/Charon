@@ -25,6 +25,10 @@ HTTP security headers instruct browsers how to handle your content securely. Wit
 | **Cross-Origin-Opener-Policy** | Isolates browsing context |
 | **Cross-Origin-Resource-Policy** | Controls cross-origin resource sharing |
 
+**X-XSS-Protection** is sent as `0`. Old browsers used this header for a built-in filter that could itself create holes, so the value `0` turns it off. Use Content-Security-Policy for protection against script injection instead.
+
+Options you switch off stay off. When you create a profile or a proxy host, any header option you turned off is saved as off, instead of switching back on.
+
 ## Why Use This
 
 - **Browser Protection**: Modern browsers actively check for security headers

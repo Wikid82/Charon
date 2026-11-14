@@ -12,7 +12,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
@@ -143,23 +142,9 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 			}
 		}
 
-		// Check runtime setting overrides from settings table (priority 1 - highest)
-		var setting struct{ Value string }
-
-		// Cerberus enabled override. A blank stored value has no opinion here, so the legacy key and then the row
-		// decide; any other stored value is read by the shared Cerberus switch parser.
-		cerberusOverrideApplied := false
-		if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", models.CerberusFeatureSettingKey).Scan(&setting).Error; err == nil && setting.Value != "" {
-			enabled = models.CerberusSwitchFromSetting(setting.Value, true) == models.CerberusSwitchOn
-			cerberusOverrideApplied = true
-		}
-
-		// Backward-compatible Cerberus enabled override
-		if !cerberusOverrideApplied {
-			setting = struct{ Value string }{}
-			if err := h.db.Raw("SELECT value FROM settings WHERE key = ? LIMIT 1", models.CerberusLegacySettingKey).Scan(&setting).Error; err == nil && setting.Value != "" {
-				enabled = models.CerberusSwitchFromSetting(setting.Value, true) == models.CerberusSwitchOn
-			}
+		// Cerberus enabled override: the shared switch reading decides whenever a switch key is stored.
+		if sw, err := models.ResolveCerberusSwitchKeys(h.db); err == nil && sw != models.CerberusSwitchAbsent {
+			enabled = sw == models.CerberusSwitchOn
 		}
 
 		// CrowdSec: the enabled setting, then the row (same precedence as the proxy config).
@@ -307,6 +292,41 @@ func latestConfigApplyState(db *gorm.DB) gin.H {
 	return state
 }
 
+// securityConfigRedactedFields are the security config fields only administrators may read: the admin allow-list, the
+// rate limit bypass list and the CrowdSec API address. Other callers receive the has_* flags in their place.
+var securityConfigRedactedFields = []string{"admin_whitelist", "rate_limit_bypass_list", "crowdsec_api_url"}
+
+// securityConfigFlags derives the response flags for a security config row.
+func securityConfigFlags(cfg *models.SecurityConfig) map[string]any {
+	return map[string]any{
+		"has_admin_whitelist":        cfg.AdminWhitelist != "",
+		"has_rate_limit_bypass_list": cfg.RateLimitBypassList != "",
+	}
+}
+
+// ruleSetRedactedFields are the rule set fields only administrators may read: the rule text and the download address,
+// which can carry credentials. Other callers receive has_content and content_line_count in their place.
+var ruleSetRedactedFields = []string{"content", "source_url"}
+
+// ruleSetFlags derives the response flags for a rule set.
+func ruleSetFlags(rs models.SecurityRuleSet) map[string]any {
+	return map[string]any{
+		"has_content":        rs.Content != "",
+		"content_line_count": countNonBlankLines(rs.Content),
+	}
+}
+
+// countNonBlankLines counts the lines of content that hold anything besides whitespace.
+func countNonBlankLines(content string) int {
+	count := 0
+	for _, line := range strings.Split(content, "\n") {
+		if strings.TrimSpace(line) != "" {
+			count++
+		}
+	}
+	return count
+}
+
 // GetConfig returns the site security configuration from DB or default
 func (h *SecurityHandler) GetConfig(c *gin.Context) {
 	cfg, err := h.svc.Get()
@@ -318,7 +338,12 @@ func (h *SecurityHandler) GetConfig(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read security config"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"config": cfg})
+	redacted, err := redactForRole(c, cfg, securityConfigRedactedFields, securityConfigFlags)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build response"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"config": redacted})
 }
 
 // UpdateConfig creates or updates the SecurityConfig in DB
@@ -346,7 +371,7 @@ func (h *SecurityHandler) UpdateConfig(c *gin.Context) {
 	// stored config never holds a state Caddy rejected.
 	if h.caddyManager != nil {
 		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
-			log.WithError(err).Warn("failed to apply security config changes to Caddy")
+			logger.Log().WithError(err).Warn("failed to apply security config changes to Caddy")
 			restoreModuleState(h.db, h.cerberus, snapshot)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
 			return
@@ -447,7 +472,12 @@ func (h *SecurityHandler) ListRuleSets(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list rule sets"})
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"rulesets": list})
+	body, err := redactListForRole(c, list, ruleSetRedactedFields, ruleSetFlags)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build response"})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"rulesets": body})
 }
 
 // UpsertRuleSet uploads or updates a ruleset
@@ -475,7 +505,8 @@ func (h *SecurityHandler) UpsertRuleSet(c *gin.Context) {
 	}
 	if h.caddyManager != nil {
 		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
+			logger.Log().WithError(err).Warn("failed to apply rule set change to Caddy")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
 			return
 		}
 	}
@@ -521,7 +552,8 @@ func (h *SecurityHandler) DeleteRuleSet(c *gin.Context) {
 	}
 	if h.caddyManager != nil {
 		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
+			logger.Log().WithError(err).Warn("failed to apply rule set change to Caddy")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
 			return
 		}
 	}
@@ -530,74 +562,43 @@ func (h *SecurityHandler) DeleteRuleSet(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"deleted": true})
 }
 
-// Enable toggles Cerberus on, validating admin whitelist or break-glass token
+// Enable turns Cerberus on. The allow-list or break-glass check runs against the row read under the write lock, and the
+// enable is written in that same lock. A refused proxy apply restores the row.
 func (h *SecurityHandler) Enable(c *gin.Context) {
-	// Look for requester's IP and optional breakglass token
 	adminIP := c.ClientIP()
 	var body struct {
 		Token string `json:"break_glass_token"`
 	}
 	_ = c.ShouldBindJSON(&body)
 
-	// If config exists, require that adminIP is in whitelist or token matches
-	cfg, err := h.svc.Get()
-	if err != nil && err != services.ErrSecurityConfigNotFound {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to retrieve security config"})
+	enabled := true
+	_, snapshot, err := h.svc.ApplyUpdateFunc(auditActor(c), models.DefaultSecurityConfigName, func(stored models.SecurityConfig) (services.SecurityConfigUpdate, error) {
+		if err := services.CheckCerberusEnable(stored, adminIP, body.Token); err != nil {
+			return services.SecurityConfigUpdate{}, err
+		}
+		return services.SecurityConfigUpdate{Enabled: &enabled}, nil
+	})
+	switch {
+	case errors.Is(err, services.ErrAdminWhitelistMissing):
+		c.JSON(http.StatusBadRequest, gin.H{"error": "admin whitelist missing; provide break_glass_token or add admin_whitelist CIDR before enabling"})
 		return
-	}
-	if cfg != nil {
-		// Check admin whitelist
-		if cfg.AdminWhitelist == "" && body.Token == "" {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "admin whitelist missing; provide break_glass_token or add admin_whitelist CIDR before enabling"})
-			return
-		}
-		if body.Token != "" {
-			ok, err := h.svc.VerifyBreakGlassToken(cfg.Name, body.Token)
-			if err == nil && ok {
-				// proceed
-			} else {
-				c.JSON(http.StatusUnauthorized, gin.H{"error": "break glass token invalid"})
-				return
-			}
-		} else {
-			// verify client IP in admin whitelist
-			found := false
-			for _, entry := range strings.Split(cfg.AdminWhitelist, ",") {
-				entry = strings.TrimSpace(entry)
-				if entry == "" {
-					continue
-				}
-				if entry == adminIP {
-					found = true
-					break
-				}
-				// If CIDR, check contains
-				if _, cidr, err := net.ParseCIDR(entry); err == nil {
-					if cidr.Contains(net.ParseIP(adminIP)) {
-						found = true
-						break
-					}
-				}
-			}
-			if !found {
-				c.JSON(http.StatusForbidden, gin.H{"error": "admin IP not present in admin_whitelist"})
-				return
-			}
-		}
-	}
-	// Set enabled true
-	newCfg := &models.SecurityConfig{Name: models.DefaultSecurityConfigName, Enabled: true}
-	if cfg != nil {
-		newCfg = cfg
-		newCfg.Enabled = true
-	}
-	if err := h.svc.Upsert(newCfg); err != nil {
+	case errors.Is(err, services.ErrBreakGlassInvalid):
+		c.JSON(http.StatusUnauthorized, gin.H{"error": "break glass token invalid"})
+		return
+	case errors.Is(err, services.ErrAdminIPNotAllowed):
+		c.JSON(http.StatusForbidden, gin.H{"error": "admin IP not present in admin_whitelist"})
+		return
+	case err != nil:
+		logger.Log().WithError(err).Error("Failed to save Cerberus enable")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to enable Cerberus"})
 		return
 	}
+
 	if h.caddyManager != nil {
 		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
+			logger.Log().WithError(err).Warn("failed to apply Cerberus enable to Caddy")
+			restoreModuleState(h.db, h.cerberus, snapshot)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
 			return
 		}
 	}
@@ -660,7 +661,7 @@ func (h *SecurityHandler) persistDisabled(c *gin.Context) {
 		return snapshot.Seal(tx)
 	})
 	if err != nil {
-		log.WithError(err).Error("Failed to disable Cerberus")
+		logger.Log().WithError(err).Error("Failed to disable Cerberus")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to disable Cerberus"})
 		return
 	}
@@ -671,7 +672,7 @@ func (h *SecurityHandler) persistDisabled(c *gin.Context) {
 
 	if h.caddyManager != nil {
 		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
-			log.WithError(err).Warn("Failed to reload Caddy config after Cerberus was disabled")
+			logger.Log().WithError(err).Warn("Failed to reload Caddy config after Cerberus was disabled")
 			restoreModuleState(h.db, h.cerberus, snapshot)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "saved, but applying the configuration failed"})
 			return
@@ -734,7 +735,7 @@ func (h *SecurityHandler) GetWAFExclusions(c *gin.Context) {
 	var exclusions []WAFExclusion
 	if cfg.WAFExclusions != "" {
 		if err := json.Unmarshal([]byte(cfg.WAFExclusions), &exclusions); err != nil {
-			log.WithError(err).Warn("Failed to parse WAF exclusions")
+			logger.Log().WithError(err).Warn("Failed to parse WAF exclusions")
 			exclusions = []WAFExclusion{}
 		}
 	}
@@ -742,7 +743,33 @@ func (h *SecurityHandler) GetWAFExclusions(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"exclusions": exclusions})
 }
 
-// AddWAFExclusion adds a rule exclusion to the WAF configuration
+// errWAFExclusionsUnreadable is returned when the stored exclusion list is not valid JSON.
+var errWAFExclusionsUnreadable = errors.New("stored WAF exclusions are not valid JSON")
+
+// parseWAFExclusions decodes the stored exclusion list. An empty string holds no exclusions.
+func parseWAFExclusions(raw string) ([]WAFExclusion, error) {
+	var exclusions []WAFExclusion
+	if raw == "" {
+		return exclusions, nil
+	}
+	if err := json.Unmarshal([]byte(raw), &exclusions); err != nil {
+		return nil, errWAFExclusionsUnreadable
+	}
+	return exclusions, nil
+}
+
+// wafExclusionsUpdate returns the update that stores exclusions as the JSON list.
+func wafExclusionsUpdate(exclusions []WAFExclusion) (services.SecurityConfigUpdate, error) {
+	raw, err := json.Marshal(exclusions)
+	if err != nil {
+		return services.SecurityConfigUpdate{}, fmt.Errorf("serialize WAF exclusions: %w", err)
+	}
+	stored := string(raw)
+	return services.SecurityConfigUpdate{WAFExclusions: &stored}, nil
+}
+
+// AddWAFExclusion adds a rule exclusion to the WAF configuration. The duplicate check and the write share one write lock.
+// A refused proxy apply restores the stored exclusions.
 func (h *SecurityHandler) AddWAFExclusion(c *gin.Context) {
 	if !requireAdmin(c) {
 		return
@@ -759,62 +786,41 @@ func (h *SecurityHandler) AddWAFExclusion(c *gin.Context) {
 		return
 	}
 
-	cfg, err := h.svc.Get()
-	if err != nil {
-		if err == services.ErrSecurityConfigNotFound {
-			// Create default config with the exclusion
-			cfg = &models.SecurityConfig{Name: models.DefaultSecurityConfigName}
-		} else {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read security config"})
-			return
-		}
-	}
-
-	// Parse existing exclusions
-	var exclusions []WAFExclusion
-	if cfg.WAFExclusions != "" {
-		if unmarshalErr := json.Unmarshal([]byte(cfg.WAFExclusions), &exclusions); unmarshalErr != nil {
-			log.WithError(unmarshalErr).Warn("Failed to parse existing WAF exclusions")
+	newExclusion := WAFExclusion(req)
+	_, snapshot, err := h.svc.ApplyUpdateFunc(auditActor(c), models.DefaultSecurityConfigName, func(stored models.SecurityConfig) (services.SecurityConfigUpdate, error) {
+		exclusions, parseErr := parseWAFExclusions(stored.WAFExclusions)
+		if parseErr != nil {
+			logger.Log().WithError(parseErr).Warn("Failed to parse existing WAF exclusions")
 			exclusions = []WAFExclusion{}
 		}
-	}
-
-	// Check for duplicate rule_id with same target
-	for _, e := range exclusions {
-		if e.RuleID == req.RuleID && e.Target == req.Target {
-			c.JSON(http.StatusConflict, gin.H{"error": "exclusion for this rule_id and target already exists"})
-			return
+		for _, e := range exclusions {
+			if e.RuleID == req.RuleID && e.Target == req.Target {
+				return services.SecurityConfigUpdate{}, services.ErrWAFExclusionExists
+			}
 		}
-	}
-
-	// Add the new exclusion - convert request to WAFExclusion type
-	newExclusion := WAFExclusion(req)
-	exclusions = append(exclusions, newExclusion)
-
-	// Marshal back to JSON
-	exclusionsJSON, err := json.Marshal(exclusions)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to serialize exclusions"})
+		return wafExclusionsUpdate(append(exclusions, newExclusion))
+	})
+	switch {
+	case errors.Is(err, services.ErrWAFExclusionExists):
+		c.JSON(http.StatusConflict, gin.H{"error": "exclusion for this rule_id and target already exists"})
 		return
-	}
-
-	cfg.WAFExclusions = string(exclusionsJSON)
-	if err := h.svc.Upsert(cfg); err != nil {
+	case err != nil:
+		logger.Log().WithError(err).Error("Failed to save WAF exclusion")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save exclusion"})
 		return
 	}
 
-	// Apply updated config to Caddy
 	if h.caddyManager != nil {
 		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
-			log.WithError(err).Warn("failed to apply WAF exclusion changes to Caddy")
+			logger.Log().WithError(err).Warn("failed to apply WAF exclusion changes to Caddy")
+			restoreModuleState(h.db, h.cerberus, snapshot)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
+			return
 		}
 	}
 
-	// Log audit event
-	actor := auditActor(c)
 	_ = h.svc.LogAudit(&models.SecurityAudit{
-		Actor:   actor,
+		Actor:   auditActor(c),
 		Action:  "add_waf_exclusion",
 		Details: strconv.Itoa(req.RuleID),
 	})
@@ -822,7 +828,8 @@ func (h *SecurityHandler) AddWAFExclusion(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"exclusion": newExclusion})
 }
 
-// DeleteWAFExclusion removes a rule exclusion by rule_id
+// DeleteWAFExclusion removes a rule exclusion by rule_id. The lookup and the write share one write lock. A refused proxy
+// apply restores the stored exclusions.
 func (h *SecurityHandler) DeleteWAFExclusion(c *gin.Context) {
 	if !requireAdmin(c) {
 		return
@@ -843,66 +850,50 @@ func (h *SecurityHandler) DeleteWAFExclusion(c *gin.Context) {
 	// Get optional target query parameter (for exclusions with specific targets)
 	target := c.Query("target")
 
-	cfg, err := h.svc.Get()
-	if err != nil {
-		if err == services.ErrSecurityConfigNotFound {
-			c.JSON(http.StatusNotFound, gin.H{"error": "exclusion not found"})
-			return
+	_, snapshot, err := h.svc.ApplyUpdateFunc(auditActor(c), models.DefaultSecurityConfigName, func(stored models.SecurityConfig) (services.SecurityConfigUpdate, error) {
+		exclusions, parseErr := parseWAFExclusions(stored.WAFExclusions)
+		if parseErr != nil {
+			return services.SecurityConfigUpdate{}, parseErr
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read security config"})
-		return
-	}
-
-	// Parse existing exclusions
-	var exclusions []WAFExclusion
-	if cfg.WAFExclusions != "" {
-		if unmarshalErr := json.Unmarshal([]byte(cfg.WAFExclusions), &exclusions); unmarshalErr != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse exclusions"})
-			return
-		}
-	}
-
-	// Find and remove the exclusion
-	found := false
-	newExclusions := make([]WAFExclusion, 0, len(exclusions))
-	for _, e := range exclusions {
 		// Match by rule_id and target (empty target matches exclusions without target)
-		if e.RuleID == ruleID && e.Target == target {
-			found = true
-			continue // Skip this one (delete it)
+		kept := make([]WAFExclusion, 0, len(exclusions))
+		found := false
+		for _, e := range exclusions {
+			if e.RuleID == ruleID && e.Target == target {
+				found = true
+				continue
+			}
+			kept = append(kept, e)
 		}
-		newExclusions = append(newExclusions, e)
-	}
-
-	if !found {
+		if !found {
+			return services.SecurityConfigUpdate{}, services.ErrWAFExclusionNotFound
+		}
+		return wafExclusionsUpdate(kept)
+	})
+	switch {
+	case errors.Is(err, services.ErrWAFExclusionNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": "exclusion not found"})
 		return
-	}
-
-	// Marshal back to JSON
-	exclusionsJSON, err := json.Marshal(newExclusions)
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to serialize exclusions"})
+	case errors.Is(err, errWAFExclusionsUnreadable):
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse exclusions"})
 		return
-	}
-
-	cfg.WAFExclusions = string(exclusionsJSON)
-	if err := h.svc.Upsert(cfg); err != nil {
+	case err != nil:
+		logger.Log().WithError(err).Error("Failed to save WAF exclusions")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save exclusions"})
 		return
 	}
 
-	// Apply updated config to Caddy
 	if h.caddyManager != nil {
 		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
-			log.WithError(err).Warn("failed to apply WAF exclusion changes to Caddy")
+			logger.Log().WithError(err).Warn("failed to apply WAF exclusion changes to Caddy")
+			restoreModuleState(h.db, h.cerberus, snapshot)
+			c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
+			return
 		}
 	}
 
-	// Log audit event
-	actor := auditActor(c)
 	_ = h.svc.LogAudit(&models.SecurityAudit{
-		Actor:   actor,
+		Actor:   auditActor(c),
 		Action:  "delete_waf_exclusion",
 		Details: ruleIDParam,
 	})
@@ -1148,7 +1139,7 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 		return snapshot.Seal(tx)
 	})
 	if err != nil {
-		log.WithError(err).Errorf("Failed to update security module setting %s", settingKey)
+		logger.Log().WithError(err).Errorf("Failed to update security module setting %s", settingKey)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleWriteFailed})
 		return
 	}
@@ -1159,14 +1150,14 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 
 	if h.caddyManager != nil {
 		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
-			log.WithError(err).Warn("Failed to reload Caddy config after security module toggle")
+			logger.Log().WithError(err).Warn("Failed to reload Caddy config after security module toggle")
 			restoreModuleState(h.db, h.cerberus, snapshot)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
 			return
 		}
 	}
 
-	log.Info("Security module toggled")
+	logger.Log().Info("Security module toggled")
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
@@ -1174,82 +1165,6 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 		"enabled": enabled,
 		"applied": true,
 	})
-}
-
-type settingSnapshot struct {
-	exists  bool
-	setting models.Setting
-}
-
-func snapshotSettings(db *gorm.DB, keys []string) (map[string]settingSnapshot, error) {
-	snapshots := make(map[string]settingSnapshot, len(keys))
-	for _, key := range keys {
-		if _, exists := snapshots[key]; exists {
-			continue
-		}
-
-		var existing models.Setting
-		err := db.Where("key = ?", key).First(&existing).Error
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			snapshots[key] = settingSnapshot{exists: false}
-			continue
-		}
-		if err != nil {
-			return nil, err
-		}
-
-		snapshots[key] = settingSnapshot{exists: true, setting: existing}
-	}
-
-	return snapshots, nil
-}
-
-func restoreSettings(db *gorm.DB, snapshots map[string]settingSnapshot) error {
-	for key, snapshot := range snapshots {
-		if snapshot.exists {
-			restore := snapshot.setting
-			if err := db.Where(models.Setting{Key: key}).Assign(restore).FirstOrCreate(&restore).Error; err != nil {
-				return err
-			}
-			continue
-		}
-
-		if err := db.Where("key = ?", key).Delete(&models.Setting{}).Error; err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// defaultSecurityConfigSnapshot is the part of the default SecurityConfig row that the
-// security and CrowdSec toggles change. exists is false when the row was missing before.
-type defaultSecurityConfigSnapshot struct {
-	exists       bool
-	enabled      bool
-	crowdSecMode string
-}
-
-func snapshotDefaultSecurityConfigState(db *gorm.DB) (defaultSecurityConfigSnapshot, error) {
-	cfg, err := models.FindDefaultSecurityConfig(db)
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return defaultSecurityConfigSnapshot{}, nil
-	}
-	if err != nil {
-		return defaultSecurityConfigSnapshot{}, err
-	}
-
-	return defaultSecurityConfigSnapshot{exists: true, enabled: cfg.Enabled, crowdSecMode: cfg.CrowdSecMode}, nil
-}
-
-// restoreDefaultSecurityConfigState puts back the global switch from the snapshot.
-// A row that did not exist before the toggle is deleted again.
-func restoreDefaultSecurityConfigState(db *gorm.DB, snap defaultSecurityConfigSnapshot) error {
-	if snap.exists {
-		return db.Model(&models.SecurityConfig{}).Where("name = ?", models.DefaultSecurityConfigName).Update("enabled", snap.enabled).Error
-	}
-
-	return db.Where("name = ?", models.DefaultSecurityConfigName).Delete(&models.SecurityConfig{}).Error
 }
 
 // upsertSetting writes the setting's value and metadata, creating the row when it is missing.

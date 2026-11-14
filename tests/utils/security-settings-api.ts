@@ -275,7 +275,7 @@ async function listRuleSets(request: APIRequestContext): Promise<RuleSetListEntr
  * Deletes a rule set by name. DELETE takes the rule set uuid, so the list must expose `uuid`;
  * the helper fails loudly when it does not instead of leaving the rule set behind.
  */
-async function deleteRuleSetByName(request: APIRequestContext, name: string): Promise<void> {
+export async function deleteRuleSetByName(request: APIRequestContext, name: string): Promise<void> {
   const entry = (await listRuleSets(request)).find((ruleSet) => ruleSet.name === name);
   if (!entry) {
     return;

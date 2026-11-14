@@ -275,6 +275,32 @@ test.describe('Security config save applies only the fields in the request', () 
     });
   });
 
+  // GitHub #1759: the allow-list field's visible label was not associated with the input.
+  test('Security page allow-list input is found by its label and saves the entered value', async ({ page }) => {
+    await showConfigControls();
+    const before = await seedState(context);
+    const newWhitelist = `${RUNNER_WHITELIST},${EXTRA_WHITELIST_CIDR}`;
+
+    await test.step('Open the Security page', async () => {
+      await page.goto('/security');
+      await waitForLoadingComplete(page);
+    });
+
+    const allowListInput = page.getByLabel('Comma-separated CIDR/IPs');
+
+    await test.step('Fill the labelled allow-list input and save', async () => {
+      await allowListInput.fill(newWhitelist);
+      await expect(allowListInput).toHaveValue(newWhitelist);
+      const allowListSave = allowListInput.locator('xpath=..').getByRole('button', { name: 'Save', exact: true });
+      await saveAndWait(page, allowListSave);
+    });
+
+    await test.step('Stored row changes only in the allow-list', async () => {
+      const after = await getConfigRow(context);
+      expectOnlyChanged(before.row, after, { admin_whitelist: newWhitelist });
+    });
+  });
+
   test('explicit empty allow-list clears it and changes no other field', async () => {
     // Cerberus is off for this test so clearing the allow-list cannot block the runner.
     const before = await seedState(context, { enabled: false });
