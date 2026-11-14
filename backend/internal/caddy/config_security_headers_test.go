@@ -51,7 +51,7 @@ func TestBuildSecurityHeadersHandler_AllEnabled(t *testing.T) {
 	assert.Equal(t, "same-origin", headers["Cross-Origin-Opener-Policy"][0])
 	assert.Equal(t, "same-origin", headers["Cross-Origin-Resource-Policy"][0])
 	assert.Equal(t, "require-corp", headers["Cross-Origin-Embedder-Policy"][0])
-	assert.Equal(t, "1; mode=block", headers["X-XSS-Protection"][0])
+	assert.Equal(t, "0", headers["X-XSS-Protection"][0])
 	assert.Equal(t, "no-store", headers["Cache-Control"][0])
 }
 
@@ -431,7 +431,7 @@ func TestBuildSecurityHeadersHandler_APIFriendlyPreset(t *testing.T) {
 
 	// Verify XSS Protection is present
 	assert.Contains(t, headers, "X-XSS-Protection")
-	assert.Equal(t, "1; mode=block", headers["X-XSS-Protection"][0])
+	assert.Equal(t, "0", headers["X-XSS-Protection"][0])
 
 	// Verify Cache-Control is NOT present (CacheControlNoStore = false)
 	assert.NotContains(t, headers, "Cache-Control")

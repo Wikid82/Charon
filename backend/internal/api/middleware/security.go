@@ -46,9 +46,8 @@ func SecurityHeaders(cfg SecurityHeadersConfig) gin.HandlerFunc {
 		// X-Content-Type-Options: Prevent MIME sniffing
 		c.Header("X-Content-Type-Options", "nosniff")
 
-		// X-XSS-Protection: Enable browser XSS filtering (legacy but still useful)
-		// mode=block tells browser to block the response if XSS is detected
-		c.Header("X-XSS-Protection", "1; mode=block")
+		// X-XSS-Protection: 0 disables the legacy browser XSS filter, which current guidance recommends.
+		c.Header("X-XSS-Protection", "0")
 
 		// Referrer-Policy: Control referrer information sent with requests
 		// strict-origin-when-cross-origin sends full URL for same-origin, origin only for cross-origin

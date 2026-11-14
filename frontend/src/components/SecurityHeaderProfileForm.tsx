@@ -411,7 +411,7 @@ export function SecurityHeaderProfileForm({
               X-XSS-Protection
             </label>
             <p className="text-xs text-gray-500 dark:text-gray-400">
-              Legacy XSS protection header
+              Sends X-XSS-Protection: 0 so older browsers turn off their built-in filter
             </p>
           </div>
           <Switch id={fieldId('xss-protection')}
