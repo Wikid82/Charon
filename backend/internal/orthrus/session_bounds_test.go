@@ -65,8 +65,8 @@ func TestListenExternal_CapsConcurrentConnections(t *testing.T) {
 	}()
 
 	select {
-	case <-admittedCh:
-		t.Fatal("listener admitted a connection beyond maxExternalProxyConns")
+	case acceptErr := <-admittedCh:
+		t.Fatalf("listener admitted a connection beyond maxExternalProxyConns (accept error: %v)", acceptErr)
 	case <-time.After(150 * time.Millisecond):
 	}
 

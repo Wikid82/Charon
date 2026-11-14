@@ -506,6 +506,106 @@ func TestHandleWebSocket_SlotTimeoutResponseIs503WithRetryAfter(t *testing.T) {
 	assert.Equal(t, "1", w.Header().Get("Retry-After"))
 }
 
+// failureProfile runs n refused handshakes for agentRef and returns each
+// refusal status and the number of bcrypt comparisons each attempt ran.
+func (f *handshakeFixture) failureProfile(agentRef string, n int) (statuses, compares []int) {
+	f.t.Helper()
+	statuses = make([]int, 0, n)
+	compares = make([]int, 0, n)
+	for i := 0; i < n; i++ {
+		f.log.reset()
+		_, rej := f.auth(agentRef, hsWrongKey)
+		require.NotNil(f.t, rej)
+		statuses = append(statuses, rej.status)
+		compares = append(compares, f.log.count())
+	}
+	return statuses, compares
+}
+
+func TestHandshake_NamePathFailures_DoNotSpendUUIDBudget(t *testing.T) {
+	f := newHandshakeFixture(t)
+	f.addAgent(hsUUIDA, "edge-one", hsKeyA)
+
+	f.exhaustFailures("edge-one")
+	_, rej := f.auth("edge-one", hsWrongKey)
+	require.NotNil(t, rej)
+	assert.Equal(t, http.StatusTooManyRequests, rej.status, "name budget is spent")
+
+	budgetKey := ratelimit.ClientKey(hsClientIP) + "|" + hsUUIDA
+	assert.True(t, f.srv.handshake.failures.Peek(budgetKey).Allowed, "uuid budget must stay untouched")
+}
+
+func TestHandshake_RealAgentConnectsAfterNamePathFailures(t *testing.T) {
+	refs := map[string]string{
+		"name hit":    "edge-one",
+		"name miss":   "no-such-name",
+		"legacy scan": "",
+	}
+	for label, ref := range refs {
+		t.Run(label, func(t *testing.T) {
+			f := newHandshakeFixture(t)
+			f.addAgent(hsUUIDA, "edge-one", hsKeyA)
+
+			f.exhaustFailures(ref)
+			agent, rej := f.auth(hsUUIDA, hsKeyA)
+			require.Nil(t, rej)
+			assert.Equal(t, hsUUIDA, agent.UUID)
+		})
+	}
+}
+
+func TestHandshake_NameHitAndMiss_AreIndistinguishable(t *testing.T) {
+	hit := newHandshakeFixture(t)
+	hit.addAgent(hsUUIDA, "edge-one", hsKeyA)
+	miss := newHandshakeFixture(t)
+	miss.addAgent(hsUUIDA, "edge-one", hsKeyA)
+
+	n := handshakeFailuresPerWindow + 2
+	hitStatuses, hitCompares := hit.failureProfile("edge-one", n)
+	missStatuses, missCompares := miss.failureProfile("no-such-name", n)
+
+	assert.Equal(t, hitStatuses, missStatuses, "refusal statuses must match")
+	assert.Equal(t, hitCompares, missCompares, "bcrypt cost per attempt must match")
+	for i, status := range hitStatuses {
+		if status == http.StatusUnauthorized {
+			assert.Equal(t, 1, hitCompares[i], "attempt %d: one bcrypt per failure", i)
+		}
+	}
+}
+
+func TestHandshake_NameHitAndMiss_ShareOneBudget(t *testing.T) {
+	f := newHandshakeFixture(t)
+	f.addAgent(hsUUIDA, "edge-one", hsKeyA)
+
+	f.exhaustFailures("edge-one")
+	f.log.reset()
+	agent, rej := f.auth("no-such-name", hsWrongKey)
+	assert.Nil(t, agent)
+	require.NotNil(t, rej)
+	assert.Equal(t, http.StatusTooManyRequests, rej.status)
+	assert.Equal(t, 0, f.log.count(), "throttled miss is not verified")
+}
+
+func TestNewHandshakeGuard_PrecomputesDummyHash(t *testing.T) {
+	g, err := newHandshakeGuard(time.Now)
+	require.NoError(t, err)
+	require.NotNil(t, g.dummy, "dummy hash must exist before the first failure")
+	assert.Equal(t, dummyHash(), g.dummy)
+	cost, err := bcrypt.Cost(g.dummy)
+	require.NoError(t, err)
+	assert.Equal(t, BcryptCost, cost)
+}
+
+func TestHandshake_FirstUnknownUUIDFailure_ComparesPrecomputedDummy(t *testing.T) {
+	f := newHandshakeFixture(t)
+	f.addAgent(hsUUIDA, "agent-a", hsKeyA)
+
+	_, rej := f.auth(hsUUIDMissing, hsWrongKey)
+	require.NotNil(t, rej)
+	assert.Equal(t, 1, f.log.count())
+	assert.Equal(t, f.srv.handshake.dummy, f.log.last())
+}
+
 func TestDummyHash_IsCostTwelveAndStable(t *testing.T) {
 	h := dummyHash()
 	cost, err := bcrypt.Cost(h)

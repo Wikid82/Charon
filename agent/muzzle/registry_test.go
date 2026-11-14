@@ -34,6 +34,8 @@ var registryLookupCases = []struct {
 	{"127.1:5000/x", false},
 	{"10.1/x", false},
 	{"0x7f.1/x", false},
+	{"0x7f.0x0.0x0.0x1:5000/x", false},
+	{"0X7F.0X1:5000/x", false},
 	{"bad ref!/x", false},
 }
 

@@ -44,7 +44,8 @@ const (
 
 	// unknownAgentRef is what agents send when no agent ID is configured.
 	unknownAgentRef = "unknown"
-	// anyAgentBudget is the budget-key suffix for handshakes that name no agent.
+	// anyAgentBudget is the budget-key suffix for handshakes that do not claim
+	// an agent by UUID: name, legacy scan and unknown-UUID attempts.
 	anyAgentBudget = "*"
 	// legacyScanKey is the single key of the global legacy-scan budget.
 	legacyScanKey = "global"
@@ -90,6 +91,10 @@ type handshakeGuard struct {
 	// slots holds one token per verification in progress.
 	slots      chan struct{}
 	verifyWait time.Duration
+	// dummy is compared on failure paths that have no stored hash to check.
+	// It is computed when the guard is built so the first failure costs the
+	// same as later ones.
+	dummy []byte
 	// compare verifies a key against a stored hash. Tests replace it to count
 	// comparisons.
 	compare func(hashedPassword, password []byte) error
@@ -122,6 +127,7 @@ func newHandshakeGuard(now func() time.Time) (*handshakeGuard, error) {
 		legacyScan: legacy,
 		slots:      make(chan struct{}, handshakeVerifySlots),
 		verifyWait: handshakeVerifyWait,
+		dummy:      dummyHash(),
 		compare:    bcrypt.CompareHashAndPassword,
 	}, nil
 }
@@ -148,9 +154,12 @@ type handshakeTarget struct {
 	legacy bool
 }
 
-// budgetRef is the per-agent part of the failure budget key.
+// budgetRef is the per-agent part of the failure budget key. Only a UUID-form
+// claim that resolves to a stored agent gets its own budget. Name and scan
+// resolutions share anyAgentBudget, so name-path failures never spend an
+// agent's UUID budget and a name hit is budgeted the same as a miss.
 func (t handshakeTarget) budgetRef() string {
-	if t.agent != nil {
+	if t.agent != nil && !t.legacy {
 		return t.agent.UUID
 	}
 	return anyAgentBudget
@@ -245,7 +254,7 @@ func (s *OrthrusServer) verifyHandshake(target handshakeTarget, password []byte)
 	case target.scan && g.legacyScan.Allow(legacyScanKey).Allowed:
 		return s.scanAgentsByToken(password)
 	default:
-		_ = g.compare(dummyHash(), password)
+		_ = g.compare(g.dummy, password)
 		return nil, nil
 	}
 }
@@ -259,7 +268,7 @@ func (s *OrthrusServer) scanAgentsByToken(password []byte) (*models.OrthrusAgent
 		return nil, fmt.Errorf("orthrus: query agents: %w", err)
 	}
 	if len(agents) == 0 {
-		_ = s.handshake.compare(dummyHash(), password)
+		_ = s.handshake.compare(s.handshake.dummy, password)
 		return nil, nil
 	}
 	for i := range agents {
