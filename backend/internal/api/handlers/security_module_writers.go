@@ -5,9 +5,9 @@ import (
 	"net/http"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 )
@@ -55,11 +55,11 @@ func writeModuleToggle(tx *gorm.DB, settingKey string, enabled bool, actor strin
 func restoreModuleState(db *gorm.DB, cerberus CacheInvalidator, snapshot models.ModuleStateSnapshot) {
 	err := services.WithWriteLock(db, &models.Setting{}, snapshot.RestoreSettings)
 	if err != nil {
-		log.WithError(err).Error("Failed to restore settings after the proxy apply failed")
+		logger.Log().WithError(err).Error("Failed to restore settings after the proxy apply failed")
 	}
 	err = services.WithWriteLock(db, &models.Setting{}, snapshot.RestoreRow)
 	if err != nil {
-		log.WithError(err).Error("Failed to restore security config after the proxy apply failed")
+		logger.Log().WithError(err).Error("Failed to restore security config after the proxy apply failed")
 	}
 	if cerberus != nil {
 		cerberus.InvalidateCache()
@@ -78,7 +78,7 @@ func respondConfigUpdateError(c *gin.Context, err error) {
 	case errors.As(err, &invalid):
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 	default:
-		log.WithError(err).Error("Failed to save security config")
+		logger.Log().WithError(err).Error("Failed to save security config")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save security config"})
 	}
 }

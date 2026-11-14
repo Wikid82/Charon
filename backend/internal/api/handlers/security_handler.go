@@ -12,7 +12,6 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
-	log "github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
@@ -346,7 +345,7 @@ func (h *SecurityHandler) UpdateConfig(c *gin.Context) {
 	// stored config never holds a state Caddy rejected.
 	if h.caddyManager != nil {
 		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
-			log.WithError(err).Warn("failed to apply security config changes to Caddy")
+			logger.Log().WithError(err).Warn("failed to apply security config changes to Caddy")
 			restoreModuleState(h.db, h.cerberus, snapshot)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
 			return
@@ -660,7 +659,7 @@ func (h *SecurityHandler) persistDisabled(c *gin.Context) {
 		return snapshot.Seal(tx)
 	})
 	if err != nil {
-		log.WithError(err).Error("Failed to disable Cerberus")
+		logger.Log().WithError(err).Error("Failed to disable Cerberus")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to disable Cerberus"})
 		return
 	}
@@ -671,7 +670,7 @@ func (h *SecurityHandler) persistDisabled(c *gin.Context) {
 
 	if h.caddyManager != nil {
 		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
-			log.WithError(err).Warn("Failed to reload Caddy config after Cerberus was disabled")
+			logger.Log().WithError(err).Warn("Failed to reload Caddy config after Cerberus was disabled")
 			restoreModuleState(h.db, h.cerberus, snapshot)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "saved, but applying the configuration failed"})
 			return
@@ -734,7 +733,7 @@ func (h *SecurityHandler) GetWAFExclusions(c *gin.Context) {
 	var exclusions []WAFExclusion
 	if cfg.WAFExclusions != "" {
 		if err := json.Unmarshal([]byte(cfg.WAFExclusions), &exclusions); err != nil {
-			log.WithError(err).Warn("Failed to parse WAF exclusions")
+			logger.Log().WithError(err).Warn("Failed to parse WAF exclusions")
 			exclusions = []WAFExclusion{}
 		}
 	}
@@ -774,7 +773,7 @@ func (h *SecurityHandler) AddWAFExclusion(c *gin.Context) {
 	var exclusions []WAFExclusion
 	if cfg.WAFExclusions != "" {
 		if unmarshalErr := json.Unmarshal([]byte(cfg.WAFExclusions), &exclusions); unmarshalErr != nil {
-			log.WithError(unmarshalErr).Warn("Failed to parse existing WAF exclusions")
+			logger.Log().WithError(unmarshalErr).Warn("Failed to parse existing WAF exclusions")
 			exclusions = []WAFExclusion{}
 		}
 	}
@@ -807,7 +806,7 @@ func (h *SecurityHandler) AddWAFExclusion(c *gin.Context) {
 	// Apply updated config to Caddy
 	if h.caddyManager != nil {
 		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
-			log.WithError(err).Warn("failed to apply WAF exclusion changes to Caddy")
+			logger.Log().WithError(err).Warn("failed to apply WAF exclusion changes to Caddy")
 		}
 	}
 
@@ -895,7 +894,7 @@ func (h *SecurityHandler) DeleteWAFExclusion(c *gin.Context) {
 	// Apply updated config to Caddy
 	if h.caddyManager != nil {
 		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
-			log.WithError(err).Warn("failed to apply WAF exclusion changes to Caddy")
+			logger.Log().WithError(err).Warn("failed to apply WAF exclusion changes to Caddy")
 		}
 	}
 
@@ -1148,7 +1147,7 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 		return snapshot.Seal(tx)
 	})
 	if err != nil {
-		log.WithError(err).Errorf("Failed to update security module setting %s", settingKey)
+		logger.Log().WithError(err).Errorf("Failed to update security module setting %s", settingKey)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleWriteFailed})
 		return
 	}
@@ -1159,14 +1158,14 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 
 	if h.caddyManager != nil {
 		if err := applyProxyConfigDetached(c.Request.Context(), h.caddyManager, proxyApplyTimeout); err != nil {
-			log.WithError(err).Warn("Failed to reload Caddy config after security module toggle")
+			logger.Log().WithError(err).Warn("Failed to reload Caddy config after security module toggle")
 			restoreModuleState(h.db, h.cerberus, snapshot)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": msgModuleApplyFailed})
 			return
 		}
 	}
 
-	log.Info("Security module toggled")
+	logger.Log().Info("Security module toggled")
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
