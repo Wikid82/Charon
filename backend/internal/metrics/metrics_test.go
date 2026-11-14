@@ -21,7 +21,6 @@ func TestMetrics_Register(t *testing.T) {
 	// Increment each metric at least once so they appear in Gather()
 	IncWAFRequest()
 	IncWAFBlocked()
-	IncWAFMonitored()
 	IncCrowdSecRequest()
 	IncCrowdSecBlocked()
 
@@ -34,7 +33,6 @@ func TestMetrics_Register(t *testing.T) {
 	expectedMetrics := map[string]bool{
 		"charon_waf_requests_total":      false,
 		"charon_waf_blocked_total":       false,
-		"charon_waf_monitored_total":     false,
 		"charon_crowdsec_requests_total": false,
 		"charon_crowdsec_blocked_total":  false,
 	}
@@ -63,7 +61,6 @@ func TestMetrics_Increment(t *testing.T) {
 	})
 
 	assert.NotPanics(t, func() {
-		IncWAFMonitored()
 	})
 
 	assert.NotPanics(t, func() {
@@ -79,9 +76,6 @@ func TestMetrics_Increment(t *testing.T) {
 		IncWAFRequest()
 		IncWAFRequest()
 		IncWAFBlocked()
-		IncWAFMonitored()
-		IncWAFMonitored()
-		IncWAFMonitored()
 		IncCrowdSecRequest()
 		IncCrowdSecBlocked()
 	})

@@ -1026,6 +1026,8 @@ func (h *SettingsHandler) TestPublicURL(c *gin.Context) {
 	// and cloud metadata endpoints before any network connection is made.
 	validatedURL, err := security.ValidateExternalURL(req.URL, security.WithAllowHTTP())
 	if err != nil {
+		// Count the refusal in the same series a connectivity test uses, so a refused private address is visible on /metrics.
+		utils.RecordURLRefusal(err)
 		// Return 200 OK for security blocks (maintains existing API behavior)
 		c.JSON(http.StatusOK, gin.H{
 			"reachable": false,
