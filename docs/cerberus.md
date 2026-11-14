@@ -130,6 +130,13 @@ type SecurityConfig struct {
 }
 ```
 
+### Switch Values
+
+The Cerberus switch (the master security switch) takes only `true` or `false`.
+
+- **When you save it,** capital letters and spaces around the word are fine. ` TRUE ` is saved as `true`. Any other value is refused with `400` and nothing is saved.
+- **When Charon reads it,** the Security page status and the presets treat any stored value other than `true` or `false` as off. That includes a blank value, a value with extra spaces, `1` and `yes`.
+
 ### Environment Variables (Fallbacks)
 
 If no database config exists, Charon reads from environment:
@@ -196,11 +203,15 @@ After upgrading, check the WAF page. With the WAF switched on and a rule set sel
 
 ```text
 charon_waf_requests_total — Requests to Charon's own management API (`/api/v1`). Traffic to your proxied sites is not counted.
-charon_waf_blocked_total — Always 0 at present. Blocks on your proxied sites are not counted here.
-charon_waf_monitored_total — Always 0 at present.
+charon_waf_blocked_total — Requests to your proxied sites that the WAF blocked, when the proxy's access log identifies the block as a WAF block. Not every block can be told apart in the log yet, so treat the count as a lower bound.
+charon_crowdsec_requests_total — Requests to Charon's own management API that CrowdSec checked. Traffic to your proxied sites is not counted.
+charon_crowdsec_blocked_total — Requests to your proxied sites that CrowdSec blocked, counted the same way as the WAF block count and with the same limit.
+charon_url_validation_total — URL checks, by result and reason (labels `result` and `reason`).
+charon_ssrf_blocks_total — Requests refused for pointing at a private or internal address, by address type (label `ip_type`).
+charon_url_test_duration_seconds — How long URL connection tests take, as a histogram.
 ```
 
-Scrape from `/metrics` endpoint (no auth required). These three series do not have labels.
+Scrape from `/metrics` endpoint (no auth required). The `*_requests_total` series count only management API requests, as above. `charon_waf_monitored_total` has been removed. It always read 0, so update any dashboard or alert that still uses it.
 
 ### Structured Logging
 
@@ -846,16 +857,9 @@ go test -tags=integration ./integration -run TestCorazaIntegration -v
 
 ### Recommended Dashboards
 
-**Block Rate:**
+**Blocked requests per second:**
 
 ```promql
-rate(charon_waf_blocked_total[5m]) / rate(charon_waf_requests_total[5m])
-```
-
-**Monitor vs Block Comparison:**
-
-```promql
-rate(charon_waf_monitored_total[5m])
 rate(charon_waf_blocked_total[5m])
 ```
 
@@ -868,17 +872,7 @@ alert: HighWAFBlockRate
 expr: rate(charon_waf_blocked_total[5m]) > 0.3
 for: 10m
 annotations:
-  summary: "WAF blocking >30% of requests"
-```
-
-**No WAF evaluation (misconfiguration):**
-
-```yaml
-alert: WAFNotEvaluating
-expr: rate(charon_waf_requests_total[10m]) == 0
-for: 15m
-annotations:
-  summary: "WAF received zero requests, check middleware config"
+  summary: "WAF blocking more than 0.3 requests per second"
 ```
 
 ---
