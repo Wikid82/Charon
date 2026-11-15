@@ -211,6 +211,33 @@ export function setupErrorMessage(err: unknown, t: TFunction): string | null {
 }
 
 /**
+ * Coded trusted-proxy refusals with a translated text of their own, keyed by the server's `error_code`. Each text may
+ * name the refused entry (`{{entry}}`).
+ */
+const TRUSTED_PROXY_CODE_MESSAGE_KEYS = {
+  trusted_proxy_invalid: 'errors.trustedProxyInvalid',
+  trusted_proxy_too_broad: 'errors.trustedProxyTooBroad',
+  trusted_proxies_too_many: 'errors.trustedProxiesTooMany',
+} as const
+
+type TrustedProxyCodedMessage = keyof typeof TRUSTED_PROXY_CODE_MESSAGE_KEYS
+
+const TRUSTED_PROXY_CODED_MESSAGES = Object.keys(TRUSTED_PROXY_CODE_MESSAGE_KEYS) as TrustedProxyCodedMessage[]
+
+/**
+ * Translated text for a refused trusted-proxy entry or list, naming the entry the server refused when it sent one.
+ * @param err - The value thrown by the request
+ * @param t - The translation function of the calling component or hook
+ * @returns The text, or null when the refusal has no text of its own
+ */
+export function trustedProxyErrorMessage(err: unknown, t: TFunction): string | null {
+  const code = getApiErrorCode(err, TRUSTED_PROXY_CODED_MESSAGES)
+  if (!code) return null
+  const entry = isAxiosError<{ entry?: unknown }>(err) && typeof err.response?.data?.entry === 'string' ? err.response.data.entry : ''
+  return t(TRUSTED_PROXY_CODE_MESSAGE_KEYS[code], { entry })
+}
+
+/**
  * Coded permission refusals with a translated text of their own, keyed by the server's `error_code`.
  */
 const PERMISSIONS_CODE_MESSAGE_KEYS = {

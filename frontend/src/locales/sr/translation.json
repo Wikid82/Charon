@@ -374,7 +374,10 @@
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
     "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "streamLimitReached": "Za vaš nalog je otvoreno previše živih veza. Zatvorite drugi prikaz uživo i pokušajte ponovo."
+    "streamLimitReached": "Za vaš nalog je otvoreno previše živih veza. Zatvorite drugi prikaz uživo i pokušajte ponovo.",
+    "trustedProxyInvalid": "\"{{entry}}\" nije IP adresa ni CIDR opseg.",
+    "trustedProxyTooBroad": "\"{{entry}}\" pokriva preširok opseg. IPv4 opsezi moraju biti /8 ili uži, a IPv6 opsezi /24 ili uži.",
+    "trustedProxiesTooMany": "Lista pouzdanih proksija može imati najviše 64 stavke."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -691,6 +694,25 @@
         "proxy_apply_failed": "Charon nije mogao da primeni konfiguraciju proksija.",
         "generic": "Nešto nije u redu. Pokušajte ponovo."
       }
+    },
+    "trustedProxies": {
+      "title": "Pouzdani proksiji",
+      "description": "Charon koristi adresu posetioca preko proksija samo ako je taj proksi naveden ovde. Loopback je uvek pouzdan.",
+      "fieldLabel": "Pouzdani proksiji",
+      "fieldHint": "Jedna IP adresa ili CIDR opseg po redu. Ostavite prazno da biste verovali samo loopback-u.",
+      "alwaysTrusted": "Uvek pouzdano: {{entries}}",
+      "apiLayerNote": "Sopstveni port Charon-a veruje proksijima podešenim u CHARON_TRUSTED_PROXIES na serveru: {{entries}}. Promenite ih tamo.",
+      "apiLayerNone": "nema",
+      "sourceSetting": "Koristi se lista sačuvana ovde.",
+      "sourceEnvironment": "Koristi se CHARON_TRUSTED_PROXIES iz okruženja dok ovde ne sačuvate listu.",
+      "sourceDefault": "Koristi se podrazumevano, samo loopback, dok ovde ne sačuvate listu.",
+      "droppedEntries": "Zanemareni iz CHARON_TRUSTED_PROXIES jer su neispravni ili preširoki: {{entries}}",
+      "saved": "Pouzdani proksiji su sačuvani.",
+      "saveFailed": "Lista pouzdanih proksija nije mogla da se sačuva.",
+      "reset": "Vrati na podrazumevano",
+      "resetDone": "Sačuvana lista je obrisana. Sada se primenjuje lista iz okruženja ili podrazumevano.",
+      "loadError": "Lista pouzdanih proksija nije mogla da se učita.",
+      "docsLink": "Kako podesiti pouzdane proksije"
     }
   },
   "accessLists": {

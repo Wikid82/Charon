@@ -374,7 +374,10 @@
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
     "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "streamLimitReached": "Tài khoản của bạn đang mở quá nhiều kết nối trực tiếp. Hãy đóng một chế độ xem trực tiếp khác rồi thử lại."
+    "streamLimitReached": "Tài khoản của bạn đang mở quá nhiều kết nối trực tiếp. Hãy đóng một chế độ xem trực tiếp khác rồi thử lại.",
+    "trustedProxyInvalid": "\"{{entry}}\" không phải là địa chỉ IP hoặc dải CIDR.",
+    "trustedProxyTooBroad": "\"{{entry}}\" bao phủ dải quá rộng. Dải IPv4 phải là /8 hoặc hẹp hơn, dải IPv6 là /24 hoặc hẹp hơn.",
+    "trustedProxiesTooMany": "Danh sách máy chủ proxy đáng tin cậy tối đa 64 mục."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -691,6 +694,25 @@
         "proxy_apply_failed": "Charon không thể áp dụng cấu hình proxy.",
         "generic": "Đã xảy ra lỗi. Vui lòng thử lại."
       }
+    },
+    "trustedProxies": {
+      "title": "Máy chủ proxy đáng tin cậy",
+      "description": "Charon chỉ dùng địa chỉ của khách truy cập do máy chủ proxy gửi khi proxy đó được liệt kê ở đây. Loopback luôn được tin cậy.",
+      "fieldLabel": "Máy chủ proxy đáng tin cậy",
+      "fieldHint": "Mỗi dòng một địa chỉ IP hoặc dải CIDR. Để trống nếu chỉ tin cậy loopback.",
+      "alwaysTrusted": "Luôn được tin cậy: {{entries}}",
+      "apiLayerNote": "Cổng riêng của Charon tin cậy các proxy được đặt trong CHARON_TRUSTED_PROXIES trên máy chủ: {{entries}}. Hãy thay đổi ở đó.",
+      "apiLayerNone": "không có",
+      "sourceSetting": "Đang dùng danh sách đã lưu tại đây.",
+      "sourceEnvironment": "Đang dùng CHARON_TRUSTED_PROXIES từ môi trường cho đến khi bạn lưu danh sách tại đây.",
+      "sourceDefault": "Đang dùng mặc định, chỉ loopback, cho đến khi bạn lưu danh sách tại đây.",
+      "droppedEntries": "Bị bỏ qua từ CHARON_TRUSTED_PROXIES vì không hợp lệ hoặc quá rộng: {{entries}}",
+      "saved": "Đã lưu máy chủ proxy đáng tin cậy.",
+      "saveFailed": "Không thể lưu danh sách máy chủ proxy đáng tin cậy.",
+      "reset": "Đặt lại mặc định",
+      "resetDone": "Đã xóa danh sách đã lưu. Hiện áp dụng danh sách từ môi trường hoặc mặc định.",
+      "loadError": "Không thể tải danh sách máy chủ proxy đáng tin cậy.",
+      "docsLink": "Cách đặt máy chủ proxy đáng tin cậy"
     }
   },
   "accessLists": {

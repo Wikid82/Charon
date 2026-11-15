@@ -5,6 +5,9 @@ import { useTranslation } from 'react-i18next'
 import { wafErrorMessage } from '../api/errorBody'
 import {
   getSecurityStatus,
+  getTrustedProxies,
+  resetTrustedProxies,
+  saveTrustedProxies,
   getSecurityConfig,
   getLoginProtectionStatus,
   updateSecurityConfig,
@@ -38,6 +41,36 @@ export function useLoginProtectionStatus({ enabled }: { enabled: boolean }) {
     queryFn: getLoginProtectionStatus,
     enabled,
     retry: false,
+  })
+}
+
+/** The one query key for the proxy-layer trust list. */
+export const TRUSTED_PROXIES_QUERY_KEY = ['trustedProxies'] as const
+
+/** Proxy-layer trust list; every signed-in user may read it (non-administrators get a reduced response). */
+export function useTrustedProxies() {
+  return useQuery({ queryKey: TRUSTED_PROXIES_QUERY_KEY, queryFn: getTrustedProxies })
+}
+
+/** Saves the trusted-proxy list and stores the list the server now applies. Refusals reach the caller's error state. */
+export function useSaveTrustedProxies() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (proxies: string[]) => saveTrustedProxies(proxies),
+    onSuccess: (data) => {
+      qc.setQueryData(TRUSTED_PROXIES_QUERY_KEY, data)
+    },
+  })
+}
+
+/** Clears the saved trusted-proxy list and stores the list that applies instead. */
+export function useResetTrustedProxies() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => resetTrustedProxies(),
+    onSuccess: (data) => {
+      qc.setQueryData(TRUSTED_PROXIES_QUERY_KEY, data)
+    },
   })
 }
 

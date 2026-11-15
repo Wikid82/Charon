@@ -374,7 +374,10 @@
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
     "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "streamLimitReached": "Túl sok élő kapcsolat van nyitva a fiókjában. Zárjon be egy másik élő nézetet, majd próbálja újra."
+    "streamLimitReached": "Túl sok élő kapcsolat van nyitva a fiókjában. Zárjon be egy másik élő nézetet, majd próbálja újra.",
+    "trustedProxyInvalid": "A(z) \"{{entry}}\" nem IP-cím és nem CIDR-tartomány.",
+    "trustedProxyTooBroad": "A(z) \"{{entry}}\" túl széles tartományt fed le. Az IPv4-tartományok legfeljebb /8-asak, az IPv6-tartományok legfeljebb /24-esek lehetnek.",
+    "trustedProxiesTooMany": "A megbízható proxyk listája legfeljebb 64 bejegyzést tartalmazhat."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -691,6 +694,25 @@
         "proxy_apply_failed": "A Charon nem tudta alkalmazni a proxy-konfigurációt.",
         "generic": "Valami hiba történt. Próbálja újra."
       }
+    },
+    "trustedProxies": {
+      "title": "Megbízható proxyk",
+      "description": "A Charon csak akkor használja a látogató címét a proxyból, ha az a proxy itt szerepel. A loopback mindig megbízható.",
+      "fieldLabel": "Megbízható proxyk",
+      "fieldHint": "Egy IP-cím vagy CIDR-tartomány soronként. Üresen hagyva csak a loopbacket bízza meg.",
+      "alwaysTrusted": "Mindig megbízható: {{entries}}",
+      "apiLayerNote": "A Charon saját portja a szerveren a CHARON_TRUSTED_PROXIES értékével beállított proxykat bízza meg: {{entries}}. Ezeket ott módosítsa.",
+      "apiLayerNone": "nincs",
+      "sourceSetting": "Az itt mentett lista van használatban.",
+      "sourceEnvironment": "A környezeti CHARON_TRUSTED_PROXIES van használatban, amíg itt nem ment listát.",
+      "sourceDefault": "Az alapértelmezés, csak a loopback van használatban, amíg itt nem ment listát.",
+      "droppedEntries": "A CHARON_TRUSTED_PROXIES értékéből figyelmen kívül hagyva, mert érvénytelenek vagy túl szélesek: {{entries}}",
+      "saved": "A megbízható proxyk mentve.",
+      "saveFailed": "A megbízható proxyk listáját nem sikerült menteni.",
+      "reset": "Visszaállítás alapértelmezettre",
+      "resetDone": "A mentett lista törölve. Most a környezeti lista vagy az alapértelmezés érvényes.",
+      "loadError": "A megbízható proxyk listáját nem sikerült betölteni.",
+      "docsLink": "Megbízható proxyk beállítása"
     }
   },
   "accessLists": {

@@ -374,7 +374,10 @@
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
     "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "streamLimitReached": "このアカウントで開いているライブ接続が多すぎます。別のライブ表示を閉じてから、もう一度お試しください。"
+    "streamLimitReached": "このアカウントで開いているライブ接続が多すぎます。別のライブ表示を閉じてから、もう一度お試しください。",
+    "trustedProxyInvalid": "\"{{entry}}\" は IP アドレスでも CIDR 範囲でもありません。",
+    "trustedProxyTooBroad": "\"{{entry}}\" は範囲が広すぎます。IPv4 の範囲は /8 以下、IPv6 の範囲は /24 以下にしてください。",
+    "trustedProxiesTooMany": "信頼するプロキシの一覧には最大 64 件まで登録できます。"
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -691,6 +694,25 @@
         "proxy_apply_failed": "Charon はプロキシ設定を適用できませんでした。",
         "generic": "問題が発生しました。もう一度お試しください。"
       }
+    },
+    "trustedProxies": {
+      "title": "信頼するプロキシ",
+      "description": "Charon は、プロキシが伝えた訪問者のアドレスを、そのプロキシがここに登録されている場合にのみ使用します。ループバックは常に信頼されます。",
+      "fieldLabel": "信頼するプロキシ",
+      "fieldHint": "1 行に 1 つの IP アドレスまたは CIDR 範囲を入力します。空欄にするとループバックのみを信頼します。",
+      "alwaysTrusted": "常に信頼: {{entries}}",
+      "apiLayerNote": "Charon 自身のポートは、サーバーの CHARON_TRUSTED_PROXIES で設定されたプロキシを信頼します: {{entries}}。変更はそちらで行ってください。",
+      "apiLayerNone": "なし",
+      "sourceSetting": "ここで保存したリストを使用しています。",
+      "sourceEnvironment": "ここでリストを保存するまでは、環境変数 CHARON_TRUSTED_PROXIES を使用しています。",
+      "sourceDefault": "ここでリストを保存するまでは、既定値（ループバックのみ）を使用しています。",
+      "droppedEntries": "CHARON_TRUSTED_PROXIES のうち、無効または範囲が広すぎるため無視された項目: {{entries}}",
+      "saved": "信頼するプロキシを保存しました。",
+      "saveFailed": "信頼するプロキシの一覧を保存できませんでした。",
+      "reset": "既定値に戻す",
+      "resetDone": "保存したリストを消去しました。環境変数の設定または既定値が適用されます。",
+      "loadError": "信頼するプロキシの一覧を読み込めませんでした。",
+      "docsLink": "信頼するプロキシの設定方法"
     }
   },
   "accessLists": {

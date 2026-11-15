@@ -374,7 +374,10 @@
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
     "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "streamLimitReached": "Er zijn te veel live-verbindingen open voor uw account. Sluit een andere live-weergave en probeer het opnieuw."
+    "streamLimitReached": "Er zijn te veel live-verbindingen open voor uw account. Sluit een andere live-weergave en probeer het opnieuw.",
+    "trustedProxyInvalid": "\"{{entry}}\" is geen IP-adres of CIDR-bereik.",
+    "trustedProxyTooBroad": "\"{{entry}}\" dekt een te ruim bereik. IPv4-bereiken moeten /8 of kleiner zijn en IPv6-bereiken /24 of kleiner.",
+    "trustedProxiesTooMany": "De lijst met vertrouwde proxy's bevat maximaal 64 items."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -691,6 +694,25 @@
         "proxy_apply_failed": "Charon kon de proxyconfiguratie niet toepassen.",
         "generic": "Er ging iets mis. Probeer het opnieuw."
       }
+    },
+    "trustedProxies": {
+      "title": "Vertrouwde proxy's",
+      "description": "Charon gebruikt het adres van een bezoeker via een proxy alleen als die proxy hier staat. Loopback is altijd vertrouwd.",
+      "fieldLabel": "Vertrouwde proxy's",
+      "fieldHint": "Eén IP-adres of CIDR-bereik per regel. Laat leeg om alleen loopback te vertrouwen.",
+      "alwaysTrusted": "Altijd vertrouwd: {{entries}}",
+      "apiLayerNote": "De eigen poort van Charon vertrouwt de proxy's die in CHARON_TRUSTED_PROXIES op de server zijn ingesteld: {{entries}}. Wijzig ze daar.",
+      "apiLayerNone": "geen",
+      "sourceSetting": "De hier opgeslagen lijst wordt gebruikt.",
+      "sourceEnvironment": "De CHARON_TRUSTED_PROXIES uit de omgeving wordt gebruikt totdat u hier een lijst opslaat.",
+      "sourceDefault": "De standaard, alleen loopback, wordt gebruikt totdat u hier een lijst opslaat.",
+      "droppedEntries": "Genegeerd uit CHARON_TRUSTED_PROXIES omdat ze ongeldig of te ruim zijn: {{entries}}",
+      "saved": "Vertrouwde proxy's opgeslagen.",
+      "saveFailed": "De lijst met vertrouwde proxy's kon niet worden opgeslagen.",
+      "reset": "Herstellen naar standaard",
+      "resetDone": "Opgeslagen lijst gewist. De lijst uit de omgeving of de standaard geldt nu.",
+      "loadError": "De lijst met vertrouwde proxy's kon niet worden geladen.",
+      "docsLink": "Vertrouwde proxy's instellen"
     }
   },
   "accessLists": {

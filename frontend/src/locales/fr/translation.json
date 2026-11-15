@@ -379,7 +379,10 @@
     "tooManyRequestsMinutes_one": "Trop de tentatives. Veuillez patienter {{count}} minute puis réessayer.",
     "tooManyRequestsMinutes_other": "Trop de tentatives. Veuillez patienter {{count}} minutes puis réessayer.",
     "tooManyRequestsMinutes": "Trop de tentatives. Veuillez patienter {{count}} minutes puis réessayer.",
-    "streamLimitReached": "Trop de connexions en direct sont ouvertes pour votre compte. Fermez une autre vue en direct, puis réessayez."
+    "streamLimitReached": "Trop de connexions en direct sont ouvertes pour votre compte. Fermez une autre vue en direct, puis réessayez.",
+    "trustedProxyInvalid": "« {{entry}} » n'est ni une adresse IP ni une plage CIDR.",
+    "trustedProxyTooBroad": "« {{entry}} » couvre une plage trop large. Les plages IPv4 doivent être /8 ou plus étroites, et les plages IPv6 /24 ou plus étroites.",
+    "trustedProxiesTooMany": "La liste des proxys de confiance contient au plus 64 entrées."
   },
   "notifications": {
     "saveSuccess": "Modifications enregistrées avec succès",
@@ -716,6 +719,25 @@
         "proxy_apply_failed": "Charon n'a pas pu appliquer la configuration du proxy.",
         "generic": "Une erreur s'est produite. Réessayez."
       }
+    },
+    "trustedProxies": {
+      "title": "Proxys de confiance",
+      "description": "Charon n'utilise l'adresse d'un visiteur transmise par un proxy que si ce proxy figure ici. La boucle locale est toujours approuvée.",
+      "fieldLabel": "Proxys de confiance",
+      "fieldHint": "Une adresse IP ou une plage CIDR par ligne. Laissez vide pour ne faire confiance qu'à la boucle locale.",
+      "alwaysTrusted": "Toujours approuvé : {{entries}}",
+      "apiLayerNote": "Le port propre de Charon fait confiance aux proxys définis par CHARON_TRUSTED_PROXIES sur le serveur : {{entries}}. Modifiez-les là-bas.",
+      "apiLayerNone": "aucun",
+      "sourceSetting": "La liste enregistrée ici est utilisée.",
+      "sourceEnvironment": "CHARON_TRUSTED_PROXIES de l'environnement est utilisé jusqu'à ce que vous enregistriez une liste ici.",
+      "sourceDefault": "La valeur par défaut, la boucle locale seule, est utilisée jusqu'à ce que vous enregistriez une liste ici.",
+      "droppedEntries": "Ignorées de CHARON_TRUSTED_PROXIES car invalides ou trop larges : {{entries}}",
+      "saved": "Proxys de confiance enregistrés.",
+      "saveFailed": "La liste des proxys de confiance n'a pas pu être enregistrée.",
+      "reset": "Rétablir la valeur par défaut",
+      "resetDone": "Liste enregistrée effacée. La liste de l'environnement ou la valeur par défaut s'applique désormais.",
+      "loadError": "La liste des proxys de confiance n'a pas pu être chargée.",
+      "docsLink": "Comment définir les proxys de confiance"
     }
   },
   "accessLists": {

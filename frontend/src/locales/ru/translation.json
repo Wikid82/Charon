@@ -374,7 +374,10 @@
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
     "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "streamLimitReached": "Для вашей учётной записи открыто слишком много live-подключений. Закройте другой просмотр в реальном времени и попробуйте снова."
+    "streamLimitReached": "Для вашей учётной записи открыто слишком много live-подключений. Закройте другой просмотр в реальном времени и попробуйте снова.",
+    "trustedProxyInvalid": "«{{entry}}» не является IP-адресом или диапазоном CIDR.",
+    "trustedProxyTooBroad": "«{{entry}}» охватывает слишком широкий диапазон. Диапазоны IPv4 должны быть /8 или уже, диапазоны IPv6 — /24 или уже.",
+    "trustedProxiesTooMany": "Список доверенных прокси может содержать не более 64 записей."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -691,6 +694,25 @@
         "proxy_apply_failed": "Charon не смог применить конфигурацию прокси.",
         "generic": "Что-то пошло не так. Попробуйте ещё раз."
       }
+    },
+    "trustedProxies": {
+      "title": "Доверенные прокси",
+      "description": "Charon использует адрес посетителя, переданный прокси, только если этот прокси указан здесь. Loopback всегда доверенный.",
+      "fieldLabel": "Доверенные прокси",
+      "fieldHint": "По одному IP-адресу или диапазону CIDR в строке. Оставьте поле пустым, чтобы доверять только loopback.",
+      "alwaysTrusted": "Всегда доверенные: {{entries}}",
+      "apiLayerNote": "Собственный порт Charon доверяет прокси, заданным в CHARON_TRUSTED_PROXIES на сервере: {{entries}}. Измените их там.",
+      "apiLayerNone": "нет",
+      "sourceSetting": "Используется список, сохранённый здесь.",
+      "sourceEnvironment": "Используется CHARON_TRUSTED_PROXIES из окружения, пока вы не сохраните список здесь.",
+      "sourceDefault": "Используется значение по умолчанию: только loopback, пока вы не сохраните список здесь.",
+      "droppedEntries": "Пропущены из CHARON_TRUSTED_PROXIES, так как недопустимы или слишком широки: {{entries}}",
+      "saved": "Доверенные прокси сохранены.",
+      "saveFailed": "Не удалось сохранить список доверенных прокси.",
+      "reset": "Сбросить до значения по умолчанию",
+      "resetDone": "Сохранённый список очищен. Теперь действует список из окружения или значение по умолчанию.",
+      "loadError": "Не удалось загрузить список доверенных прокси.",
+      "docsLink": "Как задать доверенные прокси"
     }
   },
   "accessLists": {

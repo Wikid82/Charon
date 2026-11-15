@@ -374,7 +374,10 @@
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
     "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "streamLimitReached": "Έχουν ανοίξει πάρα πολλές ζωντανές συνδέσεις για τον λογαριασμό σας. Κλείστε μια άλλη ζωντανή προβολή και δοκιμάστε ξανά."
+    "streamLimitReached": "Έχουν ανοίξει πάρα πολλές ζωντανές συνδέσεις για τον λογαριασμό σας. Κλείστε μια άλλη ζωντανή προβολή και δοκιμάστε ξανά.",
+    "trustedProxyInvalid": "Το \"{{entry}}\" δεν είναι διεύθυνση IP ή εύρος CIDR.",
+    "trustedProxyTooBroad": "Το \"{{entry}}\" καλύπτει πολύ ευρύ εύρος. Τα εύρη IPv4 πρέπει να είναι /8 ή στενότερα, και τα IPv6 /24 ή στενότερα.",
+    "trustedProxiesTooMany": "Η λίστα αξιόπιστων διακομιστών μεσολάβησης χωρά το πολύ 64 καταχωρίσεις."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -691,6 +694,25 @@
         "proxy_apply_failed": "Το Charon δεν μπόρεσε να εφαρμόσει τη διαμόρφωση του proxy.",
         "generic": "Κάτι πήγε στραβά. Δοκιμάστε ξανά."
       }
+    },
+    "trustedProxies": {
+      "title": "Αξιόπιστοι διακομιστές μεσολάβησης",
+      "description": "Το Charon χρησιμοποιεί τη διεύθυνση ενός επισκέπτη από διακομιστή μεσολάβησης μόνο όταν αυτός ο διακομιστής αναφέρεται εδώ. Το loopback είναι πάντα αξιόπιστο.",
+      "fieldLabel": "Αξιόπιστοι διακομιστές μεσολάβησης",
+      "fieldHint": "Μία διεύθυνση IP ή εύρος CIDR ανά γραμμή. Αφήστε το κενό για εμπιστοσύνη μόνο στο loopback.",
+      "alwaysTrusted": "Πάντα αξιόπιστα: {{entries}}",
+      "apiLayerNote": "Η δική θύρα του Charon εμπιστεύεται τους διακομιστές μεσολάβησης που ορίζονται στο CHARON_TRUSTED_PROXIES του διακομιστή: {{entries}}. Αλλάξτε τους εκεί.",
+      "apiLayerNone": "καμία",
+      "sourceSetting": "Χρησιμοποιείται η λίστα που έχει αποθηκευτεί εδώ.",
+      "sourceEnvironment": "Χρησιμοποιείται το CHARON_TRUSTED_PROXIES από το περιβάλλον μέχρι να αποθηκεύσετε μια λίστα εδώ.",
+      "sourceDefault": "Ισχύει η προεπιλογή, μόνο το loopback, μέχρι να αποθηκεύσετε μια λίστα εδώ.",
+      "droppedEntries": "Αγνοήθηκαν από το CHARON_TRUSTED_PROXIES επειδή δεν είναι έγκυρα ή είναι πολύ ευρεία: {{entries}}",
+      "saved": "Οι αξιόπιστοι διακομιστές μεσολάβησης αποθηκεύτηκαν.",
+      "saveFailed": "Η λίστα αξιόπιστων διακομιστών μεσολάβησης δεν μπόρεσε να αποθηκευτεί.",
+      "reset": "Επαναφορά στην προεπιλογή",
+      "resetDone": "Η αποθηκευμένη λίστα διαγράφηκε. Ισχύει τώρα η λίστα του περιβάλλοντος ή η προεπιλογή.",
+      "loadError": "Η λίστα αξιόπιστων διακομιστών μεσολάβησης δεν μπόρεσε να φορτωθεί.",
+      "docsLink": "Πώς ορίζετε αξιόπιστους διακομιστές μεσολάβησης"
     }
   },
   "accessLists": {

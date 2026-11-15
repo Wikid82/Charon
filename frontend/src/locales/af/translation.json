@@ -374,7 +374,10 @@
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
     "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "streamLimitReached": "Te veel lewendige verbindings is oop vir jou rekening. Maak nog 'n lewendige aansig toe en probeer dan weer."
+    "streamLimitReached": "Te veel lewendige verbindings is oop vir jou rekening. Maak nog 'n lewendige aansig toe en probeer dan weer.",
+    "trustedProxyInvalid": "\"{{entry}}\" is nie 'n IP-adres of CIDR-reeks nie.",
+    "trustedProxyTooBroad": "\"{{entry}}\" dek 'n te wye reeks. IPv4-reekse moet /8 of smaller wees, en IPv6-reekse /24 of smaller.",
+    "trustedProxiesTooMany": "Die lys van vertroude proxies bevat hoogstens 64 inskrywings."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -691,6 +694,25 @@
         "proxy_apply_failed": "Charon kon nie die proxy-konfigurasie toepas nie.",
         "generic": "Iets het verkeerd gegaan. Probeer weer."
       }
+    },
+    "trustedProxies": {
+      "title": "Vertroude proxies",
+      "description": "Charon gebruik 'n besoeker se adres van 'n proxy slegs as daardie proxy hier gelys is. Loopback word altyd vertrou.",
+      "fieldLabel": "Vertroude proxies",
+      "fieldHint": "Een IP-adres of CIDR-reeks per lyn. Laat dit leeg om slegs loopback te vertrou.",
+      "alwaysTrusted": "Altyd vertrou: {{entries}}",
+      "apiLayerNote": "Charon se eie poort vertrou die proxies wat deur CHARON_TRUSTED_PROXIES op die bediener gestel word: {{entries}}. Verander dit daar.",
+      "apiLayerNone": "geen",
+      "sourceSetting": "Gebruik die lys wat hier gestoor is.",
+      "sourceEnvironment": "Gebruik CHARON_TRUSTED_PROXIES uit die omgewing totdat jy hier 'n lys stoor.",
+      "sourceDefault": "Gebruik die verstek, slegs loopback, totdat jy hier 'n lys stoor.",
+      "droppedEntries": "Geïgnoreer uit CHARON_TRUSTED_PROXIES omdat hulle ongeldig of te wyd is: {{entries}}",
+      "saved": "Vertroude proxies gestoor.",
+      "saveFailed": "Die lys van vertroude proxies kon nie gestoor word nie.",
+      "reset": "Herstel na verstek",
+      "resetDone": "Gestoorde lys uitgevee. Die omgewingslys of die verstek is nou van toepassing.",
+      "loadError": "Die lys van vertroude proxies kon nie gelaai word nie.",
+      "docsLink": "Hoe om vertroude proxies in te stel"
     }
   },
   "accessLists": {

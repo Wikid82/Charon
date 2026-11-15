@@ -374,7 +374,10 @@
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
     "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "streamLimitReached": "Hi ha massa connexions en directe obertes per al vostre compte. Tanqueu una altra vista en directe i torneu-ho a provar."
+    "streamLimitReached": "Hi ha massa connexions en directe obertes per al vostre compte. Tanqueu una altra vista en directe i torneu-ho a provar.",
+    "trustedProxyInvalid": "\"{{entry}}\" no és una adreça IP ni un rang CIDR.",
+    "trustedProxyTooBroad": "\"{{entry}}\" cobreix un rang massa ampli. Els rangs IPv4 han de ser /8 o més estrets, i els IPv6 /24 o més estrets.",
+    "trustedProxiesTooMany": "La llista de proxies de confiança admet com a màxim 64 entrades."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -691,6 +694,25 @@
         "proxy_apply_failed": "Charon no ha pogut aplicar la configuració del proxy.",
         "generic": "Alguna cosa ha fallat. Torneu-ho a provar."
       }
+    },
+    "trustedProxies": {
+      "title": "Proxies de confiança",
+      "description": "Charon només fa servir l'adreça d'un visitant des d'un proxy si aquest proxy hi és inclòs. El loopback sempre és de confiança.",
+      "fieldLabel": "Proxies de confiança",
+      "fieldHint": "Una adreça IP o un rang CIDR per línia. Deixeu-ho buit per confiar només en el loopback.",
+      "alwaysTrusted": "Sempre de confiança: {{entries}}",
+      "apiLayerNote": "El port propi de Charon confia en els proxies definits per CHARON_TRUSTED_PROXIES al servidor: {{entries}}. Canvieu-los allà.",
+      "apiLayerNone": "cap",
+      "sourceSetting": "S'utilitza la llista desada aquí.",
+      "sourceEnvironment": "S'utilitza CHARON_TRUSTED_PROXIES de l'entorn fins que deseu una llista aquí.",
+      "sourceDefault": "S'utilitza el valor per defecte, només el loopback, fins que deseu una llista aquí.",
+      "droppedEntries": "Ignorades de CHARON_TRUSTED_PROXIES perquè no són vàlides o són massa amplies: {{entries}}",
+      "saved": "Proxies de confiança desats.",
+      "saveFailed": "No s'ha pogut desar la llista de proxies de confiança.",
+      "reset": "Restableix al valor per defecte",
+      "resetDone": "S'ha esborrat la llista desada. Ara s'aplica la de l'entorn o el valor per defecte.",
+      "loadError": "No s'ha pogut carregar la llista de proxies de confiança.",
+      "docsLink": "Com definir els proxies de confiança"
     }
   },
   "accessLists": {

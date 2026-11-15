@@ -15,6 +15,7 @@ import { LiveLogViewer } from '../components/LiveLogViewer'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { LoginProtectionCard } from '../components/LoginProtectionCard'
 import { SecurityEnforcementNote } from '../components/SecurityEnforcementNote'
+import { TrustedProxiesCard } from '../components/TrustedProxiesCard'
 import {
   Card,
   CardHeader,
@@ -431,6 +432,7 @@ export default function Security() {
 
         {/* Sign-in throttling is always on, so this sits outside the Cerberus-enabled sections */}
         {isAdmin && <LoginProtectionCard />}
+        <TrustedProxiesCard />
         {isAdmin && <GeoIPDatabaseCard />}
 
         <Outlet />

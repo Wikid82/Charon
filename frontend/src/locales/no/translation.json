@@ -374,7 +374,10 @@
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
     "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "streamLimitReached": "Det er for mange live-tilkoblinger åpne for kontoen din. Lukk en annen live-visning, og prøv igjen."
+    "streamLimitReached": "Det er for mange live-tilkoblinger åpne for kontoen din. Lukk en annen live-visning, og prøv igjen.",
+    "trustedProxyInvalid": "\"{{entry}}\" er ikke en IP-adresse eller et CIDR-område.",
+    "trustedProxyTooBroad": "\"{{entry}}\" dekker et for bredt område. IPv4-områder må være /8 eller smalere, og IPv6-områder /24 eller smalere.",
+    "trustedProxiesTooMany": "Listen over klarerte proxyer kan ha høyst 64 oppføringer."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -691,6 +694,25 @@
         "proxy_apply_failed": "Charon kunne ikke bruke proxy-konfigurasjonen.",
         "generic": "Noe gikk galt. Prøv igjen."
       }
+    },
+    "trustedProxies": {
+      "title": "Klarerte proxyer",
+      "description": "Charon bruker en besøkendes adresse fra en proxy bare når proxyen står oppført her. Loopback er alltid klarert.",
+      "fieldLabel": "Klarerte proxyer",
+      "fieldHint": "Én IP-adresse eller CIDR-område per linje. La feltet stå tomt for bare å klarere loopback.",
+      "alwaysTrusted": "Alltid klarert: {{entries}}",
+      "apiLayerNote": "Charons egen port klarerer proxyene som er satt i CHARON_TRUSTED_PROXIES på serveren: {{entries}}. Endre dem der.",
+      "apiLayerNone": "ingen",
+      "sourceSetting": "Listen som er lagret her, brukes.",
+      "sourceEnvironment": "CHARON_TRUSTED_PROXIES fra miljøet brukes inntil du lagrer en liste her.",
+      "sourceDefault": "Standarden, bare loopback, brukes inntil du lagrer en liste her.",
+      "droppedEntries": "Ignorert fra CHARON_TRUSTED_PROXIES fordi de er ugyldige eller for brede: {{entries}}",
+      "saved": "Klarerte proxyer er lagret.",
+      "saveFailed": "Listen over klarerte proxyer kunne ikke lagres.",
+      "reset": "Tilbakestill til standard",
+      "resetDone": "Lagret liste er tømt. Listen fra miljøet eller standarden gjelder nå.",
+      "loadError": "Listen over klarerte proxyer kunne ikke lastes.",
+      "docsLink": "Slik angir du klarerte proxyer"
     }
   },
   "accessLists": {

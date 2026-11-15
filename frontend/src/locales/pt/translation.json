@@ -374,7 +374,10 @@
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
     "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "streamLimitReached": "Há conexões ao vivo demais abertas para a sua conta. Feche outra visualização ao vivo e tente novamente."
+    "streamLimitReached": "Há conexões ao vivo demais abertas para a sua conta. Feche outra visualização ao vivo e tente novamente.",
+    "trustedProxyInvalid": "\"{{entry}}\" não é um endereço IP nem um intervalo CIDR.",
+    "trustedProxyTooBroad": "\"{{entry}}\" abrange um intervalo demasiado amplo. Os intervalos IPv4 devem ser /8 ou mais estreitos, e os IPv6 /24 ou mais estreitos.",
+    "trustedProxiesTooMany": "A lista de proxies confiáveis tem no máximo 64 entradas."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -691,6 +694,25 @@
         "proxy_apply_failed": "O Charon não conseguiu aplicar a configuração do proxy.",
         "generic": "Algo deu errado. Tente novamente."
       }
+    },
+    "trustedProxies": {
+      "title": "Proxies confiáveis",
+      "description": "O Charon só usa o endereço de um visitante vindo de um proxy quando esse proxy está listado aqui. O loopback é sempre confiável.",
+      "fieldLabel": "Proxies confiáveis",
+      "fieldHint": "Um endereço IP ou intervalo CIDR por linha. Deixe vazio para confiar apenas no loopback.",
+      "alwaysTrusted": "Sempre confiáveis: {{entries}}",
+      "apiLayerNote": "A porta própria do Charon confia nos proxies definidos por CHARON_TRUSTED_PROXIES no servidor: {{entries}}. Altere-os lá.",
+      "apiLayerNone": "nenhum",
+      "sourceSetting": "Está a ser usada a lista guardada aqui.",
+      "sourceEnvironment": "Está a ser usado o CHARON_TRUSTED_PROXIES do ambiente até guardar uma lista aqui.",
+      "sourceDefault": "Está a ser usado o valor predefinido, apenas o loopback, até guardar uma lista aqui.",
+      "droppedEntries": "Ignorados de CHARON_TRUSTED_PROXIES por serem inválidos ou demasiado amplos: {{entries}}",
+      "saved": "Proxies confiáveis guardados.",
+      "saveFailed": "Não foi possível guardar a lista de proxies confiáveis.",
+      "reset": "Repor o valor predefinido",
+      "resetDone": "Lista guardada limpa. Passa a aplicar-se a do ambiente ou a predefinida.",
+      "loadError": "Não foi possível carregar a lista de proxies confiáveis.",
+      "docsLink": "Como definir proxies confiáveis"
     }
   },
   "accessLists": {

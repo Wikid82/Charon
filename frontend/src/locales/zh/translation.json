@@ -379,7 +379,10 @@
     "tooManyRequestsMinutes_one": "尝试次数过多。请等待 {{count}} 分钟后重试。",
     "tooManyRequestsMinutes_other": "尝试次数过多。请等待 {{count}} 分钟后重试。",
     "tooManyRequestsMinutes": "尝试次数过多。请等待 {{count}} 分钟后重试。",
-    "streamLimitReached": "您的账户打开的实时连接过多。请关闭另一个实时视图后重试。"
+    "streamLimitReached": "您的账户打开的实时连接过多。请关闭另一个实时视图后重试。",
+    "trustedProxyInvalid": "\"{{entry}}\" 不是 IP 地址或 CIDR 范围。",
+    "trustedProxyTooBroad": "\"{{entry}}\" 覆盖的范围过大。IPv4 范围必须为 /8 或更小，IPv6 范围必须为 /24 或更小。",
+    "trustedProxiesTooMany": "受信任的代理列表最多只能包含 64 个条目。"
   },
   "notifications": {
     "saveSuccess": "更改已成功保存",
@@ -716,6 +719,25 @@
         "proxy_apply_failed": "Charon 无法应用代理配置。",
         "generic": "出现错误。请重试。"
       }
+    },
+    "trustedProxies": {
+      "title": "受信任的代理",
+      "description": "只有在此处列出的代理转发的访问者地址才会被 Charon 采用。回环地址始终受信任。",
+      "fieldLabel": "受信任的代理",
+      "fieldHint": "每行填写一个 IP 地址或 CIDR 范围。留空则只信任回环地址。",
+      "alwaysTrusted": "始终信任：{{entries}}",
+      "apiLayerNote": "Charon 自身的端口信任服务器上 CHARON_TRUSTED_PROXIES 设置的代理：{{entries}}。请在服务器上修改。",
+      "apiLayerNone": "无",
+      "sourceSetting": "正在使用此处保存的列表。",
+      "sourceEnvironment": "在此处保存列表之前，使用环境变量 CHARON_TRUSTED_PROXIES。",
+      "sourceDefault": "在此处保存列表之前，使用默认设置（仅回环地址）。",
+      "droppedEntries": "CHARON_TRUSTED_PROXIES 中因无效或范围过宽而被忽略的条目：{{entries}}",
+      "saved": "已保存受信任的代理。",
+      "saveFailed": "无法保存受信任的代理列表。",
+      "reset": "恢复默认",
+      "resetDone": "已清除保存的列表。现在将应用环境变量中的列表或默认设置。",
+      "loadError": "无法加载受信任的代理列表。",
+      "docsLink": "如何设置受信任的代理"
     }
   },
   "accessLists": {

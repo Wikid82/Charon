@@ -310,3 +310,39 @@ describe('security API', () => {
     })
   })
 })
+
+describe('trusted proxies API', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  const response: security.TrustedProxiesResponse = {
+    proxies: ['10.0.0.0/8'],
+    source: 'setting',
+    dropped_entries: [],
+    always_trusted: ['127.0.0.1/32', '::1/128'],
+    api_layer: [],
+    warnings: [],
+  }
+
+  it('GETs /security/trusted-proxies', async () => {
+    vi.mocked(client.get).mockResolvedValue({ data: response })
+
+    await expect(security.getTrustedProxies()).resolves.toEqual(response)
+    expect(client.get).toHaveBeenCalledWith('/security/trusted-proxies')
+  })
+
+  it('PUTs the entries under proxies', async () => {
+    vi.mocked(client.put).mockResolvedValue({ data: response })
+
+    await expect(security.saveTrustedProxies(['10.0.0.0/8'])).resolves.toEqual(response)
+    expect(client.put).toHaveBeenCalledWith('/security/trusted-proxies', { proxies: ['10.0.0.0/8'] })
+  })
+
+  it('DELETEs /security/trusted-proxies to clear the saved list', async () => {
+    vi.mocked(client.delete).mockResolvedValue({ data: response })
+
+    await expect(security.resetTrustedProxies()).resolves.toEqual(response)
+    expect(client.delete).toHaveBeenCalledWith('/security/trusted-proxies')
+  })
+})

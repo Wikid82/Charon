@@ -379,7 +379,10 @@
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
     "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "streamLimitReached": "Too many live connections are open for your account. Close another live view, then try again."
+    "streamLimitReached": "Too many live connections are open for your account. Close another live view, then try again.",
+    "trustedProxyInvalid": "\"{{entry}}\" is not an IP address or CIDR range.",
+    "trustedProxyTooBroad": "\"{{entry}}\" covers too wide a range. IPv4 ranges must be /8 or narrower, and IPv6 ranges /24 or narrower.",
+    "trustedProxiesTooMany": "The trusted proxy list holds at most 64 entries."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -716,6 +719,25 @@
         "proxy_apply_failed": "Charon could not apply the proxy configuration.",
         "generic": "Something went wrong. Try again."
       }
+    },
+    "trustedProxies": {
+      "title": "Trusted proxies",
+      "description": "Charon uses a visitor's address from a proxy only when that proxy is listed here. Loopback is always trusted.",
+      "fieldLabel": "Trusted proxies",
+      "fieldHint": "One IP address or CIDR range per line. Leave it empty to trust loopback only.",
+      "alwaysTrusted": "Always trusted: {{entries}}",
+      "apiLayerNote": "Charon's own port trusts the proxies set by CHARON_TRUSTED_PROXIES on the server: {{entries}}. Change them there.",
+      "apiLayerNone": "none",
+      "sourceSetting": "Using the list saved here.",
+      "sourceEnvironment": "Using CHARON_TRUSTED_PROXIES from the environment until you save a list here.",
+      "sourceDefault": "Using the default, loopback only, until you save a list here.",
+      "droppedEntries": "Ignored from CHARON_TRUSTED_PROXIES because they are invalid or too broad: {{entries}}",
+      "saved": "Trusted proxies saved.",
+      "saveFailed": "The trusted proxy list could not be saved.",
+      "reset": "Reset to default",
+      "resetDone": "Saved list cleared. The environment list or the default applies now.",
+      "loadError": "The trusted proxy list could not be loaded.",
+      "docsLink": "How to set trusted proxies"
     }
   },
   "accessLists": {

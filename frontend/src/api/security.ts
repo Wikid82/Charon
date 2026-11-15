@@ -390,3 +390,58 @@ export const removeGeoIPDatabase = async (): Promise<GeoIPStatusChange> => {
   const response = await client.delete<GeoIPStatusChange>('/security/geoip/database')
   return response.data
 }
+
+/** Where the proxy layer's trusted list comes from: the saved setting, the environment, or the loopback default. */
+export type TrustedProxySource = 'setting' | 'environment' | 'default'
+
+/**
+ * Proxy-layer trust list (`/security/trusted-proxies`). Administrators receive every field. Other users receive
+ * `has_proxies` in place of the list fields, so `proxies` and the other list fields are absent for them.
+ */
+export interface TrustedProxiesResponse {
+  source: TrustedProxySource
+  /** Loopback addresses that are always trusted. */
+  always_trusted: string[]
+  /** Administrators only: the list in force, canonical CIDR text. */
+  proxies?: string[]
+  /** Administrators only: environment entries ignored because they are invalid or too broad. */
+  dropped_entries?: string[]
+  /** Administrators only: the list set by CHARON_TRUSTED_PROXIES for Charon's own port (read-only). */
+  api_layer?: string[]
+  /** Administrators only: passive notes about entries that are accepted but wide. */
+  warnings?: string[]
+  /** Non-administrators only: whether any proxy is configured. */
+  has_proxies?: boolean
+}
+
+/**
+ * Gets the proxy-layer trust list in force.
+ * @returns Promise resolving to TrustedProxiesResponse
+ * @throws {AxiosError} If the request fails
+ */
+export const getTrustedProxies = async (): Promise<TrustedProxiesResponse> => {
+  const response = await client.get<TrustedProxiesResponse>('/security/trusted-proxies')
+  return response.data
+}
+
+/**
+ * Replaces the saved trusted-proxy list (administrators only). An empty list trusts loopback only.
+ * @param proxies - Entries as typed; the server validates and canonicalises them
+ * @returns Promise resolving to the list now in force
+ * @throws {AxiosError} If the entries are refused (400) or the proxy cannot be reloaded (500)
+ */
+export const saveTrustedProxies = async (proxies: string[]): Promise<TrustedProxiesResponse> => {
+  const response = await client.put<TrustedProxiesResponse>('/security/trusted-proxies', { proxies })
+  return response.data
+}
+
+/**
+ * Clears the saved trusted-proxy list so the environment list or the loopback default applies again
+ * (administrators only).
+ * @returns Promise resolving to the list now in force
+ * @throws {AxiosError} If the proxy cannot be reloaded
+ */
+export const resetTrustedProxies = async (): Promise<TrustedProxiesResponse> => {
+  const response = await client.delete<TrustedProxiesResponse>('/security/trusted-proxies')
+  return response.data
+}

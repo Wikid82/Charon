@@ -379,7 +379,10 @@
     "tooManyRequestsMinutes_one": "Zu viele Versuche. Bitte warten Sie {{count}} Minute und versuchen Sie es erneut.",
     "tooManyRequestsMinutes_other": "Zu viele Versuche. Bitte warten Sie {{count}} Minuten und versuchen Sie es erneut.",
     "tooManyRequestsMinutes": "Zu viele Versuche. Bitte warten Sie {{count}} Minuten und versuchen Sie es erneut.",
-    "streamLimitReached": "Für Ihr Konto sind zu viele Live-Verbindungen geöffnet. Schließen Sie eine andere Live-Ansicht und versuchen Sie es erneut."
+    "streamLimitReached": "Für Ihr Konto sind zu viele Live-Verbindungen geöffnet. Schließen Sie eine andere Live-Ansicht und versuchen Sie es erneut.",
+    "trustedProxyInvalid": "\"{{entry}}\" ist keine IP-Adresse und kein CIDR-Bereich.",
+    "trustedProxyTooBroad": "\"{{entry}}\" umfasst einen zu großen Bereich. IPv4-Bereiche müssen /8 oder enger sein, IPv6-Bereiche /24 oder enger.",
+    "trustedProxiesTooMany": "Die Liste der vertrauenswürdigen Proxys darf höchstens 64 Einträge enthalten."
   },
   "notifications": {
     "saveSuccess": "Änderungen erfolgreich gespeichert",
@@ -716,6 +719,25 @@
         "proxy_apply_failed": "Charon konnte die Proxy-Konfiguration nicht anwenden.",
         "generic": "Etwas ist schiefgegangen. Versuchen Sie es erneut."
       }
+    },
+    "trustedProxies": {
+      "title": "Vertrauenswürdige Proxys",
+      "description": "Charon übernimmt die Adresse eines Besuchers von einem Proxy nur, wenn dieser Proxy hier aufgeführt ist. Loopback ist immer vertrauenswürdig.",
+      "fieldLabel": "Vertrauenswürdige Proxys",
+      "fieldHint": "Eine IP-Adresse oder ein CIDR-Bereich pro Zeile. Leer lassen, um nur Loopback zu vertrauen.",
+      "alwaysTrusted": "Immer vertraut: {{entries}}",
+      "apiLayerNote": "Der eigene Port von Charon vertraut den Proxys, die in CHARON_TRUSTED_PROXIES auf dem Server festgelegt sind: {{entries}}. Ändern Sie sie dort.",
+      "apiLayerNone": "keine",
+      "sourceSetting": "Es wird die hier gespeicherte Liste verwendet.",
+      "sourceEnvironment": "Es wird CHARON_TRUSTED_PROXIES aus der Umgebung verwendet, bis Sie hier eine Liste speichern.",
+      "sourceDefault": "Es gilt der Standard, nur Loopback, bis Sie hier eine Liste speichern.",
+      "droppedEntries": "Aus CHARON_TRUSTED_PROXIES ignoriert, weil ungültig oder zu weit gefasst: {{entries}}",
+      "saved": "Vertrauenswürdige Proxys gespeichert.",
+      "saveFailed": "Die Liste der vertrauenswürdigen Proxys konnte nicht gespeichert werden.",
+      "reset": "Auf Standard zurücksetzen",
+      "resetDone": "Gespeicherte Liste gelöscht. Jetzt gilt die Liste aus der Umgebung bzw. der Standard.",
+      "loadError": "Die Liste der vertrauenswürdigen Proxys konnte nicht geladen werden.",
+      "docsLink": "So legen Sie vertrauenswürdige Proxys fest"
     }
   },
   "accessLists": {

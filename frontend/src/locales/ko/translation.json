@@ -374,7 +374,10 @@
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
     "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "streamLimitReached": "계정에 열린 실시간 연결이 너무 많습니다. 다른 실시간 보기를 닫은 후 다시 시도하세요."
+    "streamLimitReached": "계정에 열린 실시간 연결이 너무 많습니다. 다른 실시간 보기를 닫은 후 다시 시도하세요.",
+    "trustedProxyInvalid": "\"{{entry}}\"은(는) IP 주소나 CIDR 범위가 아닙니다.",
+    "trustedProxyTooBroad": "\"{{entry}}\"은(는) 범위가 너무 넓습니다. IPv4 범위는 /8 이하, IPv6 범위는 /24 이하여야 합니다.",
+    "trustedProxiesTooMany": "신뢰하는 프록시 목록에는 최대 64개 항목만 넣을 수 있습니다."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -691,6 +694,25 @@
         "proxy_apply_failed": "Charon이 프록시 구성을 적용할 수 없습니다.",
         "generic": "문제가 발생했습니다. 다시 시도하세요."
       }
+    },
+    "trustedProxies": {
+      "title": "신뢰하는 프록시",
+      "description": "Charon은 프록시가 전달한 방문자 주소를 해당 프록시가 여기에 등록된 경우에만 사용합니다. 루프백은 항상 신뢰됩니다.",
+      "fieldLabel": "신뢰하는 프록시",
+      "fieldHint": "줄마다 IP 주소 또는 CIDR 범위 하나를 입력합니다. 비워 두면 루프백만 신뢰합니다.",
+      "alwaysTrusted": "항상 신뢰: {{entries}}",
+      "apiLayerNote": "Charon 자체 포트는 서버의 CHARON_TRUSTED_PROXIES에 설정된 프록시를 신뢰합니다: {{entries}}. 변경은 그곳에서 하세요.",
+      "apiLayerNone": "없음",
+      "sourceSetting": "여기에 저장된 목록을 사용 중입니다.",
+      "sourceEnvironment": "여기에서 목록을 저장하기 전까지는 환경의 CHARON_TRUSTED_PROXIES를 사용합니다.",
+      "sourceDefault": "여기에서 목록을 저장하기 전까지는 기본값(루프백만)을 사용합니다.",
+      "droppedEntries": "CHARON_TRUSTED_PROXIES에서 잘못되었거나 범위가 너무 넓어 무시된 항목: {{entries}}",
+      "saved": "신뢰하는 프록시를 저장했습니다.",
+      "saveFailed": "신뢰하는 프록시 목록을 저장할 수 없습니다.",
+      "reset": "기본값으로 재설정",
+      "resetDone": "저장된 목록을 지웠습니다. 이제 환경 설정 목록 또는 기본값이 적용됩니다.",
+      "loadError": "신뢰하는 프록시 목록을 불러올 수 없습니다.",
+      "docsLink": "신뢰하는 프록시 설정 방법"
     }
   },
   "accessLists": {
