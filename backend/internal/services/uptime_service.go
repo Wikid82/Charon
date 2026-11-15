@@ -238,7 +238,7 @@ func (s *UptimeService) SyncMonitors() error {
 			scheme = "https"
 		}
 		publicURL := fmt.Sprintf("%s://%s", scheme, firstDomain)
-		internalURL := fmt.Sprintf("%s:%d", host.ForwardHost, host.ForwardPort)
+		internalURL := net.JoinHostPort(host.ForwardHost, strconv.Itoa(host.ForwardPort))
 
 		// The upstream host for grouping is the ForwardHost
 		upstreamHost := host.ForwardHost
@@ -326,11 +326,11 @@ func (s *UptimeService) SyncMonitors() error {
 		err := s.DB.Where("remote_server_id = ?", server.ID).First(&monitor).Error
 
 		targetType := "tcp"
-		targetURL := fmt.Sprintf("%s:%d", server.Host, server.Port)
+		targetURL := net.JoinHostPort(server.Host, strconv.Itoa(server.Port))
 
 		if server.Scheme == "http" || server.Scheme == "https" {
 			targetType = server.Scheme
-			targetURL = fmt.Sprintf("%s://%s:%d", server.Scheme, server.Host, server.Port)
+			targetURL = server.Scheme + "://" + net.JoinHostPort(server.Host, strconv.Itoa(server.Port))
 		}
 
 		// The upstream host for grouping
@@ -1636,9 +1636,9 @@ func remoteServerMonitorTarget(server models.RemoteServer) (monitorType, monitor
 		return "orthrus", *server.OrthrusAgentUUID, true
 	}
 	if server.Scheme == "http" || server.Scheme == "https" {
-		return server.Scheme, fmt.Sprintf("%s://%s:%d", server.Scheme, server.Host, server.Port), true
+		return server.Scheme, server.Scheme + "://" + net.JoinHostPort(server.Host, strconv.Itoa(server.Port)), true
 	}
-	return "tcp", fmt.Sprintf("%s:%d", server.Host, server.Port), true
+	return "tcp", net.JoinHostPort(server.Host, strconv.Itoa(server.Port)), true
 }
 
 // createMonitorWithRetry creates an UptimeMonitor row, retrying with backoff

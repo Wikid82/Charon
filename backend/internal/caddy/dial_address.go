@@ -78,3 +78,11 @@ func parsePort(raw string) (int, error) {
 	}
 	return port, nil
 }
+
+// forwardDial returns the host:port dial string for a forward target. An IPv6
+// literal is bracketed, and a host already written in brackets is not bracketed
+// twice.
+func forwardDial(forwardHost string, port int) string {
+	host := strings.TrimPrefix(strings.TrimSuffix(strings.TrimSpace(forwardHost), "]"), "[")
+	return net.JoinHostPort(host, strconv.Itoa(port))
+}

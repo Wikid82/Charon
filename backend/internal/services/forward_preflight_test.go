@@ -326,3 +326,38 @@ func TestListenerTargetGuard_LiteralPolicyAndAdvancedDials(t *testing.T) {
 	_, err = guard.RefusesAdvancedDial("127.0.0.1:2000-2100")
 	assert.Error(t, err, "a database error is returned to the generator")
 }
+
+func TestAdvancedConfigTargets_BracketedIPv6Dials(t *testing.T) {
+	setHostSideAddrs(t)
+	isolateGatewayAddrs(t, nil)
+	resetEmergency(t)
+	useListenerSource(t, fakeListenerSource{})
+	cases := map[string]bool{
+		`{"upstreams":[{"dial":"[fd00:ec2::254]:80"}]}`: true,  // instance service stays refused
+		`{"upstreams":[{"dial":"[::1]:2019"}]}`:         true,  // reserved port on this machine
+		`{"upstreams":[{"dial":"[fd12::5]:8080"}]}`:     false, // unique local is allowed
+		`{"upstreams":[{"dial":"tcp/[fd12::5]:8080"}]}`: false,
+	}
+	for raw, refused := range cases {
+		db := setupProxyHostTestDB(t)
+		svc := NewProxyHostService(db)
+		host := &models.ProxyHost{UUID: "v6-" + strconvQuote(raw), DomainNames: "v6-" + strconvQuote(raw) + ".example.com", ForwardHost: "10.0.0.5", ForwardPort: 8080, AdvancedConfig: raw}
+		err := svc.CreateAs(host, true)
+		if refused {
+			assert.Error(t, err, raw)
+		} else {
+			assert.NoError(t, err, raw)
+		}
+	}
+}
+
+// strconvQuote gives a short, unique token for a test host name.
+func strconvQuote(raw string) string {
+	out := make([]byte, 0, len(raw))
+	for i := 0; i < len(raw); i++ {
+		if (raw[i] >= 'a' && raw[i] <= 'z') || (raw[i] >= '0' && raw[i] <= '9') {
+			out = append(out, raw[i])
+		}
+	}
+	return string(out)
+}
