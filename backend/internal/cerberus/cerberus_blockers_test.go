@@ -366,6 +366,8 @@ func TestBlocker2_ACLDenyNotificationInMiddleware(t *testing.T) {
 		IPRules: `[{"cidr":"10.0.0.0/8","description":"allow private network"}]`,
 	}
 	assert.NoError(t, db.Create(&acl).Error)
+	// The list protects Charon's own interface only when it is chosen as a management list.
+	assert.NoError(t, db.Create(&models.Setting{Key: "security.acl.management_lists", Value: `["test-acl"]`, Category: "security", Type: "json"}).Error)
 
 	// Create Cerberus instance
 	cfg := config.SecurityConfig{

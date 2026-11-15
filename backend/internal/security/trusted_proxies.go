@@ -299,9 +299,14 @@ func EffectiveTrustedProxies(stored *string, env []string) EffectiveTrust {
 
 // StrictClientAddr returns the visitor address the way Caddy's strict walk does when the connection peer is trusted:
 // the forwarded chain is read from the right and the first entry outside trusted is the visitor. Entries may carry a
-// port or an IPv6 zone, and unparsable entries are skipped. When every entry is trusted, the walk gives the peer.
+// port or an IPv6 zone, and unparsable entries are skipped. An untrusted peer is the client itself. When every entry
+// is trusted, the walk gives the peer.
 // The result is not unmapped, as Caddy does not unmap it either.
 func StrictClientAddr(peer netip.Addr, forwardedFor string, trusted []netip.Prefix) netip.Addr {
+	if !prefixesContain(trusted, peer) {
+		// Caddy reads no forwarded entry from an untrusted peer: the peer is the client.
+		return peer
+	}
 	parts := strings.Split(forwardedFor, ",")
 	for i := len(parts) - 1; i >= 0; i-- {
 		host := parts[i]

@@ -44,6 +44,14 @@ type SettingsHandler struct {
 	crowdsec      CrowdsecLifecycle
 	browserOrigin BrowserOriginRefresher
 	DataRoot      string
+	// aclMode is the static access-control mode of the configuration, used by the management lock-out guard.
+	aclMode string
+}
+
+// WithACLMode sets the static access-control mode the management lock-out guard reads when no runtime switch is stored.
+func (h *SettingsHandler) WithACLMode(mode string) *SettingsHandler {
+	h.aclMode = mode
+	return h
 }
 
 // WithCrowdsecLifecycle wires the CrowdSec lifecycle that the settings API drives. A typed-nil handler is not wired.
@@ -369,12 +377,15 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("Invalid admin_whitelist: %v", err)})
 			return
 		}
+		if refuseAdminAllowList(c, h.DB, h.aclMode, req.Value) {
+			return
+		}
 	}
 
 	// The module switches are written through the shared module writer, with the same proxy apply and restore as the
 	// toggle routes.
 	if req.Key == models.SecurityACLEnabledSettingKey {
-		if on, recognised := models.ParseModuleSettingValue(req.Value); recognised && on && !allowACLEnable(c, h.DB) {
+		if on, recognised := models.ParseModuleSettingValue(req.Value); recognised && on && !allowACLEnable(c, newManagementGuard(h.DB, h.aclMode)) {
 			return
 		}
 	}
@@ -541,6 +552,9 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 	}
 
 	adminWhitelist, hasAdminWhitelist := updates["security.admin_whitelist"]
+	if hasAdminWhitelist && refuseAdminAllowList(c, h.DB, h.aclMode, adminWhitelist) {
+		return
+	}
 
 	// Security switches (module keys and the Cerberus switch) must be true or false. They are refused here, before any write,
 	// and written through writeModuleToggle.
@@ -558,7 +572,7 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 	}
 
 	// Turning the ACL on from an address the admin allow-list excludes is refused before any write.
-	if on, found := switchValues[models.SecurityACLEnabledSettingKey]; found && on && !allowACLEnable(c, h.DB) {
+	if on, found := switchValues[models.SecurityACLEnabledSettingKey]; found && on && !allowACLEnable(c, newManagementGuard(h.DB, h.aclMode)) {
 		return
 	}
 

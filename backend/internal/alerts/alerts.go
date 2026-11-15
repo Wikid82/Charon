@@ -18,13 +18,19 @@ const KeyGeoIPUnavailable = "geoip_unavailable"
 // MaxAffectedLists is the most list names one alert carries. The total still counts them all.
 const MaxAffectedLists = 5
 
+// ScopeManagement marks an alert about the access lists that protect Charon's own interface.
+const ScopeManagement = "management"
+
 // Alert is one active condition shown to management users. Its JSON shape is the GET /notifications/alerts contract.
 type Alert struct {
 	Key                string                  `json:"key"`
 	Severity           models.NotificationType `json:"severity"`
 	AffectedLists      []string                `json:"affected_lists,omitempty"`
 	AffectedListsTotal int                     `json:"affected_lists_total,omitempty"`
-	DatabaseAvailable  *bool                   `json:"database_available,omitempty"`
+	// Scope names the part of the configuration the alert is about. It is "management" for Charon's own interface and
+	// empty for proxy hosts. Alerts with the same key but different scopes are kept apart.
+	Scope             string `json:"scope,omitempty"`
+	DatabaseAvailable *bool  `json:"database_available,omitempty"`
 }
 
 // Source reports one alert. ok is false when its condition does not hold. A returned error skips the source for this
@@ -42,21 +48,22 @@ func NewService(sources ...Source) *Service {
 }
 
 // Active returns the alerts whose sources report them. A failing source is logged and left out. When two sources give
-// the same key, the first one in order is kept. Errors skip only their own source. The result is sorted by severity
+// the same key and scope, the first one in order is kept. Errors skip only their own source. The result is sorted by severity
 // and then key, and is never nil.
 func (s *Service) Active(ctx context.Context) []Alert {
 	active := make([]Alert, 0, len(s.sources))
-	seen := make(map[string]bool, len(s.sources))
+	seen := make(map[alertIdentity]bool, len(s.sources))
 	for i, source := range s.sources {
 		alert, ok, err := source(ctx)
 		if err != nil {
 			logger.Log().WithError(err).WithField("source", i).Warn("Alert source failed; leaving its alert out")
 			continue
 		}
-		if !ok || seen[alert.Key] {
+		id := alertIdentity{key: alert.Key, scope: alert.Scope}
+		if !ok || seen[id] {
 			continue
 		}
-		seen[alert.Key] = true
+		seen[id] = true
 		active = append(active, capAffectedLists(alert))
 	}
 	sort.SliceStable(active, func(i, j int) bool {
@@ -100,4 +107,10 @@ func severityRank(severity models.NotificationType) int {
 	default:
 		return 4
 	}
+}
+
+// alertIdentity is what makes two alerts the same: the key and the scope.
+type alertIdentity struct {
+	key   string
+	scope string
 }

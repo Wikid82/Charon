@@ -18,16 +18,27 @@ import (
 
 const aclGuardRemoteAddr = "192.0.2.10"
 
-// aclGuardDB opens a migrated test database and seeds the default security config with the given admin allow-list.
-// A nil whitelist pointer leaves the default row absent.
+// aclGuardDB opens a migrated test database. A non-nil whitelist becomes an enabled allow-list chosen to protect
+// Charon's own interface, so enabling the ACL is judged against it. A nil whitelist chooses no list.
 func aclGuardDB(t *testing.T, whitelist *string) *gorm.DB {
 	t.Helper()
 	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}, &models.SecurityAudit{}))
-	if whitelist != nil {
-		require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName, Enabled: true, AdminWhitelist: *whitelist}).Error)
+	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.SecurityConfig{}, &models.SecurityAudit{}, &models.AccessList{}, &models.ProxyHost{}))
+	if whitelist != nil && *whitelist != "" {
+		acl := models.AccessList{UUID: "guard-list", Name: "guard", Type: "whitelist", Enabled: true, IPRules: aclGuardRules(*whitelist)}
+		require.NoError(t, db.Create(&acl).Error)
+		require.NoError(t, db.Create(&models.Setting{Key: "security.acl.management_lists", Value: `["guard-list"]`, Category: "security", Type: "json"}).Error)
 	}
 	return db
+}
+
+// aclGuardRules returns the IP rules JSON for a comma-separated list of CIDRs.
+func aclGuardRules(cidrs string) string {
+	parts := []string{}
+	for _, cidr := range strings.Split(cidrs, ",") {
+		parts = append(parts, `{"cidr":"`+strings.TrimSpace(cidr)+`"}`)
+	}
+	return "[" + strings.Join(parts, ",") + "]"
 }
 
 // aclGuardContext builds an admin request from the given remote address with an optional JSON body.
@@ -61,9 +72,7 @@ func TestACLEnableGuard_HelperAllowsWhenPolicyPermits(t *testing.T) {
 		whitelist *string
 		emergency bool
 	}{
-		{name: "no default row", whitelist: nil},
-		{name: "empty allow-list", whitelist: ptrString("")},
-		{name: "whitespace-only allow-list", whitelist: ptrString("   ")},
+		{name: "no management list chosen", whitelist: nil},
 		{name: "client address listed", whitelist: ptrString("192.0.2.0/24")},
 		{name: "emergency context with non-matching list", whitelist: ptrString("203.0.113.0/24"), emergency: true},
 	}
@@ -74,25 +83,37 @@ func TestACLEnableGuard_HelperAllowsWhenPolicyPermits(t *testing.T) {
 			if tt.emergency {
 				c.Set(middleware.EmergencyBypassContextKey, true)
 			}
-			assert.True(t, allowACLEnable(c, db))
+			assert.True(t, allowACLEnable(c, newManagementGuard(db, "")))
 			assert.Equal(t, http.StatusOK, w.Code, "helper must not write a response when allowing")
 		})
 	}
 }
 
-func TestACLEnableGuard_HelperRefusesOutsideAllowList(t *testing.T) {
+// TestACLEnableGuard_AdminAllowListAloneDoesNotRefuse: with no management list chosen, an admin allow-list that
+// excludes the caller does not stop the ACL from being turned on, because nothing on the interface is restricted.
+func TestACLEnableGuard_AdminAllowListAloneDoesNotRefuse(t *testing.T) {
+	db := aclGuardDB(t, nil)
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName, Enabled: true, AdminWhitelist: "203.0.113.0/24"}).Error)
+	c, w := aclGuardContext(t, http.MethodPost, "")
+	assert.True(t, allowACLEnable(c, newManagementGuard(db, "")))
+	assert.Equal(t, http.StatusOK, w.Code)
+}
+
+func TestACLEnableGuard_HelperRefusesOutsideManagementList(t *testing.T) {
 	db := aclGuardDB(t, ptrString("203.0.113.0/24"))
 	c, w := aclGuardContext(t, http.MethodPost, "")
-	assert.False(t, allowACLEnable(c, db))
+	assert.False(t, allowACLEnable(c, newManagementGuard(db, "")))
 	assert.Equal(t, http.StatusForbidden, w.Code)
-	assert.Contains(t, w.Body.String(), "admin IP not present in admin_whitelist")
+	assert.Contains(t, w.Body.String(), codeManagementLockout)
 }
 
 func TestACLEnableGuard_HelperReportsUnreadableConfig(t *testing.T) {
-	db := OpenTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.Setting{}))
+	db := aclGuardDB(t, nil)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	require.NoError(t, sqlDB.Close())
 	c, w := aclGuardContext(t, http.MethodPost, "")
-	assert.False(t, allowACLEnable(c, db))
+	assert.False(t, allowACLEnable(c, newManagementGuard(db, "")))
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
@@ -105,7 +126,7 @@ func TestACLEnableGuard_ToggleSecurityModule(t *testing.T) {
 		wantStatus int
 		wantStored string
 	}{
-		{name: "empty allow-list allows", whitelist: "", enable: true, wantStatus: http.StatusOK, wantStored: "true"},
+		{name: "no management list allows", whitelist: "", enable: true, wantStatus: http.StatusOK, wantStored: "true"},
 		{name: "client address listed allows", whitelist: "192.0.2.0/24", enable: true, wantStatus: http.StatusOK, wantStored: "true"},
 		{name: "client address not listed refuses", whitelist: "203.0.113.0/24", enable: true, wantStatus: http.StatusForbidden},
 		{name: "disabling is never refused", whitelist: "203.0.113.0/24", enable: false, wantStatus: http.StatusOK, wantStored: "false"},
@@ -141,7 +162,7 @@ func TestACLEnableGuard_UpdateSetting(t *testing.T) {
 		value      string
 		wantStatus int
 	}{
-		{name: "empty allow-list allows", whitelist: "", value: "true", wantStatus: http.StatusOK},
+		{name: "no management list allows", whitelist: "", value: "true", wantStatus: http.StatusOK},
 		{name: "client address listed allows", whitelist: "192.0.2.0/24", value: "true", wantStatus: http.StatusOK},
 		{name: "client address not listed refuses", whitelist: "203.0.113.0/24", value: "true", wantStatus: http.StatusForbidden},
 		{name: "disabling is never refused", whitelist: "203.0.113.0/24", value: "false", wantStatus: http.StatusOK},
@@ -173,7 +194,7 @@ func TestACLEnableGuard_PatchConfig(t *testing.T) {
 		value      string
 		wantStatus int
 	}{
-		{name: "empty allow-list allows", whitelist: "", value: "true", wantStatus: http.StatusOK},
+		{name: "no management list allows", whitelist: "", value: "true", wantStatus: http.StatusOK},
 		{name: "client address listed allows", whitelist: "192.0.2.0/24", value: "true", wantStatus: http.StatusOK},
 		{name: "client address not listed refuses", whitelist: "203.0.113.0/24", value: "true", wantStatus: http.StatusForbidden},
 		{name: "disabling is never refused", whitelist: "203.0.113.0/24", value: "false", wantStatus: http.StatusOK},

@@ -262,9 +262,13 @@ func TestSecurityHandler_GetStatus_IncludesLatestConfigApplyState(t *testing.T) 
 	assert.Equal(t, true, configApply["success"])
 }
 
-func TestSecurityHandler_PatchACL_RequiresAdminWhitelist(t *testing.T) {
+// TestSecurityHandler_PatchACL_RefusesWhenManagementListExcludesCaller: the ACL cannot be turned on from an address that a
+// list chosen to protect Charon's own interface would refuse.
+func TestSecurityHandler_PatchACL_RefusesWhenManagementListExcludesCaller(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
 	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", AdminWhitelist: "192.0.2.1/32"}).Error)
+	require.NoError(t, db.Create(&models.AccessList{UUID: "office", Name: "office", Type: "whitelist", Enabled: true, IPRules: `[{"cidr":"192.0.2.1/32"}]`}).Error)
+	require.NoError(t, db.Create(&models.Setting{Key: "security.acl.management_lists", Value: `["office"]`, Category: "security", Type: "json"}).Error)
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	t.Cleanup(handler.Close)

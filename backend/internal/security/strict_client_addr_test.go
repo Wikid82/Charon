@@ -35,6 +35,7 @@ func TestStrictClientAddr_CaddyVectors(t *testing.T) {
 		{"whitespace and empty entries", peer, " , 198.51.100.7 ,  ", "198.51.100.7"},
 		{"unparsable entries are skipped", peer, "198.51.100.7, bogus", "198.51.100.7"},
 		{"trusted entry with a port is still trusted", peer, "198.51.100.7, 10.0.0.5:80", "198.51.100.7"},
+		{"untrusted peer is the client", netip.MustParseAddr("198.51.100.9"), "203.0.113.5", "198.51.100.9"},
 		{"trusted IPv6 entry falls back to the peer", netip.MustParseAddr("::1"), "2001:db8:ffff::9", "::1"},
 	}
 	for _, tt := range tests {

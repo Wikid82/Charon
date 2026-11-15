@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/netip"
 	"strings"
 
 	"github.com/gin-gonic/gin"
@@ -33,8 +34,9 @@ var errTrustedProxyApplyFailed = errors.New("trusted proxy list: proxy apply fai
 // TrustedProxyHandler serves the proxy-layer trust list on the Security page. The list decides which peers may vouch
 // for the visitor's address at the proxy.
 type TrustedProxyHandler struct {
-	db    *gorm.DB
-	caddy CaddyConfigManager
+	db      *gorm.DB
+	caddy   CaddyConfigManager
+	aclMode string
 	// apiLayer is the CHARON_TRUSTED_PROXIES list read at start. It is shown read-only and also seeds the proxy layer
 	// until a list is saved.
 	apiLayer []string
@@ -42,8 +44,8 @@ type TrustedProxyHandler struct {
 
 // NewTrustedProxyHandler creates the trusted-proxy handler. caddy may be nil, in which case a saved list is stored
 // without a proxy apply.
-func NewTrustedProxyHandler(db *gorm.DB, caddy CaddyConfigManager, apiLayer []string) *TrustedProxyHandler {
-	return &TrustedProxyHandler{db: db, caddy: caddy, apiLayer: apiLayer}
+func NewTrustedProxyHandler(db *gorm.DB, caddy CaddyConfigManager, apiLayer []string, aclMode string) *TrustedProxyHandler {
+	return &TrustedProxyHandler{db: db, caddy: caddy, apiLayer: apiLayer, aclMode: aclMode}
 }
 
 type trustedProxiesRequest struct {
@@ -86,11 +88,17 @@ func (h *TrustedProxyHandler) Put(c *gin.Context) {
 		return
 	}
 	value := strings.Join(canonical, ",")
+	if h.refuseTrustChange(c, &value) {
+		return
+	}
 	h.saveAndRespond(c, &value)
 }
 
 // Delete removes the saved trust list, so the environment list or the loopback default applies again.
 func (h *TrustedProxyHandler) Delete(c *gin.Context) {
+	if h.refuseTrustChange(c, nil) {
+		return
+	}
 	h.saveAndRespond(c, nil)
 }
 
@@ -208,4 +216,30 @@ func nonNilStrings(s []string) []string {
 		return []string{}
 	}
 	return s
+}
+
+// refuseTrustChange judges a trust list change before it is saved. The caller address is recomputed under the list
+// that would be in force, so a change that stops trusting the caller's proxy cannot lock the caller out of a
+// management list. It returns true when the change was refused and the response written.
+func (h *TrustedProxyHandler) refuseTrustChange(c *gin.Context, stored *string) bool {
+	trust := security.EffectiveTrustedProxies(stored, h.apiLayer)
+	guard := newManagementGuard(h.db, h.aclMode)
+	st, err := guard.current(callerAddressUnder(c, parseTrustedRanges(trust.Ranges)))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check management access"})
+		return true
+	}
+	return guard.refuses(c, st)
+}
+
+// parseTrustedRanges returns the prefixes of the canonical trust ranges. Ranges that do not parse are skipped; the
+// canonical form always parses.
+func parseTrustedRanges(ranges []string) []netip.Prefix {
+	prefixes := make([]netip.Prefix, 0, len(ranges))
+	for _, r := range ranges {
+		if p, err := netip.ParsePrefix(r); err == nil {
+			prefixes = append(prefixes, p)
+		}
+	}
+	return prefixes
 }

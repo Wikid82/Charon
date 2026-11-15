@@ -89,7 +89,7 @@ func storedTrust(t *testing.T, db *gorm.DB) *string {
 
 func TestTrustedProxyGet_DefaultSource(t *testing.T) {
 	db := trustTestDB(t)
-	h := NewTrustedProxyHandler(db, nil, nil)
+	h := NewTrustedProxyHandler(db, nil, nil, "")
 	w := doTrust(t, trustRouter(t, h, string(models.RoleAdmin)), http.MethodGet, "")
 
 	require.Equal(t, http.StatusOK, w.Code)
@@ -102,7 +102,7 @@ func TestTrustedProxyGet_DefaultSource(t *testing.T) {
 
 func TestTrustedProxyGet_EnvironmentSourceShowsDroppedEntries(t *testing.T) {
 	db := trustTestDB(t)
-	h := NewTrustedProxyHandler(db, nil, []string{"172.18.0.5", "0.0.0.0/0"})
+	h := NewTrustedProxyHandler(db, nil, []string{"172.18.0.5", "0.0.0.0/0"}, "")
 	w := doTrust(t, trustRouter(t, h, string(models.RoleAdmin)), http.MethodGet, "")
 
 	require.Equal(t, http.StatusOK, w.Code)
@@ -117,7 +117,7 @@ func TestTrustedProxyGet_NonAdminIsRedacted(t *testing.T) {
 	db := trustTestDB(t)
 	value := "172.18.0.5/32"
 	require.NoError(t, models.WriteTrustedProxiesSetting(db, &value))
-	h := NewTrustedProxyHandler(db, nil, []string{"10.9.9.9"})
+	h := NewTrustedProxyHandler(db, nil, []string{"10.9.9.9"}, "")
 
 	w := doTrust(t, trustRouter(t, h, "user"), http.MethodGet, "")
 	require.Equal(t, http.StatusOK, w.Code)
@@ -133,7 +133,7 @@ func TestTrustedProxyGet_StoredInvalidReportsWarning(t *testing.T) {
 	db := trustTestDB(t)
 	value := "0.0.0.0/0"
 	require.NoError(t, models.WriteTrustedProxiesSetting(db, &value))
-	h := NewTrustedProxyHandler(db, nil, nil)
+	h := NewTrustedProxyHandler(db, nil, nil, "")
 
 	w := doTrust(t, trustRouter(t, h, string(models.RoleAdmin)), http.MethodGet, "")
 	require.Equal(t, http.StatusOK, w.Code)
@@ -148,14 +148,14 @@ func TestTrustedProxyGet_StorageErrorIs500(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	w := doTrust(t, trustRouter(t, NewTrustedProxyHandler(db, nil, nil), string(models.RoleAdmin)), http.MethodGet, "")
+	w := doTrust(t, trustRouter(t, NewTrustedProxyHandler(db, nil, nil, ""), string(models.RoleAdmin)), http.MethodGet, "")
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
 func TestTrustedProxyPut_SavesAndApplies(t *testing.T) {
 	db := trustTestDB(t)
 	applier := &trustApplier{}
-	h := NewTrustedProxyHandler(db, applier, nil)
+	h := NewTrustedProxyHandler(db, applier, nil, "")
 
 	w := doTrust(t, trustRouter(t, h, string(models.RoleAdmin)), http.MethodPut, `{"proxies":["172.18.0.5","fd00::5","172.18.0.5"]}`)
 
@@ -171,7 +171,7 @@ func TestTrustedProxyPut_SavesAndApplies(t *testing.T) {
 
 func TestTrustedProxyPut_EmptyListTrustsLoopbackOnly(t *testing.T) {
 	db := trustTestDB(t)
-	h := NewTrustedProxyHandler(db, nil, []string{"10.9.9.9"})
+	h := NewTrustedProxyHandler(db, nil, []string{"10.9.9.9"}, "")
 
 	w := doTrust(t, trustRouter(t, h, string(models.RoleAdmin)), http.MethodPut, `{"proxies":[]}`)
 
@@ -186,7 +186,7 @@ func TestTrustedProxyPut_EmptyListTrustsLoopbackOnly(t *testing.T) {
 
 func TestTrustedProxyPut_WarningsAreReturned(t *testing.T) {
 	db := trustTestDB(t)
-	h := NewTrustedProxyHandler(db, nil, nil)
+	h := NewTrustedProxyHandler(db, nil, nil, "")
 
 	w := doTrust(t, trustRouter(t, h, string(models.RoleAdmin)), http.MethodPut, `{"proxies":["10.0.0.0/8"]}`)
 
@@ -209,7 +209,7 @@ func TestTrustedProxyPut_RefusedEntries(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			db := trustTestDB(t)
 			applier := &trustApplier{}
-			w := doTrust(t, trustRouter(t, NewTrustedProxyHandler(db, applier, nil), string(models.RoleAdmin)), http.MethodPut, tt.body)
+			w := doTrust(t, trustRouter(t, NewTrustedProxyHandler(db, applier, nil, ""), string(models.RoleAdmin)), http.MethodPut, tt.body)
 
 			require.Equal(t, http.StatusBadRequest, w.Code)
 			body := decodeTrustBody(t, w)
@@ -230,14 +230,14 @@ func TestTrustedProxyPut_TooManyEntries(t *testing.T) {
 	raw, err := json.Marshal(trustedProxiesRequest{Proxies: entries})
 	require.NoError(t, err)
 
-	w := doTrust(t, trustRouter(t, NewTrustedProxyHandler(db, nil, nil), string(models.RoleAdmin)), http.MethodPut, string(raw))
+	w := doTrust(t, trustRouter(t, NewTrustedProxyHandler(db, nil, nil, ""), string(models.RoleAdmin)), http.MethodPut, string(raw))
 	require.Equal(t, http.StatusBadRequest, w.Code)
 	assert.Equal(t, codeTrustedProxiesTooMany, decodeTrustBody(t, w)["error_code"])
 }
 
 func TestTrustedProxyPut_MalformedBodyIs400(t *testing.T) {
 	db := trustTestDB(t)
-	w := doTrust(t, trustRouter(t, NewTrustedProxyHandler(db, nil, nil), string(models.RoleAdmin)), http.MethodPut, `{"proxies":`)
+	w := doTrust(t, trustRouter(t, NewTrustedProxyHandler(db, nil, nil, ""), string(models.RoleAdmin)), http.MethodPut, `{"proxies":`)
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
@@ -246,7 +246,7 @@ func TestTrustedProxyPut_ApplyFailureRestoresPreviousValue(t *testing.T) {
 	previous := "10.1.1.1/32"
 	require.NoError(t, models.WriteTrustedProxiesSetting(db, &previous))
 	applier := &trustApplier{err: errors.New("caddy refused")}
-	h := NewTrustedProxyHandler(db, applier, nil)
+	h := NewTrustedProxyHandler(db, applier, nil, "")
 
 	w := doTrust(t, trustRouter(t, h, string(models.RoleAdmin)), http.MethodPut, `{"proxies":["172.18.0.5"]}`)
 
@@ -260,7 +260,7 @@ func TestTrustedProxyPut_ApplyFailureRestoresPreviousValue(t *testing.T) {
 func TestTrustedProxyPut_ApplyFailureRemovesNewlyCreatedValue(t *testing.T) {
 	db := trustTestDB(t)
 	applier := &trustApplier{err: errors.New("caddy refused")}
-	h := NewTrustedProxyHandler(db, applier, nil)
+	h := NewTrustedProxyHandler(db, applier, nil, "")
 
 	w := doTrust(t, trustRouter(t, h, string(models.RoleAdmin)), http.MethodPut, `{"proxies":["172.18.0.5"]}`)
 
@@ -274,7 +274,7 @@ func TestTrustedProxyPut_StorageFailureIs500(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	w := doTrust(t, trustRouter(t, NewTrustedProxyHandler(db, nil, nil), string(models.RoleAdmin)), http.MethodPut, `{"proxies":["172.18.0.5"]}`)
+	w := doTrust(t, trustRouter(t, NewTrustedProxyHandler(db, nil, nil, ""), string(models.RoleAdmin)), http.MethodPut, `{"proxies":["172.18.0.5"]}`)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 }
 
@@ -283,7 +283,7 @@ func TestTrustedProxyDelete_RemovesSavedValue(t *testing.T) {
 	saved := "172.18.0.5/32"
 	require.NoError(t, models.WriteTrustedProxiesSetting(db, &saved))
 	applier := &trustApplier{}
-	h := NewTrustedProxyHandler(db, applier, []string{"10.9.9.9"})
+	h := NewTrustedProxyHandler(db, applier, []string{"10.9.9.9"}, "")
 
 	w := doTrust(t, trustRouter(t, h, string(models.RoleAdmin)), http.MethodDelete, "")
 
@@ -299,7 +299,7 @@ func TestTrustedProxyDelete_ApplyFailureRestoresValue(t *testing.T) {
 	db := trustTestDB(t)
 	saved := "172.18.0.5/32"
 	require.NoError(t, models.WriteTrustedProxiesSetting(db, &saved))
-	h := NewTrustedProxyHandler(db, &trustApplier{err: errors.New("caddy refused")}, nil)
+	h := NewTrustedProxyHandler(db, &trustApplier{err: errors.New("caddy refused")}, nil, "")
 
 	w := doTrust(t, trustRouter(t, h, string(models.RoleAdmin)), http.MethodDelete, "")
 
@@ -312,7 +312,7 @@ func TestTrustedProxyDelete_ApplyFailureRestoresValue(t *testing.T) {
 func TestTrustedProxyWrites_ForbiddenForNonAdmin(t *testing.T) {
 	db := trustTestDB(t)
 	applier := &trustApplier{}
-	r := trustRouter(t, NewTrustedProxyHandler(db, applier, nil), "user")
+	r := trustRouter(t, NewTrustedProxyHandler(db, applier, nil, ""), "user")
 
 	assert.Equal(t, http.StatusForbidden, doTrust(t, r, http.MethodPut, `{"proxies":["172.18.0.5"]}`).Code)
 	assert.Equal(t, http.StatusForbidden, doTrust(t, r, http.MethodDelete, "").Code)
@@ -322,7 +322,7 @@ func TestTrustedProxyWrites_ForbiddenForNonAdmin(t *testing.T) {
 
 func TestTrustedProxyPut_NoCaddyManagerStoresWithoutApply(t *testing.T) {
 	db := trustTestDB(t)
-	h := NewTrustedProxyHandler(db, nil, nil)
+	h := NewTrustedProxyHandler(db, nil, nil, "")
 
 	w := doTrust(t, trustRouter(t, h, string(models.RoleAdmin)), http.MethodPut, `{"proxies":["172.18.0.5"]}`)
 	require.Equal(t, http.StatusOK, w.Code)

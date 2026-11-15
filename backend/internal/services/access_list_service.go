@@ -20,6 +20,8 @@ var (
 	ErrInvalidIPAddress      = errors.New("invalid IP address or CIDR")
 	ErrInvalidCountryCode    = errors.New("invalid country code")
 	ErrAccessListInUse       = errors.New("access list is in use by proxy hosts")
+	// ErrAccessListManagementInUse refuses deleting a list that protects Charon's own interface.
+	ErrAccessListManagementInUse = errors.New("access list is used by Charon's own interface")
 	// ErrAccessListRulesRequired rejects an enabled allow-list that would admit nobody. A block-list
 	// with no rules is allowed because it blocks nobody.
 	ErrAccessListRulesRequired = errors.New("an enabled allow-list needs at least one IP rule or the local network option")
@@ -134,13 +136,19 @@ func (s *AccessListService) List() ([]models.AccessList, error) {
 }
 
 // Update updates an existing access list with validation
-func (s *AccessListService) Update(id uint, updates *models.AccessList) error {
+// ProposedUpdate returns the list as it would be after Update with updates, without saving it. Management guards judge
+// this state before the write.
+func (s *AccessListService) ProposedUpdate(id uint, updates *models.AccessList) (*models.AccessList, error) {
 	acl, err := s.GetByID(id)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	applyAccessListUpdates(acl, updates)
+	return acl, nil
+}
 
-	// Apply updates
+// applyAccessListUpdates copies the editable fields of updates onto acl.
+func applyAccessListUpdates(acl, updates *models.AccessList) {
 	acl.Name = updates.Name
 	acl.Description = updates.Description
 	acl.Type = updates.Type
@@ -148,6 +156,14 @@ func (s *AccessListService) Update(id uint, updates *models.AccessList) error {
 	acl.CountryCodes = updates.CountryCodes
 	acl.LocalNetworkOnly = updates.LocalNetworkOnly
 	acl.Enabled = updates.Enabled
+}
+
+// Update saves the editable fields of the list with the given ID after validation.
+func (s *AccessListService) Update(id uint, updates *models.AccessList) error {
+	acl, err := s.ProposedUpdate(id, updates)
+	if err != nil {
+		return err
+	}
 
 	if err := s.validateAccessList(acl); err != nil {
 		return err
@@ -157,8 +173,18 @@ func (s *AccessListService) Update(id uint, updates *models.AccessList) error {
 	return s.db.Save(acl).Error
 }
 
-// InUse reports whether any proxy host uses the access list, so its rules are part of the proxy config.
+// InUse reports whether the access list is part of a configuration: a proxy host uses it, or it protects Charon's own
+// interface (see ManagementUses).
 func (s *AccessListService) InUse(id uint) (bool, error) {
+	proxyUse, err := s.proxyUses(id)
+	if err != nil || proxyUse {
+		return proxyUse, err
+	}
+	return s.ManagementUses(id)
+}
+
+// proxyUses reports whether any proxy host uses the access list.
+func (s *AccessListService) proxyUses(id uint) (bool, error) {
 	var count int64
 	if err := s.db.Model(&models.ProxyHost{}).Where("access_list_id = ?", id).Count(&count).Error; err != nil {
 		return false, fmt.Errorf("count proxy hosts using access list %d: %w", id, err)
@@ -166,14 +192,42 @@ func (s *AccessListService) InUse(id uint) (bool, error) {
 	return count > 0, nil
 }
 
-// Delete deletes an access list if not in use
+// ManagementUses reports whether the access list is in the management set. A missing list is not in use.
+func (s *AccessListService) ManagementUses(id uint) (bool, error) {
+	acl, err := s.GetByID(id)
+	if errors.Is(err, ErrAccessListNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	uuids, err := ManagementListUUIDs(s.db)
+	if err != nil {
+		return false, err
+	}
+	for _, uuid := range uuids {
+		if uuid == acl.UUID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// Delete deletes an access list if no configuration uses it.
 func (s *AccessListService) Delete(id uint) error {
-	inUse, err := s.InUse(id)
+	proxyUse, err := s.proxyUses(id)
 	if err != nil {
 		return err
 	}
-	if inUse {
+	if proxyUse {
 		return ErrAccessListInUse
+	}
+	managed, err := s.ManagementUses(id)
+	if err != nil {
+		return err
+	}
+	if managed {
+		return ErrAccessListManagementInUse
 	}
 
 	result := s.db.Delete(&models.AccessList{}, id)

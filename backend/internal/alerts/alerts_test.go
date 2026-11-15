@@ -119,3 +119,23 @@ func TestConstants(t *testing.T) {
 	assert.Equal(t, "geoip_unavailable", KeyGeoIPUnavailable)
 	assert.Equal(t, 5, MaxAffectedLists)
 }
+
+// TestActive_SameKeyDifferentScopeAreBothKept: alerts with one key but different scopes are separate alerts; the same key
+// and scope still keeps only the first source.
+func TestActive_SameKeyDifferentScopeAreBothKept(t *testing.T) {
+	proxy := func(context.Context) (Alert, bool, error) {
+		return Alert{Key: KeyGeoIPUnavailable, Severity: models.NotificationTypeError, AffectedLists: []string{"site"}}, true, nil
+	}
+	management := func(context.Context) (Alert, bool, error) {
+		return Alert{Key: KeyGeoIPUnavailable, Scope: ScopeManagement, Severity: models.NotificationTypeError, AffectedLists: []string{"office"}}, true, nil
+	}
+	duplicate := func(context.Context) (Alert, bool, error) {
+		return Alert{Key: KeyGeoIPUnavailable, Severity: models.NotificationTypeError, AffectedLists: []string{"other"}}, true, nil
+	}
+
+	active := NewService(proxy, management, duplicate).Active(context.Background())
+	require.Len(t, active, 2)
+	assert.Empty(t, active[0].Scope)
+	assert.Equal(t, ScopeManagement, active[1].Scope)
+	assert.Equal(t, []string{"site"}, active[0].AffectedLists)
+}
