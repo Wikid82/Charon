@@ -114,8 +114,12 @@ type Server struct {
 	AutoHTTPS      *AutoHTTPSConfig `json:"automatic_https,omitempty"`
 	Logs           *ServerLogs      `json:"logs,omitempty"`
 	TrustedProxies *TrustedProxies  `json:"trusted_proxies,omitempty"`
-	KeepaliveIdle  *string          `json:"keepalive_idle,omitempty"`
-	KeepaliveCount *int             `json:"keepalive_count,omitempty"`
+	// TrustedProxiesStrict makes the client address the rightmost untrusted forwarded entry (Caddy strict walk).
+	TrustedProxiesStrict int `json:"trusted_proxies_strict,omitempty"`
+	// ClientIPHeaders names the request headers that carry the client address when the peer is trusted.
+	ClientIPHeaders []string `json:"client_ip_headers,omitempty"`
+	KeepaliveIdle   *string  `json:"keepalive_idle,omitempty"`
+	KeepaliveCount  *int     `json:"keepalive_count,omitempty"`
 }
 
 // TrustedProxies defines the module for configuring trusted proxy IP ranges.

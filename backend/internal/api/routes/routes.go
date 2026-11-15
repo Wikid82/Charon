@@ -1027,6 +1027,11 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		securityAdmin.DELETE("/geoip/database", securityHandler.RemoveGeoIPDatabase)
 		securityAdmin.POST("/waf/exclusions", securityHandler.AddWAFExclusion)
 		securityAdmin.DELETE("/waf/exclusions/:rule_id", securityHandler.DeleteWAFExclusion)
+		// Proxy-layer trust list: read by management, changed by administrators only.
+		trustedProxyHandler := handlers.NewTrustedProxyHandler(db, caddyManager, cfg.Security.TrustedProxies)
+		management.GET("/security/trusted-proxies", trustedProxyHandler.Get)
+		securityAdmin.PUT("/trusted-proxies", trustedProxyHandler.Put)
+		securityAdmin.DELETE("/trusted-proxies", trustedProxyHandler.Delete)
 
 		// Security module enable/disable endpoints (granular control)
 		securityAdmin.POST("/acl/enable", securityHandler.EnableACL)

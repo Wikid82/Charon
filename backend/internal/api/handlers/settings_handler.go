@@ -150,10 +150,19 @@ func (h *SettingsHandler) GetSettings(c *gin.Context) {
 // settable through its dedicated endpoints.
 var internalSettingPrefixes = []string{"migration.", "maintenance."}
 
+// internalSettingKeys lists exact keys reserved for server-managed rows: the trusted proxy list and the access lists that
+// protect Charon's own interface. They are hidden and refused like the prefixes above.
+var internalSettingKeys = []string{security.TrustedProxiesSettingKey, security.ManagementListsSettingKey}
+
 // isInternalSettingKey reports whether key is reserved. It matches on the
 // normalized key prefix only, never on the client-supplied Category.
 func isInternalSettingKey(key string) bool {
 	normalized := strings.ToLower(strings.TrimSpace(key))
+	for _, reserved := range internalSettingKeys {
+		if normalized == reserved {
+			return true
+		}
+	}
 	for _, prefix := range internalSettingPrefixes {
 		if strings.HasPrefix(normalized, prefix) {
 			return true

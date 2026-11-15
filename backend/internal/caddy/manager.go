@@ -21,6 +21,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/security/selfhop"
 )
 
@@ -527,6 +528,9 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		geoPath, geoAvailable := m.geoIPState()
 		genOpts = append(genOpts, WithGeoIPDatabase(geoPath, geoAvailable))
 	}
+	if ranges, ok := m.trustedProxyRanges(); ok {
+		genOpts = append(genOpts, WithTrustedProxies(ranges))
+	}
 
 	generatedConfig, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, effectiveProvider, effectiveStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, &secCfg, dnsProviderConfigs, genOpts...)
 	if err != nil {
@@ -835,4 +839,22 @@ func logModuleReadError(module string, err error) {
 		return
 	}
 	logger.Log().WithError(err).WithField("module", module).Warn("Failed to read security module setting, using the default SecurityConfig row or static configuration")
+}
+
+// trustedProxyRanges returns the proxy-layer trust list the operator saved. ok is false when nothing was saved, and
+// the generated config then keeps the legacy private ranges.
+func (m *Manager) trustedProxyRanges() ([]string, bool) {
+	stored, err := models.ReadTrustedProxiesSetting(m.db)
+	if err != nil {
+		logger.Log().WithError(err).Warn("Could not read the trusted proxy setting; keeping the legacy ranges")
+		return nil, false
+	}
+	if stored == nil {
+		return nil, false
+	}
+	trust := security.EffectiveTrustedProxies(stored, nil)
+	if trust.StoredError != nil {
+		logger.Log().WithError(trust.StoredError).Warn("Saved trusted proxy list no longer validates; only loopback is trusted until it is saved again")
+	}
+	return trust.Ranges, true
 }

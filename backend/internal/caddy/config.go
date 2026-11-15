@@ -799,20 +799,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		autoHTTPS.Skip = append(autoHTTPS.Skip, ipSubjects...)
 	}
 
-	// Configure trusted proxies for proper client IP detection from X-Forwarded-For headers
-	// This is required for CrowdSec bouncer to correctly identify and block real client IPs
-	// when running behind Docker networks, reverse proxies, or CDNs
-	// Reference: https://caddyserver.com/docs/json/apps/http/servers/#trusted_proxies
-	trustedProxies := &TrustedProxies{
-		Source: "static",
-		Ranges: []string{
-			"127.0.0.1/32",   // Localhost
-			"::1/128",        // IPv6 localhost
-			"172.16.0.0/12",  // Docker bridge networks (172.16-31.x.x)
-			"10.0.0.0/8",     // Private network
-			"192.168.0.0/16", // Private network
-		},
-	}
+	trustedProxies := trustedProxiesFor(resolvedOpts.trustedProxies)
 
 	config.Apps.HTTP.Servers["charon_server"] = &Server{
 		Listen:         []string{":80", ":443"},
@@ -1865,4 +1852,23 @@ func dedupeDomains(domains []string) []string {
 		}
 	}
 	return result
+}
+
+// trustedProxiesFor returns the server's trusted-proxy block. configured is the operator's trust list (loopback
+// included); nil keeps the legacy private ranges. Caddy reads forwarded client addresses only from these peers.
+// Reference: https://caddyserver.com/docs/json/apps/http/servers/#trusted_proxies
+func trustedProxiesFor(configured []string) *TrustedProxies {
+	if configured != nil {
+		return &TrustedProxies{Source: "static", Ranges: configured}
+	}
+	return &TrustedProxies{
+		Source: "static",
+		Ranges: []string{
+			"127.0.0.1/32",   // Localhost
+			"::1/128",        // IPv6 localhost
+			"172.16.0.0/12",  // Docker bridge networks (172.16-31.x.x)
+			"10.0.0.0/8",     // Private network
+			"192.168.0.0/16", // Private network
+		},
+	}
 }
