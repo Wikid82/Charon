@@ -182,7 +182,9 @@
     "bulkApplySecurityHeaders": "Sicherheitsheader-Profil",
     "bulkApplySecurityHeadersHelp": "Ein Sicherheitsheader-Profil auf alle ausgewählten Hosts anwenden",
     "noSecurityProfile": "Keine (Profil entfernen)",
-    "removeSecurityHeadersWarning": "Dies entfernt das Sicherheitsheader-Profil von allen ausgewählten Hosts und kann deren Sicherheitslage verringern."
+    "removeSecurityHeadersWarning": "Dies entfernt das Sicherheitsheader-Profil von allen ausgewählten Hosts und kann deren Sicherheitslage verringern.",
+    "notInActiveConfig": "Nicht in der aktiven Konfiguration",
+    "notInActiveConfigHint": "Sein Weiterleitungsziel ist nicht zulässig und benötigt eine andere Adresse."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -385,7 +387,10 @@
     "trustedProxiesTooMany": "Die Liste der vertrauenswürdigen Proxys darf höchstens 64 Einträge enthalten.",
     "managementListUnknown": "Eine der gewählten Zugriffslisten existiert nicht mehr. Laden Sie die Seite neu und wählen Sie erneut.",
     "managementAccessWouldLockOut": "Dadurch würden Sie sich von Charon aussperren. Fügen Sie zuerst Ihre Adresse der Admin-Erlaubnisliste hinzu oder wählen Sie eine Liste, die Sie zulässt.",
-    "accessListInvalid": "Diese Zugriffsliste kann die eigene Oberfläche von Charon nicht schützen. Prüfen Sie ihre Regeln und versuchen Sie es erneut."
+    "accessListInvalid": "Diese Zugriffsliste kann die eigene Oberfläche von Charon nicht schützen. Prüfen Sie ihre Regeln und versuchen Sie es erneut.",
+    "forwardTargetRefused": "Dieses Weiterleitungsziel ist nicht zulässig.",
+    "destinationRefused": "Dieses Ziel ist nicht zulässig.",
+    "connectionTestFailed": "Verbindung zum Ziel konnte nicht hergestellt werden."
   },
   "notifications": {
     "saveSuccess": "Änderungen erfolgreich gespeichert",
@@ -978,7 +983,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus-Agent-UUID",
-    "enabled": "Aktiviert"
+    "enabled": "Aktiviert",
+    "testLatency": "Erreichbar in {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Benachrichtigungsanbieter",

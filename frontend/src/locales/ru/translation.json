@@ -177,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Не входит в активную конфигурацию",
+    "notInActiveConfigHint": "Цель переадресации не разрешена, нужен другой адрес."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -380,7 +382,10 @@
     "trustedProxiesTooMany": "Список доверенных прокси может содержать не более 64 записей.",
     "managementListUnknown": "Один из выбранных списков доступа больше не существует. Перезагрузите страницу и выберите снова.",
     "managementAccessWouldLockOut": "Это заблокирует ваш доступ к Charon. Сначала добавьте свой адрес в список разрешённых администратора или выберите список, который вас пропускает.",
-    "accessListInvalid": "Этот список доступа не может защитить собственный интерфейс Charon. Проверьте его правила и попробуйте снова."
+    "accessListInvalid": "Этот список доступа не может защитить собственный интерфейс Charon. Проверьте его правила и попробуйте снова.",
+    "forwardTargetRefused": "Этот адрес переадресации не разрешён.",
+    "destinationRefused": "Этот адрес назначения не разрешён.",
+    "connectionTestFailed": "Не удалось подключиться к цели."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -939,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Доступно за {{ms}} мс"
   },
   "notificationProviders": {
     "title": "Notification Providers",

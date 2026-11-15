@@ -177,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Không có trong cấu hình đang hoạt động",
+    "notInActiveConfigHint": "Đích chuyển tiếp của mục này không được phép và cần một địa chỉ khác."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -380,7 +382,10 @@
     "trustedProxiesTooMany": "Danh sách máy chủ proxy đáng tin cậy tối đa 64 mục.",
     "managementListUnknown": "Một trong các danh sách truy cập đã chọn không còn tồn tại. Hãy tải lại trang và chọn lại.",
     "managementAccessWouldLockOut": "Việc này sẽ khóa bạn ra khỏi Charon. Hãy thêm địa chỉ của bạn vào danh sách cho phép của quản trị viên trước, hoặc chọn danh sách cho phép bạn truy cập.",
-    "accessListInvalid": "Danh sách truy cập này không thể bảo vệ giao diện riêng của Charon. Hãy kiểm tra các quy tắc rồi thử lại."
+    "accessListInvalid": "Danh sách truy cập này không thể bảo vệ giao diện riêng của Charon. Hãy kiểm tra các quy tắc rồi thử lại.",
+    "forwardTargetRefused": "Đích chuyển tiếp này không được phép.",
+    "destinationRefused": "Đích này không được phép.",
+    "connectionTestFailed": "Không thể kết nối tới đích."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -939,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Truy cập được sau {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Notification Providers",

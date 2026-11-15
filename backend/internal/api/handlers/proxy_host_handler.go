@@ -75,9 +75,24 @@ type ProxyHostResponse struct {
 // read. Other callers receive has_advanced_config in their place.
 var proxyHostRedactedFields = []string{"advanced_config", "advanced_config_backup"}
 
-// proxyHostFlags derives the response flags for a proxy host model.
+// proxyHostFlags derives the response flags for a proxy host model. No host is
+// marked as left out of the configuration.
 func proxyHostFlags(host models.ProxyHost) map[string]any {
-	return map[string]any{"has_advanced_config": host.AdvancedConfig != ""}
+	return proxyHostFlagsWith(nil)(host)
+}
+
+// proxyHostFlagsWith returns the flag derivation for lists and details. A host in
+// leftOut, which the last successful apply left out of the configuration, gets
+// active_config false. Other hosts get no such key, and clients read a missing
+// key as active.
+func proxyHostFlagsWith(leftOut map[string]struct{}) func(models.ProxyHost) map[string]any {
+	return func(host models.ProxyHost) map[string]any {
+		flags := map[string]any{"has_advanced_config": host.AdvancedConfig != ""}
+		if _, out := leftOut[host.UUID]; out {
+			flags["active_config"] = false
+		}
+		return flags
+	}
 }
 
 // proxyHostResponseFlags derives the response flags for a ProxyHostResponse.
@@ -442,7 +457,7 @@ func (h *ProxyHostHandler) List(c *gin.Context) {
 		return
 	}
 
-	jsonListForRole(c, http.StatusOK, hosts, proxyHostRedactedFields, proxyHostFlags)
+	jsonListForRole(c, http.StatusOK, hosts, proxyHostRedactedFields, proxyHostFlagsWith(h.caddyManager.LeftOutHostUUIDs()))
 }
 
 // Create creates a new proxy host.
@@ -603,7 +618,7 @@ func (h *ProxyHostHandler) Get(c *gin.Context) {
 		return
 	}
 
-	jsonForRole(c, http.StatusOK, *host, proxyHostRedactedFields, proxyHostFlags)
+	jsonForRole(c, http.StatusOK, *host, proxyHostRedactedFields, proxyHostFlagsWith(h.caddyManager.LeftOutHostUUIDs()))
 }
 
 // Update updates an existing proxy host.

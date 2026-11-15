@@ -177,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Není v aktivní konfiguraci",
+    "notInActiveConfigHint": "Jeho cíl přesměrování není povolen a potřebuje jinou adresu."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -380,7 +382,10 @@
     "trustedProxiesTooMany": "Seznam důvěryhodných proxy může obsahovat nejvýše 64 položek.",
     "managementListUnknown": "Jeden z vybraných seznamů přístupu už neexistuje. Načtěte stránku znovu a vyberte.",
     "managementAccessWouldLockOut": "Tímto byste se odstranili z přístupu k Charonu. Nejprve přidejte svou adresu do seznamu povolených administrátorů, nebo zvolte seznam, který vás povoluje.",
-    "accessListInvalid": "Tento seznam přístupu nemůže chránit vlastní rozhraní Charonu. Zkontrolujte jeho pravidla a zkuste to znovu."
+    "accessListInvalid": "Tento seznam přístupu nemůže chránit vlastní rozhraní Charonu. Zkontrolujte jeho pravidla a zkuste to znovu.",
+    "forwardTargetRefused": "Tento cíl přesměrování není povolen.",
+    "destinationRefused": "Tento cíl není povolen.",
+    "connectionTestFailed": "Nepodařilo se připojit k cíli."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -939,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Dostupné za {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Notification Providers",

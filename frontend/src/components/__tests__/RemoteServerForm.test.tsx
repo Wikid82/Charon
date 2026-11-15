@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, fireEvent, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { AxiosError, type AxiosResponse } from 'axios'
 import { MemoryRouter } from 'react-router'
 import { describe, it, expect, vi, afterEach } from 'vitest'
 
@@ -316,7 +317,7 @@ describe('RemoteServerForm', () => {
     await userEvent.click(screen.getByText('Test Connection'))
 
     await waitFor(() => {
-      expect(screen.getByText(/Connection failed.*Timeout/)).toBeInTheDocument()
+      expect(screen.getByText('Could not connect to the target.')).toBeInTheDocument()
     })
   })
 
@@ -512,6 +513,58 @@ describe('RemoteServerForm', () => {
     expect(screen.getByRole('radio', { name: /agent/i })).toBeChecked()
     expect(document.getElementById('cts-agent')).not.toBeNull()
   })
+  it('shows the real latency after a reachable test', async () => {
+    vi.mocked(remoteServersApi.testCustomRemoteServerConnection).mockResolvedValueOnce({
+      reachable: true,
+      latency_ms: 42,
+      address: 'localhost:5000',
+    })
+
+    renderForm({ server: {
+      uuid: '123',
+      name: 'Test Server',
+      provider: 'docker',
+      host: 'localhost',
+      port: 5000,
+      enabled: true,
+      reachable: true,
+      created_at: '2025-11-18T10:00:00Z',
+      updated_at: '2025-11-18T10:00:00Z',
+    } })
+
+    await userEvent.click(screen.getByText('Test Connection'))
+
+    expect(await screen.findByTestId('remote-server-test-latency')).toHaveTextContent('Reachable in 42 ms')
+  })
+
+  it('shows the wait message when the connection test is throttled', async () => {
+    const response = {
+      status: 429,
+      statusText: '',
+      headers: { 'retry-after': '30' },
+      config: {},
+      data: {},
+    } as unknown as AxiosResponse
+    vi.mocked(remoteServersApi.testCustomRemoteServerConnection).mockRejectedValueOnce(
+      new AxiosError('Request failed with status code 429', 'ERR_BAD_REQUEST', undefined, undefined, response),
+    )
+
+    renderForm({ server: {
+      uuid: '123',
+      name: 'Test Server',
+      provider: 'docker',
+      host: 'localhost',
+      port: 5000,
+      enabled: true,
+      reachable: true,
+      created_at: '2025-11-18T10:00:00Z',
+      updated_at: '2025-11-18T10:00:00Z',
+    } })
+
+    await userEvent.click(screen.getByText('Test Connection'))
+
+    expect(await screen.findByText('Too many attempts. Please wait 30 seconds and try again.')).toBeInTheDocument()
+  })
 })
 
 describe('RemoteServerForm re-seeding', () => {
@@ -565,4 +618,5 @@ describe('RemoteServerForm re-seeding', () => {
     expect(screen.getByPlaceholderText('My Production Server')).toHaveValue('')
     expect(screen.queryByDisplayValue('Server A')).not.toBeInTheDocument()
   })
+
 })

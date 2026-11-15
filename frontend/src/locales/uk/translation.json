@@ -177,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Немає в активній конфігурації",
+    "notInActiveConfigHint": "Ціль переадресації не дозволена, потрібна інша адреса."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -380,7 +382,10 @@
     "trustedProxiesTooMany": "Список довірених проксі може містити не більше 64 записів.",
     "managementListUnknown": "Один із вибраних списків доступу більше не існує. Перезавантажте сторінку та виберіть знову.",
     "managementAccessWouldLockOut": "Це заблокує ваш доступ до Charon. Спочатку додайте свою адресу до списку дозволених адміністратора або виберіть список, який вас пропускає.",
-    "accessListInvalid": "Цей список доступу не може захистити власний інтерфейс Charon. Перевірте його правила та спробуйте знову."
+    "accessListInvalid": "Цей список доступу не може захистити власний інтерфейс Charon. Перевірте його правила та спробуйте знову.",
+    "forwardTargetRefused": "Ця ціль переадресації не дозволена.",
+    "destinationRefused": "Ця адреса призначення не дозволена.",
+    "connectionTestFailed": "Не вдалося підключитися до цілі."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -939,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Доступно за {{ms}} мс"
   },
   "notificationProviders": {
     "title": "Notification Providers",

@@ -177,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Ikke i den aktive konfigurasjonen",
+    "notInActiveConfigHint": "Videresendingsmålet er ikke tillatt og trenger en annen adresse."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -380,7 +382,10 @@
     "trustedProxiesTooMany": "Listen over klarerte proxyer kan ha høyst 64 oppføringer.",
     "managementListUnknown": "En av de valgte tilgangslistene finnes ikke lenger. Last siden på nytt og velg igjen.",
     "managementAccessWouldLockOut": "Dette ville låse deg ute av Charon. Legg først til adressen din på admin-tillatelseslisten, eller velg en liste som tillater deg.",
-    "accessListInvalid": "Denne tilgangslisten kan ikke beskytte Charons eget grensesnitt. Sjekk reglene og prøv igjen."
+    "accessListInvalid": "Denne tilgangslisten kan ikke beskytte Charons eget grensesnitt. Sjekk reglene og prøv igjen.",
+    "forwardTargetRefused": "Dette videresendingsmålet er ikke tillatt.",
+    "destinationRefused": "Denne destinasjonen er ikke tillatt.",
+    "connectionTestFailed": "Kunne ikke koble til målet."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -939,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Kan nås på {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Notification Providers",

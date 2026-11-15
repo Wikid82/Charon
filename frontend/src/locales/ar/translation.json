@@ -177,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "ليس ضمن الإعداد النشط",
+    "notInActiveConfigHint": "هدف التوجيه الخاص به غير مسموح به ويحتاج إلى عنوان آخر."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -380,7 +382,10 @@
     "trustedProxiesTooMany": "تحتوي قائمة الوكلاء الموثوقين على 64 مدخلًا كحد أقصى.",
     "managementListUnknown": "لم تعد إحدى قوائم الوصول المختارة موجودة. أعد تحميل الصفحة واختر من جديد.",
     "managementAccessWouldLockOut": "سيؤدي هذا إلى منعك من الوصول إلى Charon. أضف عنوانك إلى قائمة السماح للمسؤول أولًا، أو اختر قائمة تسمح لك.",
-    "accessListInvalid": "لا يمكن لقائمة الوصول هذه حماية الواجهة الخاصة بـ Charon. تحقق من قواعدها ثم حاول مرة أخرى."
+    "accessListInvalid": "لا يمكن لقائمة الوصول هذه حماية الواجهة الخاصة بـ Charon. تحقق من قواعدها ثم حاول مرة أخرى.",
+    "forwardTargetRefused": "هذا الهدف للتوجيه غير مسموح به.",
+    "destinationRefused": "هذه الوجهة غير مسموح بها.",
+    "connectionTestFailed": "تعذر الاتصال بالهدف."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -939,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "قابل للوصول خلال {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Notification Providers",

@@ -177,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "활성 구성에 없음",
+    "notInActiveConfigHint": "전달 대상이 허용되지 않아 다른 주소가 필요합니다."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -380,7 +382,10 @@
     "trustedProxiesTooMany": "신뢰하는 프록시 목록에는 최대 64개 항목만 넣을 수 있습니다.",
     "managementListUnknown": "선택한 접근 목록 중 하나가 더 이상 없습니다. 페이지를 새로 고친 후 다시 선택하세요.",
     "managementAccessWouldLockOut": "이 설정을 저장하면 Charon에서 자신이 차단됩니다. 먼저 관리자 허용 목록에 자신의 주소를 추가하거나 접근을 허용하는 목록을 선택하세요.",
-    "accessListInvalid": "이 접근 목록으로는 Charon 자체 인터페이스를 보호할 수 없습니다. 규칙을 확인한 후 다시 시도하세요."
+    "accessListInvalid": "이 접근 목록으로는 Charon 자체 인터페이스를 보호할 수 없습니다. 규칙을 확인한 후 다시 시도하세요.",
+    "forwardTargetRefused": "이 전달 대상은 허용되지 않습니다.",
+    "destinationRefused": "이 대상은 허용되지 않습니다.",
+    "connectionTestFailed": "대상에 연결할 수 없습니다."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -939,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "{{ms}} ms 만에 연결 가능"
   },
   "notificationProviders": {
     "title": "Notification Providers",

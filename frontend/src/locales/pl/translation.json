@@ -177,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Brak w aktywnej konfiguracji",
+    "notInActiveConfigHint": "Jego cel przekierowania jest niedozwolony i wymaga innego adresu."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -380,7 +382,10 @@
     "trustedProxiesTooMany": "Lista zaufanych serwerów proxy może zawierać najwyżej 64 wpisy.",
     "managementListUnknown": "Jedna z wybranych list dostępu już nie istnieje. Załaduj stronę ponownie i wybierz od nowa.",
     "managementAccessWouldLockOut": "To zablokowałoby Ci dostęp do Charon. Najpierw dodaj swój adres do listy dozwolonych administratora albo wybierz listę, która Cię dopuszcza.",
-    "accessListInvalid": "Ta lista dostępu nie może chronić własnego interfejsu Charon. Sprawdź jej reguły i spróbuj ponownie."
+    "accessListInvalid": "Ta lista dostępu nie może chronić własnego interfejsu Charon. Sprawdź jej reguły i spróbuj ponownie.",
+    "forwardTargetRefused": "Ten cel przekierowania jest niedozwolony.",
+    "destinationRefused": "Ten cel jest niedozwolony.",
+    "connectionTestFailed": "Nie udało się połączyć z celem."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -939,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Osiągalny w {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Notification Providers",

@@ -22,6 +22,7 @@ import { GroupDropZone } from '../components/GroupDropZone'
 import { PageShell } from '../components/layout/PageShell'
 import { ConfigReloadOverlay } from '../components/LoadingStates'
 import { ManageGroupsDialog } from '../components/ManageGroupsDialog'
+import { NotInActiveConfigNote } from '../components/NotInActiveConfigNote'
 import { ProxyGroupBadge } from '../components/ProxyGroupBadge'
 import { ProxyGroupForm } from '../components/ProxyGroupForm'
 import { ProxyHostDragHandle } from '../components/ProxyHostDragHandle'
@@ -547,8 +548,11 @@ export default function ProxyHosts() {
       sortable: true,
       width: '14%',
       cell: (host) => (
-        <div className="text-sm text-content-secondary">
-          {host.forward_scheme}://{host.forward_host}:{host.forward_port}
+        <div className="flex flex-col gap-0.5">
+          <div className="text-sm text-content-secondary">
+            {host.forward_scheme}://{host.forward_host}:{host.forward_port}
+          </div>
+          {host.active_config === false && <NotInActiveConfigNote />}
         </div>
       ),
     },

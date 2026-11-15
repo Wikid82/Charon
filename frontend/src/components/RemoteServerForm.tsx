@@ -2,6 +2,7 @@ import { Check, CircleHelp, Loader2, X } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { connectionTestErrorMessage } from '../api/errorBody'
 import { type RemoteServer, testCustomRemoteServerConnection } from '../api/remoteServers'
 import { useAgentList } from '../hooks/useOrthrus'
 import {
@@ -50,6 +51,7 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
+  const [testLatency, setTestLatency] = useState<number | null>(null)
 
   const { data: agents = [] } = useAgentList()
 
@@ -105,14 +107,15 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
       const result = await testCustomRemoteServerConnection(formData.host, formData.port)
       if (result.reachable) {
         setTestStatus('success')
+        setTestLatency(result.latency_ms ?? null)
         setTimeout(() => setTestStatus('idle'), 3000)
       } else {
         setTestStatus('error')
-        setError(`Connection failed: ${result.error || 'Unknown error'}`)
+        setError(t('errors.connectionTestFailed'))
       }
-    } catch {
+    } catch (err) {
       setTestStatus('error')
-      setError('Connection failed')
+      setError(connectionTestErrorMessage(err, t) ?? 'Connection failed')
     }
   }
 
@@ -342,6 +345,11 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
                <CircleHelp className="w-4 h-4" />}
               Test Connection
             </button>
+            {testStatus === 'success' && testLatency !== null && (
+              <span data-testid="remote-server-test-latency" className="text-sm text-green-400 self-center">
+                {t('remoteServers.testLatency', { ms: testLatency })}
+              </span>
+            )}
             <button
               type="button"
               onClick={onCancel}

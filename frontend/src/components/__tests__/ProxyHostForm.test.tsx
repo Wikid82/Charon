@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { render, screen, waitFor, within, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { AxiosError, type AxiosResponse } from 'axios'
 import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest'
 
 import { testProxyHostConnection, type ProxyHost  } from '../../api/proxyHosts'
@@ -1830,5 +1831,56 @@ describe('ProxyHostForm', () => {
         expect(screen.getByRole('combobox', { name: 'Source' })).toHaveTextContent('Custom / Manual')
       })
     })
+  })
+})
+
+describe('ProxyHostForm connection and save refusals', () => {
+  const refusal = (status: number, data: unknown, headers: Record<string, string> = {}) => {
+    const response = { status, statusText: '', headers, config: {}, data } as AxiosResponse
+    return new AxiosError(`Request failed with status code ${status}`, 'ERR_BAD_REQUEST', undefined, undefined, response)
+  }
+
+  const fillTestTarget = async () => {
+    await userEvent.type(screen.getByLabelText(/^Host/), '169.254.169.254')
+    await userEvent.clear(screen.getByLabelText(/^Port/))
+    await userEvent.type(screen.getByLabelText(/^Port/), '80')
+  }
+
+  beforeEach(() => {
+    mockDockerStatus({ data: undefined, isLoading: true, error: null })
+    vi.mocked(testProxyHostConnection).mockReset()
+    mockFetch.mockResolvedValue({ json: () => Promise.resolve({ internal_ip: '192.168.1.50' }) })
+  })
+
+  it('shows the fixed failure text under the test button when the target cannot be reached', async () => {
+    vi.mocked(testProxyHostConnection).mockRejectedValueOnce(
+      refusal(502, { error: 'Could not connect to the target.', error_code: 'connection_test_failed' }),
+    )
+    renderWithClient(<ProxyHostForm onSubmit={vi.fn(() => Promise.resolve())} onCancel={vi.fn()} />)
+    await fillTestTarget()
+
+    await userEvent.click(screen.getByTitle('Test connection to the forward host'))
+
+    expect(await screen.findByTestId('proxy-host-test-message')).toHaveTextContent('errors.connectionTestFailed')
+  })
+
+  it('shows the wait message when the connection test is throttled', async () => {
+    vi.mocked(testProxyHostConnection).mockRejectedValueOnce(refusal(429, {}, { 'retry-after': '30' }))
+    renderWithClient(<ProxyHostForm onSubmit={vi.fn(() => Promise.resolve())} onCancel={vi.fn()} />)
+    await fillTestTarget()
+
+    await userEvent.click(screen.getByTitle('Test connection to the forward host'))
+
+    expect(await screen.findByTestId('proxy-host-test-message')).toHaveTextContent('errors.tooManyRequestsSeconds')
+  })
+
+  it('falls back to the failure text for an error without a code', async () => {
+    vi.mocked(testProxyHostConnection).mockRejectedValueOnce(new Error('Network Error'))
+    renderWithClient(<ProxyHostForm onSubmit={vi.fn(() => Promise.resolve())} onCancel={vi.fn()} />)
+    await fillTestTarget()
+
+    await userEvent.click(screen.getByTitle('Test connection to the forward host'))
+
+    expect(await screen.findByTestId('proxy-host-test-message')).toHaveTextContent('errors.connectionTestFailed')
   })
 })

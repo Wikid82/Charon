@@ -177,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "לא בתצורה הפעילה",
+    "notInActiveConfigHint": "יעד ההעברה שלו אינו מותר ודורש כתובת אחרת."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -380,7 +382,10 @@
     "trustedProxiesTooMany": "רשימת שרתי המתווך המהימנים מכילה עד 64 רשומות.",
     "managementListUnknown": "אחת מרשימות הגישה שנבחרו כבר אינה קיימת. טען מחדש את הדף ובחר שוב.",
     "managementAccessWouldLockOut": "פעולה זו תנעל אותך מ-Charon. הוסף קודם את כתובתך לרשימת ההיתרים של המנהל, או בחר רשימה שמתירה לך גישה.",
-    "accessListInvalid": "רשימת גישה זו אינה יכולה להגן על הממשק של Charon עצמו. בדוק את כלליה ונסה שוב."
+    "accessListInvalid": "רשימת גישה זו אינה יכולה להגן על הממשק של Charon עצמו. בדוק את כלליה ונסה שוב.",
+    "forwardTargetRefused": "יעד ההעברה הזה אינו מותר.",
+    "destinationRefused": "יעד זה אינו מותר.",
+    "connectionTestFailed": "לא ניתן היה להתחבר ליעד."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -939,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "נגיש תוך {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Notification Providers",

@@ -177,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Non nella configurazione attiva",
+    "notInActiveConfigHint": "La sua destinazione di inoltro non è consentita e richiede un altro indirizzo."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -380,7 +382,10 @@
     "trustedProxiesTooMany": "L'elenco dei proxy attendibili può contenere al massimo 64 voci.",
     "managementListUnknown": "Uno degli elenchi di accesso scelti non esiste più. Ricarica la pagina e scegli di nuovo.",
     "managementAccessWouldLockOut": "Così resteresti fuori da Charon. Aggiungi prima il tuo indirizzo all'elenco di autorizzazione dell'amministratore, o scegli un elenco che ti consenta l'accesso.",
-    "accessListInvalid": "Questo elenco di accesso non può proteggere l'interfaccia di Charon. Controlla le sue regole e riprova."
+    "accessListInvalid": "Questo elenco di accesso non può proteggere l'interfaccia di Charon. Controlla le sue regole e riprova.",
+    "forwardTargetRefused": "Questa destinazione di inoltro non è consentita.",
+    "destinationRefused": "Questa destinazione non è consentita.",
+    "connectionTestFailed": "Impossibile connettersi alla destinazione."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -939,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Raggiungibile in {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Notification Providers",

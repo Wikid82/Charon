@@ -1,5 +1,7 @@
 import { isAxiosError } from 'axios'
 
+import { rateLimitMessage } from '../utils/rateLimit'
+
 import type { TFunction } from 'i18next'
 
 /**
@@ -276,4 +278,33 @@ const PERMISSIONS_CODED_MESSAGES = Object.keys(PERMISSIONS_CODE_MESSAGE_KEYS) as
 export function permissionsErrorMessage(err: unknown, t: TFunction): string | null {
   const code = getApiErrorCode(err, PERMISSIONS_CODED_MESSAGES)
   return code ? t(PERMISSIONS_CODE_MESSAGE_KEYS[code]) : null
+}
+
+/**
+ * Translated texts for refused destinations and failed connection tests, keyed by the server's `error_code`.
+ * `forward_target_refused` comes from proxy-host saves and tests, `destination_refused` from monitor creation
+ * and tests, and `connection_test_failed` from the test endpoints.
+ */
+const CONNECTION_TEST_CODE_MESSAGE_KEYS = {
+  forward_target_refused: 'errors.forwardTargetRefused',
+  destination_refused: 'errors.destinationRefused',
+  connection_test_failed: 'errors.connectionTestFailed',
+} as const
+
+type ConnectionTestCodedMessage = keyof typeof CONNECTION_TEST_CODE_MESSAGE_KEYS
+
+const CONNECTION_TEST_CODED_MESSAGES = Object.keys(CONNECTION_TEST_CODE_MESSAGE_KEYS) as ConnectionTestCodedMessage[]
+
+/**
+ * Translated text for a refused destination, a failed connection test or a throttled test (HTTP 429). Used by
+ * proxy-host saves and tests, remote server tests and uptime monitor creation.
+ * @param err - The value thrown by the request
+ * @param t - The translation function of the calling component or hook
+ * @returns The text, or null when the error has no text of its own
+ */
+export function connectionTestErrorMessage(err: unknown, t: TFunction): string | null {
+  const waitMessage = rateLimitMessage(t, err)
+  if (waitMessage !== null) return waitMessage
+  const code = getApiErrorCode(err, CONNECTION_TEST_CODED_MESSAGES)
+  return code ? t(CONNECTION_TEST_CODE_MESSAGE_KEYS[code]) : null
 }

@@ -41,6 +41,8 @@ export interface ProxyHost {
   advanced_config?: string;
   advanced_config_backup?: string;
   has_advanced_config?: boolean;
+  /** False when the last successful apply left this host out of the configuration. Omitted (active) otherwise. */
+  active_config?: boolean;
   enabled: boolean;
   certificate_id?: number | string | null;
   certificate?: Certificate | null;

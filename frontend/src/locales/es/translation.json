@@ -182,7 +182,9 @@
     "bulkApplySecurityHeaders": "Perfil de Cabeceras de Seguridad",
     "bulkApplySecurityHeadersHelp": "Aplicar un perfil de cabeceras de seguridad a todos los hosts seleccionados",
     "noSecurityProfile": "Ninguno (Eliminar Perfil)",
-    "removeSecurityHeadersWarning": "Esto eliminará el perfil de cabeceras de seguridad de todos los hosts seleccionados, lo que podría reducir su postura de seguridad."
+    "removeSecurityHeadersWarning": "Esto eliminará el perfil de cabeceras de seguridad de todos los hosts seleccionados, lo que podría reducir su postura de seguridad.",
+    "notInActiveConfig": "No está en la configuración activa",
+    "notInActiveConfigHint": "Su destino de reenvío no está permitido y necesita otra dirección."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -385,7 +387,10 @@
     "trustedProxiesTooMany": "La lista de proxies de confianza admite como máximo 64 entradas.",
     "managementListUnknown": "Una de las listas de acceso elegidas ya no existe. Recargue la página y vuelva a elegir.",
     "managementAccessWouldLockOut": "Esto le bloquearía el acceso a Charon. Añada primero su dirección a la lista de permitidos del administrador, o elija una lista que le permita entrar.",
-    "accessListInvalid": "Esta lista de acceso no puede proteger la interfaz propia de Charon. Revise sus reglas e inténtelo de nuevo."
+    "accessListInvalid": "Esta lista de acceso no puede proteger la interfaz propia de Charon. Revise sus reglas e inténtelo de nuevo.",
+    "forwardTargetRefused": "Este destino de reenvío no está permitido.",
+    "destinationRefused": "Este destino no está permitido.",
+    "connectionTestFailed": "No se pudo conectar con el destino."
   },
   "notifications": {
     "saveSuccess": "Cambios guardados exitosamente",
@@ -978,7 +983,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Accesible en {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Proveedores de Notificaciones",

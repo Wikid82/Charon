@@ -177,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Nincs az aktív konfigurációban",
+    "notInActiveConfigHint": "Átirányítási célja nem engedélyezett, és másik címre van szüksége."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -380,7 +382,10 @@
     "trustedProxiesTooMany": "A megbízható proxyk listája legfeljebb 64 bejegyzést tartalmazhat.",
     "managementListUnknown": "A kiválasztott hozzáférési listák egyike már nem létezik. Töltse be újra az oldalt, és válasszon újra.",
     "managementAccessWouldLockOut": "Ezzel kizárná magát a Charonból. Először adja hozzá címét az adminisztrátori engedélyezési listához, vagy válasszon olyan listát, amely engedélyezi.",
-    "accessListInvalid": "Ez a hozzáférési lista nem védheti a Charon saját felületét. Ellenőrizze a szabályait, majd próbálja újra."
+    "accessListInvalid": "Ez a hozzáférési lista nem védheti a Charon saját felületét. Ellenőrizze a szabályait, majd próbálja újra.",
+    "forwardTargetRefused": "Ez az átirányítási cél nem engedélyezett.",
+    "destinationRefused": "Ez a célhely nem engedélyezett.",
+    "connectionTestFailed": "Nem sikerült csatlakozni a célhoz."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -939,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Elérhető {{ms}} ms-on belül"
   },
   "notificationProviders": {
     "title": "Notification Providers",

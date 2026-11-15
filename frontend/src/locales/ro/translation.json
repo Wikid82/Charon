@@ -177,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Nu este în configurația activă",
+    "notInActiveConfigHint": "Ținta de redirecționare nu este permisă și are nevoie de o altă adresă."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -380,7 +382,10 @@
     "trustedProxiesTooMany": "Lista de proxy-uri de încredere conține cel mult 64 de intrări.",
     "managementListUnknown": "Una dintre listele de acces alese nu mai există. Reîncărcați pagina și alegeți din nou.",
     "managementAccessWouldLockOut": "Aceasta v-ar bloca accesul la Charon. Adăugați mai întâi adresa dvs. în lista de permise a administratorului sau alegeți o listă care vă permite accesul.",
-    "accessListInvalid": "Această listă de acces nu poate proteja interfața proprie a Charon. Verificați regulile și încercați din nou."
+    "accessListInvalid": "Această listă de acces nu poate proteja interfața proprie a Charon. Verificați regulile și încercați din nou.",
+    "forwardTargetRefused": "Această destinație de redirecționare nu este permisă.",
+    "destinationRefused": "Această destinație nu este permisă.",
+    "connectionTestFailed": "Nu s-a putut stabili conexiunea cu ținta."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -939,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Accesibil în {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Notification Providers",
