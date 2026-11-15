@@ -38,9 +38,11 @@ var lookupForwardHost = func(ctx context.Context, name string) ([]net.IPAddr, er
 	return net.DefaultResolver.LookupIPAddr(ctx, name)
 }
 
-// gatewayNames are names that always reach the Docker host. A listener port can be
-// reached through them, so they count as this machine whatever they resolve to.
-var gatewayNames = []string{"host.docker.internal"}
+// gatewayNames are names that reach the container host: Docker Desktop and OrbStack
+// (host.docker.internal, gateway.docker.internal) and Podman (host.containers.internal).
+// A listener port can be reached through them, so they count as this machine whatever
+// they resolve to. Their exact addresses are also allowed (see gatewayAllowAddrs).
+var gatewayNames = []string{"host.docker.internal", "host.containers.internal", "gateway.docker.internal"}
 
 // hostSideAddrs lists the host-side addresses of this container's networks. Tests replace it.
 var hostSideAddrs = orthrus.HostSideAddrs
@@ -154,9 +156,15 @@ func isThisMachineAddr(ip net.IP) bool {
 	if !ok {
 		return false
 	}
-	addr = addr.Unmap()
-	for _, side := range hostSideAddrs() {
-		if side.Unmap() == addr {
+	addr = addr.WithZone("").Unmap()
+	return containsAddr(cachedHostSideAddrs(), addr) || containsAddr(gatewayAllowAddrs(), addr)
+}
+
+// containsAddr reports whether want is one of addrs, comparing unmapped forms.
+func containsAddr(addrs []netip.Addr, want netip.Addr) bool {
+	want = want.WithZone("").Unmap()
+	for _, a := range addrs {
+		if a.WithZone("").Unmap() == want {
 			return true
 		}
 	}

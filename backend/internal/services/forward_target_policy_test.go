@@ -447,7 +447,25 @@ func setHostSideAddrs(t *testing.T, addrs ...string) {
 		parsed = append(parsed, netip.MustParseAddr(a))
 	}
 	hostSideAddrs = func() []netip.Addr { return parsed }
-	t.Cleanup(func() { hostSideAddrs = prev })
+	resetProbeAddrCaches()
+	t.Cleanup(func() {
+		hostSideAddrs = prev
+		resetProbeAddrCaches()
+	})
+	// Gateway names must not resolve in the test environment either.
+	isolateGatewayAddrs(t, nil)
+}
+
+// isolateGatewayAddrs replaces the gateway address source for one test.
+func isolateGatewayAddrs(t *testing.T, addrs []netip.Addr) {
+	t.Helper()
+	prev := gatewayCache.load
+	gatewayCache.load = func() []netip.Addr { return addrs }
+	resetProbeAddrCaches()
+	t.Cleanup(func() {
+		gatewayCache.load = prev
+		resetProbeAddrCaches()
+	})
 }
 
 func TestRefusesListenerTarget_AgentNameFormRefusedOnAnyPort(t *testing.T) {

@@ -279,9 +279,9 @@ func TestHostPermsCanonicalAdvancedConfigFallsBackOnInvalidStoredJSON(t *testing
 }
 
 func TestHostPermsAdminAPIPortFrom(t *testing.T) {
-	assert.Equal(t, 2019, adminAPIPortFrom("127.0.0.1:2019"))
-	assert.Zero(t, adminAPIPortFrom("127.0.0.1"), "an address without a port matches no target")
-	assert.Zero(t, adminAPIPortFrom("127.0.0.1:admin"), "a non-numeric port matches no target")
+	assert.Equal(t, 2019, listenPortFrom("127.0.0.1:2019"))
+	assert.Zero(t, listenPortFrom("127.0.0.1"), "an address without a port matches no target")
+	assert.Zero(t, listenPortFrom("127.0.0.1:admin"), "a non-numeric port matches no target")
 }
 
 func TestHostPermsRedirectionUpdateMissingRowNonAdmin(t *testing.T) {

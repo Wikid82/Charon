@@ -216,6 +216,7 @@ type Registered struct {
 // is permanently idle. The caller installs gate.Middleware itself so it runs
 // before every middleware registered here.
 func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg config.Config, caddyManager *caddy.Manager, cerb *cerberus.Cerberus, gate *dbmaint.Gate) (Registered, error) {
+	services.SetEmergencyListener(cfg.Emergency)
 	uptimeShutdown := UptimeShutdownFunc(func(context.Context) error { return nil })
 	// Emergency bypass must be registered FIRST.
 	// When a valid X-Emergency-Token is present from an authorized source,
