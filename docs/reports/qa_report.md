@@ -1,120 +1,99 @@
-# QA Report: Security Settings and Headers Consistency
+# QA Report: Client Address, Proxy Trust and Management Access
 
-- Branch: `fix/security-settings-and-headers-consistency` (24 commits on `origin/development` `7b4e2f936`, head
-  `51da424d7`)
-- Scope: security switch reading and writing (settings API, bulk config, feature flags), restore of security state
-  after a refused proxy apply, CrowdSec start revert, config writers under the write lock, rate limit mode clearing,
-  rule set engine line detection, "stored as sent" create for header profiles, proxy hosts and invited users,
-  `X-XSS-Protection: 0`, metrics served on `/metrics`, role-based response shapes for security settings, three UI
-  fixes, two test tooling fixes, and the matching docs.
-- Rounds: round 1 tested the whole branch. Round 2 re-tested the follow-up changes: URL test refusals counted on
-  `/metrics`, an atomic feature flag batch that carries the security suite flag, and the QA fixes from round 1.
-- Images under test: the existing `charon:local` E2E image (see "E2E image") and throwaway images built from the
-  working tree in each round (`pr24qa-charon:qa`, `pr24qa-charon:qa2`) for the container gates and both integration
-  scripts.
-- Toolchain: Go 1.27.4, CodeQL CLI 2.27.2.
-- Date: 2026-11-14
+- Branch: `fix/cerberus-client-address` (14 commits on `origin/development`, head `5d8f55729`)
+- Scope: one client address for every proxy check, an operator-chosen trusted proxy list for the proxy layer, access
+  lists that protect Charon's own interface (with upgrade seeding and lock-out guards), country lists on that
+  interface, forwarded host and scheme honoured only from trusted proxies, live stream limits, the emergency reset
+  reply under a slow apply, and the matching UI and docs.
+- Images under test: a throwaway image built from the working tree (`pr25qa-charon:qa`; every build step was cached, so
+  it has the same inputs as the current E2E image) and the previous branch image (`pr24-charon:local`) for the upgrade
+  check. All containers, networks and volumes were throwaway (`pr25qa-*`) and were removed afterwards.
+- Toolchain: Go 1.27.4, CodeQL CLI 2.27.2, Caddy 2.11.9 (in the image), golangci-lint 2.15.0.
+- Date: 2026-11-15
 
 ## Verdict
 
-**Approved.** Every Definition of Done gate passes. The container gates confirm switch validation, the restore
-paths (including the whole feature flag batch), the "stored as sent" creates, the header value, the role-based
-response shapes, the URL test metrics and the regression items end to end.
+**Approved once the QA fixes below are committed.** The branch is correct on every container check. QA found four
+things that would have failed CI (two test fixtures, one stale test and two code scanning results) and one flaky E2E
+check, and fixed them in the working tree, uncommitted. With those fixes every Definition of Done gate passes.
 
-One limit is accepted and tracked in #1848: the proxied blocked counters only count blocks the access log identifies
-as WAF or CrowdSec blocks, and a real Coraza block is not identified today. The docs say the counters are a lower
-bound. See "Accepted limit".
+## QA fixes (uncommitted)
 
-## Gates run (all foreground)
+| File | Change | Why |
+| --- | --- | --- |
+| `backend/internal/api/handlers/security_geoip_database_test.go` | The fixture migrates the settings table; the "busy" test fails within 10 s if the first change never reaches its apply | Every GeoIP database change now reads the management access choice first. The fixture had no settings table, so two tests failed and the busy test blocked until the 30 min package timeout, which hid the rest of the package |
+| `backend/internal/api/handlers/management_guard.go` | The GeoIP lock-out check is skipped for a handler built without a database; the check's error log is sanitised | A handler without a database (used by existing tests) panicked on reload. With no database there is no management choice to protect. The log line carried request-derived text (new code scanning result) |
+| `backend/internal/api/handlers/security_toggles_test.go` | `TestACLForbiddenIfIPNotWhitelisted` rewritten as `TestACLEnabledWithoutManagementListsOutsideAdminAllowList` | It asserted the earlier rule for switching access control on. That decision now belongs to the management lists (covered in `acl_enable_guard_test.go`) |
+| `backend/internal/api/handlers/management_guard_test.go` | Two tests: an allow-list whose stored rules cannot be used is answered 400 with the list named; an unusable hop peer keeps the hop's client address | Patch coverage on the guard's error branches |
+| `.github/codeql/codeql-suppressions.yml` | The cookie entry's line range follows the sink, which moved when the forwarded-header helper left `auth_handler.go`; dated note added | The findings gate reported the entry as stale and blocking |
+| `tests/security/live-stream-limit.spec.ts` | Each "stream is live" poll makes one API request | A stream sends a frame only when the server logs a line. Without traffic the check depended on unrelated activity and failed on a quiet container (2 of 2 runs); after the fix 6 of 6 passed |
+
+## Gates run (all foreground or block-waited)
 
 | Gate | Result |
 | --- | --- |
-| E2E image (`docker-rebuild-e2e`) | Not rebuilt. `charon:local` was built after the last round 1 application commit, and its binary contains this branch's new metric, flag and field names. The round 2 backend changes (URL test refusal metrics, feature flag batch) are not in that image; they were verified in the round 2 throwaway container instead, and CI runs the specs on a fresh image |
-| Playwright `--project=security-tests`: `security-headers`, `rate-limiting`, `security-config-field-update`, `crowdsec-decisions`, `security-headers-enforcement`, `authorization-rbac`, `emergency-reset` | 199 passed, 1 failed (flaky helper, fixed in round 1, see "QA fixes"). After the fix `crowdsec-decisions` passed 80/80 with `--repeat-each=3` |
-| Playwright `--project=security-tests`: `security-dashboard`, `system-settings-feature-toggles`, `waf-config`, `security-state-restore`, `zzz-security-ui/system-security-settings`, `suite-integration`, `rate-limit-enforcement`, `waf-enforcement`, `crowdsec-preset-apply`, `crowdsec-security-toggle-busy`, `crowdsec-config` | 124 passed, 1 skipped, 2 failed while QA ran lint on the same 4-core host. Both (toast checks with a 5 s timeout) passed 6/6 when re-run on an idle host. Not related to this branch |
-| Playwright round 2: `system-settings-feature-toggles`, `zzz-security-ui/system-security-settings` | 30 passed, 1 skipped |
-| Playwright `--project=firefox`: `core/proxy-hosts`, `settings/user-management`, `settings/smtp-settings`, `settings/account-settings`, `settings/user-lifecycle` | 106 passed, 21 skipped (existing state-dependent skips) |
-| `./scripts/scan-gorm-security.sh --check` | Pass, 0 critical/high/medium, 2 informational |
-| `bash scripts/local-patch-report.sh` (baseline `origin/development`, round 2) | Pass. Overall 92.0% (531/577), backend 91.8% (516/562), frontend 100% (15/15). Uncovered lines are error branches (storage failures, logging); no file needs follow-up |
-| `scripts/go-test-coverage.sh` (round 2) | Pass, 93.8% statements / 92.8% lines (gate 87%), no failures |
-| `scripts/frontend-test-coverage.sh` | Pass. 4605 tests, lines 92.78%, statements 91.92%, branches 86.6% (no frontend change in round 2) |
-| `cd frontend && npm run type-check` / `npm run lint` | Pass / pass (0 warnings) |
-| `lefthook run pre-commit --all-files` (round 2) | See "Round 2 hooks and lint" |
-| CodeQL Go (`codeql-go-scan.sh`, round 1) | 4 results, all existing, none in a file this branch changes. No new result |
-| CodeQL JS | Not run: the frontend changes are labels, read-only states and keyboard handling with no new data flow; CI runs it on the PR |
-| `scripts/security_headers_integration.sh` (throwaway image, own prefix and ports) | Pass, every check. The script no longer edits the database: the plain host is created with headers off through the API. No header is duplicated on HEAD, GET, a streamed response or a 502 |
-| `scripts/coraza_integration.sh` (throwaway image via `CHARON_IMAGE`) | Pass (403 in block mode, 200 in monitor mode). Ports bound to 127.0.0.1 only; no container, volume or network left behind |
-| `make lint-backend` (run last) | See "Round 2 hooks and lint" |
+| E2E image | Throwaway image built from the working tree (fully cached) and run as its own container; Playwright pointed at it with `PLAYWRIGHT_BASE_URL`. The live E2E container was not touched |
+| Playwright `--project=security-tests`: `trusted-proxies`, `management-access`, `live-stream-limit`, `self-proxy-requests` | 21 passed, 1 failed (stream check, fixed above). After the fix `live-stream-limit` passed 6/6 with `--repeat-each=2` |
+| Playwright `--project=security-tests`: `acl-enforcement`, `authorization-rbac`, `zzz-security-ui/access-lists-crud` | 178 passed |
+| Playwright `--project=firefox`: `core/proxy-hosts`, `core/proxy-host-docker-source`, `proxy-host-drag-drop` | 47 passed, 13 skipped (existing environment skips: no Docker socket in the throwaway container) |
+| `./scripts/scan-gorm-security.sh --check` | Pass: 0 critical, 0 high, 0 medium, 2 informational |
+| `bash scripts/local-patch-report.sh` | Pass. Overall 92.2% (1046/1134), backend 91.4% (905/990), frontend 97.9% (141/144). Remaining uncovered lines are error branches (storage failures, logging) and test helpers |
+| `scripts/go-test-coverage.sh` (`CHARON_TEST_TIMEOUT=60m`) | First run: `handlers` timed out (see QA fixes). After the fixes: pass, 93.8% statements / 92.7% lines, 0 failures. `TestPerf_GetStatus_Parallel_AssertThreshold` passed in the full run |
+| `scripts/frontend-test-coverage.sh` | Pass. 4672 tests, statements 92.01%, branches 86.76%, functions 89.55%, lines 92.86% |
+| `npm run type-check` / `npm run lint` / `npm run build` | Pass / pass (0 warnings) / pass |
+| `go build ./...` | Pass |
+| `lefthook run pre-commit --all-files` | Pass, all 20 steps (including semgrep, markdownlint, shellcheck, golangci-lint-fast) |
+| CodeQL Go | First scan: 2 blocking (new log-injection result in the guard, stale cookie entry). After the fixes: 0 blocking, 4 existing results suppressed with documented reasons |
+| CodeQL JS | 0 results |
+| Trivy (throwaway image, HIGH/CRITICAL) | 2 HIGH, both existing upstream findings without a fix and already documented (one in the CrowdSec binaries, one in the Caddy binary). This branch changes no dependency. No new finding |
+| Integration scripts (copies with `pr25qa-*` names, loopback-only ports, the throwaway image) | `rate_limit_integration` pass, `cerberus_integration` pass, `coraza_integration` pass (block and monitor), `crowdsec_decision_integration` pass after correcting the copy's readiness probe (see out-of-scope findings) |
+| `make lint-backend` (run last) | 0 issues. `agent/` is unchanged, so `make lint-agent` was not needed |
 
-## Container gates
+## Container checks
 
-Both rounds used throwaway `pr24qa-*` containers on their own network and volumes, removed afterwards, with one
-admin and one standard user and a busybox upstream. A refused proxy apply was produced by pausing the Caddy process
-inside the throwaway container.
+Set-up: Charon, an nginx proxy that appends to `X-Forwarded-For`, a header-echo upstream and client containers with
+fixed addresses on one private network. Proxy hosts covered an allow-list, a block-list, a local-network list, a
+country allow-list (the bundled database), a plain host and a host that targets Charon itself.
 
 | Check | Result |
 | --- | --- |
-| Security suite switch writes accept only true/false | Pass. `maybe`, `1`, `yes`, `on`, empty and `garbage` answer 400 `"<key> must be true or false"` on `POST /settings` (both keys) and `PATCH /config` (nested form); `PUT /feature-flags` refuses non-boolean JSON with 400. Nothing is stored. `" TRUE "` and `"False"` are stored as exactly `true`/`false` on both keys. Standard users get 403 |
-| Switch writes apply to the proxy | Pass. Each accepted write applies the proxy once. With the apply refused, `PUT /feature-flags` and `POST /settings` answer 500 `Failed to reload configuration` and both keys keep their previous value |
-| Feature flag batch with the switch (round 2) | Pass. With the apply refused, a batch of the switch and another flag answers 500 and every key in the batch, update time included, is unchanged. When the other flag's write fails (forced with a database trigger in the throwaway database), the batch answers 500, neither key changes and no proxy apply runs. A batch without the switch and a switch-only batch both still work |
-| Response shapes by role | Pass. Standard users get `/security/config` without the admin allow-list, the rate limit bypass list and the CrowdSec address, with `has_admin_whitelist` and `has_rate_limit_bypass_list`; `/security/rulesets` without rule content and source address, with `has_content` and `content_line_count`; `/settings` without the allow-list and mail server details, with `<key>.has_value`. Admin bodies keep every field |
-| Bulk settings reply | Pass. `PATCH /config` answers the mail password as `********` with `.has_secret` and `.last_updated`; the raw value never appears |
-| Other read paths | Pass. Marker values were stored in every admin-only field, then a standard user requested all 126 registered GET routes (62 answered 200), read and downloaded every log file, and held the live log and security event streams open while an admin saved those fields. No marker value appeared |
-| Invited user | Pass. Created disabled |
-| Header profile create | Pass. `hsts_enabled:false`, `xss_protection:false`, `x_frame_options:""`, `x_content_type_options:false` are stored and returned as sent; client preset markers are ignored; a profile without those keys gets the defaults |
-| Proxy host create and update | Pass. `enabled`, `http2_support`, `block_exploits`, `security_headers_enabled` sent as false stay false (admin and standard user), the host keeps exactly one location, omitted fields get the defaults, and update toggles `security_headers_enabled` |
-| `X-XSS-Protection` | Pass. A proxied host whose profile has it on sends `0`; a profile with it off sends no such header; Charon's API and page responses send `0` |
-| WAF exclusion add/delete with the apply refused | Pass. Both answer 500 `Failed to reload configuration`; the stored exclusions and the row's update time are unchanged. Duplicate 409, missing 404 and standard user 403 unchanged |
-| `/metrics` (round 2) | Pass. URL tests refused for private, loopback and metadata addresses move `charon_ssrf_blocks_total{ip_type="private"}` (3) and `{ip_type="metadata"}` (1), and `charon_url_validation_total{result="blocked"}` with reasons `private_ip` and `metadata_endpoint`. A URL test that reaches the network moves `charon_url_test_duration_seconds` and `charon_url_validation_total{result="allowed"}`. `charon_waf_monitored_total` is gone. The blocked counters move for access log entries that the log marks as WAF or CrowdSec blocks |
-| CrowdSec start failure | Pass. With the CrowdSec binary made non-executable, start answers 500 and the switch keys, the enabled setting (absent before, absent after) and the row, including its update time, are back to their prior state |
-| Concurrent config saves | Pass. Ten exclusion adds, four WAF mode saves, an allow-list save and a bypass list save sent at once all succeeded and every change survived |
-| Clearing the rate limit mode | Pass. Saving an empty mode after `enabled` stores the enable flag off, and status reports rate limiting off |
-| Rule set engine line | Pass. A rule set that mentions `SecRuleEngine` only in a comment gets Charon's `SecRuleEngine On` line in the generated file, and blocks |
+| Generated proxy config uses only real placeholders | Pass. Tokens: `http.vars.client_ip`, `http.request.remote.host`, `http.request.header.X-Forwarded-For`, `http.request.host`, `http.request.scheme`, `http.request.local.port`, `geoip2.country_code`. The client address is used for the rate-limit key, `X-Real-IP`, the self-proxy client header and the `X-Forwarded-For` set right before `geoip2`. The connection address appears only in the self-proxy peer header. Every address matcher is `client_ip`; the server has strict mode and `X-Forwarded-For` as its header |
+| Untrusted peer sends a forwarded address | Pass. Allow-list, block-list, local-network list, country list, rate-limit bucket, WAF `REMOTE_ADDR` rule and CrowdSec ban all judge the connection address. Rotating forged addresses share one rate-limit bucket. The upstream gets the peer as `X-Real-IP` and `X-Forwarded-For` |
+| Trusted proxy (nginx listed) | Pass. The rightmost untrusted entry decides every check; a forged leftmost entry sent through nginx is ignored; two visitors behind nginx get separate rate-limit buckets; a CrowdSec ban on a visitor applies through nginx and not to another visitor who forges it |
+| Country lookup | Pass. With a public visitor reported through two trusted hops, the country list follows the rightmost untrusted entry. The country-list host's upstream gets `X-Forwarded-For: <visitor>, <proxy>`; other hosts keep the full chain |
+| Logs | Pass. The access log carries `client_ip` (visitor) and `remote_ip` (peer). CrowdSec's access-log acquisition parses every line. The log viewer search matches either address |
+| Environment fallback | Pass. With the CI value of `CHARON_TRUSTED_PROXIES`, the proxy layer uses it minus the entry that is too broad (`fc00::/7`), reports `source: environment` and the dropped entry, and logs one start warning. The live proxy config matches |
+| Trust list API | Pass. Invalid, too broad (`/7`, `/0`, IPv6 `/23`) and more than 64 entries are refused with their codes and the entry named; malformed bodies are 400; bare and IPv4-mapped addresses are canonicalised, loopback is dropped, a whole local range is accepted with a warning. Both settings keys are hidden from `GET /settings` and refused on `POST /settings` (also with odd case and spaces) and `PATCH /config`. A refused apply restores the previous value on PUT and DELETE (500). Standard users see only `has_proxies`, `source` and the loopback entries and get 403 on writes; anonymous callers get 401 |
+| Upgrade seeding | Pass. A database from the previous image with access control on and six lists: the enabled allow-list, block-list and local-network list are chosen; the country list with the local-network option is named in a warning and not chosen; the plain country list and the disabled list are not chosen; one warning for the local-network list. The interface stays reachable. A second start does not seed again |
+| Lock-out guards | Pass, all answer `management_access_would_lock_out`: saving the choice; switching access control on through `POST /settings` (also `" TRUE "`), `PATCH /config`, `POST /security/acl/enable` and `PATCH /security/acl`; editing, retyping or re-enabling a chosen list; removing the caller from the admin allow-list through `POST /security/config`, `POST /settings` and `PATCH /config`; dropping or deleting the trust list from behind the trusted proxy through the self-proxy hop; GeoIP upload and reload (409, database unchanged). An address in the admin allow-list is exempt; disabling a chosen list is allowed; a list used by the interface cannot be deleted |
+| Unusable stored rules | Pass. An allow-type list refuses the caller with one warning; a block-type list is not applied with a warning; a guard names the list (400 `access_list_invalid`) |
+| Exemptions and other routes | Pass. The agent connect route is not refused; with no list chosen nothing is restricted while proxy-host lists exist; login, health and setup status work for allowed callers; both emergency reset routes work for a caller the lists refuse and switch access control off |
+| Same-host tunnel (sidecar sharing Charon's network namespace) | Pass. A local-network list refuses a public visitor and admits a local one, on a proxy host and on `/api/v1` through the self-proxy host. The emergency reset through the tunnel is judged by the visitor; the direct loopback reset works. The seed warning for local-network lists is logged (upgrade check) |
+| Country lists without a database | Pass. Not enforced on the interface; the bell alert carries a separate entry with the management scope |
+| Live view origin behind a Host-rewriting proxy | Pass on the logs, Cerberus logs and stats streams: 403 without an Application URL or trusted proxy; 101 with either; a cross-origin request and a forged `X-Forwarded-Host` from an untrusted peer stay 403 |
+| Live stream limits | Pass. The ninth stream for one user closes with 1013 `stream_limit_reached` on the logs, Cerberus logs and stats streams; slots are released; eight users fill 64 streams and the next one closes with 1013. The Hecate stream uses the same quota (wired in routes, unit-tested; no tunnel exists in a test container) |
+| Emergency reset under a slow apply | Pass. With the proxy paused, the Tier 2 reset answers 200 after the 30 s apply window; other Tier 2 routes keep answering. A non-loopback bind logs one start warning |
+| Self-proxy hop headers | Pass. Forged hop headers sent to the management port or the proxy port change nothing |
 
-## Regression review of removed or rewritten code
+## Code review notes
 
-- **Security state restore:** every column a config save can write is imaged, and a full restore puts back the
-  row's update time. A concurrent write keeps its columns and stamps the restore time.
-- **CrowdSec start revert:** the start writes inside one write-locked transaction with the shared snapshot, and the
-  revert uses the shared restore. A row that start created is deleted again. The removed per-handler snapshot
-  helpers have no remaining callers.
-- **Concurrent saves:** `Enable`, both WAF exclusion writers and the allow-list sync read the row inside the write
-  lock.
-- **Rate limit mode clearing:** a mode-only save also writes the enable flag from the mode.
-- **Rule set directive scanner:** `HasRuleLines` and `HasEngineDirective` share one line scanner (byte order mark,
-  comments, continuation lines); only the first word of a directive line counts.
-- **Feature flag batch:** the switch and the other flags of one request are written in one transaction with the
-  switch snapshot, so a refused apply or a failed write leaves the whole batch as it was.
-- **URL test refusals:** the handler and the connectivity check share one refusal recorder, so the labels are the
-  same on both paths.
+- The strict walk used to predict the caller address under a new trust list matches Caddy 2.11.9 (unparsable entries
+  skipped, ports and zones removed, all trusted falls back to the peer).
+- The removed interface check, the deprecated log handler and the unused public URL helpers have no remaining
+  callers. The parity test pins the new decision function to the recorded outcome of the removed check for every list
+  type, local-network option, address class and admin allow-list.
 
-## Accepted limit
+## Findings in scope (non-blocking)
 
-**Proxied blocked counters are a lower bound (tracked in #1848).** `charon_waf_blocked_total` and
-`charon_crowdsec_blocked_total` count access log entries that identify the block as a WAF or CrowdSec block. In the
-round 1 container, three requests blocked by Coraza left the WAF counter at 0: the access log entry of a real block
-has no WAF marker, so it is counted as a generic refusal. Entries that carry the markers move both counters, so the
-counting itself works. CrowdSec bouncer blocks could not be produced in the container. `docs/cerberus.md` and
-`docs/api.md` describe the counters as a lower bound. Follow-up: give the access log a reliable marker for WAF and
-bouncer refusals and match it in the log watcher, then re-test with a real block.
+| Severity | Finding | Suggested change |
+| --- | --- | --- |
+| Low | The upgrade seed's log line lists the chosen lists by UUID, while the release note tells operators to read the startup log; on a fresh install the line still says the lists were chosen "from the previous settings" | Log list names, and skip or reword the line when nothing was chosen |
+| Info | The trust list keeps an address that a saved range already covers (for example `/32` inside a `/24`) | Optional: drop covered entries when normalising |
 
-## Findings
+## Out-of-scope findings (not filed)
 
-No open finding in scope. The round 1 low findings (URL test refusals not counted, feature flag batch not atomic)
-were fixed and re-tested in round 2.
-
-## QA fixes (round 1, folded into the branch)
-
-- `tests/security/crowdsec-decisions.spec.ts`: the Banned IPs helper stubs the preset catalog with the shared
-  one-entry stub and waits for it. Root cause of the flake: the real hub catalog renders above the Banned IPs card
-  after the card appears, so the card moved between a click's press and release and the dialog never opened.
-- `backend/internal/api/tests/integration_test.go`: the test required the removed monitored metric. It now requires
-  the CrowdSec blocked counter and checks that the monitored metric is absent.
-- `scripts/coraza_integration.sh` and `.github/skills/integration-test-coraza.SKILL.md`: `CHARON_IMAGE` selects the
-  image (default `charon:local`), so a run can use a throwaway image.
-
-## Round 2 hooks and lint
-
-- `lefthook run pre-commit --all-files`: pass, every hook (existing E2E lint warnings only, 0 errors).
-- `make lint-backend` (full `backend/.golangci.yml`, gosec included, golangci-lint v2.15.0) ran last, on the
-  round 2 head with no code change after it: 0 issues. `agent/` is unchanged, so `make lint-agent` was not needed.
+| Severity | Finding | Where | Suggested approach |
+| --- | --- | --- | --- |
+| Low, **security-sensitive (flagged)** | After an apply times out because the proxy stopped answering, the proxy can still process the abandoned load when it resumes. The stored value is restored, but the live proxy config differs until the next apply. Shared by every writer that uses the apply and restore path; not introduced here | `handlers/proxy_apply.go`, `caddy` manager apply and rollback | Fold into the planned shared apply-or-restore helper: re-apply the restored state, or check the live config after a timed-out apply |
+| Low | `scripts/crowdsec_decision_integration.sh` waits for `GET /api/v1/` with `curl -f`; that path answers 404, so the script can never pass. CI only runs shellcheck on it | `scripts/crowdsec_decision_integration.sh:188` | Probe `/api/v1/health` |
+| Low | Local Trivy reports the Caddy go-jose finding that `.grype.yaml` already accepts; `.trivyignore` has no matching entry | `.trivyignore` | Add the documented entry with the same review date |
