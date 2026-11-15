@@ -11,7 +11,7 @@ import (
 func TestProxyHostFlagsWith_MarksOnlyLeftOutHosts(t *testing.T) {
 	t.Parallel()
 	leftOut := map[string]struct{}{"gone": {}}
-	flags := proxyHostFlagsWith(leftOut)
+	flags := proxyHostFlagsWith(leftOut, false)
 
 	gone := flags(models.ProxyHost{UUID: "gone"})
 	assert.Equal(t, false, gone["active_config"], "a left-out host says so")

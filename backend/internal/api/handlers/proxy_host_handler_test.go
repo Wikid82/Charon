@@ -629,6 +629,7 @@ func TestProxyHostDelete_RaceWithInFlightUptimeCheck(t *testing.T) {
 }
 
 func TestProxyHostErrors(t *testing.T) {
+	freshConnectionTestLimit(t)
 	t.Parallel()
 	// Mock Caddy Admin API that fails
 	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

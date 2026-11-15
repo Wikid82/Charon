@@ -175,3 +175,13 @@ func TestConnectionTestLog_NamesNoAddressPortOrCause(t *testing.T) {
 func nopBody(s string) io.ReadCloser {
 	return io.NopCloser(strings.NewReader(s))
 }
+
+// freshConnectionTestLimit gives one sequential test its own package limiter, so
+// requests from other tests in the package (which share the client address when no
+// user is set) do not use up its allowance. The previous limiter is restored after.
+func freshConnectionTestLimit(t *testing.T) {
+	t.Helper()
+	prev := defaultConnectionTestLimiter
+	defaultConnectionTestLimiter = newConnectionTestLimiter()
+	t.Cleanup(func() { defaultConnectionTestLimiter = prev })
+}

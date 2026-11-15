@@ -78,16 +78,20 @@ var proxyHostRedactedFields = []string{"advanced_config", "advanced_config_backu
 // proxyHostFlags derives the response flags for a proxy host model. No host is
 // marked as left out of the configuration.
 func proxyHostFlags(host models.ProxyHost) map[string]any {
-	return proxyHostFlagsWith(nil)(host)
+	return proxyHostFlagsWith(nil, false)(host)
 }
 
 // proxyHostFlagsWith returns the flag derivation for lists and details. A host in
 // leftOut, which the last successful apply left out of the configuration, gets
 // active_config false. Other hosts get no such key, and clients read a missing
 // key as active.
-func proxyHostFlagsWith(leftOut map[string]struct{}) func(models.ProxyHost) map[string]any {
+func proxyHostFlagsWith(leftOut map[string]struct{}, admin bool) func(models.ProxyHost) map[string]any {
 	return func(host models.ProxyHost) map[string]any {
-		flags := map[string]any{"has_advanced_config": host.AdvancedConfig != ""}
+		flags := map[string]any{}
+		if !admin {
+			// Administrators read the stored fields as they are; the advanced config flag is for other callers.
+			flags["has_advanced_config"] = host.AdvancedConfig != ""
+		}
 		if _, out := leftOut[host.UUID]; out {
 			flags["active_config"] = false
 		}
@@ -457,7 +461,7 @@ func (h *ProxyHostHandler) List(c *gin.Context) {
 		return
 	}
 
-	jsonListForRole(c, http.StatusOK, hosts, proxyHostRedactedFields, proxyHostFlagsWith(h.caddyManager.LeftOutHostUUIDs()))
+	jsonListForRoleWithFlags(c, http.StatusOK, hosts, proxyHostRedactedFields, proxyHostFlagsWith(h.caddyManager.LeftOutHostUUIDs(), isAdmin(c)))
 }
 
 // Create creates a new proxy host.
@@ -618,7 +622,7 @@ func (h *ProxyHostHandler) Get(c *gin.Context) {
 		return
 	}
 
-	jsonForRole(c, http.StatusOK, *host, proxyHostRedactedFields, proxyHostFlagsWith(h.caddyManager.LeftOutHostUUIDs()))
+	jsonForRoleWithFlags(c, http.StatusOK, *host, proxyHostRedactedFields, proxyHostFlagsWith(h.caddyManager.LeftOutHostUUIDs(), isAdmin(c)))
 }
 
 // Update updates an existing proxy host.

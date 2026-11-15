@@ -237,3 +237,52 @@ func logPermissionAudit(securityService *services.SecurityService, c *gin.Contex
 		UserAgent:     c.Request.UserAgent(),
 	})
 }
+
+// redactForRoleWithFlags is redactForRole for a resource whose derived flags
+// administrators need as well. Administrators receive every field plus the flags.
+// Other callers also lose the hidden keys.
+func redactForRoleWithFlags[T any](c *gin.Context, item T, hidden []string, flags func(T) map[string]any) (any, error) {
+	if isAdmin(c) {
+		return redactItem(item, nil, flags)
+	}
+	return redactItem(item, hidden, flags)
+}
+
+// redactListForRoleWithFlags applies redactForRoleWithFlags to every element of items.
+// An empty result still encodes as [].
+func redactListForRoleWithFlags[T any](c *gin.Context, items []T, hidden []string, flags func(T) map[string]any) (any, error) {
+	out := make([]map[string]any, 0, len(items))
+	admin := isAdmin(c)
+	for _, item := range items {
+		keep := hidden
+		if admin {
+			keep = nil
+		}
+		redacted, err := redactItem(item, keep, flags)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, redacted)
+	}
+	return out, nil
+}
+
+// jsonForRoleWithFlags is jsonForRole for resources whose flags apply to administrators too.
+func jsonForRoleWithFlags[T any](c *gin.Context, status int, item T, hidden []string, flags func(T) map[string]any) {
+	body, err := redactForRoleWithFlags(c, item, hidden, flags)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build response"})
+		return
+	}
+	c.JSON(status, body)
+}
+
+// jsonListForRoleWithFlags is jsonListForRole for resources whose flags apply to administrators too.
+func jsonListForRoleWithFlags[T any](c *gin.Context, status int, items []T, hidden []string, flags func(T) map[string]any) {
+	body, err := redactListForRoleWithFlags(c, items, hidden, flags)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build response"})
+		return
+	}
+	c.JSON(status, body)
+}
