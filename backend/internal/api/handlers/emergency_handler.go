@@ -91,6 +91,8 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 	clientIP := util.CanonicalizeIPForSecurity(c.ClientIP())
 	startTime := time.Now()
 
+	extendEmergencyReplyDeadline(c)
+
 	// Check if request has been pre-validated by EmergencyBypass middleware
 	if middleware.IsEmergencyBypass(c) {
 		// Request already validated by middleware - proceed directly to reset
@@ -197,6 +199,15 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 
 // errResetInterrupted is the reset result seen by StopAfterReset when the writes panic before they return.
 var errResetInterrupted = errors.New("emergency reset did not complete")
+
+// extendEmergencyReplyDeadline gives this request a write deadline of EmergencyResetReplyBudget, so the reply survives a
+// slow apply even when the listening server has a shorter write timeout (GH #1757). Writers that cannot take a deadline
+// (test recorders) keep their existing behaviour.
+func extendEmergencyReplyDeadline(c *gin.Context) {
+	if err := http.NewResponseController(c.Writer).SetWriteDeadline(time.Now().Add(EmergencyResetReplyBudget)); err != nil {
+		logger.Log().WithError(err).Debug("Emergency reset could not extend the reply deadline")
+	}
+}
 
 // performSecurityReset executes the actual security module disable operation. With the CrowdSec lifecycle wired, the
 // writes run through ResetCrowdSecState and the engine stop is registered before that call, so it is released on
