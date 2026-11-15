@@ -381,9 +381,9 @@ func (s *ProxyHostService) TestConnection(host string, port int) error {
 	}
 
 	target := net.JoinHostPort(host, strconv.Itoa(port))
-	conn, err := net.DialTimeout("tcp", target, 3*time.Second)
+	conn, err := NewProbeDialer(s.db, 3*time.Second).DialContext(context.Background(), "tcp", target)
 	if err != nil {
-		return fmt.Errorf("connection failed: %w", err)
+		return ErrConnectionTestFailed
 	}
 	defer func() {
 		if err := conn.Close(); err != nil {

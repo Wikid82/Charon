@@ -332,3 +332,26 @@ func listenPortFrom(address string) int {
 	}
 	return port
 }
+
+// ErrConnectionTestFailed is returned when a connection test does not connect to its
+// target. It carries no address, port or cause: the caller shows it to every signed-in user.
+var ErrConnectionTestFailed = errors.New("connection test failed")
+
+// CheckProbeTarget is the save-time check of a probe destination (a remote server
+// test or an uptime monitor). It applies the forward target rules to host:port:
+// refused literal addresses, names whose resolved addresses are refused, and
+// reserved ports on this machine. A name whose lookup fails is accepted, because
+// the dialer checks the address it actually connects to. It returns
+// ErrDestinationRefused for any refusal; other errors are returned as they are.
+func CheckProbeTarget(ctx context.Context, db *gorm.DB, host string, port int) error {
+	verdicts := preflightForwardNames(ctx, []string{host})
+	err := refuseForwardTarget(db, host, port, verdicts)
+	switch {
+	case err == nil:
+		return nil
+	case errors.Is(err, ErrForwardTargetAddress), errors.Is(err, ErrOrthrusListenerTarget), errors.Is(err, ErrAgentForwardTarget):
+		return ErrDestinationRefused
+	default:
+		return fmt.Errorf("check probe destination: %w", err)
+	}
+}

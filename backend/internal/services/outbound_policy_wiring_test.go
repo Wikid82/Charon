@@ -45,7 +45,13 @@ func TestOutboundClients_OverlayDestinations(t *testing.T) {
 		if !dialPolicyProbe(t, client, "169.254.169.254:9") {
 			t.Errorf("%s: link-local allowed", name)
 		}
-		for _, addr := range []string{"198.18.0.1:9", "192.0.0.1:9", "[2002::1]:9", "[64:ff9b::808:808]:9"} {
+		// Benchmarking addresses (198.18.0.0/15) are allowed for probes only, so the
+		// uptime client accepts them and the notification client refuses them.
+		refused := []string{"192.0.0.1:9", "[2002::1]:9", "[64:ff9b::808:808]:9"}
+		if name == "notify" {
+			refused = append(refused, "198.18.0.1:9")
+		}
+		for _, addr := range refused {
 			if !dialPolicyProbe(t, client, addr) {
 				t.Errorf("%s: %s allowed", name, addr)
 			}

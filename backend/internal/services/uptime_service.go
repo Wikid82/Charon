@@ -704,7 +704,7 @@ func (s *UptimeService) checkHost(ctx context.Context, host *models.UptimeHost) 
 
 		attempted = true
 		addr := net.JoinHostPort(host.Host, port) // net.JoinHostPort for IPv6 compatibility
-		dialer := net.Dialer{Timeout: dialTimeout}
+		dialer := NewProbeDialer(s.DB, dialTimeout)
 		conn, err := dialer.DialContext(ctx, "tcp", addr)
 		if err == nil {
 			if closeErr := conn.Close(); closeErr != nil {
@@ -715,7 +715,7 @@ func (s *UptimeService) checkHost(ctx context.Context, host *models.UptimeHost) 
 			break
 		}
 		lastErr = err
-		msg = fmt.Sprintf("TCP check failed: %v", err)
+		msg = probeErrorMessage(err, "TCP check failed: ")
 	}
 
 	// If every monitor for this host is Orthrus-type, there are no dialable ports.

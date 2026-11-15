@@ -1,6 +1,8 @@
 package handlers
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -201,6 +203,43 @@ func (h *RemoteServerHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusNoContent, nil)
 }
 
+// Fixed texts for remote server connection tests. They name no address, port or
+// rule, so the response does not reveal this machine's reserved ports or policy.
+const (
+	connectionTestFailedText = "Could not connect to the target."
+	destinationRefusedText   = "This destination is not allowed."
+	destinationRefusedCode   = "destination_refused"
+	connectionTestErrorText  = "Could not run the connection test."
+)
+
+// runRemoteDialTest runs the remote server connection test. It writes the 400 for a
+// refused destination and the 500 for a failed check, and reports whether the
+// response was written. A failed connection is not an error here: it is returned
+// as the dial error with its fixed text, and the caller reports reachable false.
+// remoteDialOutcome is the result of a remote server connection test that ran.
+type remoteDialOutcome struct {
+	latency time.Duration
+	err     error
+}
+
+func runRemoteDialTest(c *gin.Context, service *services.RemoteServerService, host string, port int) (remoteDialOutcome, bool) {
+	ctx := context.Background()
+	if c.Request != nil {
+		ctx = c.Request.Context()
+	}
+	latency, err := service.TestDial(ctx, host, port)
+	switch {
+	case errors.Is(err, services.ErrDestinationRefused):
+		c.JSON(http.StatusBadRequest, gin.H{"error": destinationRefusedText, "error_code": destinationRefusedCode})
+		return remoteDialOutcome{}, true
+	case err != nil && !errors.Is(err, services.ErrConnectionTestFailed):
+		logger.Log().WithError(err).Warn("remote server connection test could not run")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": connectionTestErrorText})
+		return remoteDialOutcome{}, true
+	}
+	return remoteDialOutcome{latency: latency, err: err}, false
+}
+
 // TestConnection tests the TCP connection to a remote server.
 func (h *RemoteServerHandler) TestConnection(c *gin.Context) {
 	uuidStr := c.Param("uuid")
@@ -211,9 +250,11 @@ func (h *RemoteServerHandler) TestConnection(c *gin.Context) {
 		return
 	}
 
-	// Test TCP connection with 5 second timeout
 	address := net.JoinHostPort(server.Host, fmt.Sprintf("%d", server.Port))
-	conn, err := net.DialTimeout("tcp", address, 5*time.Second)
+	dial, written := runRemoteDialTest(c, h.service, server.Host, server.Port)
+	if written {
+		return
+	}
 
 	result := gin.H{
 		"server_uuid": server.UUID,
@@ -221,33 +262,21 @@ func (h *RemoteServerHandler) TestConnection(c *gin.Context) {
 		"timestamp":   time.Now().UTC(),
 	}
 
-	if err != nil {
+	// Update server reachability status
+	now := time.Now().UTC()
+	server.LastChecked = &now
+	if dial.err != nil {
 		result["reachable"] = false
-		result["error"] = err.Error()
-
-		// Update server reachability status
+		result["error"] = connectionTestFailedText
 		server.Reachable = false
-		now := time.Now().UTC()
-		server.LastChecked = &now
 		_ = h.service.Update(server)
-
 		c.JSON(http.StatusOK, result)
 		return
 	}
-	defer func() {
-		if err := conn.Close(); err != nil {
-			logger.Log().WithError(err).Warn("failed to close tcp connection")
-		}
-	}()
 
-	// Connection successful
 	result["reachable"] = true
-	result["latency_ms"] = time.Since(time.Now()).Milliseconds()
-
-	// Update server reachability status
+	result["latency_ms"] = dial.latency.Milliseconds()
 	server.Reachable = true
-	now := time.Now().UTC()
-	server.LastChecked = &now
 	_ = h.service.Update(server)
 
 	c.JSON(http.StatusOK, result)
@@ -265,31 +294,24 @@ func (h *RemoteServerHandler) TestConnectionCustom(c *gin.Context) {
 		return
 	}
 
-	// Test TCP connection with 5 second timeout
 	address := net.JoinHostPort(req.Host, fmt.Sprintf("%d", req.Port))
-	start := time.Now()
-	conn, err := net.DialTimeout("tcp", address, 5*time.Second)
+	dial, written := runRemoteDialTest(c, h.service, req.Host, req.Port)
+	if written {
+		return
+	}
 
 	result := gin.H{
 		"address":   address,
 		"timestamp": time.Now().UTC(),
 	}
-
-	if err != nil {
+	if dial.err != nil {
 		result["reachable"] = false
-		result["error"] = err.Error()
+		result["error"] = connectionTestFailedText
 		c.JSON(http.StatusOK, result)
 		return
 	}
-	defer func() {
-		if err := conn.Close(); err != nil {
-			logger.Log().WithError(err).Warn("failed to close tcp connection")
-		}
-	}()
 
-	// Connection successful
 	result["reachable"] = true
-	result["latency_ms"] = time.Since(start).Milliseconds()
-
+	result["latency_ms"] = dial.latency.Milliseconds()
 	c.JSON(http.StatusOK, result)
 }

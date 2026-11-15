@@ -83,7 +83,7 @@ func TestUptimeChecker_Probe_HTTP_SecurityValidationFailure(t *testing.T) {
 	c := testChecker()
 	got := c.probe(context.Background(), models.UptimeMonitor{Type: "http", URL: "http://169.254.169.254/latest/meta-data/"})
 	assert.False(t, got.Success)
-	assert.Contains(t, got.Message, "security validation failed")
+	assert.Equal(t, destinationRefusedMessage, got.Message, "a refused destination gets the fixed message")
 }
 
 func TestUptimeChecker_Probe_HTTP_ConnectionError(t *testing.T) {

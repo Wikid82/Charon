@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
@@ -72,21 +73,20 @@ type uptimeChecker struct {
 // worker pool use this same instance so there is exactly one connection pool
 // and one copy of the probe switch (spec §3.1.5 / N3).
 func newUptimeChecker(svc *UptimeService) *uptimeChecker {
-	client := network.NewSafeHTTPClient(
-		network.WithTimeout(20*time.Second),
-		network.WithDialTimeout(3*time.Second),
+	// Probe options: admin-configured monitors may target loopback, RFC 1918, overlay,
+	// IPv6 unique-local and fake-IP addresses, and the container host names. Link-local,
+	// instance service addresses and reserved ports on this machine stay refused, and
+	// each address is checked when the connection is made.
+	opts := append([]network.Option{
+		network.WithTimeout(20 * time.Second),
+		network.WithDialTimeout(3 * time.Second),
 		network.WithMaxRedirects(0),
-		// Intentional: monitors target admin-configured local services, so
-		// loopback and RFC 1918 are permitted. Link-local, cloud metadata and
-		// other restricted ranges stay blocked; redirects are not followed.
-		network.WithAllowLocalhost(),
-		network.WithAllowRFC1918(),
-		network.WithAllowCGNAT(),
 		network.WithKeepAlive(100, 4, 30*time.Second),
-	)
+	}, ProbeHTTPOptions(svc.DB)...)
+	client := network.NewSafeHTTPClient(opts...)
 	return &uptimeChecker{
 		httpClient:     client,
-		hostDialer:     &net.Dialer{Timeout: 3 * time.Second},
+		hostDialer:     NewProbeDialer(svc.DB, 3*time.Second),
 		resolveOrthrus: func() orthrusStatusChecker { return svc.orthrusResolver },
 		notifier:       svc,
 	}
@@ -112,14 +112,17 @@ func (c *uptimeChecker) probe(ctx context.Context, monitor models.UptimeMonitor)
 			security.WithAllowLocalhost(),
 			security.WithAllowHTTP(),
 			security.WithTimeout(3*time.Second),
-			// Admin-configured uptime monitors may target RFC 1918 private
-			// hosts. Link-local (169.254.x.x), cloud metadata, and all other
-			// restricted ranges remain blocked at both validation layers.
+			// Admin-configured uptime monitors may target the same ranges as the
+			// probe client. Link-local, instance service and reserved ranges stay
+			// blocked at both validation layers.
 			security.WithAllowRFC1918(),
 			security.WithAllowCGNAT(),
+			security.WithAllowUniqueLocal(),
+			security.WithAllowBenchmarking(),
+			security.WithAllowExact(gatewayAllowAddrs),
 		)
 		if err != nil {
-			msg = fmt.Sprintf("security validation failed: %s", err.Error())
+			msg = probeErrorMessage(err, "security validation failed: ")
 			break
 		}
 
@@ -131,7 +134,7 @@ func (c *uptimeChecker) probe(ctx context.Context, monitor models.UptimeMonitor)
 
 		resp, err := c.httpClient.Do(req)
 		if err != nil {
-			msg = err.Error()
+			msg = probeErrorMessage(err, "")
 			break
 		}
 		defer func() {
@@ -154,7 +157,7 @@ func (c *uptimeChecker) probe(ctx context.Context, monitor models.UptimeMonitor)
 		addr := strings.TrimPrefix(monitor.URL, "tcp://")
 		conn, err := c.hostDialer.DialContext(ctx, "tcp", addr)
 		if err != nil {
-			msg = err.Error()
+			msg = probeErrorMessage(err, "")
 			break
 		}
 		if closeErr := conn.Close(); closeErr != nil {
@@ -255,6 +258,20 @@ func (c *uptimeChecker) probeHost(ctx context.Context, host models.UptimeHost, d
 	return rawCheckResult{
 		Success: false,
 		Latency: time.Since(start).Milliseconds(),
-		Message: fmt.Sprintf("TCP check failed: %v", lastErr),
+		Message: probeErrorMessage(lastErr, "TCP check failed: "),
 	}
+}
+
+// destinationRefusedMessage is the heartbeat text for a probe the destination policy
+// refused. It names no address and no rule.
+const destinationRefusedMessage = "Destination is not allowed for checks"
+
+// probeErrorMessage returns the heartbeat text for a failed probe. A refusal by the
+// destination policy gets the fixed text; any other error keeps its message after
+// prefix.
+func probeErrorMessage(err error, prefix string) string {
+	if errors.Is(err, network.ErrBlockedAddress) {
+		return destinationRefusedMessage
+	}
+	return prefix + err.Error()
 }
