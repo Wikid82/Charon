@@ -1038,7 +1038,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # /app/geoip/.missing so the runtime can report it. The database lives in /app/geoip, outside the data volume, so a
 # volume mounted over /app/data does not hide it. Operators can place a newer copy in /app/data/geoip, which takes
 # precedence. The build does not fail: the image then ships without a database and country access lists refuse requests.
-ARG GEOLITE2_COUNTRY_SHA256=2c2d05c474baeb669298cce912a6236b5ecc4e50f0316a93e01ba5cf22183600
+ARG GEOLITE2_COUNTRY_SHA256=bdb2b3f86dc278e5a5df64bc6fbe3de03f4844a5e97945a94df76e77049ee788
 RUN mkdir -p /app/geoip && \
     db=/app/geoip/GeoLite2-Country.mmdb && \
     if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
