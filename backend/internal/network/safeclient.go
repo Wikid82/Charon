@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"net/netip"
 	"sync"
 	"time"
 )
@@ -47,6 +48,18 @@ var rfc1918CIDRs = []string{
 	"192.168.0.0/16",
 }
 
+// alwaysBlockedCIDRs are cloud instance service addresses. AddressPolicy.Blocked
+// tests them before every allow branch, so no Allow* option, exact allow or
+// carve-out can reach them. Keep this list to addresses that serve instance
+// credentials or configuration.
+var alwaysBlockedCIDRs = []string{
+	"169.254.169.254/32", // AWS, GCP and Azure instance metadata (IPv4)
+	"fd00:ec2::/32",      // AWS instance services (IPv6, includes fd00:ec2::254)
+	"fd20:ce::254/128",   // GCP instance metadata (IPv6)
+	"100.100.100.200/32", // Alibaba Cloud instance metadata, inside the CGNAT range
+	"168.63.129.16/32",   // Azure host service (wire server)
+}
+
 // privateCIDRs defines all private and reserved IP ranges to block for SSRF protection.
 // This list covers:
 // - RFC 1918 private networks (10.x, 172.16-31.x, 192.168.x)
@@ -54,7 +67,7 @@ var rfc1918CIDRs = []string{
 // - Link-local addresses (169.254.x.x, fe80::) including cloud metadata endpoints
 // - Reserved ranges (0.x.x.x, 240.x.x.x, 255.255.255.255)
 // - IPv6 unique local addresses (fc00::)
-// - A cloud instance metadata alias inside the CGNAT range (100.100.100.200)
+// The always-blocked list is checked separately by IsAlwaysBlocked.
 var privateCIDRs = []string{
 	// IPv4 Private Networks (RFC 1918)
 	"10.0.0.0/8",
@@ -80,10 +93,6 @@ var privateCIDRs = []string{
 
 	// IPv6 Link-Local
 	"fe80::/10",
-
-	// Cloud instance metadata alias, inside the CGNAT range (100.64.0.0/10).
-	// Blocked even when the rest of the range is allowed.
-	"100.100.100.200/32",
 }
 
 // cgnatCIDRs is the shared-address space used by carrier-grade NAT and many
@@ -93,9 +102,16 @@ var cgnatCIDRs = []string{
 	"100.64.0.0/10",
 }
 
+// benchmarkCIDRs is the range fake-IP DNS resolvers (Clash, sing-box, OpenClash)
+// answer with. It is part of transitionCIDRs and is allowed only by AllowBenchmarking.
+var benchmarkCIDRs = []string{
+	"198.18.0.0/15", // Benchmarking (RFC 2544)
+}
+
 // transitionCIDRs lists IPv4/IPv6 transition, translation and special-purpose
 // ranges that have no legitimate use as an outbound HTTP destination. They are
-// NOT part of IsPrivateIP; AddressPolicy always blocks them.
+// NOT part of IsPrivateIP; AddressPolicy always blocks them, except the
+// benchmarking range when AllowBenchmarking is set.
 var transitionCIDRs = []string{
 	"192.0.0.0/24",   // IETF protocol assignments
 	"198.18.0.0/15",  // Benchmarking
@@ -107,11 +123,45 @@ var transitionCIDRs = []string{
 }
 
 var (
-	cgnatBlocks      []*net.IPNet
-	cgnatOnce        sync.Once
-	transitionBlocks []*net.IPNet
-	transitionOnce   sync.Once
+	cgnatBlocks       []*net.IPNet
+	cgnatOnce         sync.Once
+	transitionBlocks  []*net.IPNet
+	transitionOnce    sync.Once
+	alwaysBlocked     []*net.IPNet
+	alwaysBlockedOnce sync.Once
+	benchmarkBlocks   []*net.IPNet
+	benchmarkOnce     sync.Once
 )
+
+// IsAlwaysBlocked reports whether ip is one of the cloud instance service
+// addresses that no policy option can allow. IPv4-mapped IPv6 addresses are
+// matched through their IPv4 form.
+func IsAlwaysBlocked(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	alwaysBlockedOnce.Do(func() { alwaysBlocked = parseBlocks(alwaysBlockedCIDRs) })
+	return containsAny(alwaysBlocked, ip)
+}
+
+// IsUniqueLocal reports whether ip is an IPv6 unique local address (fc00::/7,
+// RFC 4193). IPv4 and IPv4-mapped addresses never match.
+func IsUniqueLocal(ip net.IP) bool {
+	if len(ip) != net.IPv6len || ip.To4() != nil {
+		return false
+	}
+	return ip[0]&0xfe == 0xfc
+}
+
+// IsBenchmarking reports whether ip is in the benchmarking range 198.18.0.0/15
+// used by fake-IP DNS resolvers.
+func IsBenchmarking(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	benchmarkOnce.Do(func() { benchmarkBlocks = parseBlocks(benchmarkCIDRs) })
+	return containsAny(benchmarkBlocks, ip)
+}
 
 // parseBlocks parses CIDR strings into networks. Invalid entries are skipped;
 // they cannot occur with the compile-time constant lists in this file.
@@ -177,14 +227,13 @@ func IsPrivateIP(ip net.IP) bool {
 		return true
 	}
 
-	// Check against all private/reserved CIDR blocks
-	for _, block := range privateBlocks {
-		if block.Contains(ip) {
-			return true
-		}
+	// Cloud instance service addresses are private for every caller.
+	if IsAlwaysBlocked(ip) {
+		return true
 	}
 
-	return false
+	// Check against all private/reserved CIDR blocks
+	return containsAny(privateBlocks, ip)
 }
 
 // IsRFC1918 reports whether an IP address belongs to one of the three RFC 1918
@@ -280,6 +329,21 @@ type ClientOptions struct {
 	// AllowCGNAT permits the shared address space used by overlay networks.
 	AllowCGNAT bool
 
+	// AllowUniqueLocal permits IPv6 unique local addresses (fc00::/7).
+	AllowUniqueLocal bool
+
+	// AllowBenchmarking permits the benchmarking range 198.18.0.0/15 used by
+	// fake-IP DNS resolvers.
+	AllowBenchmarking bool
+
+	// allowExact returns exact addresses that are allowed even when their range
+	// is blocked (for example the gateway names of a container runtime). It is
+	// called on every dial, so the list can change at runtime.
+	allowExact func() []netip.Addr
+
+	// dialGuards are checked on each literal address the dialer connects to.
+	dialGuards []DialGuard
+
 	// keepAlive, when true, enables HTTP connection pooling on the SSRF-safe
 	// client. When false (the default) the client keeps its historical
 	// behaviour byte-for-byte: DisableKeepAlives=true, MaxIdleConns=1,
@@ -353,6 +417,41 @@ func WithAllowCGNAT() Option {
 	}
 }
 
+// WithAllowUniqueLocal permits IPv6 unique local addresses (fc00::/7), the
+// range used by IPv6 LANs. Always-blocked instance addresses stay blocked.
+func WithAllowUniqueLocal() Option {
+	return func(opts *ClientOptions) {
+		opts.AllowUniqueLocal = true
+	}
+}
+
+// WithAllowBenchmarking permits the benchmarking range 198.18.0.0/15 used by
+// fake-IP DNS resolvers.
+func WithAllowBenchmarking() Option {
+	return func(opts *ClientOptions) {
+		opts.AllowBenchmarking = true
+	}
+}
+
+// WithAllowExact permits the addresses returned by allow, even inside blocked
+// ranges. The function is called on every dial. Always-blocked addresses stay
+// blocked whatever it returns.
+func WithAllowExact(allow func() []netip.Addr) Option {
+	return func(opts *ClientOptions) {
+		opts.allowExact = allow
+	}
+}
+
+// WithDialGuard adds a check on every literal address the dialer connects to.
+// Guards run after the AddressPolicy and can only refuse.
+func WithDialGuard(guard DialGuard) Option {
+	return func(opts *ClientOptions) {
+		if guard != nil {
+			opts.dialGuards = append(opts.dialGuards, guard)
+		}
+	}
+}
+
 // AddressPolicy is the single outbound address policy. The zero value is the
 // strictest policy: only public addresses are allowed. Every opt-in is explicit.
 type AddressPolicy struct {
@@ -363,22 +462,35 @@ type AddressPolicy struct {
 	// AllowCGNAT permits the shared address space used by overlay networks.
 	// The cloud metadata alias inside it stays blocked.
 	AllowCGNAT bool
+	// AllowUniqueLocal permits IPv6 unique local addresses (fc00::/7).
+	AllowUniqueLocal bool
+	// AllowBenchmarking permits the benchmarking range 198.18.0.0/15.
+	AllowBenchmarking bool
+	// AllowExact permits these exact addresses, even inside a blocked range.
+	AllowExact []netip.Addr
 }
 
 // Blocked reports whether ip must NOT be connected to under the policy. It is
 // shared by every dial-time, redirect and URL pre-validation check.
 //
-// The always-on rules (IsPrivateIP, which includes loopback and link-local) can
-// only be relaxed by the explicit AllowLocalhost / AllowRFC1918 branches, and
-// those branches only match loopback and RFC 1918 addresses, so no other
-// restricted address is reachable through them.
+// The order is fixed: always-blocked instance addresses first, so no allow
+// option or exact entry can reach them; then the exact allow list; then the
+// range rules. The always-on rules (IsPrivateIP, which includes loopback and
+// link-local) can only be relaxed by the explicit Allow* branches, and each of
+// those branches matches only its own range.
 func (p AddressPolicy) Blocked(ip net.IP) bool {
 	if ip == nil {
 		return true
 	}
+	if IsAlwaysBlocked(ip) {
+		return true
+	}
+	if containsExact(p.AllowExact, ip) {
+		return false
+	}
 	// Transition ranges are matched on the raw address first: IPv6-only forms
 	// do not survive the To4 normalisation in IsPrivateIP.
-	if IsTransitionRange(ip) {
+	if IsTransitionRange(ip) && (!p.AllowBenchmarking || !IsBenchmarking(ip)) {
 		return true
 	}
 	if p.AllowLocalhost && ip.IsLoopback() {
@@ -387,19 +499,48 @@ func (p AddressPolicy) Blocked(ip net.IP) bool {
 	if p.AllowRFC1918 && IsRFC1918(ip) {
 		return false
 	}
+	if p.AllowUniqueLocal && IsUniqueLocal(ip) {
+		return false
+	}
 	if IsCGNAT(ip) && !p.AllowCGNAT {
 		return true
 	}
 	return IsPrivateIP(ip)
 }
 
-// policy derives the address policy from the client options.
-func (o *ClientOptions) policy() AddressPolicy {
-	return AddressPolicy{
-		AllowLocalhost: o.AllowLocalhost,
-		AllowRFC1918:   o.AllowRFC1918,
-		AllowCGNAT:     o.AllowCGNAT,
+// containsExact reports whether ip equals one of the exact addresses. Both
+// sides are unmapped and zone-free so an IPv4-mapped form matches its IPv4 entry.
+func containsExact(exact []netip.Addr, ip net.IP) bool {
+	if len(exact) == 0 {
+		return false
 	}
+	addr, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return false
+	}
+	addr = addr.WithZone("").Unmap()
+	for _, allowed := range exact {
+		if allowed.WithZone("").Unmap() == addr {
+			return true
+		}
+	}
+	return false
+}
+
+// policy derives the address policy from the client options. The exact list is
+// read on every call.
+func (o *ClientOptions) policy() AddressPolicy {
+	p := AddressPolicy{
+		AllowLocalhost:    o.AllowLocalhost,
+		AllowRFC1918:      o.AllowRFC1918,
+		AllowCGNAT:        o.AllowCGNAT,
+		AllowUniqueLocal:  o.AllowUniqueLocal,
+		AllowBenchmarking: o.AllowBenchmarking,
+	}
+	if o.allowExact != nil {
+		p.AllowExact = o.allowExact()
+	}
+	return p
 }
 
 // WithKeepAlive enables connection pooling (HTTP keep-alives) on the SSRF-safe
@@ -438,7 +579,9 @@ func WithKeepAlive(maxIdle, perHost int, idleTimeout time.Duration) Option {
 // This approach defeats Time-of-Check to Time-of-Use (TOCTOU) attacks where
 // DNS could return different IPs between validation and connection.
 func safeDialer(opts *ClientOptions) func(ctx context.Context, network, addr string) (net.Conn, error) {
-	policy := opts.policy()
+	// The guarded dialer refuses each literal address at connect time, including
+	// the localhost shortcut below, which bypasses the name lookup.
+	guarded := NewGuardedDialer(opts.DialTimeout, opts.policy, opts.dialGuards...)
 	return func(ctx context.Context, network, addr string) (net.Conn, error) {
 		// Parse host:port from address
 		host, port, err := net.SplitHostPort(addr)
@@ -450,9 +593,10 @@ func safeDialer(opts *ClientOptions) func(ctx context.Context, network, addr str
 		isLocalhost := host == "localhost" || host == "127.0.0.1" || host == "::1"
 		if isLocalhost && opts.AllowLocalhost {
 			// Allow localhost connections when explicitly permitted
-			dialer := &net.Dialer{Timeout: opts.DialTimeout}
-			return dialer.DialContext(ctx, network, addr)
+			return guarded.DialContext(ctx, network, addr)
 		}
+
+		policy := opts.policy()
 
 		// Resolve DNS with context timeout
 		ips, err := lookupIPAddr(ctx, host)
@@ -488,8 +632,7 @@ func safeDialer(opts *ClientOptions) func(ctx context.Context, network, addr str
 		}
 
 		// Connect to the validated IP (prevents DNS rebinding TOCTOU attacks)
-		dialer := &net.Dialer{Timeout: opts.DialTimeout}
-		return dialer.DialContext(ctx, network, net.JoinHostPort(selectedIP.String(), port))
+		return guarded.DialContext(ctx, network, net.JoinHostPort(selectedIP.String(), port))
 	}
 }
 

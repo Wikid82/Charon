@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net"
+	"net/netip"
 	neturl "net/url"
 	"os"
 	"strconv"
@@ -132,6 +133,15 @@ type ValidationConfig struct {
 	// AllowCGNAT permits the shared address space used by overlay networks.
 	// The cloud metadata alias inside it stays blocked.
 	AllowCGNAT bool
+
+	// AllowUniqueLocal permits IPv6 unique local addresses (fc00::/7).
+	AllowUniqueLocal bool
+
+	// AllowBenchmarking permits the fake-IP benchmarking range 198.18.0.0/15.
+	AllowBenchmarking bool
+
+	// AllowExact returns exact addresses allowed even inside a blocked range.
+	AllowExact func() []netip.Addr
 }
 
 // ValidationOption allows customizing validation behavior.
@@ -170,6 +180,22 @@ func WithAllowRFC1918() ValidationOption {
 // The cloud metadata alias inside it stays blocked.
 func WithAllowCGNAT() ValidationOption {
 	return func(c *ValidationConfig) { c.AllowCGNAT = true }
+}
+
+// WithAllowUniqueLocal permits IPv6 unique local addresses (fc00::/7).
+func WithAllowUniqueLocal() ValidationOption {
+	return func(c *ValidationConfig) { c.AllowUniqueLocal = true }
+}
+
+// WithAllowBenchmarking permits the fake-IP benchmarking range 198.18.0.0/15.
+func WithAllowBenchmarking() ValidationOption {
+	return func(c *ValidationConfig) { c.AllowBenchmarking = true }
+}
+
+// WithAllowExact permits the addresses returned by allow even inside a blocked
+// range. Always-blocked instance service addresses stay blocked.
+func WithAllowExact(allow func() []netip.Addr) ValidationOption {
+	return func(c *ValidationConfig) { c.AllowExact = allow }
 }
 
 // ValidateExternalURL validates a URL for external HTTP requests with comprehensive SSRF protection.
@@ -298,8 +324,13 @@ func ValidateExternalURL(rawURL string, options ...ValidationOption) (string, er
 	// localhost hosts in Phase 2.
 	if config.BlockPrivateIPs {
 		policy := network.AddressPolicy{
-			AllowRFC1918: config.AllowRFC1918,
-			AllowCGNAT:   config.AllowCGNAT,
+			AllowRFC1918:      config.AllowRFC1918,
+			AllowCGNAT:        config.AllowCGNAT,
+			AllowUniqueLocal:  config.AllowUniqueLocal,
+			AllowBenchmarking: config.AllowBenchmarking,
+		}
+		if config.AllowExact != nil {
+			policy.AllowExact = config.AllowExact()
 		}
 		for _, ip := range ips {
 			if policy.Blocked(ip) {
