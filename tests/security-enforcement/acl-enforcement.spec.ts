@@ -609,4 +609,128 @@ test.describe('ACL Enforcement', () => {
       });
     });
   });
+
+  test.describe("Charon's own API under site lists and management access", () => {
+    // Site lists guard proxy hosts. The lists chosen for management access guard Charon's own /api/v1 interface.
+    // The in-container client is loopback and is refused only by a list that admits other addresses; the whitelisted
+    // runner is admitted in every case.
+    const LOOPBACK_CIDR = '127.0.0.1/32';
+    /** Charon's own API port inside the container (the proxy listens on 80 and does not serve this path). */
+    const CHARON_API_PORT = 8080;
+    /**
+     * Inside the management route group, so the management check judges it before the handler. A refusal is a 403 with
+     * the access-list body; an unauthenticated loopback request that is not refused gets the handler's own answer.
+     */
+    const CHARON_API_PATH = '/api/v1/system/my-ip';
+    const MANAGEMENT_REFUSAL_BODY = 'Blocked by access control list';
+    const MANAGEMENT_ACCESS_PATH = '/api/v1/security/management-access';
+
+    test.describe.configure({ mode: 'serial' });
+
+    let container: string;
+    let snapshot: SecurityStateSnapshot | undefined;
+    let siteDomain = '';
+    let siteListUuid = '';
+    let siteHostUuid = '';
+    let managementListUuid = '';
+
+    /** CIDR that admits exactly the address the API sees for this runner. */
+    async function runnerCidr(): Promise<string> {
+      const response = await requestContext.get('/api/v1/system/my-ip');
+      expect(response.ok()).toBe(true);
+      const { ip } = (await response.json()) as { ip: string };
+      const bare = ip.startsWith('::ffff:') ? ip.slice('::ffff:'.length) : ip;
+      return bare.includes(':') ? `${bare}/128` : `${bare}/32`;
+    }
+
+    async function setManagementAccess(listUuids: string[]): Promise<void> {
+      const response = await requestContext.put(MANAGEMENT_ACCESS_PATH, { data: { list_uuids: listUuids } });
+      expect(response.ok(), `PUT ${MANAGEMENT_ACCESS_PATH} failed with ${response.status()}`).toBe(true);
+    }
+
+    test.beforeAll(async () => {
+      container = findE2EContainer();
+      snapshot = await captureSecurityState(requestContext);
+
+      // Narrow the whitelist before any list or host exists, so the first apply already holds the narrowed set.
+      await narrowAdminWhitelistForLoopbackClient(requestContext);
+
+      const suffix = Date.now();
+      siteDomain = `site-list-api-${suffix}.example.test`;
+      siteListUuid = await createIpBlockList(requestContext, `Site list loopback ${suffix}`, LOOPBACK_CIDR);
+      siteHostUuid = await createProxyHost(requestContext, {
+        domain: siteDomain,
+        forwardPort: DEAD_UPSTREAM_PORT,
+        name: 'Site list API host',
+        accessListUuid: siteListUuid,
+      });
+
+      await expect
+        .poll(async () => (await fromLoopback(container, siteDomain)).status, {
+          timeout: 30_000,
+          message: 'site block-list route should be loaded and refuse the loopback client',
+        })
+        .toBe(403);
+    });
+
+    test.afterAll(async () => {
+      await runCleanupSteps([
+        () => setManagementAccess([]),
+        ...(managementListUuid !== '' ? [() => deleteAccessList(requestContext, managementListUuid)] : []),
+        ...(siteHostUuid !== '' ? [() => deleteProxyHost(requestContext, siteHostUuid)] : []),
+        ...(siteListUuid !== '' ? [() => deleteAccessList(requestContext, siteListUuid)] : []),
+        ...(snapshot ? [() => restoreSecurityState(requestContext, snapshot as SecurityStateSnapshot)] : []),
+      ]);
+    });
+
+    test('a site list refuses its proxy host for the loopback client but not Charon\'s own API', async () => {
+      await test.step('The proxy host refuses the loopback client', async () => {
+        const response = await fromLoopback(container, siteDomain);
+        expect(response.status).toBe(403);
+      });
+
+      await test.step('Charon\'s own API answers the loopback client: a site list does not guard /api/v1', async () => {
+        const response = await fetchFromContainer(container, {
+          host: 'localhost',
+          path: CHARON_API_PATH,
+          port: CHARON_API_PORT,
+        });
+        expect(response.status).not.toBe(403);
+        expect(response.body).not.toContain(MANAGEMENT_REFUSAL_BODY);
+      });
+    });
+
+    test('a management list refuses the loopback client on Charon\'s own API and admits the whitelisted runner', async () => {
+      await test.step('Choose a list that admits only the runner and save it', async () => {
+        const response = await requestContext.post('/api/v1/access-lists', {
+          data: {
+            name: `Management list runner ${Date.now()}`,
+            type: 'whitelist',
+            // Only enabled lists are enforced on Charon's own interface.
+            enabled: true,
+            ip_rules: JSON.stringify([{ cidr: await runnerCidr(), description: 'Management access E2E' }]),
+          },
+        });
+        expect(response.ok()).toBe(true);
+        managementListUuid = ((await response.json()) as { uuid: string }).uuid;
+        await setManagementAccess([managementListUuid]);
+      });
+
+      await test.step('The loopback client is refused on Charon\'s own API by the management list', async () => {
+        await expect
+          .poll(async () => (await fetchFromContainer(container, { host: 'localhost', path: CHARON_API_PATH, port: CHARON_API_PORT })).status, {
+            timeout: 30_000,
+            message: 'management list should refuse the loopback client on /api/v1',
+          })
+          .toBe(403);
+        const refused = await fetchFromContainer(container, { host: 'localhost', path: CHARON_API_PATH, port: CHARON_API_PORT });
+        expect(refused.body).toContain(MANAGEMENT_REFUSAL_BODY);
+      });
+
+      await test.step('The whitelisted runner is admitted by the same management list', async () => {
+        const response = await requestContext.get(CHARON_API_PATH);
+        expect(response.status()).toBe(200);
+      });
+    });
+  });
 });
