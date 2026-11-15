@@ -132,6 +132,8 @@ environment:
 **Default:** `127.0.0.1:2020`
 **Note:** Port 2020 is the emergency server. Caddy's admin API is a unix socket inside the container and uses no TCP port.
 
+While the emergency server is turned on, its port cannot be used as a proxy target or an uptime monitor address on this machine (`localhost`, `127.0.0.1` or the machine's own address). Charon refuses those entries. Turn the emergency server off, or use another port for proxy targets and monitors.
+
 **Options:**
 
 ```yaml

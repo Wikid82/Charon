@@ -1225,6 +1225,15 @@ Content-Type: application/json
 }
 ```
 
+**Response 400 (forward target not allowed):** A forward target, location target or advanced-configuration upstream that Charon does not accept returns this. The same response applies to updates.
+
+```json
+{
+  "error": "This forward target is not allowed.",
+  "error_code": "forward_target_refused"
+}
+```
+
 #### Update Proxy Host
 
 ```http
@@ -1437,6 +1446,7 @@ POST /remote-servers/:uuid/test
 {
   "reachable": true,
   "address": "registry.local:5000",
+  "latency_ms": 12,
   "timestamp": "2025-01-18T10:25:00Z"
 }
 ```
@@ -1447,14 +1457,29 @@ POST /remote-servers/:uuid/test
 {
   "reachable": false,
   "address": "offline.server:8080",
-  "error": "connection timeout",
+  "error": "Could not connect to the target.",
   "timestamp": "2025-01-18T10:25:00Z"
 }
 ```
 
-**Note:** This endpoint updates the `reachable` and `last_checked` fields on the remote server.
+**Response 400 (address not allowed):**
+
+```json
+{
+  "error": "This destination is not allowed.",
+  "error_code": "destination_refused"
+}
+```
+
+**Response 429 (too many tests):** The response includes a `Retry-After` header with the number of seconds to wait. See [Connection Test Limit](#connection-test-limit).
+
+**Note:** This endpoint updates the `reachable` and `last_checked` fields on the remote server. The error text is the same for every reason a connection fails, so it does not say which rule or port was involved.
 
 ---
+
+#### Connection Test Limit
+
+Each account can run 10 connection tests per minute. The limit is shared by the proxy host connection test (`POST /proxy-hosts/test`) and the remote server tests. A request over the limit gets `429` with a `Retry-After` header, and no connection is attempted.
 
 ### Docker Status
 

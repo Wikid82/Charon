@@ -457,9 +457,10 @@ ticker.
   from the DB at startup. The worker (not the ingester) read-modify-writes this
   state synchronously, computes status transitions, dispatches notifications, and
   on a host→down transition synthesizes `down` heartbeats for that host's TCP
-  monitors. All HTTP checks share one keep-alive SSRF-safe `*http.Client`
+  monitors. All HTTP checks share one keep-alive `*http.Client`
   (`network.NewSafeHTTPClient(..., network.WithKeepAlive(100, 4, 30s))`) with the
-  same `safeDialer` / no-redirect / localhost + RFC1918 policy as the retired
+  `safeDialer` / no-redirect / localhost + RFC1918 probe policy
+  (`ProbeHTTPOptions`, including the reserved-port guard) as the retired
   per-check client. The host TCP pre-check is now a single non-blocking dial (was
   a `2s × MaxRetries` sleep-retry loop). Shutdown waits on in-flight checks
   (`workerWG`), then closes the results channel.
@@ -1080,8 +1081,14 @@ pin (the stage already carries ~40 such pins).
 
 **Additional Protections:**
 
-- **SSRF Prevention:** Block requests to private IP ranges in webhooks/URL
-  validation. DNS provider plugins, which cannot import `internal/`, use the
+- **Outbound Destination Checks:** Block requests to private IP ranges in webhooks/URL
+  validation. Charon's own probes (uptime monitors, connection tests, and
+  forward target saves) use one address policy in `services/probe_policy.go`.
+  `network.NewGuardedDialer` checks each literal address at connect time, so a
+  name whose records change after it was saved cannot reach a refused address.
+  The always-blocked cloud instance list (`network/safeclient.go`) is checked
+  before any allow rule. Probes dial through `services.NewProbeDialer`.
+  DNS provider plugins, which cannot import `internal/`, use the
   public `backend/pkg/safehttp` facade over the same checks. `network.NewSafeHTTPClient` disables HTTP keep-alives by default;
   the uptime worker pool opts into a pooled variant via
   `network.WithKeepAlive(100, 4, 30s)`, where `safeDialer` still re-validates
@@ -1152,7 +1159,8 @@ newly added privileged route cannot silently land on an under-guarded group.
 | Uptime monitor list, summary, history, health | Allowed | Allowed | `management` group |
 | Uptime monitor create, update, delete, manual check, sync | 403 | Allowed | `managementAdmin` group (`routes.go`) |
 | Docker container list for a disabled remote server | Refused (400) | Refused (400) | `docker_handler.go` |
-| Forward target that names a local host on the admin TCP port (2019) | Refused | Refused | Shared helper `refuseAdminListenerTarget`, used by proxy host and location validation. The admin API is a socket by default, so this is defense in depth |
+| Forward target on a reserved port of this machine (agent ports, admin TCP port 2019, CrowdSec 8085, emergency port while enabled), or a link-local or cloud instance address | Refused (fixed `forward_target_refused` text) | Refused (same text) | `refuseForwardTarget` (`services/forward_target_policy.go`), used by proxy host and location validation and advanced-config dials (`caddy/forward_targets.go`, parsed by `caddy/dial_address.go`) |
+| Connection tests (proxy host test, remote server tests): 10 per minute per user | Limited (429 with `Retry-After`) | Limited (429 with `Retry-After`) | `handlers/connection_test_limit.go`, shared by all three endpoints; failures return one fixed text, and no address is logged |
 | Security config `admin_whitelist`, `rate_limit_bypass_list`, `crowdsec_api_url` | Read redacted (`has_admin_whitelist`, `has_rate_limit_bypass_list` flags instead) | Visible | Response redaction (`securityConfigRedactedFields`, `security_handler.go`) |
 | Rule set `content`, `source_url` | Read redacted (`has_content`, `content_line_count` instead) | Visible | Response redaction (`ruleSetRedactedFields`) |
 | SMTP settings and `security.admin_whitelist` in `/settings` | Left out; each replaced by `<key>.has_value` | Visible | `adminOnlySettingKeys`, `settingsResponseMap` (`settings_handler.go`) |
