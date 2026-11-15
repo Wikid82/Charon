@@ -70,3 +70,6 @@
 3 balanced 18 tests/security/waf-config.spec.ts
 3 balanced 6 tests/security/waf-enforcement-status.spec.ts
 3 balanced 4 tests/security/workflow-security.spec.ts
+2 balanced 2 tests/security/live-stream-limit.spec.ts
+2 balanced 4 tests/security/management-access.spec.ts
+3 balanced 9 tests/security/trusted-proxies.spec.ts
