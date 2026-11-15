@@ -9,6 +9,9 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
+
+	"github.com/Wikid82/charon/backend/internal/api/middleware"
+	"github.com/Wikid82/charon/backend/internal/security"
 )
 
 // errWebSocketOriginDenied is returned by upgradeWebSocket when the request
@@ -24,11 +27,13 @@ type PublicOriginSource interface {
 // isAllowedWebSocketOrigin reports whether a browser WebSocket request may
 // upgrade. Requests without an Origin header are non-browser or same-origin
 // clients and are allowed. Otherwise the Origin must equal the configured
-// public origin exactly, or its host must equal the request host, or
-// X-Forwarded-Host when a reverse proxy sets it. The public origin covers a
-// proxy that rewrites Host, so its browser handshake is not refused.
-func isAllowedWebSocketOrigin(r *http.Request, publicOrigin string) bool {
-	origin := r.Header.Get("Origin")
+// public origin exactly, or its host must equal the host the client addressed.
+// That host is the verified self-proxy hop's host or, from a trusted proxy only,
+// the first X-Forwarded-Host entry (see middleware.ForwardedRequest); otherwise
+// the request Host. The public origin covers a proxy that rewrites Host, so its
+// browser handshake is not refused.
+func isAllowedWebSocketOrigin(c *gin.Context, publicOrigin string, trusted security.TrustedProxyMatcher) bool {
+	origin := c.Request.Header.Get("Origin")
 	if origin == "" {
 		return true
 	}
@@ -39,9 +44,9 @@ func isAllowedWebSocketOrigin(r *http.Request, publicOrigin string) bool {
 	if err != nil {
 		return false
 	}
-	requestHost := r.Host
-	if forwardedHost := r.Header.Get("X-Forwarded-Host"); forwardedHost != "" {
-		requestHost = forwardedHost
+	requestHost := c.Request.Host
+	if _, hosts := middleware.ForwardedRequest(c, trusted); len(hosts) > 0 {
+		requestHost = hosts[0]
 	}
 	return originURL.Host == requestHost
 }
@@ -50,18 +55,19 @@ func isAllowedWebSocketOrigin(r *http.Request, publicOrigin string) bool {
 // check. All WS handlers in this package MUST go through this helper rather
 // than calling websocket.Accept directly, so the origin check stays visible to
 // single-file static analysis at every call site. publicOrigins may be nil,
-// which trusts no public origin.
+// which trusts no public origin. trusted is the API-layer trusted-proxy list
+// that decides whether forwarded host headers are honoured.
 //
 // The origin check is done here rather than by websocket.Accept, which only
-// knows about the request Host and cannot honour X-Forwarded-Host. Accept's own
+// knows about the request Host and cannot honour forwarded hosts. Accept's own
 // check is therefore disabled with InsecureSkipVerify, and this function
 // rejects disallowed origins with 403 before Accept runs.
-func upgradeWebSocket(c *gin.Context, publicOrigins PublicOriginSource) (*websocket.Conn, error) {
+func upgradeWebSocket(c *gin.Context, publicOrigins PublicOriginSource, trusted security.TrustedProxyMatcher) (*websocket.Conn, error) {
 	publicOrigin := ""
 	if publicOrigins != nil {
 		publicOrigin = publicOrigins.TrustedOrigin()
 	}
-	if !isAllowedWebSocketOrigin(c.Request, publicOrigin) {
+	if !isAllowedWebSocketOrigin(c, publicOrigin, trusted) {
 		http.Error(c.Writer, http.StatusText(http.StatusForbidden), http.StatusForbidden)
 		return nil, errWebSocketOriginDenied
 	}

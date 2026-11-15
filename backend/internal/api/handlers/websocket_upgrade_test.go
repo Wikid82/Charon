@@ -12,6 +12,8 @@ import (
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
+	"github.com/Wikid82/charon/backend/internal/security"
 )
 
 // newUpgradeTestServer serves upgradeWebSocket and closes each accepted
@@ -21,7 +23,7 @@ func newUpgradeTestServer(t *testing.T, upgradeErr chan<- error) *httptest.Serve
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.GET("/ws", func(c *gin.Context) {
-		conn, err := upgradeWebSocket(c, nil)
+		conn, err := upgradeWebSocket(c, nil, security.TrustedProxyMatcher{})
 		upgradeErr <- err
 		if err != nil {
 			return
@@ -89,4 +91,50 @@ func TestUpgradeWebSocket_NonWebSocketRequestFails(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("handler did not run")
 	}
+}
+
+// newForwardedHostUpgradeServer serves upgradeWebSocket with the given trusted-proxy list.
+func newForwardedHostUpgradeServer(t *testing.T, trusted security.TrustedProxyMatcher) *httptest.Server {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	router := gin.New()
+	router.GET("/ws", func(c *gin.Context) {
+		conn, err := upgradeWebSocket(c, nil, trusted)
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.CloseNow() }()
+		_, _, _ = conn.Read(c.Request.Context())
+	})
+	srv := httptest.NewServer(router)
+	t.Cleanup(srv.Close)
+	return srv
+}
+
+// TestUpgradeWebSocket_ForwardedHostHonouredOnlyFromTrustedPeer dials the test server from loopback with a
+// forwarded host that matches the Origin. Loopback is trusted in the first case and untrusted in the second.
+func TestUpgradeWebSocket_ForwardedHostHonouredOnlyFromTrustedPeer(t *testing.T) {
+	header := http.Header{
+		"Origin":            []string{"https://public.example"},
+		"X-Forwarded-Host":  []string{"public.example"},
+		"X-Forwarded-Proto": []string{"https"},
+	}
+
+	t.Run("untrusted peer is refused", func(t *testing.T) {
+		srv := newForwardedHostUpgradeServer(t, security.TrustedProxyMatcher{})
+		conn, resp, err := websocket.Dial(context.Background(), toWebSocketURL(srv.URL)+"/ws", &websocket.DialOptions{HTTPHeader: header}) //nolint:bodyclose // coder/websocket manages the handshake response body
+		if conn != nil {
+			_ = conn.CloseNow()
+		}
+		require.Error(t, err)
+		require.NotNil(t, resp)
+		assert.Equal(t, http.StatusForbidden, resp.StatusCode)
+	})
+
+	t.Run("trusted peer is accepted", func(t *testing.T) {
+		srv := newForwardedHostUpgradeServer(t, security.NewTrustedProxyMatcher([]string{"127.0.0.0/8"}))
+		conn, _, err := websocket.Dial(context.Background(), toWebSocketURL(srv.URL)+"/ws", &websocket.DialOptions{HTTPHeader: header}) //nolint:bodyclose // coder/websocket manages the handshake response body
+		require.NoError(t, err)
+		t.Cleanup(func() { _ = conn.CloseNow() })
+	})
 }

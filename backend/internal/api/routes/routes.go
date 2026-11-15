@@ -4,6 +4,7 @@ package routes
 import (
 	"context"
 	"fmt"
+	"github.com/Wikid82/charon/backend/internal/security"
 	"os"
 	"path/filepath"
 	"time"
@@ -429,6 +430,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 	// Cross-origin check for cookie sessions. It trusts the configured public address (read from the database here and
 	// on every public address save, never per request), so a proxy that rewrites Host does not refuse its own page.
+	apiTrustedProxies := security.NewTrustedProxyMatcher(cfg.Security.TrustedProxies)
 	browserOrigin := middleware.NewBrowserOriginGuard(func() (string, bool) {
 		return utils.GetConfiguredPublicURL(db)
 	})
@@ -564,7 +566,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 		// Logs
 		// WebSocket endpoints
-		logsWSHandler := handlers.NewLogsWSHandler(wsTracker).WithPublicOriginSource(browserOrigin)
+		logsWSHandler := handlers.NewLogsWSHandler(wsTracker).WithOriginPolicy(browserOrigin, apiTrustedProxies)
 		management.GET("/logs/live", logsWSHandler.HandleWebSocket)
 		management.GET("/logs", logsHandler.List)
 		management.GET("/logs/:filename", logsHandler.Read)
@@ -800,7 +802,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 					orthrusServer.SetAuditLogger(securityService)
 				}
 
-				hecateWSHandler := handlers.NewHecateWSHandler(hecateSvc, wsTracker).WithPublicOriginSource(browserOrigin)
+				hecateWSHandler := handlers.NewHecateWSHandler(hecateSvc, wsTracker).WithOriginPolicy(browserOrigin, apiTrustedProxies)
 				management.GET("/ws/hecate/logs/:uuid", hecateWSHandler.StreamLogs)
 
 				if orthrusServer != nil {
@@ -1103,12 +1105,12 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		} else {
 			logger.Log().WithField("path", accessLogPath).Info("Security log watcher started - stats collection enabled")
 		}
-		cerberusLogsHandler := handlers.NewCerberusLogsHandler(logWatcher, wsTracker).WithPublicOriginSource(browserOrigin)
+		cerberusLogsHandler := handlers.NewCerberusLogsHandler(logWatcher, wsTracker).WithOriginPolicy(browserOrigin, apiTrustedProxies)
 		management.GET("/cerberus/logs/ws", cerberusLogsHandler.LiveLogs)
 
 		// Stats API routes (Issue #25)
 		statsService := services.NewStatsService(db)
-		statsHandler := handlers.NewStatsHandlerFull(statsService, statsIngester, statsWSHub).WithPublicOriginSource(browserOrigin)
+		statsHandler := handlers.NewStatsHandlerFull(statsService, statsIngester, statsWSHub).WithOriginPolicy(browserOrigin, apiTrustedProxies)
 		management.GET("/stats/summary", statsHandler.GetStatsSummary)
 		management.GET("/stats/top-hosts", statsHandler.GetTopHosts)
 		management.GET("/stats/status-distribution", statsHandler.GetStatusDistribution)

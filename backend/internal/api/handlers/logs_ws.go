@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"github.com/Wikid82/charon/backend/internal/security"
 	"strings"
 	"time"
 
@@ -24,13 +25,15 @@ type LogEntry struct {
 
 // LogsWSHandler handles WebSocket connections for live log streaming.
 type LogsWSHandler struct {
-	tracker       *services.WebSocketTracker
-	publicOrigins PublicOriginSource // may be nil: no public origin is trusted
+	tracker        *services.WebSocketTracker
+	publicOrigins  PublicOriginSource           // may be nil: no public origin is trusted
+	trustedProxies security.TrustedProxyMatcher // API-layer trusted proxies for forwarded host headers
 }
 
-// WithPublicOriginSource wires the configured public origin into the WebSocket origin check.
-func (h *LogsWSHandler) WithPublicOriginSource(s PublicOriginSource) *LogsWSHandler {
+// WithOriginPolicy wires the configured public origin and the trusted-proxy list into the WebSocket origin check.
+func (h *LogsWSHandler) WithOriginPolicy(s PublicOriginSource, trusted security.TrustedProxyMatcher) *LogsWSHandler {
 	h.publicOrigins = s
+	h.trustedProxies = trusted
 	return h
 }
 
@@ -39,21 +42,12 @@ func NewLogsWSHandler(tracker *services.WebSocketTracker) *LogsWSHandler {
 	return &LogsWSHandler{tracker: tracker}
 }
 
-// LogsWebSocketHandler handles WebSocket connections for live log streaming.
-//
-// Deprecated: Use NewLogsWSHandler().HandleWebSocket instead. Kept for backward compatibility.
-func LogsWebSocketHandler(c *gin.Context) {
-	// For backward compatibility, create a nil tracker if called directly
-	handler := NewLogsWSHandler(nil)
-	handler.HandleWebSocket(c)
-}
-
 // HandleWebSocket handles WebSocket connections for live log streaming.
 func (h *LogsWSHandler) HandleWebSocket(c *gin.Context) {
 	logger.Log().Info("WebSocket connection attempt received")
 
 	// Upgrade HTTP connection to WebSocket
-	conn, err := upgradeWebSocket(c, h.publicOrigins)
+	conn, err := upgradeWebSocket(c, h.publicOrigins, h.trustedProxies)
 	if err != nil {
 		logger.Log().WithError(err).Error("Failed to upgrade WebSocket connection")
 		return

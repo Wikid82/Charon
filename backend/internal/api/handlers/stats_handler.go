@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"fmt"
+	"github.com/Wikid82/charon/backend/internal/security"
 	"net/http"
 	"strconv"
 
@@ -23,15 +24,17 @@ var (
 
 // StatsHandler handles REST endpoints for the enhanced dashboard statistics API.
 type StatsHandler struct {
-	svc           *services.StatsService
-	ingester      *services.StatsIngester // may be nil when health endpoint not needed
-	hub           *StatsWSHub             // may be nil when WebSocket not needed
-	publicOrigins PublicOriginSource      // may be nil: no public origin is trusted
+	svc            *services.StatsService
+	ingester       *services.StatsIngester      // may be nil when health endpoint not needed
+	hub            *StatsWSHub                  // may be nil when WebSocket not needed
+	publicOrigins  PublicOriginSource           // may be nil: no public origin is trusted
+	trustedProxies security.TrustedProxyMatcher // API-layer trusted proxies for forwarded host headers
 }
 
-// WithPublicOriginSource wires the configured public origin into the WebSocket origin check.
-func (h *StatsHandler) WithPublicOriginSource(s PublicOriginSource) *StatsHandler {
+// WithOriginPolicy wires the configured public origin and the trusted-proxy list into the WebSocket origin check.
+func (h *StatsHandler) WithOriginPolicy(s PublicOriginSource, trusted security.TrustedProxyMatcher) *StatsHandler {
 	h.publicOrigins = s
+	h.trustedProxies = trusted
 	return h
 }
 
@@ -179,7 +182,7 @@ func (h *StatsHandler) GetStatsHealth(c *gin.Context) {
 // StatsWS upgrades the connection to WebSocket and streams stats push messages.
 // GET /api/stats/ws
 func (h *StatsHandler) StatsWS(c *gin.Context) {
-	conn, err := upgradeWebSocket(c, h.publicOrigins)
+	conn, err := upgradeWebSocket(c, h.publicOrigins, h.trustedProxies)
 	if err != nil {
 		return
 	}
