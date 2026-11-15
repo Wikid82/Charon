@@ -404,7 +404,8 @@
         "messagePendingApply": "Baza de date GeoIP este din nou disponibilă, dar {{count}} listă/liste de țări ({{lists}}) nu sunt încă aplicate. Apasă Reîncarcă pe cardul Baza de date a țărilor.",
         "docsLink": "Cum se furnizează baza de date",
         "issueHint": "Charon include de obicei această bază de date. Deschide un issue pe GitHub ca să putem remedia problema.",
-        "issueLink": "Deschide un issue"
+        "issueLink": "Deschide un issue",
+        "managementScope": "Interfața proprie a Charon este afectată și ea: listele sale de acces pe țări nu sunt aplicate nici ele."
       }
     }
   },

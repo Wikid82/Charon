@@ -180,8 +180,8 @@ func ReverseProxyHandler(dial, application string, enableStandardHeaders bool) H
 	// X-Forwarded-For is NOT explicitly set - Caddy handles it natively via reverse_proxy directive
 	// to prevent duplication (Caddy appends to existing header automatically)
 	if enableStandardHeaders {
-		// X-Real-IP: Single IP of the immediate client (most apps check this first)
-		setHeaders["X-Real-IP"] = []string{"{http.request.remote.host}"}
+		// X-Real-IP: Single IP of the visitor Caddy decided on (trusted proxies honoured) (most apps check this first)
+		setHeaders["X-Real-IP"] = []string{"{http.vars.client_ip}"}
 		// X-Forwarded-Proto: Original protocol (http/https) - critical for HTTPS enforcement
 		setHeaders["X-Forwarded-Proto"] = []string{"{http.request.scheme}"}
 		// X-Forwarded-Host: Original Host header - needed for virtual host routing
@@ -213,14 +213,14 @@ func ReverseProxyHandler(dial, application string, enableStandardHeaders bool) H
 		// Note: X-Real-IP and X-Forwarded-Host already set above if enableStandardHeaders=true
 		// If enableStandardHeaders=false, maintain backward compatibility by setting them here
 		if !enableStandardHeaders {
-			setHeaders["X-Real-IP"] = []string{"{http.request.remote.host}"}
+			setHeaders["X-Real-IP"] = []string{"{http.vars.client_ip}"}
 			setHeaders["X-Forwarded-Host"] = []string{"{http.request.host}"}
 		}
 	case "jellyfin", "emby", "homeassistant", "nextcloud", "vaultwarden":
 		// Note: X-Real-IP and X-Forwarded-Host already set above if enableStandardHeaders=true
 		// If enableStandardHeaders=false, maintain backward compatibility by setting them here
 		if !enableStandardHeaders {
-			setHeaders["X-Real-IP"] = []string{"{http.request.remote.host}"}
+			setHeaders["X-Real-IP"] = []string{"{http.vars.client_ip}"}
 			setHeaders["X-Forwarded-Host"] = []string{"{http.request.host}"}
 		}
 	}

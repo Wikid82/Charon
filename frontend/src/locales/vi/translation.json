@@ -404,7 +404,8 @@
         "messagePendingApply": "Cơ sở dữ liệu GeoIP đã khả dụng trở lại, nhưng {{count}} danh sách quốc gia ({{lists}}) chưa được áp dụng. Nhấn Tải lại trên thẻ Cơ sở dữ liệu quốc gia.",
         "docsLink": "Cách cung cấp cơ sở dữ liệu",
         "issueHint": "Charon thường đã bao gồm cơ sở dữ liệu này. Vui lòng mở issue trên GitHub để chúng tôi khắc phục.",
-        "issueLink": "Mở issue"
+        "issueLink": "Mở issue",
+        "managementScope": "Giao diện riêng của Charon cũng bị ảnh hưởng: các danh sách truy cập theo quốc gia của giao diện này cũng không được áp dụng."
       }
     }
   },

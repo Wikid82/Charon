@@ -404,7 +404,8 @@
         "messagePendingApply": "Il database GeoIP è di nuovo disponibile, ma {{count}} lista/e per paese ({{lists}}) non sono ancora applicate. Premi Ricarica sulla scheda Database dei paesi.",
         "docsLink": "Come fornire il database",
         "issueHint": "Charon normalmente include questo database. Apri una segnalazione (issue) su GitHub così possiamo risolvere il problema.",
-        "issueLink": "Apri una issue"
+        "issueLink": "Apri una issue",
+        "managementScope": "Anche l'interfaccia di Charon è interessata: anche le sue liste di accesso per paese non vengono applicate."
       }
     }
   },

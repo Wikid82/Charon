@@ -404,7 +404,8 @@
         "messagePendingApply": "A GeoIP-adatbázis újra elérhető, de {{count}} országlista ({{lists}}) még nem érvényesül. Nyomja meg az Újratöltés gombot az Országadatbázis kártyán.",
         "docsLink": "Hogyan biztosítsa az adatbázist",
         "issueHint": "A Charon általában tartalmazza ezt az adatbázist. Kérjük, nyisson GitHub-hibajelentést (issue), hogy javíthassuk.",
-        "issueLink": "Issue megnyitása"
+        "issueLink": "Issue megnyitása",
+        "managementScope": "A Charon saját felülete is érintett: a saját országlistái szintén nem érvényesülnek."
       }
     }
   },

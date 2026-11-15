@@ -1,6 +1,6 @@
 import { GEOIP_TROUBLESHOOTING_DOCS_URL } from './docs';
 
-import type { ActiveAlert } from '../api/system';
+import type { ActiveAlert, AlertScope } from '../api/system';
 
 /**
  * How the notification bell presents one kind of active alert. Keys are the server's alert keys.
@@ -16,6 +16,8 @@ export interface AlertPresentation {
   docsUrl: string;
   /** Whether to ask the user to report the problem as a GitHub issue. */
   showIssueLink: boolean;
+  /** Passive note keys for an alert scope, shown under the message when the alert carries that scope. */
+  scopeKeys?: Partial<Record<AlertScope, string>>;
 }
 
 const GEOIP_UNAVAILABLE_PREFIX = 'notificationCenter.alerts.geoip_unavailable';
@@ -29,6 +31,7 @@ export const ALERT_PRESENTATION: Readonly<Record<string, AlertPresentation>> = {
         : `${GEOIP_UNAVAILABLE_PREFIX}.message`,
     docsUrl: GEOIP_TROUBLESHOOTING_DOCS_URL,
     showIssueLink: true,
+    scopeKeys: { management: `${GEOIP_UNAVAILABLE_PREFIX}.managementScope` },
   },
 };
 

@@ -409,7 +409,8 @@
         "messagePendingApply": "GeoIP 数据库已再次可用，但仍有 {{count}} 个国家列表（{{lists}}）未生效。请在“国家数据库”卡片上点击“重新加载”。",
         "docsLink": "如何提供数据库",
         "issueHint": "Charon 通常会内置此数据库。请在 GitHub 上提交 issue，以便我们修复。",
-        "issueLink": "提交 issue"
+        "issueLink": "提交 issue",
+        "managementScope": "Charon 自身的管理界面也受到影响：其按国家设置的访问列表同样未生效。"
       }
     }
   },

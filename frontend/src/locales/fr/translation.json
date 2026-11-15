@@ -409,7 +409,8 @@
         "messagePendingApply": "La base de données GeoIP est de nouveau disponible, mais {{count}} liste(s) de pays ({{lists}}) ne sont pas encore appliquées. Appuyez sur Recharger sur la carte Base de données des pays.",
         "docsLink": "Comment fournir la base de données",
         "issueHint": "Charon inclut normalement cette base de données. Merci d'ouvrir un ticket GitHub afin que nous puissions corriger cela.",
-        "issueLink": "Ouvrir un ticket"
+        "issueLink": "Ouvrir un ticket",
+        "managementScope": "L'interface de Charon elle-même est aussi concernée : ses listes d'accès par pays ne sont pas appliquées non plus."
       }
     }
   },

@@ -404,7 +404,8 @@
         "messagePendingApply": "GeoIP-databasen er tilgjengelig igjen, men {{count}} landliste(r) ({{lists}}) håndheves ikke ennå. Trykk Last inn på nytt på kortet Landdatabase.",
         "docsLink": "Slik skaffer du databasen",
         "issueHint": "Charon inkluderer normalt denne databasen. Åpne en sak på GitHub, så vi kan rette opp i dette.",
-        "issueLink": "Åpne en sak"
+        "issueLink": "Åpne en sak",
+        "managementScope": "Charons eget grensesnitt er også berørt: landlistene der håndheves heller ikke."
       }
     }
   },

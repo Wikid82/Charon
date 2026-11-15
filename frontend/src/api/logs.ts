@@ -14,7 +14,10 @@ export interface CaddyAccessLog {
   logger: string;
   msg: string;
   request: {
+    /** Connection address of the peer that sent the request. */
     remote_ip: string;
+    /** Visitor address Caddy decided on (trusted proxies applied). Empty or absent on older log lines. */
+    client_ip?: string;
     method: string;
     host: string;
     uri: string;

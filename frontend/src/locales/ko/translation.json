@@ -404,7 +404,8 @@
         "messagePendingApply": "GeoIP 데이터베이스를 다시 사용할 수 있지만 적용되지 않은 국가 목록 {{count}}개({{lists}})가 있습니다. 국가 데이터베이스 카드에서 다시 로드를 누르세요.",
         "docsLink": "데이터베이스 제공 방법",
         "issueHint": "Charon에는 보통 이 데이터베이스가 포함되어 있습니다. 수정할 수 있도록 GitHub에 issue를 열어 주세요.",
-        "issueLink": "issue 열기"
+        "issueLink": "issue 열기",
+        "managementScope": "Charon 자체 인터페이스도 영향을 받습니다. 해당 국가별 접근 목록도 적용되지 않습니다."
       }
     }
   },

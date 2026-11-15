@@ -404,7 +404,8 @@
         "messagePendingApply": "O banco de dados do GeoIP está disponível novamente, mas {{count}} lista(s) de países ({{lists}}) ainda não são aplicadas. Pressione Recarregar no cartão Banco de dados de países.",
         "docsLink": "Como fornecer o banco de dados",
         "issueHint": "O Charon normalmente inclui este banco de dados. Abra uma issue no GitHub para que possamos corrigir isso.",
-        "issueLink": "Abrir uma issue"
+        "issueLink": "Abrir uma issue",
+        "managementScope": "A própria interface do Charon também é afetada: as suas listas de acesso por país também não são aplicadas."
       }
     }
   },

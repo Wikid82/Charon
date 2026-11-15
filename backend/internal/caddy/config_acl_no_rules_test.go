@@ -26,7 +26,7 @@ func TestBuildACLHandler_AllowListWithoutRulesDeniesEveryone(t *testing.T) {
 
 			b, _ := json.Marshal(h)
 			require.Contains(t, string(b), aclDenyBody)
-			require.NotContains(t, string(b), `"remote_ip"`, "no allowed address means no match clause")
+			require.NotContains(t, string(b), `"client_ip"`, "no allowed address means no match clause")
 		})
 	}
 }

@@ -116,6 +116,8 @@ func TestGenerateConfig_SelfHopHeadersOnlyOnSelfUpstream(t *testing.T) {
 				selfCount++
 				assert.Equal(t, []string{secret.Reveal()}, p.set[selfhop.HeaderSecret])
 				assert.Equal(t, []string{selfhop.ClientPlaceholder}, p.set[selfhop.HeaderClient])
+				assert.Equal(t, []string{selfhop.PeerPlaceholder}, p.set[selfhop.HeaderPeer])
+				assert.Equal(t, []string{selfhop.ForwardedPlaceholder}, p.set[selfhop.HeaderForwarded])
 				assert.Equal(t, []string{"{http.request.scheme}"}, p.set["X-Forwarded-Proto"])
 				assert.Equal(t, []string{"{http.request.host}"}, p.set["X-Forwarded-Host"])
 				assert.NotContains(t, p.set, "Add")

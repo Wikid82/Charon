@@ -526,3 +526,65 @@ func mgmtDefaults(t *testing.T) []*net.IPNet {
 	require.NoError(t, err)
 	return nets
 }
+
+// TestSelfHop_VerifiedHopCarriesProxyPeerAndForwardedChain: the proxy's peer and the client's forwarded chain are kept
+// on the origin record once the hop verifies, and the hop headers never reach a handler.
+func TestSelfHop_VerifiedHopCarriesProxyPeerAndForwardedChain(t *testing.T) {
+	secret := newOriginSecret(t)
+	var res probeResult
+	r := originRouter(t, secret, nil, &res)
+
+	doProbe(r, "127.0.0.1:5555", map[string]string{
+		selfhop.HeaderSecret:    secret.Reveal(),
+		selfhop.HeaderClient:    "198.51.100.23",
+		selfhop.HeaderPeer:      "10.1.2.3",
+		selfhop.HeaderForwarded: "203.0.113.5, 198.51.100.23",
+	})
+
+	require.True(t, res.hasOrigin)
+	assert.Equal(t, "10.1.2.3", res.origin.ProxyPeer)
+	assert.Equal(t, "203.0.113.5, 198.51.100.23", res.origin.ForwardedFor)
+	assert.Empty(t, res.headers.Get(selfhop.HeaderPeer))
+	assert.Empty(t, res.headers.Get(selfhop.HeaderForwarded))
+}
+
+// TestSelfHop_UnverifiedProxyHeadersAreStrippedAndIgnored: without a verified proof the peer and forwarded headers
+// are removed and never recorded.
+func TestSelfHop_UnverifiedProxyHeadersAreStrippedAndIgnored(t *testing.T) {
+	secret := newOriginSecret(t)
+	var res probeResult
+	r := originRouter(t, secret, nil, &res)
+
+	doProbe(r, "127.0.0.1:5555", map[string]string{
+		selfhop.HeaderPeer:      "10.1.2.3",
+		selfhop.HeaderForwarded: "203.0.113.5",
+	})
+
+	assert.False(t, res.hasOrigin)
+	assert.Empty(t, res.headers.Get(selfhop.HeaderPeer))
+	assert.Empty(t, res.headers.Get(selfhop.HeaderForwarded))
+}
+
+// TestSelfHop_ForgedProxyPeerWithBadSecretIsNotRecorded: a bad secret leaves the peer and forwarded headers out of the
+// origin record even though they are stripped.
+func TestSelfHop_ForgedProxyPeerWithBadSecretIsNotRecorded(t *testing.T) {
+	secret := newOriginSecret(t)
+	var res probeResult
+	r := originRouter(t, secret, nil, &res)
+
+	doProbe(r, "127.0.0.1:5555", map[string]string{
+		selfhop.HeaderSecret:    "not-the-secret",
+		selfhop.HeaderClient:    "198.51.100.23",
+		selfhop.HeaderPeer:      "10.1.2.3",
+		selfhop.HeaderForwarded: "203.0.113.5",
+	})
+
+	assert.False(t, res.hasOrigin)
+	assert.Empty(t, res.headers.Get(selfhop.HeaderPeer))
+	assert.Empty(t, res.headers.Get(selfhop.HeaderForwarded))
+}
+
+func TestFirstValue(t *testing.T) {
+	assert.Empty(t, firstValue(nil))
+	assert.Equal(t, "a", firstValue([]string{"a", "b"}))
+}

@@ -409,7 +409,8 @@
         "messagePendingApply": "The GeoIP database is available again, but {{count}} country list(s) ({{lists}}) are not enforced yet. Press Reload on the Country database card.",
         "docsLink": "How to provide the database",
         "issueHint": "Charon normally includes this database. Please open a GitHub issue so we can fix it.",
-        "issueLink": "Open an issue"
+        "issueLink": "Open an issue",
+        "managementScope": "Charon's own interface is affected too: its country access lists are not enforced either."
       }
     }
   },

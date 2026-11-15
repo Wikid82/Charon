@@ -404,7 +404,8 @@
         "messagePendingApply": "GeoIP-tietokanta on taas saatavilla, mutta {{count}} maalistaa ({{lists}}) ei vielä noudateta. Paina Lataa uudelleen Maatietokanta-kortilla.",
         "docsLink": "Näin toimitat tietokannan",
         "issueHint": "Charon sisältää yleensä tämän tietokannan. Avaa GitHubiin issue, jotta voimme korjata asian.",
-        "issueLink": "Avaa issue"
+        "issueLink": "Avaa issue",
+        "managementScope": "Charonin oma käyttöliittymä on myös vaikuttunut: sen maakohtaisia käyttöoikeuslistoja ei myöskään noudateta."
       }
     }
   },

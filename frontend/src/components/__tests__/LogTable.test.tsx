@@ -168,4 +168,23 @@ describe('LogTable', () => {
     expect(screen.getByText('192.168.1.100')).toBeInTheDocument()
     expect(screen.getByText('45.00ms')).toBeInTheDocument()
   })
+
+  it('shows the visitor address (client_ip) when Caddy recorded one', () => {
+    const log = accessLog({
+      request: { ...accessLog().request, remote_ip: '172.18.0.2', client_ip: '203.0.113.9' },
+    })
+    render(<LogTable {...defaultProps} logs={[log]} />)
+
+    expect(screen.getByText('203.0.113.9')).toBeInTheDocument()
+    expect(screen.queryByText('172.18.0.2')).not.toBeInTheDocument()
+  })
+
+  it('falls back to remote_ip when client_ip is empty or absent', () => {
+    const log = accessLog({
+      request: { ...accessLog().request, remote_ip: '172.18.0.2', client_ip: '' },
+    })
+    render(<LogTable {...defaultProps} logs={[log]} />)
+
+    expect(screen.getByText('172.18.0.2')).toBeInTheDocument()
+  })
 })

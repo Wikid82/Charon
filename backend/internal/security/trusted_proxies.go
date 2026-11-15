@@ -296,3 +296,36 @@ func EffectiveTrustedProxies(stored *string, env []string) EffectiveTrust {
 	trust.Ranges = append(AlwaysTrustedProxies(), trust.Configured...)
 	return trust
 }
+
+// StrictClientAddr returns the visitor address the way Caddy's strict walk does when the connection peer is trusted:
+// the forwarded chain is read from the right and the first entry outside trusted is the visitor. Entries may carry a
+// port or an IPv6 zone, and unparsable entries are skipped. When every entry is trusted, the walk gives the peer.
+// The result is not unmapped, as Caddy does not unmap it either.
+func StrictClientAddr(peer netip.Addr, forwardedFor string, trusted []netip.Prefix) netip.Addr {
+	parts := strings.Split(forwardedFor, ",")
+	for i := len(parts) - 1; i >= 0; i-- {
+		host := parts[i]
+		if h, _, err := net.SplitHostPort(host); err == nil {
+			host = h
+		}
+		host, _, _ = strings.Cut(strings.TrimSpace(host), "%")
+		addr, err := netip.ParseAddr(host)
+		if err != nil {
+			continue
+		}
+		if !prefixesContain(trusted, addr) {
+			return addr
+		}
+	}
+	return peer
+}
+
+// prefixesContain reports whether any prefix in list contains addr.
+func prefixesContain(list []netip.Prefix, addr netip.Addr) bool {
+	for _, p := range list {
+		if p.Contains(addr) {
+			return true
+		}
+	}
+	return false
+}

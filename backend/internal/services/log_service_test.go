@@ -213,3 +213,17 @@ func TestLogService_ListLogs_ReadDirError(t *testing.T) {
 	_, err := service.ListLogs()
 	require.Error(t, err)
 }
+
+// TestMatchesFilter_SearchMatchesVisitorOrConnectionAddress: the search finds a line by the visitor address the proxy
+// decided on, and by the connection address it arrived from.
+func TestMatchesFilter_SearchMatchesVisitorOrConnectionAddress(t *testing.T) {
+	t.Parallel()
+	service := &LogService{}
+	var entry models.CaddyAccessLog
+	entry.Request.ClientIP = "198.51.100.7"
+	entry.Request.RemoteIP = "10.0.0.5"
+
+	assert.True(t, service.matchesFilter(entry, models.LogFilter{Search: "198.51.100"}), "visitor address")
+	assert.True(t, service.matchesFilter(entry, models.LogFilter{Search: "10.0.0.5"}), "connection address")
+	assert.False(t, service.matchesFilter(entry, models.LogFilter{Search: "203.0.113"}))
+}

@@ -9,6 +9,7 @@ type SecurityLogEntry struct {
 	Level       string         `json:"level"`
 	Logger      string         `json:"logger"`
 	ClientIP    string         `json:"client_ip"`
+	RemoteIP    string         `json:"remote_ip,omitempty"` // connection address; ClientIP is the visitor the proxy decided on
 	Method      string         `json:"method"`
 	URI         string         `json:"uri"`
 	Status      int            `json:"status"`

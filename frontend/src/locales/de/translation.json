@@ -409,7 +409,8 @@
         "messagePendingApply": "Die GeoIP-Datenbank ist wieder verfügbar, aber {{count}} Länderliste(n) ({{lists}}) werden noch nicht erzwungen. Drücken Sie auf „Neu laden“ auf der Karte Länderdatenbank.",
         "docsLink": "So stellst du die Datenbank bereit",
         "issueHint": "Charon enthält diese Datenbank normalerweise. Bitte ein GitHub-Issue eröffnen, damit wir das beheben können.",
-        "issueLink": "Issue eröffnen"
+        "issueLink": "Issue eröffnen",
+        "managementScope": "Auch die eigene Oberfläche von Charon ist betroffen: ihre Länderlisten werden ebenfalls nicht durchgesetzt."
       }
     }
   },

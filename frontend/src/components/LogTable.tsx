@@ -173,7 +173,7 @@ export const LogTable: React.FC<LogTableProps> = ({
                 {log.request?.uri}
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
-                {log.request?.remote_ip}
+                {log.request?.client_ip || log.request?.remote_ip}
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 dark:text-gray-400">
                 {log.duration > 0 ? (log.duration * 1000).toFixed(2) + 'ms' : ''}

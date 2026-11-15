@@ -404,7 +404,8 @@
         "messagePendingApply": "GeoIP baza podataka je ponovo dostupna, ali {{count}} lista država ({{lists}}) se još ne primenjuje. Pritisnite Ponovo učitaj na kartici Baza podataka država.",
         "docsLink": "Kako obezbediti bazu podataka",
         "issueHint": "Charon obično uključuje ovu bazu podataka. Otvorite issue na GitHub-u kako bismo to mogli da popravimo.",
-        "issueLink": "Otvori issue"
+        "issueLink": "Otvori issue",
+        "managementScope": "Pogođen je i sopstveni interfejs programa Charon: njegove liste pristupa po državi se takođe ne primenjuju."
       }
     }
   },

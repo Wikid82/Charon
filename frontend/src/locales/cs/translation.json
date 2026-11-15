@@ -404,7 +404,8 @@
         "messagePendingApply": "Databáze GeoIP je znovu k dispozici, ale {{count}} seznam(ů) zemí ({{lists}}) se zatím neuplatňuje. Stiskněte Znovu načíst na kartě Databáze zemí.",
         "docsLink": "Jak databázi zpřístupnit",
         "issueHint": "Charon tuto databázi obvykle obsahuje. Otevřete prosím issue na GitHubu, abychom to mohli opravit.",
-        "issueLink": "Otevřít issue"
+        "issueLink": "Otevřít issue",
+        "managementScope": "Ovlivněno je také vlastní rozhraní Charonu: jeho seznamy přístupu podle země se rovněž neuplatňují."
       }
     }
   },

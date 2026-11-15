@@ -404,7 +404,8 @@
         "messagePendingApply": "De GeoIP-database is weer beschikbaar, maar {{count}} landenlijst(en) ({{lists}}) worden nog niet afgedwongen. Druk op Opnieuw laden op de kaart Landendatabase.",
         "docsLink": "Hoe je de database aanlevert",
         "issueHint": "Charon bevat deze database normaal gesproken. Open een GitHub-issue zodat we dit kunnen oplossen.",
-        "issueLink": "Een issue openen"
+        "issueLink": "Een issue openen",
+        "managementScope": "Ook de eigen interface van Charon is getroffen: de landenlijsten daarvan worden evenmin toegepast."
       }
     }
   },

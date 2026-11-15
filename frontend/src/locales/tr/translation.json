@@ -404,7 +404,8 @@
         "messagePendingApply": "GeoIP veritabanı yeniden kullanılabilir, ancak {{count}} ülke listesi ({{lists}}) henüz uygulanmıyor. Ülke veritabanı kartındaki Yeniden yükle düğmesine basın.",
         "docsLink": "Veritabanı nasıl sağlanır",
         "issueHint": "Charon genellikle bu veritabanını içerir. Düzeltebilmemiz için lütfen GitHub’da bir issue açın.",
-        "issueLink": "Issue aç"
+        "issueLink": "Issue aç",
+        "managementScope": "Charon'un kendi arayüzü de etkileniyor: oradaki ülke erişim listeleri de uygulanmıyor."
       }
     }
   },

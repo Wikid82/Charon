@@ -404,7 +404,8 @@
         "messagePendingApply": "Die GeoIP-databasis is weer beskikbaar, maar {{count}} landlys(te) ({{lists}}) word nog nie afgedwing nie. Druk Herlaai op die Landedatabasis-kaart.",
         "docsLink": "Hoe om die databasis te verskaf",
         "issueHint": "Charon sluit gewoonlik hierdie databasis in. Maak asseblief ’n GitHub-issue oop sodat ons dit kan regmaak.",
-        "issueLink": "Maak ’n issue oop"
+        "issueLink": "Maak ’n issue oop",
+        "managementScope": "Charon se eie koppelvlak word ook geraak: die landtoegangslyste daarvan word ook nie afgedwing nie."
       }
     }
   },

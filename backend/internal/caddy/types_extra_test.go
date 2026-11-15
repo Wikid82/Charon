@@ -68,7 +68,7 @@ func TestReverseProxyHandler_WebSocketHeaders(t *testing.T) {
 
 	// Verify standard proxy headers (4 headers)
 	require.Contains(t, set, "X-Real-IP", "X-Real-IP should be set when standard headers enabled")
-	require.Equal(t, []string{"{http.request.remote.host}"}, set["X-Real-IP"])
+	require.Equal(t, []string{"{http.vars.client_ip}"}, set["X-Real-IP"])
 
 	require.Contains(t, set, "X-Forwarded-Proto", "X-Forwarded-Proto should be set when standard headers enabled")
 	require.Equal(t, []string{"{http.request.scheme}"}, set["X-Forwarded-Proto"])
@@ -106,7 +106,7 @@ func TestReverseProxyHandler_StandardProxyHeadersAlwaysSet(t *testing.T) {
 
 	// Verify all 4 standard proxy headers present
 	require.Contains(t, set, "X-Real-IP")
-	require.Equal(t, []string{"{http.request.remote.host}"}, set["X-Real-IP"])
+	require.Equal(t, []string{"{http.vars.client_ip}"}, set["X-Real-IP"])
 
 	require.Contains(t, set, "X-Forwarded-Proto")
 	require.Equal(t, []string{"{http.request.scheme}"}, set["X-Forwarded-Proto"])
@@ -188,7 +188,7 @@ func TestReverseProxyHandler_WebSocketWithApplication(t *testing.T) {
 	require.Equal(t, 4, len(set), "expected exactly 4 standard headers")
 
 	// Verify layered approach works correctly (no overrides)
-	require.Equal(t, []string{"{http.request.remote.host}"}, set["X-Real-IP"])
+	require.Equal(t, []string{"{http.vars.client_ip}"}, set["X-Real-IP"])
 	require.Equal(t, []string{"{http.request.scheme}"}, set["X-Forwarded-Proto"])
 }
 
