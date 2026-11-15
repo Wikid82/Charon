@@ -15,6 +15,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/network"
+	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
 )
 
@@ -802,10 +803,12 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	trustedProxies := trustedProxiesFor(resolvedOpts.trustedProxies)
 
 	config.Apps.HTTP.Servers["charon_server"] = &Server{
-		Listen:         []string{":80", ":443"},
-		Routes:         routes,
-		AutoHTTPS:      autoHTTPS,
-		TrustedProxies: trustedProxies,
+		Listen:               []string{":80", ":443"},
+		Routes:               routes,
+		AutoHTTPS:            autoHTTPS,
+		TrustedProxies:       trustedProxies,
+		TrustedProxiesStrict: 1,
+		ClientIPHeaders:      []string{"X-Forwarded-For"},
 		Logs: &ServerLogs{
 			DefaultLoggerName: "access_log",
 		},
@@ -1854,21 +1857,13 @@ func dedupeDomains(domains []string) []string {
 	return result
 }
 
-// trustedProxiesFor returns the server's trusted-proxy block. configured is the operator's trust list (loopback
-// included); nil keeps the legacy private ranges. Caddy reads forwarded client addresses only from these peers.
+// trustedProxiesFor returns the server's trusted-proxy block. configured is the trust list in force, loopback included
+// (see security.EffectiveTrustedProxies). Nil means no list was supplied, so only loopback is trusted. Caddy reads a
+// forwarded client address only from these peers.
 // Reference: https://caddyserver.com/docs/json/apps/http/servers/#trusted_proxies
 func trustedProxiesFor(configured []string) *TrustedProxies {
-	if configured != nil {
-		return &TrustedProxies{Source: "static", Ranges: configured}
+	if configured == nil {
+		configured = security.AlwaysTrustedProxies()
 	}
-	return &TrustedProxies{
-		Source: "static",
-		Ranges: []string{
-			"127.0.0.1/32",   // Localhost
-			"::1/128",        // IPv6 localhost
-			"172.16.0.0/12",  // Docker bridge networks (172.16-31.x.x)
-			"10.0.0.0/8",     // Private network
-			"192.168.0.0/16", // Private network
-		},
-	}
+	return &TrustedProxies{Source: "static", Ranges: configured}
 }

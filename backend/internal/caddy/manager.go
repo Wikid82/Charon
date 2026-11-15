@@ -118,6 +118,7 @@ func loadReport(ptr *atomic.Pointer[EnforcementReport]) (report EnforcementRepor
 
 // NewManager creates a configuration manager.
 func NewManager(client CaddyClient, db *gorm.DB, configDir, frontendDir string, acmeStaging bool, securityCfg config.SecurityConfig) *Manager {
+	warnDroppedEnvTrustedProxies(securityCfg.TrustedProxies)
 	return &Manager{
 		client:      client,
 		db:          db,
@@ -528,9 +529,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		geoPath, geoAvailable := m.geoIPState()
 		genOpts = append(genOpts, WithGeoIPDatabase(geoPath, geoAvailable))
 	}
-	if ranges, ok := m.trustedProxyRanges(); ok {
-		genOpts = append(genOpts, WithTrustedProxies(ranges))
-	}
+	genOpts = append(genOpts, WithTrustedProxies(m.trustedProxyRanges()))
 
 	generatedConfig, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, effectiveProvider, effectiveStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, &secCfg, dnsProviderConfigs, genOpts...)
 	if err != nil {
@@ -841,20 +840,26 @@ func logModuleReadError(module string, err error) {
 	logger.Log().WithError(err).WithField("module", module).Warn("Failed to read security module setting, using the default SecurityConfig row or static configuration")
 }
 
-// trustedProxyRanges returns the proxy-layer trust list the operator saved. ok is false when nothing was saved, and
-// the generated config then keeps the legacy private ranges.
-func (m *Manager) trustedProxyRanges() ([]string, bool) {
+// trustedProxyRanges returns the proxy-layer trust list in force: the saved list when there is one, otherwise the
+// CHARON_TRUSTED_PROXIES environment list clamped to the accepted ranges, otherwise loopback only. A failed read of the
+// saved list trusts loopback only, so a database fault never widens trust.
+func (m *Manager) trustedProxyRanges() []string {
 	stored, err := models.ReadTrustedProxiesSetting(m.db)
 	if err != nil {
-		logger.Log().WithError(err).Warn("Could not read the trusted proxy setting; keeping the legacy ranges")
-		return nil, false
+		logger.Log().WithError(err).Warn("Could not read the trusted proxy setting; only loopback is trusted for this apply")
+		return security.AlwaysTrustedProxies()
 	}
-	if stored == nil {
-		return nil, false
-	}
-	trust := security.EffectiveTrustedProxies(stored, nil)
+	trust := security.EffectiveTrustedProxies(stored, m.securityCfg.TrustedProxies)
 	if trust.StoredError != nil {
 		logger.Log().WithError(trust.StoredError).Warn("Saved trusted proxy list no longer validates; only loopback is trusted until it is saved again")
 	}
-	return trust.Ranges, true
+	return trust.Ranges
+}
+
+// warnDroppedEnvTrustedProxies logs once, at start, the CHARON_TRUSTED_PROXIES entries the proxy layer refuses. The
+// entries stay in the API layer's list, which is unchanged.
+func warnDroppedEnvTrustedProxies(envEntries []string) {
+	if _, dropped := security.ClampTrustedProxies(envEntries); len(dropped) > 0 {
+		logger.Log().WithField("entries", dropped).Warn("CHARON_TRUSTED_PROXIES entries were refused by the proxy layer (invalid or too broad); save a trusted proxy list to replace the environment list")
+	}
 }

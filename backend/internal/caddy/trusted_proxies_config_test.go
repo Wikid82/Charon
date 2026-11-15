@@ -1,6 +1,8 @@
 package caddy
 
 import (
+	"bytes"
+	"io"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -9,16 +11,18 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/security"
 )
 
-func TestTrustedProxiesFor_LegacyRangesWhenUnconfigured(t *testing.T) {
+func TestTrustedProxiesFor_LoopbackWhenUnconfigured(t *testing.T) {
 	got := trustedProxiesFor(nil)
 	assert.Equal(t, "static", got.Source)
-	assert.Equal(t, []string{"127.0.0.1/32", "::1/128", "172.16.0.0/12", "10.0.0.0/8", "192.168.0.0/16"}, got.Ranges)
+	assert.Equal(t, security.AlwaysTrustedProxies(), got.Ranges)
 }
 
-func TestTrustedProxiesFor_ConfiguredRangesReplaceLegacy(t *testing.T) {
+func TestTrustedProxiesFor_ConfiguredRangesAreUsedAsGiven(t *testing.T) {
 	configured := []string{"127.0.0.1/32", "::1/128", "172.18.0.5/32"}
 	got := trustedProxiesFor(configured)
 	assert.Equal(t, "static", got.Source)
@@ -35,10 +39,17 @@ func TestGenerateConfig_WithTrustedProxiesEmitsOperatorRanges(t *testing.T) {
 	assert.Equal(t, []string{"127.0.0.1/32", "::1/128", "172.18.0.5/32"}, server.TrustedProxies.Ranges)
 }
 
-func TestGenerateConfig_WithoutTrustedProxiesKeepsLegacyRanges(t *testing.T) {
-	cfg, err := GenerateConfig(nil, "/data/caddy/data", "", "/frontend/dist", "", false, false, false, false, false, "", nil, nil, nil, nil, nil)
+// TestGeneratedServerTrustsConfiguredProxiesOnly: the server reads a forwarded client address only from the configured
+// peers, using the strict walk over X-Forwarded-For.
+func TestGeneratedServerTrustsConfiguredProxiesOnly(t *testing.T) {
+	cfg, err := GenerateConfig(nil, "/data/caddy/data", "", "/frontend/dist", "", false, false, false, false, false, "", nil, nil, nil, nil, nil,
+		WithTrustedProxies([]string{"127.0.0.1/32", "::1/128", "172.18.0.5/32"}))
 	require.NoError(t, err)
-	assert.Contains(t, cfg.Apps.HTTP.Servers["charon_server"].TrustedProxies.Ranges, "172.16.0.0/12")
+	server := cfg.Apps.HTTP.Servers["charon_server"]
+	require.NotNil(t, server)
+	assert.Equal(t, 1, server.TrustedProxiesStrict)
+	assert.Equal(t, []string{"X-Forwarded-For"}, server.ClientIPHeaders)
+	assert.Equal(t, []string{"127.0.0.1/32", "::1/128", "172.18.0.5/32"}, server.TrustedProxies.Ranges)
 }
 
 func TestWithTrustedProxies_CopiesInput(t *testing.T) {
@@ -58,33 +69,51 @@ func trustedProxyManagerDB(t *testing.T) *gorm.DB {
 
 func TestManagerTrustedProxyRanges(t *testing.T) {
 	db := trustedProxyManagerDB(t)
-	m := NewManager(nil, db, t.TempDir(), "", false, config.SecurityConfig{})
+	env := []string{"10.9.9.9", "0.0.0.0/0"}
+	m := NewManager(nil, db, t.TempDir(), "", false, config.SecurityConfig{TrustedProxies: env})
 
-	ranges, ok := m.trustedProxyRanges()
-	assert.False(t, ok, "nothing saved: the legacy ranges stay in force")
-	assert.Nil(t, ranges)
+	t.Run("environment list is clamped when nothing is saved", func(t *testing.T) {
+		assert.Equal(t, []string{"127.0.0.1/32", "::1/128", "10.9.9.9/32"}, m.trustedProxyRanges())
+	})
 
-	saved := "172.18.0.5/32"
-	require.NoError(t, models.WriteTrustedProxiesSetting(db, &saved))
-	ranges, ok = m.trustedProxyRanges()
-	require.True(t, ok)
-	assert.Equal(t, []string{"127.0.0.1/32", "::1/128", "172.18.0.5/32"}, ranges)
+	t.Run("saved list replaces the environment list", func(t *testing.T) {
+		saved := "172.18.0.5/32"
+		require.NoError(t, models.WriteTrustedProxiesSetting(db, &saved))
+		assert.Equal(t, []string{"127.0.0.1/32", "::1/128", "172.18.0.5/32"}, m.trustedProxyRanges())
+	})
 
-	invalid := "0.0.0.0/0"
-	require.NoError(t, models.WriteTrustedProxiesSetting(db, &invalid))
-	ranges, ok = m.trustedProxyRanges()
-	require.True(t, ok)
-	assert.Equal(t, []string{"127.0.0.1/32", "::1/128"}, ranges, "an invalid saved list trusts loopback only")
+	t.Run("invalid saved list trusts loopback only", func(t *testing.T) {
+		invalid := "0.0.0.0/0"
+		require.NoError(t, models.WriteTrustedProxiesSetting(db, &invalid))
+		assert.Equal(t, security.AlwaysTrustedProxies(), m.trustedProxyRanges())
+	})
+
+	t.Run("removing the saved list restores the environment list", func(t *testing.T) {
+		require.NoError(t, models.WriteTrustedProxiesSetting(db, nil))
+		assert.Equal(t, []string{"127.0.0.1/32", "::1/128", "10.9.9.9/32"}, m.trustedProxyRanges())
+	})
 }
 
-func TestManagerTrustedProxyRanges_ReadErrorKeepsLegacy(t *testing.T) {
+func TestManagerTrustedProxyRanges_ReadErrorTrustsLoopbackOnly(t *testing.T) {
 	db := trustedProxyManagerDB(t)
-	m := NewManager(nil, db, t.TempDir(), "", false, config.SecurityConfig{})
+	m := NewManager(nil, db, t.TempDir(), "", false, config.SecurityConfig{TrustedProxies: []string{"10.9.9.9"}})
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	ranges, ok := m.trustedProxyRanges()
-	assert.False(t, ok)
-	assert.Nil(t, ranges)
+	assert.Equal(t, security.AlwaysTrustedProxies(), m.trustedProxyRanges(), "a failed read must not widen trust")
+}
+
+func TestWarnDroppedEnvTrustedProxies(t *testing.T) {
+	var buf bytes.Buffer
+	logger.Init(false, &buf)
+	t.Cleanup(func() { logger.Init(false, io.Discard) })
+
+	warnDroppedEnvTrustedProxies([]string{"10.9.9.9", "0.0.0.0/0", "bogus"})
+	assert.Contains(t, buf.String(), "refused by the proxy layer")
+	assert.Contains(t, buf.String(), "0.0.0.0/0")
+
+	buf.Reset()
+	warnDroppedEnvTrustedProxies([]string{"10.9.9.9"})
+	assert.Empty(t, buf.String(), "no warning when every entry is accepted")
 }
