@@ -377,7 +377,10 @@
     "streamLimitReached": "Er zijn te veel live-verbindingen open voor uw account. Sluit een andere live-weergave en probeer het opnieuw.",
     "trustedProxyInvalid": "\"{{entry}}\" is geen IP-adres of CIDR-bereik.",
     "trustedProxyTooBroad": "\"{{entry}}\" dekt een te ruim bereik. IPv4-bereiken moeten /8 of kleiner zijn en IPv6-bereiken /24 of kleiner.",
-    "trustedProxiesTooMany": "De lijst met vertrouwde proxy's bevat maximaal 64 items."
+    "trustedProxiesTooMany": "De lijst met vertrouwde proxy's bevat maximaal 64 items.",
+    "managementListUnknown": "Een van de gekozen toegangslijsten bestaat niet meer. Laad de pagina opnieuw en kies opnieuw.",
+    "managementAccessWouldLockOut": "Hiermee wordt u buitengesloten van Charon. Voeg eerst uw adres toe aan de beheerders-toestemmingslijst, of kies een lijst die u toelaat.",
+    "accessListInvalid": "Deze toegangslijst kan de eigen interface van Charon niet beschermen. Controleer de regels en probeer het opnieuw."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -747,7 +750,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "Een ingeschakelde toestemmingslijst heeft minstens één regel nodig. Voeg een regel toe of schakel de lijst uit en sla opnieuw op."
+      "access_list_rules_required": "Een ingeschakelde toestemmingslijst heeft minstens één regel nodig. Voeg een regel toe of schakel de lijst uit en sla opnieuw op.",
+      "access_list_in_use": "Deze toegangslijst wordt gebruikt door de eigen interface van Charon, dus hij kan niet worden verwijderd. Kies eerst een andere lijst voor de interface van Charon en probeer het opnieuw."
+    },
+    "managementAccess": {
+      "title": "Beheertoegang",
+      "description": "Kies de toegangslijsten die de eigen interface van Charon beschermen, het deel waarmee u het beheert. Toegangslijsten op proxyhosts gelden hier niet.",
+      "fieldsetLabel": "Toegangslijsten voor de eigen interface van Charon",
+      "noLists": "Er zijn nog geen toegangslijsten. Maak eerst er een aan en kies die dan hier.",
+      "notRestricted": "Niet beperkt",
+      "notRestrictedHint": "De eigen interface van Charon staat open voor elke bezoeker die er bij kan. Kies een lijst om het te beperken.",
+      "restricted": "Alleen bezoekers die door de gekozen lijsten zijn toegestaan, kunnen de eigen interface van Charon gebruiken.",
+      "notApplied": "Wordt niet toegepast zolang toegangscontrole uit staat of geen gekozen lijst is ingeschakeld.",
+      "saved": "Beheertoegang opgeslagen.",
+      "saveFailed": "De keuze voor beheertoegang kon niet worden opgeslagen.",
+      "loadError": "Beheertoegang kon niet worden geladen."
     }
   },
   "rateLimiting": {

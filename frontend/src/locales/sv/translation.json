@@ -377,7 +377,10 @@
     "streamLimitReached": "Det är för många live-anslutningar öppna för ditt konto. Stäng en annan liveningsvy och försök igen.",
     "trustedProxyInvalid": "\"{{entry}}\" är inte en IP-adress eller ett CIDR-intervall.",
     "trustedProxyTooBroad": "\"{{entry}}\" täcker ett för brett intervall. IPv4-intervall måste vara /8 eller smalare och IPv6-intervall /24 eller smalare.",
-    "trustedProxiesTooMany": "Listan över betrodda proxyservrar kan innehålla högst 64 poster."
+    "trustedProxiesTooMany": "Listan över betrodda proxyservrar kan innehålla högst 64 poster.",
+    "managementListUnknown": "En av de valda åtkomstlistorna finns inte längre. Ladda om sidan och välj igen.",
+    "managementAccessWouldLockOut": "Detta skulle låsa ute dig från Charon. Lägg först till din adress i administratörens tillåtna lista, eller välj en lista som tillåter dig.",
+    "accessListInvalid": "Den här åtkomstlistan kan inte skydda Charons egna gränssnitt. Kontrollera dess regler och försök igen."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -747,7 +750,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "En aktiverad tillåtelselista behöver minst en regel. Lägg till en regel eller stäng av listan och spara igen."
+      "access_list_rules_required": "En aktiverad tillåtelselista behöver minst en regel. Lägg till en regel eller stäng av listan och spara igen.",
+      "access_list_in_use": "Den här åtkomstlistan används av Charons eget gränssnitt, så den kan inte tas bort. Välj först en annan lista för Charons gränssnitt och försök sedan igen."
+    },
+    "managementAccess": {
+      "title": "Åtkomst till administration",
+      "description": "Välj åtkomstlistorna som skyddar Charons egna gränssnitt, delen du använder för att hantera det. Åtkomstlistor på proxyvärdar gäller inte här.",
+      "fieldsetLabel": "Åtkomstlistor för Charons egna gränssnitt",
+      "noLists": "Det finns inga åtkomstlistor än. Skapa en först och välj den sedan här.",
+      "notRestricted": "Inga begränsningar",
+      "notRestrictedHint": "Charons egna gränssnitt är öppet för alla besökare som kan nå det. Välj en lista för att begränsa det.",
+      "restricted": "Endast besökare som tillåts av de valda listorna kan använda Charons egna gränssnitt.",
+      "notApplied": "Tillämpas inte medan åtkomstkontroll är av eller ingen vald lista är aktiverad.",
+      "saved": "Åtkomst till administration sparad.",
+      "saveFailed": "Valet för åtkomst till administration kunde inte sparas.",
+      "loadError": "Åtkomst till administration kunde inte läsas in."
     }
   },
   "rateLimiting": {

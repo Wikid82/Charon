@@ -377,7 +377,10 @@
     "streamLimitReached": "Sono aperte troppe connessioni in tempo reale per il tuo account. Chiudi un'altra vista in tempo reale e riprova.",
     "trustedProxyInvalid": "\"{{entry}}\" non è un indirizzo IP né un intervallo CIDR.",
     "trustedProxyTooBroad": "\"{{entry}}\" copre un intervallo troppo ampio. Gli intervalli IPv4 devono essere /8 o più stretti, quelli IPv6 /24 o più stretti.",
-    "trustedProxiesTooMany": "L'elenco dei proxy attendibili può contenere al massimo 64 voci."
+    "trustedProxiesTooMany": "L'elenco dei proxy attendibili può contenere al massimo 64 voci.",
+    "managementListUnknown": "Uno degli elenchi di accesso scelti non esiste più. Ricarica la pagina e scegli di nuovo.",
+    "managementAccessWouldLockOut": "Così resteresti fuori da Charon. Aggiungi prima il tuo indirizzo all'elenco di autorizzazione dell'amministratore, o scegli un elenco che ti consenta l'accesso.",
+    "accessListInvalid": "Questo elenco di accesso non può proteggere l'interfaccia di Charon. Controlla le sue regole e riprova."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -747,7 +750,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "Una lista di autorizzazione attiva richiede almeno una regola. Aggiungi una regola o disattiva la lista, quindi salva di nuovo."
+      "access_list_rules_required": "Una lista di autorizzazione attiva richiede almeno una regola. Aggiungi una regola o disattiva la lista, quindi salva di nuovo.",
+      "access_list_in_use": "Questa lista di accesso è usata dall'interfaccia di Charon stessa, quindi non può essere eliminata. Scegli prima un'altra lista per l'interfaccia di Charon, poi riprova."
+    },
+    "managementAccess": {
+      "title": "Accesso alla gestione",
+      "description": "Scegli gli elenchi di accesso che proteggono l'interfaccia di Charon stesso, la parte che usi per gestirlo. Gli elenchi di accesso degli host proxy non si applicano qui.",
+      "fieldsetLabel": "Elenchi di accesso per l'interfaccia di Charon",
+      "noLists": "Non esistono ancora elenchi di accesso. Creane prima uno, poi sceglilo qui.",
+      "notRestricted": "Non limitato",
+      "notRestrictedHint": "L'interfaccia di Charon è aperta a ogni visitatore che può raggiungerla. Scegli un elenco per limitarla.",
+      "restricted": "Solo i visitatori consentiti dagli elenchi scelti possono usare l'interfaccia di Charon.",
+      "notApplied": "Non applicato finché il controllo accessi è disattivato o nessun elenco scelto è abilitato.",
+      "saved": "Accesso alla gestione salvato.",
+      "saveFailed": "Impossibile salvare la scelta dell'accesso alla gestione.",
+      "loadError": "Impossibile caricare l'accesso alla gestione."
     }
   },
   "rateLimiting": {

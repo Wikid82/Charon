@@ -377,7 +377,10 @@
     "streamLimitReached": "Na Twoim koncie otwarto zbyt wiele połączeń na żywo. Zamknij inny podgląd na żywo i spróbuj ponownie.",
     "trustedProxyInvalid": "\"{{entry}}\" nie jest adresem IP ani zakresem CIDR.",
     "trustedProxyTooBroad": "\"{{entry}}\" obejmuje zbyt szeroki zakres. Zakresy IPv4 muszą mieć /8 lub węższe, a zakresy IPv6 /24 lub węższe.",
-    "trustedProxiesTooMany": "Lista zaufanych serwerów proxy może zawierać najwyżej 64 wpisy."
+    "trustedProxiesTooMany": "Lista zaufanych serwerów proxy może zawierać najwyżej 64 wpisy.",
+    "managementListUnknown": "Jedna z wybranych list dostępu już nie istnieje. Załaduj stronę ponownie i wybierz od nowa.",
+    "managementAccessWouldLockOut": "To zablokowałoby Ci dostęp do Charon. Najpierw dodaj swój adres do listy dozwolonych administratora albo wybierz listę, która Cię dopuszcza.",
+    "accessListInvalid": "Ta lista dostępu nie może chronić własnego interfejsu Charon. Sprawdź jej reguły i spróbuj ponownie."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -747,7 +750,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "Włączona lista dozwolonych wymaga co najmniej jednej reguły. Dodaj regułę lub wyłącz listę i zapisz ponownie."
+      "access_list_rules_required": "Włączona lista dozwolonych wymaga co najmniej jednej reguły. Dodaj regułę lub wyłącz listę i zapisz ponownie.",
+      "access_list_in_use": "Ta lista dostępu jest używana przez własny interfejs Charon, dlatego nie można jej usunąć. Najpierw wybierz inną listę dla interfejsu Charon, a potem spróbuj ponownie."
+    },
+    "managementAccess": {
+      "title": "Dostęp do zarządzania",
+      "description": "Wybierz listy dostępu, które chronią własny interfejs Charon, czyli część służącą do zarządzania nim. Listy dostępu hostów proxy nie mają tu zastosowania.",
+      "fieldsetLabel": "Listy dostępu dla własnego interfejsu Charon",
+      "noLists": "Nie ma jeszcze list dostępu. Najpierw utwórz jedną, a potem wybierz ją tutaj.",
+      "notRestricted": "Bez ograniczeń",
+      "notRestrictedHint": "Własny interfejs Charon jest otwarty dla każdego odwiedzającego, który może do niego dotrzeć. Wybierz listę, aby go ograniczyć.",
+      "restricted": "Własnego interfejsu Charon mogą używać tylko odwiedzający dopuszczeni przez wybrane listy.",
+      "notApplied": "Nie jest stosowane, dopóki kontrola dostępu jest wyłączona lub żadna z wybranych list nie jest włączona.",
+      "saved": "Dostęp do zarządzania został zapisany.",
+      "saveFailed": "Nie udało się zapisać wyboru dostępu do zarządzania.",
+      "loadError": "Nie udało się wczytać dostępu do zarządzania."
     }
   },
   "rateLimiting": {

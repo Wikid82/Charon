@@ -377,7 +377,10 @@
     "streamLimitReached": "Hi ha massa connexions en directe obertes per al vostre compte. Tanqueu una altra vista en directe i torneu-ho a provar.",
     "trustedProxyInvalid": "\"{{entry}}\" no és una adreça IP ni un rang CIDR.",
     "trustedProxyTooBroad": "\"{{entry}}\" cobreix un rang massa ampli. Els rangs IPv4 han de ser /8 o més estrets, i els IPv6 /24 o més estrets.",
-    "trustedProxiesTooMany": "La llista de proxies de confiança admet com a màxim 64 entrades."
+    "trustedProxiesTooMany": "La llista de proxies de confiança admet com a màxim 64 entrades.",
+    "managementListUnknown": "Una de les llistes d'accés triades ja no existeix. Torneu a carregar la pàgina i trieu de nou.",
+    "managementAccessWouldLockOut": "Això us bloquejaria l'accés a Charon. Afegiu primer la vostra adreça a la llista d'admin permesos, o trieu una llista que us permeti l'accés.",
+    "accessListInvalid": "Aquesta llista d'accés no pot protegir la interfície pròpia de Charon. Revegeu-ne les regles i torneu-ho a provar."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -747,7 +750,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "Una llista de permesos activada necessita almenys una regla. Afegeix una regla o desactiva la llista i torna a desar."
+      "access_list_rules_required": "Una llista de permesos activada necessita almenys una regla. Afegeix una regla o desactiva la llista i torna a desar.",
+      "access_list_in_use": "Aquesta llista d'accés l'utilitza la pròpia interfície de Charon, així que no es pot eliminar. Primer tria una altra llista per a la interfície de Charon i torna-ho a provar."
+    },
+    "managementAccess": {
+      "title": "Accés de gestió",
+      "description": "Trieu les llistes d'accés que protegeixen la interfície pròpia de Charon, la part que feu servir per gestionar-lo. Les llistes d'accés dels hosts proxy no s'hi apliquen.",
+      "fieldsetLabel": "Llistes d'accés per a la interfície pròpia de Charon",
+      "noLists": "Encara no hi ha llistes d'accés. Creeu-ne una primer i després trieu-la aquí.",
+      "notRestricted": "Sense restricció",
+      "notRestrictedHint": "La interfície pròpia de Charon és oberta a qualsevol visitant que hi pugui arribar. Trieu una llista per limitar-la.",
+      "restricted": "Només els visitants permesos per les llistes triades poden fer servir la interfície pròpia de Charon.",
+      "notApplied": "No s'aplica mentre el control d'accés estigui desactivat o cap llista triada no estigui activada.",
+      "saved": "Accés de gestió desat.",
+      "saveFailed": "No s'ha pogut desar la tria d'accés de gestió.",
+      "loadError": "No s'ha pogut carregar l'accés de gestió."
     }
   },
   "rateLimiting": {

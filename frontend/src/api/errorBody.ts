@@ -110,11 +110,15 @@ export function externalProxyBindErrorMessage(err: unknown, t: TFunction): strin
 }
 
 /**
- * Coded access-list save refusals with a translated text of their own, keyed by the server's `error_code`.
- * Every other code keeps the generic error toast.
+ * Coded access-list refusals (saves, guarded changes and the management choice) with a translated text of their
+ * own, keyed by the server's `error_code`. Every other code keeps the generic error text.
  */
 const ACCESS_LIST_CODE_MESSAGE_KEYS = {
   access_list_rules_required: 'accessLists.errors.access_list_rules_required',
+  access_list_in_use: 'accessLists.errors.access_list_in_use',
+  management_list_unknown: 'errors.managementListUnknown',
+  management_access_would_lock_out: 'errors.managementAccessWouldLockOut',
+  access_list_invalid: 'errors.accessListInvalid',
 } as const
 
 type AccessListCodedMessage = keyof typeof ACCESS_LIST_CODE_MESSAGE_KEYS
@@ -130,6 +134,21 @@ const ACCESS_LIST_CODED_MESSAGES = Object.keys(ACCESS_LIST_CODE_MESSAGE_KEYS) as
 export function accessListErrorMessage(err: unknown, t: TFunction): string | null {
   const code = getApiErrorCode(err, ACCESS_LIST_CODED_MESSAGES)
   return code ? t(ACCESS_LIST_CODE_MESSAGE_KEYS[code]) : null
+}
+
+/**
+ * Translated text for a refused access-list delete. A coded refusal uses its own text. The server answers a delete
+ * that the proxy or Charon's own interface still uses with HTTP 409 and its message; that message is shown as sent.
+ * @param err - The value thrown by the request
+ * @param t - The translation function of the calling component or hook
+ * @returns The text, or null when the refusal has no text the caller can show
+ */
+export function accessListDeleteErrorMessage(err: unknown, t: TFunction): string | null {
+  const coded = accessListErrorMessage(err, t)
+  if (coded !== null) return coded
+  if (!isAxiosError<{ error?: unknown }>(err) || err.response?.status !== 409) return null
+  const message = err.response.data?.error
+  return typeof message === 'string' && message !== '' ? message : null
 }
 
 /**

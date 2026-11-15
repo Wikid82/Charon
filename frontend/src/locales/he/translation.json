@@ -377,7 +377,10 @@
     "streamLimitReached": "יותר מדי חיבורים חיים פתוחים לחשבון שלך. סגור תצוגה חיה אחרת ונסה שוב.",
     "trustedProxyInvalid": "\"{{entry}}\" אינה כתובת IP או טווח CIDR.",
     "trustedProxyTooBroad": "\"{{entry}}\" מכסה טווח רחב מדי. טווחי IPv4 חייבים להיות /8 או צרים יותר, וטווחי IPv6 /24 או צרים יותר.",
-    "trustedProxiesTooMany": "רשימת שרתי המתווך המהימנים מכילה עד 64 רשומות."
+    "trustedProxiesTooMany": "רשימת שרתי המתווך המהימנים מכילה עד 64 רשומות.",
+    "managementListUnknown": "אחת מרשימות הגישה שנבחרו כבר אינה קיימת. טען מחדש את הדף ובחר שוב.",
+    "managementAccessWouldLockOut": "פעולה זו תנעל אותך מ-Charon. הוסף קודם את כתובתך לרשימת ההיתרים של המנהל, או בחר רשימה שמתירה לך גישה.",
+    "accessListInvalid": "רשימת גישה זו אינה יכולה להגן על הממשק של Charon עצמו. בדוק את כלליה ונסה שוב."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -747,7 +750,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "רשימת היתרים פעילה דורשת לפחות כלל אחד. הוסיפו כלל, או כבו את הרשימה, ושמרו שוב."
+      "access_list_rules_required": "רשימת היתרים פעילה דורשת לפחות כלל אחד. הוסיפו כלל, או כבו את הרשימה, ושמרו שוב.",
+      "access_list_in_use": "רשימת הגישה הזו נמצאת בשימוש הממשק של Charon עצמו, ולכן לא ניתן למחוק אותה. בחרו תחילה רשימה אחרת לממשק של Charon, ואז נסו שוב."
+    },
+    "managementAccess": {
+      "title": "גישה לניהול",
+      "description": "בחר את רשימות הגישה שמגינות על הממשק של Charon עצמו, החלק שבו אתה מנהל אותו. רשימות גישה של מארחי פרוקסי אינן חלות כאן.",
+      "fieldsetLabel": "רשימות גישה לממשק של Charon עצמו",
+      "noLists": "עדיין אין רשימות גישה. צור קודם רשימה ואז בחר אותה כאן.",
+      "notRestricted": "ללא הגבלה",
+      "notRestrictedHint": "הממשק של Charon עצמו פתוח לכל מבקר שיכול להגיע אליו. בחר רשימה כדי להגביל אותו.",
+      "restricted": "רק מבקרים שהרשימות שנבחרו מתירות להם יכולים להשתמש בממשק של Charon עצמו.",
+      "notApplied": "לא חל בזמן שבקרת הגישה כבויה או שאף רשימה שנבחרה אינה פעילה.",
+      "saved": "הגישה לניהול נשמרה.",
+      "saveFailed": "לא ניתן לשמור את הבחירה בגישה לניהול.",
+      "loadError": "לא ניתן לטעון את הגישה לניהול."
     }
   },
   "rateLimiting": {

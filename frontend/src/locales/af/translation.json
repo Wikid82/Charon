@@ -377,7 +377,10 @@
     "streamLimitReached": "Te veel lewendige verbindings is oop vir jou rekening. Maak nog 'n lewendige aansig toe en probeer dan weer.",
     "trustedProxyInvalid": "\"{{entry}}\" is nie 'n IP-adres of CIDR-reeks nie.",
     "trustedProxyTooBroad": "\"{{entry}}\" dek 'n te wye reeks. IPv4-reekse moet /8 of smaller wees, en IPv6-reekse /24 of smaller.",
-    "trustedProxiesTooMany": "Die lys van vertroude proxies bevat hoogstens 64 inskrywings."
+    "trustedProxiesTooMany": "Die lys van vertroude proxies bevat hoogstens 64 inskrywings.",
+    "managementListUnknown": "Een van die gekose toegangslyste bestaan nie meer nie. Laai die bladsy weer en kies opnuut.",
+    "managementAccessWouldLockOut": "Dit sal jou uit Charon sluit. Voeg eers jou adres by die admin-toelaatlys, of kies 'n lys wat jou toelaat.",
+    "accessListInvalid": "Hierdie toegangslys kan nie Charon se eie koppelvlak beskerm nie. Kontroleer die reëls en probeer weer."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -747,7 +750,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "'n Geaktiveerde toelatelys benodig ten minste een reël. Voeg 'n reël by, of skakel die lys af, en stoor weer."
+      "access_list_rules_required": "'n Geaktiveerde toelatelys benodig ten minste een reël. Voeg 'n reël by, of skakel die lys af, en stoor weer.",
+      "access_list_in_use": "Hierdie toelatelys word deur Charon se eie koppelvlak gebruik, so dit kan nie uitgevee word nie. Kies eers 'n ander lys vir Charon se koppelvlak, en probeer dan weer."
+    },
+    "managementAccess": {
+      "title": "Bestuurstoegang",
+      "description": "Kies die toegangslyste wat Charon se eie koppelvlak beskerm, die deel waarmee jy dit bestuur. Toegangslyste op proxy-gashere geld hier nie.",
+      "fieldsetLabel": "Toegangslyste vir Charon se eie koppelvlak",
+      "noLists": "Daar is nog geen toegangslyste nie. Skep eers een, en kies dit dan hier.",
+      "notRestricted": "Nie beperk nie",
+      "notRestrictedHint": "Charon se eie koppelvlak is oop vir enige besoeker wat dit kan bereik. Kies 'n lys om dit te beperk.",
+      "restricted": "Slegs besoekers wat deur die gekose lyste toegelaat word, kan Charon se eie koppelvlak gebruik.",
+      "notApplied": "Nie toegepas solank toegangsbeheer af is of geen gekose lys aan is nie.",
+      "saved": "Bestuurstoegang gestoor.",
+      "saveFailed": "Die keuse van bestuurstoegang kon nie gestoor word nie.",
+      "loadError": "Bestuurstoegang kon nie gelaai word nie."
     }
   },
   "rateLimiting": {

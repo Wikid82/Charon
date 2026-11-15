@@ -377,7 +377,10 @@
     "streamLimitReached": "Există prea multe conexiuni live deschise pentru contul dvs. Închideți o altă vizualizare live și încercați din nou.",
     "trustedProxyInvalid": "\"{{entry}}\" nu este o adresă IP sau un interval CIDR.",
     "trustedProxyTooBroad": "\"{{entry}}\" acoperă un interval prea larg. Intervalele IPv4 trebuie să fie /8 sau mai înguste, iar cele IPv6 /24 sau mai înguste.",
-    "trustedProxiesTooMany": "Lista de proxy-uri de încredere conține cel mult 64 de intrări."
+    "trustedProxiesTooMany": "Lista de proxy-uri de încredere conține cel mult 64 de intrări.",
+    "managementListUnknown": "Una dintre listele de acces alese nu mai există. Reîncărcați pagina și alegeți din nou.",
+    "managementAccessWouldLockOut": "Aceasta v-ar bloca accesul la Charon. Adăugați mai întâi adresa dvs. în lista de permise a administratorului sau alegeți o listă care vă permite accesul.",
+    "accessListInvalid": "Această listă de acces nu poate proteja interfața proprie a Charon. Verificați regulile și încercați din nou."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -747,7 +750,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "O listă de permisiuni activată necesită cel puțin o regulă. Adăugați o regulă sau dezactivați lista, apoi salvați din nou."
+      "access_list_rules_required": "O listă de permisiuni activată necesită cel puțin o regulă. Adăugați o regulă sau dezactivați lista, apoi salvați din nou.",
+      "access_list_in_use": "Această listă de acces este folosită de interfața proprie a Charon, deci nu poate fi ștearsă. Alegeți mai întâi altă listă pentru interfața Charon, apoi încercați din nou."
+    },
+    "managementAccess": {
+      "title": "Acces de administrare",
+      "description": "Alegeți listele de acces care protejează interfața proprie a Charon, partea pe care o folosiți pentru administrare. Listele de acces de pe gazdele proxy nu se aplică aici.",
+      "fieldsetLabel": "Liste de acces pentru interfața proprie a Charon",
+      "noLists": "Nu există încă liste de acces. Creați mai întâi una, apoi alegeți-o aici.",
+      "notRestricted": "Fără restricții",
+      "notRestrictedHint": "Interfața proprie a Charon este deschisă oricărui vizitator care o poate accesa. Alegeți o listă pentru a o limita.",
+      "restricted": "Doar vizitatorii permiși de listele alese pot folosi interfața proprie a Charon.",
+      "notApplied": "Nu se aplică atât timp cât controlul accesului este dezactivat sau nicio listă aleasă nu este activată.",
+      "saved": "Accesul de administrare a fost salvat.",
+      "saveFailed": "Alegerea privind accesul de administrare nu a putut fi salvată.",
+      "loadError": "Accesul de administrare nu a putut fi încărcat."
     }
   },
   "rateLimiting": {

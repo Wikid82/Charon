@@ -5,8 +5,10 @@ import { useTranslation } from 'react-i18next'
 import { wafErrorMessage } from '../api/errorBody'
 import {
   getSecurityStatus,
+  getManagementAccess,
   getTrustedProxies,
   resetTrustedProxies,
+  saveManagementAccess,
   saveTrustedProxies,
   getSecurityConfig,
   getLoginProtectionStatus,
@@ -46,6 +48,25 @@ export function useLoginProtectionStatus({ enabled }: { enabled: boolean }) {
 
 /** The one query key for the proxy-layer trust list. */
 export const TRUSTED_PROXIES_QUERY_KEY = ['trustedProxies'] as const
+
+/** The one query key for the access lists that protect Charon's own interface. */
+export const MANAGEMENT_ACCESS_QUERY_KEY = ['managementAccess'] as const
+
+/** Access lists chosen for Charon's own interface; every signed-in user may read it. */
+export function useManagementAccess() {
+  return useQuery({ queryKey: MANAGEMENT_ACCESS_QUERY_KEY, queryFn: getManagementAccess })
+}
+
+/** Replaces the chosen management access lists and stores the set the server now holds. */
+export function useSaveManagementAccess() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (listUuids: string[]) => saveManagementAccess(listUuids),
+    onSuccess: (data) => {
+      qc.setQueryData(MANAGEMENT_ACCESS_QUERY_KEY, data)
+    },
+  })
+}
 
 /** Proxy-layer trust list; every signed-in user may read it (non-administrators get a reduced response). */
 export function useTrustedProxies() {

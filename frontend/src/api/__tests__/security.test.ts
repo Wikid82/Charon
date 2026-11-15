@@ -346,3 +346,28 @@ describe('trusted proxies API', () => {
     expect(client.delete).toHaveBeenCalledWith('/security/trusted-proxies')
   })
 })
+
+describe('management access API', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  it('GETs /security/management-access', async () => {
+    const body: security.ManagementAccessResponse = {
+      lists: [{ uuid: 'list-1', name: 'Office', type: 'whitelist', enabled: true }],
+      enforced: true,
+    }
+    vi.mocked(client.get).mockResolvedValue({ data: body })
+
+    await expect(security.getManagementAccess()).resolves.toEqual(body)
+    expect(client.get).toHaveBeenCalledWith('/security/management-access')
+  })
+
+  it('PUTs the chosen list UUIDs under list_uuids', async () => {
+    const body: security.ManagementAccessResponse = { lists: [], enforced: false }
+    vi.mocked(client.put).mockResolvedValue({ data: body })
+
+    await expect(security.saveManagementAccess(['list-1'])).resolves.toEqual(body)
+    expect(client.put).toHaveBeenCalledWith('/security/management-access', { list_uuids: ['list-1'] })
+  })
+})

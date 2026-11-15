@@ -1,5 +1,7 @@
 import client from './client'
 
+import type { AccessList } from './accessLists'
+
 /**
  * Whether a module that is on is applied to the proxy. `enforced` is omitted when the report does not apply
  * (module off, no hosts, or a stale report); `reason` names the state when `enforced` is false.
@@ -443,5 +445,38 @@ export const saveTrustedProxies = async (proxies: string[]): Promise<TrustedProx
  */
 export const resetTrustedProxies = async (): Promise<TrustedProxiesResponse> => {
   const response = await client.delete<TrustedProxiesResponse>('/security/trusted-proxies')
+  return response.data
+}
+
+/** One access list chosen to protect Charon's own interface (a row of the management set). */
+export type ManagementAccessList = Pick<AccessList, 'uuid' | 'name' | 'type' | 'enabled'>
+
+/**
+ * Access lists that protect Charon's own interface (`/security/management-access`). `lists` is the chosen set;
+ * `enforced` is false while the set is not applied (access control off, or no chosen list enabled).
+ */
+export interface ManagementAccessResponse {
+  lists: ManagementAccessList[]
+  enforced: boolean
+}
+
+/**
+ * Gets the access lists chosen for Charon's own interface.
+ * @returns Promise resolving to ManagementAccessResponse
+ * @throws {AxiosError} If the request fails
+ */
+export const getManagementAccess = async (): Promise<ManagementAccessResponse> => {
+  const response = await client.get<ManagementAccessResponse>('/security/management-access')
+  return response.data
+}
+
+/**
+ * Replaces the set of access lists that protect Charon's own interface (administrators only).
+ * @param listUuids - UUIDs of the chosen lists; an empty array means not restricted
+ * @returns Promise resolving to the stored set
+ * @throws {AxiosError} If the choice is refused (400, or 403 when it would lock the caller out)
+ */
+export const saveManagementAccess = async (listUuids: string[]): Promise<ManagementAccessResponse> => {
+  const response = await client.put<ManagementAccessResponse>('/security/management-access', { list_uuids: listUuids })
   return response.data
 }

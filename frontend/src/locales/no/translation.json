@@ -377,7 +377,10 @@
     "streamLimitReached": "Det er for mange live-tilkoblinger åpne for kontoen din. Lukk en annen live-visning, og prøv igjen.",
     "trustedProxyInvalid": "\"{{entry}}\" er ikke en IP-adresse eller et CIDR-område.",
     "trustedProxyTooBroad": "\"{{entry}}\" dekker et for bredt område. IPv4-områder må være /8 eller smalere, og IPv6-områder /24 eller smalere.",
-    "trustedProxiesTooMany": "Listen over klarerte proxyer kan ha høyst 64 oppføringer."
+    "trustedProxiesTooMany": "Listen over klarerte proxyer kan ha høyst 64 oppføringer.",
+    "managementListUnknown": "En av de valgte tilgangslistene finnes ikke lenger. Last siden på nytt og velg igjen.",
+    "managementAccessWouldLockOut": "Dette ville låse deg ute av Charon. Legg først til adressen din på admin-tillatelseslisten, eller velg en liste som tillater deg.",
+    "accessListInvalid": "Denne tilgangslisten kan ikke beskytte Charons eget grensesnitt. Sjekk reglene og prøv igjen."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -747,7 +750,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "En aktivert tillatelsesliste trenger minst én regel. Legg til en regel, eller slå av listen, og lagre på nytt."
+      "access_list_rules_required": "En aktivert tillatelsesliste trenger minst én regel. Legg til en regel, eller slå av listen, og lagre på nytt.",
+      "access_list_in_use": "Denne tilgangslisten brukes av Charons eget grensesnitt, så den kan ikke slettes. Velg først en annen liste for Charons grensesnitt, og prøv igjen."
+    },
+    "managementAccess": {
+      "title": "Administrasjonstilgang",
+      "description": "Velg tilgangslistene som beskytter Charons eget grensesnitt, delen du bruker til å administrere den. Tilgangslister på proxy-verter gjelder ikke her.",
+      "fieldsetLabel": "Tilgangslister for Charons eget grensesnitt",
+      "noLists": "Det finnes ingen tilgangslister ennå. Opprett en først, og velg den deretter her.",
+      "notRestricted": "Ikke begrenset",
+      "notRestrictedHint": "Charons eget grensesnitt er åpent for enhver besøkende som kan nå det. Velg en liste for å begrense det.",
+      "restricted": "Bare besøkende som tillates av de valgte listene, kan bruke Charons eget grensesnitt.",
+      "notApplied": "Gjelder ikke mens tilgangskontroll er av, eller ingen valgte liste er aktivert.",
+      "saved": "Administrasjonstilgang er lagret.",
+      "saveFailed": "Valget for administrasjonstilgang kunne ikke lagres.",
+      "loadError": "Administrasjonstilgang kunne ikke lastes."
     }
   },
   "rateLimiting": {

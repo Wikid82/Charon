@@ -377,7 +377,10 @@
     "streamLimitReached": "Túl sok élő kapcsolat van nyitva a fiókjában. Zárjon be egy másik élő nézetet, majd próbálja újra.",
     "trustedProxyInvalid": "A(z) \"{{entry}}\" nem IP-cím és nem CIDR-tartomány.",
     "trustedProxyTooBroad": "A(z) \"{{entry}}\" túl széles tartományt fed le. Az IPv4-tartományok legfeljebb /8-asak, az IPv6-tartományok legfeljebb /24-esek lehetnek.",
-    "trustedProxiesTooMany": "A megbízható proxyk listája legfeljebb 64 bejegyzést tartalmazhat."
+    "trustedProxiesTooMany": "A megbízható proxyk listája legfeljebb 64 bejegyzést tartalmazhat.",
+    "managementListUnknown": "A kiválasztott hozzáférési listák egyike már nem létezik. Töltse be újra az oldalt, és válasszon újra.",
+    "managementAccessWouldLockOut": "Ezzel kizárná magát a Charonból. Először adja hozzá címét az adminisztrátori engedélyezési listához, vagy válasszon olyan listát, amely engedélyezi.",
+    "accessListInvalid": "Ez a hozzáférési lista nem védheti a Charon saját felületét. Ellenőrizze a szabályait, majd próbálja újra."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -747,7 +750,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "Egy engedélyezett engedélyezési listához legalább egy szabály szükséges. Adjon hozzá szabályt, vagy kapcsolja ki a listát, majd mentse újra."
+      "access_list_rules_required": "Egy engedélyezett engedélyezési listához legalább egy szabály szükséges. Adjon hozzá szabályt, vagy kapcsolja ki a listát, majd mentse újra.",
+      "access_list_in_use": "Ezt a hozzáférési listát a Charon saját felülete használja, ezért nem törölhető. Előbb válasszon másik listát a Charon felületéhez, majd próbálja újra."
+    },
+    "managementAccess": {
+      "title": "Felügyeleti hozzáférés",
+      "description": "Válassza ki azokat a hozzáférési listákat, amelyek a Charon saját felületét védik, vagyis azt a részt, amelyen kezeli. A proxy-gazdagépekre vonatkozó listák itt nem érvényesek.",
+      "fieldsetLabel": "A Charon saját felületének hozzáférési listái",
+      "noLists": "Még nincs hozzáférési lista. Először hozzon létre egyet, majd válassza ki itt.",
+      "notRestricted": "Nincs korlátozás",
+      "notRestrictedHint": "A Charon saját felülete minden látogató számára nyitott, aki eléri. Válasszon listát a korlátozáshoz.",
+      "restricted": "A Charon saját felületét csak a kiválasztott listák által engedélyezett látogatók használhatják.",
+      "notApplied": "Nem érvényes, amíg a hozzáférés-szabályozás ki van kapcsolva, vagy egyik kiválasztott lista sincs engedélyezve.",
+      "saved": "A felügyeleti hozzáférés mentve.",
+      "saveFailed": "A felügyeleti hozzáférés beállítását nem sikerült menteni.",
+      "loadError": "A felügyeleti hozzáférést nem sikerült betölteni."
     }
   },
   "rateLimiting": {

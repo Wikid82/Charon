@@ -382,7 +382,10 @@
     "streamLimitReached": "Trop de connexions en direct sont ouvertes pour votre compte. Fermez une autre vue en direct, puis réessayez.",
     "trustedProxyInvalid": "« {{entry}} » n'est ni une adresse IP ni une plage CIDR.",
     "trustedProxyTooBroad": "« {{entry}} » couvre une plage trop large. Les plages IPv4 doivent être /8 ou plus étroites, et les plages IPv6 /24 ou plus étroites.",
-    "trustedProxiesTooMany": "La liste des proxys de confiance contient au plus 64 entrées."
+    "trustedProxiesTooMany": "La liste des proxys de confiance contient au plus 64 entrées.",
+    "managementListUnknown": "L'une des listes d'accès choisies n'existe plus. Rechargez la page et choisissez à nouveau.",
+    "managementAccessWouldLockOut": "Cela vous couperait l'accès à Charon. Ajoutez d'abord votre adresse à la liste d'autorisation de l'administrateur, ou choisissez une liste qui vous autorise.",
+    "accessListInvalid": "Cette liste d'accès ne peut pas protéger l'interface propre de Charon. Vérifiez ses règles, puis réessayez."
   },
   "notifications": {
     "saveSuccess": "Modifications enregistrées avec succès",
@@ -772,7 +775,21 @@
     "noAccessLists": "Aucune Liste d'Accès",
     "noAccessListsDescription": "Créez votre première liste d'accès pour contrôler qui peut accéder à vos services",
     "errors": {
-      "access_list_rules_required": "Une liste d'autorisation activée nécessite au moins une règle. Ajoutez une règle ou désactivez la liste, puis enregistrez à nouveau."
+      "access_list_rules_required": "Une liste d'autorisation activée nécessite au moins une règle. Ajoutez une règle ou désactivez la liste, puis enregistrez à nouveau.",
+      "access_list_in_use": "Cette liste d'accès est utilisée par l'interface propre de Charon, elle ne peut donc pas être supprimée. Choisissez d'abord une autre liste pour l'interface de Charon, puis réessayez."
+    },
+    "managementAccess": {
+      "title": "Accès à l'administration",
+      "description": "Choisissez les listes d'accès qui protègent l'interface propre de Charon, celle que vous utilisez pour l'administrer. Les listes d'accès des hôtes proxy ne s'y appliquent pas.",
+      "fieldsetLabel": "Listes d'accès pour l'interface propre de Charon",
+      "noLists": "Aucune liste d'accès n'existe encore. Créez-en d'abord une, puis choisissez-la ici.",
+      "notRestricted": "Non restreint",
+      "notRestrictedHint": "L'interface propre de Charon est ouverte à tout visiteur qui peut l'atteindre. Choisissez une liste pour la limiter.",
+      "restricted": "Seuls les visiteurs autorisés par les listes choisies peuvent utiliser l'interface propre de Charon.",
+      "notApplied": "Non appliqué tant que le contrôle d'accès est désactivé ou qu'aucune liste choisie n'est activée.",
+      "saved": "Accès à l'administration enregistré.",
+      "saveFailed": "Le choix d'accès à l'administration n'a pas pu être enregistré.",
+      "loadError": "L'accès à l'administration n'a pas pu être chargé."
     }
   },
   "rateLimiting": {

@@ -377,7 +377,10 @@
     "streamLimitReached": "Tài khoản của bạn đang mở quá nhiều kết nối trực tiếp. Hãy đóng một chế độ xem trực tiếp khác rồi thử lại.",
     "trustedProxyInvalid": "\"{{entry}}\" không phải là địa chỉ IP hoặc dải CIDR.",
     "trustedProxyTooBroad": "\"{{entry}}\" bao phủ dải quá rộng. Dải IPv4 phải là /8 hoặc hẹp hơn, dải IPv6 là /24 hoặc hẹp hơn.",
-    "trustedProxiesTooMany": "Danh sách máy chủ proxy đáng tin cậy tối đa 64 mục."
+    "trustedProxiesTooMany": "Danh sách máy chủ proxy đáng tin cậy tối đa 64 mục.",
+    "managementListUnknown": "Một trong các danh sách truy cập đã chọn không còn tồn tại. Hãy tải lại trang và chọn lại.",
+    "managementAccessWouldLockOut": "Việc này sẽ khóa bạn ra khỏi Charon. Hãy thêm địa chỉ của bạn vào danh sách cho phép của quản trị viên trước, hoặc chọn danh sách cho phép bạn truy cập.",
+    "accessListInvalid": "Danh sách truy cập này không thể bảo vệ giao diện riêng của Charon. Hãy kiểm tra các quy tắc rồi thử lại."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -747,7 +750,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "Danh sách cho phép đang bật cần ít nhất một quy tắc. Thêm quy tắc hoặc tắt danh sách, rồi lưu lại."
+      "access_list_rules_required": "Danh sách cho phép đang bật cần ít nhất một quy tắc. Thêm quy tắc hoặc tắt danh sách, rồi lưu lại.",
+      "access_list_in_use": "Danh sách truy cập này đang được giao diện của chính Charon sử dụng nên không thể xóa. Hãy chọn danh sách khác cho giao diện Charon trước, rồi thử lại."
+    },
+    "managementAccess": {
+      "title": "Quyền truy cập quản trị",
+      "description": "Chọn các danh sách truy cập bảo vệ giao diện riêng của Charon, phần bạn dùng để quản lý. Danh sách truy cập trên máy chủ proxy không áp dụng ở đây.",
+      "fieldsetLabel": "Danh sách truy cập cho giao diện riêng của Charon",
+      "noLists": "Chưa có danh sách truy cập nào. Hãy tạo một danh sách trước, rồi chọn nó ở đây.",
+      "notRestricted": "Không hạn chế",
+      "notRestrictedHint": "Giao diện riêng của Charon mở cho mọi khách truy cập có thể kết nối tới. Chọn một danh sách để giới hạn.",
+      "restricted": "Chỉ những khách truy cập được các danh sách đã chọn cho phép mới dùng được giao diện riêng của Charon.",
+      "notApplied": "Chưa áp dụng khi kiểm soát truy cập đang tắt hoặc không có danh sách nào được chọn đang bật.",
+      "saved": "Đã lưu quyền truy cập quản trị.",
+      "saveFailed": "Không thể lưu lựa chọn quyền truy cập quản trị.",
+      "loadError": "Không thể tải quyền truy cập quản trị."
     }
   },
   "rateLimiting": {

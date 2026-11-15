@@ -377,7 +377,10 @@
     "streamLimitReached": "このアカウントで開いているライブ接続が多すぎます。別のライブ表示を閉じてから、もう一度お試しください。",
     "trustedProxyInvalid": "\"{{entry}}\" は IP アドレスでも CIDR 範囲でもありません。",
     "trustedProxyTooBroad": "\"{{entry}}\" は範囲が広すぎます。IPv4 の範囲は /8 以下、IPv6 の範囲は /24 以下にしてください。",
-    "trustedProxiesTooMany": "信頼するプロキシの一覧には最大 64 件まで登録できます。"
+    "trustedProxiesTooMany": "信頼するプロキシの一覧には最大 64 件まで登録できます。",
+    "managementListUnknown": "選択したアクセスリストの一部が存在しなくなりました。ページを再読み込みして選び直してください。",
+    "managementAccessWouldLockOut": "この設定では Charon から締め出されます。先に管理者の許可リストにご自身のアドレスを追加するか、アクセスを許可するリストを選択してください。",
+    "accessListInvalid": "このアクセスリストでは Charon 自身の管理画面を保護できません。ルールを確認してから、もう一度お試しください。"
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -747,7 +750,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "有効な許可リストには、少なくとも 1 つのルールが必要です。ルールを追加するか、リストを無効にしてから、もう一度保存してください。"
+      "access_list_rules_required": "有効な許可リストには、少なくとも 1 つのルールが必要です。ルールを追加するか、リストを無効にしてから、もう一度保存してください。",
+      "access_list_in_use": "このアクセスリストは Charon 自身の管理画面で使われているため、削除できません。先に Charon の管理画面用に別のリストを選択してから、もう一度お試しください。"
+    },
+    "managementAccess": {
+      "title": "管理アクセス",
+      "description": "Charon 自身の管理画面（管理に使う部分）を保護するアクセスリストを選択します。プロキシホストのアクセスリストはここには適用されません。",
+      "fieldsetLabel": "Charon 自身の管理画面のアクセスリスト",
+      "noLists": "アクセスリストがまだありません。先に作成してから、ここで選択してください。",
+      "notRestricted": "制限なし",
+      "notRestrictedHint": "Charon 自身の管理画面は、到達できるすべての訪問者に開かれています。制限するにはリストを選択してください。",
+      "restricted": "選択したリストで許可された訪問者だけが Charon 自身の管理画面を使用できます。",
+      "notApplied": "アクセス制御がオフの間、または選択したリストがどれも有効でない間は適用されません。",
+      "saved": "管理アクセスを保存しました。",
+      "saveFailed": "管理アクセスの選択を保存できませんでした。",
+      "loadError": "管理アクセスを読み込めませんでした。"
     }
   },
   "rateLimiting": {

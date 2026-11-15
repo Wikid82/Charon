@@ -382,7 +382,10 @@
     "streamLimitReached": "您的账户打开的实时连接过多。请关闭另一个实时视图后重试。",
     "trustedProxyInvalid": "\"{{entry}}\" 不是 IP 地址或 CIDR 范围。",
     "trustedProxyTooBroad": "\"{{entry}}\" 覆盖的范围过大。IPv4 范围必须为 /8 或更小，IPv6 范围必须为 /24 或更小。",
-    "trustedProxiesTooMany": "受信任的代理列表最多只能包含 64 个条目。"
+    "trustedProxiesTooMany": "受信任的代理列表最多只能包含 64 个条目。",
+    "managementListUnknown": "所选的某个访问列表已不存在。请刷新页面后重新选择。",
+    "managementAccessWouldLockOut": "这样会把您锁在 Charon 之外。请先把您的地址加入管理员允许列表，或选择一个允许您访问的列表。",
+    "accessListInvalid": "此访问列表无法保护 Charon 自身的管理界面。请检查其规则后重试。"
   },
   "notifications": {
     "saveSuccess": "更改已成功保存",
@@ -772,7 +775,21 @@
     "noAccessLists": "无访问列表",
     "noAccessListsDescription": "创建您的第一个访问列表来控制谁可以访问您的服务",
     "errors": {
-      "access_list_rules_required": "已启用的允许列表至少需要一条规则。请添加规则，或关闭该列表后再次保存。"
+      "access_list_rules_required": "已启用的允许列表至少需要一条规则。请添加规则，或关闭该列表后再次保存。",
+      "access_list_in_use": "此访问列表正被 Charon 自身的界面使用，因此无法删除。请先为 Charon 界面选择其他列表，然后重试。"
+    },
+    "managementAccess": {
+      "title": "管理访问",
+      "description": "请选择用于保护 Charon 自身管理界面的访问列表。代理主机上的访问列表不适用于此处。",
+      "fieldsetLabel": "Charon 自身管理界面的访问列表",
+      "noLists": "尚无访问列表。请先创建一个，然后在此处选择。",
+      "notRestricted": "不限制",
+      "notRestrictedHint": "只要能访问到的任何访客都可以使用 Charon 自身的管理界面。选择一个列表即可对其加以限制。",
+      "restricted": "只有所选列表允许的访客才能使用 Charon 自身的管理界面。",
+      "notApplied": "访问控制关闭或所选列表均未启用时不生效。",
+      "saved": "管理访问已保存。",
+      "saveFailed": "无法保存管理访问的选择。",
+      "loadError": "无法加载管理访问。"
     }
   },
   "rateLimiting": {

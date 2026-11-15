@@ -377,7 +377,10 @@
     "streamLimitReached": "Pro váš účet je otevřeno příliš mnoho živých připojení. Zavřete jiný živý náhled a zkuste to znovu.",
     "trustedProxyInvalid": "\"{{entry}}\" není IP adresa ani rozsah CIDR.",
     "trustedProxyTooBroad": "\"{{entry}}\" pokrývá příliš široký rozsah. Rozsahy IPv4 musí být /8 nebo užší a rozsahy IPv6 /24 nebo užší.",
-    "trustedProxiesTooMany": "Seznam důvěryhodných proxy může obsahovat nejvýše 64 položek."
+    "trustedProxiesTooMany": "Seznam důvěryhodných proxy může obsahovat nejvýše 64 položek.",
+    "managementListUnknown": "Jeden z vybraných seznamů přístupu už neexistuje. Načtěte stránku znovu a vyberte.",
+    "managementAccessWouldLockOut": "Tímto byste se odstranili z přístupu k Charonu. Nejprve přidejte svou adresu do seznamu povolených administrátorů, nebo zvolte seznam, který vás povoluje.",
+    "accessListInvalid": "Tento seznam přístupu nemůže chránit vlastní rozhraní Charonu. Zkontrolujte jeho pravidla a zkuste to znovu."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -747,7 +750,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "Zapnutý seznam povolených potřebuje alespoň jedno pravidlo. Přidejte pravidlo nebo seznam vypněte a uložte znovu."
+      "access_list_rules_required": "Zapnutý seznam povolených potřebuje alespoň jedno pravidlo. Přidejte pravidlo nebo seznam vypněte a uložte znovu.",
+      "access_list_in_use": "Tento seznam přístupu používá vlastní rozhraní Charonu, proto ho nelze smazat. Nejprve vyberte pro rozhraní Charonu jiný seznam a zkuste to znovu."
+    },
+    "managementAccess": {
+      "title": "Přístup ke správě",
+      "description": "Vyberte seznamy přístupu, které chrání vlastní rozhraní Charonu, tedy část, kterou používáte ke správě. Seznamy přístupu u proxy hostitelů se sem nevztahují.",
+      "fieldsetLabel": "Seznamy přístupu pro vlastní rozhraní Charonu",
+      "noLists": "Zatím nejsou žádné seznamy přístupu. Nejprve nějaký vytvořte a pak jej zde vyberte.",
+      "notRestricted": "Bez omezení",
+      "notRestrictedHint": "Vlastní rozhraní Charonu je přístupné každému návštěvníkovi, který se k němu dostane. Vyberte seznam, abyste jej omezili.",
+      "restricted": "Vlastní rozhraní Charonu mohou používat jen návštěvníci povolení vybranými seznamy.",
+      "notApplied": "Neuplatní se, dokud je řízení přístupu vypnuté nebo není zapnutý žádný vybraný seznam.",
+      "saved": "Přístup ke správě uložen.",
+      "saveFailed": "Volbu přístupu ke správě se nepodařilo uložit.",
+      "loadError": "Přístup ke správě se nepodařilo načíst."
     }
   },
   "rateLimiting": {

@@ -377,7 +377,10 @@
     "streamLimitReached": "Der er for mange live-forbindelser åbne for din konto. Luk en anden live-visning, og prøv igen.",
     "trustedProxyInvalid": "\"{{entry}}\" er ikke en IP-adresse eller et CIDR-område.",
     "trustedProxyTooBroad": "\"{{entry}}\" dækker et for bredt område. IPv4-områder skal være /8 eller smallere, og IPv6-områder /24 eller smallere.",
-    "trustedProxiesTooMany": "Listen over betroede proxyer må højst indeholde 64 poster."
+    "trustedProxiesTooMany": "Listen over betroede proxyer må højst indeholde 64 poster.",
+    "managementListUnknown": "En af de valgte adgangslister findes ikke længere. Genindlæs siden, og vælg igen.",
+    "managementAccessWouldLockOut": "Dette ville låse dig ude af Charon. Tilføj først din adresse til admin-tilladelseslisten, eller vælg en liste, der tillader dig.",
+    "accessListInvalid": "Denne adgangsliste kan ikke beskytte Charons egen grænseflade. Kontroller reglerne, og prøv igen."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -747,7 +750,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "En aktiveret tilladelsesliste kræver mindst én regel. Tilføj en regel, eller slå listen fra, og gem igen."
+      "access_list_rules_required": "En aktiveret tilladelsesliste kræver mindst én regel. Tilføj en regel, eller slå listen fra, og gem igen.",
+      "access_list_in_use": "Denne adgangsliste bruges af Charons egen grænseflade, så den kan ikke slettes. Vælg først en anden liste til Charons grænseflade, og prøv igen."
+    },
+    "managementAccess": {
+      "title": "Adgang til administration",
+      "description": "Vælg de adgangslister, der beskytter Charons egen grænseflade, den del du bruger til at administrere den. Adgangslister på proxy-værter gælder ikke her.",
+      "fieldsetLabel": "Adgangslister til Charons egen grænseflade",
+      "noLists": "Der findes endnu ingen adgangslister. Opret en først, og vælg den derefter her.",
+      "notRestricted": "Ikke begrænset",
+      "notRestrictedHint": "Charons egen grænseflade er åben for alle besøgende, der kan nå den. Vælg en liste for at begrænse den.",
+      "restricted": "Kun besøgende, der tillades af de valgte lister, kan bruge Charons egen grænseflade.",
+      "notApplied": "Gælder ikke, mens adgangskontrol er slået fra, eller ingen valgt liste er aktiveret.",
+      "saved": "Adgang til administration er gemt.",
+      "saveFailed": "Valget af adgang til administration kunne ikke gemmes.",
+      "loadError": "Adgang til administration kunne ikke indlæses."
     }
   },
   "rateLimiting": {

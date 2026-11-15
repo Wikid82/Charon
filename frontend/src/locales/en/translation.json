@@ -382,7 +382,10 @@
     "streamLimitReached": "Too many live connections are open for your account. Close another live view, then try again.",
     "trustedProxyInvalid": "\"{{entry}}\" is not an IP address or CIDR range.",
     "trustedProxyTooBroad": "\"{{entry}}\" covers too wide a range. IPv4 ranges must be /8 or narrower, and IPv6 ranges /24 or narrower.",
-    "trustedProxiesTooMany": "The trusted proxy list holds at most 64 entries."
+    "trustedProxiesTooMany": "The trusted proxy list holds at most 64 entries.",
+    "managementListUnknown": "One of the chosen access lists no longer exists. Reload the page and choose again.",
+    "managementAccessWouldLockOut": "This would lock you out of Charon. Add your address to the admin allow-list first, or choose a list that allows you.",
+    "accessListInvalid": "This access list cannot protect Charon's own interface. Check its rules, then try again."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -772,7 +775,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "An enabled allow-list needs at least one rule. Add a rule, or turn the list off, then save again."
+      "access_list_rules_required": "An enabled allow-list needs at least one rule. Add a rule, or turn the list off, then save again.",
+      "access_list_in_use": "This access list is used by Charon's own interface, so it cannot be deleted. Choose another list for Charon's interface first, then try again."
+    },
+    "managementAccess": {
+      "title": "Management access",
+      "description": "Choose the access lists that protect Charon's own interface, the part you use to manage it. Access lists on proxy hosts do not apply here.",
+      "fieldsetLabel": "Access lists for Charon's own interface",
+      "noLists": "No access lists exist yet. Create one first, then choose it here.",
+      "notRestricted": "Not restricted",
+      "notRestrictedHint": "Charon's own interface is open to any visitor who can reach it. Choose a list to limit it.",
+      "restricted": "Only visitors allowed by the chosen lists can use Charon's own interface.",
+      "notApplied": "Not applied while access control is off or no chosen list is enabled.",
+      "saved": "Management access saved.",
+      "saveFailed": "The management access choice could not be saved.",
+      "loadError": "Management access could not be loaded."
     }
   },
   "rateLimiting": {

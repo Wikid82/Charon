@@ -382,7 +382,10 @@
     "streamLimitReached": "Für Ihr Konto sind zu viele Live-Verbindungen geöffnet. Schließen Sie eine andere Live-Ansicht und versuchen Sie es erneut.",
     "trustedProxyInvalid": "\"{{entry}}\" ist keine IP-Adresse und kein CIDR-Bereich.",
     "trustedProxyTooBroad": "\"{{entry}}\" umfasst einen zu großen Bereich. IPv4-Bereiche müssen /8 oder enger sein, IPv6-Bereiche /24 oder enger.",
-    "trustedProxiesTooMany": "Die Liste der vertrauenswürdigen Proxys darf höchstens 64 Einträge enthalten."
+    "trustedProxiesTooMany": "Die Liste der vertrauenswürdigen Proxys darf höchstens 64 Einträge enthalten.",
+    "managementListUnknown": "Eine der gewählten Zugriffslisten existiert nicht mehr. Laden Sie die Seite neu und wählen Sie erneut.",
+    "managementAccessWouldLockOut": "Dadurch würden Sie sich von Charon aussperren. Fügen Sie zuerst Ihre Adresse der Admin-Erlaubnisliste hinzu oder wählen Sie eine Liste, die Sie zulässt.",
+    "accessListInvalid": "Diese Zugriffsliste kann die eigene Oberfläche von Charon nicht schützen. Prüfen Sie ihre Regeln und versuchen Sie es erneut."
   },
   "notifications": {
     "saveSuccess": "Änderungen erfolgreich gespeichert",
@@ -772,7 +775,21 @@
     "noAccessLists": "Keine Zugriffslisten",
     "noAccessListsDescription": "Erstellen Sie Ihre erste Zugriffsliste, um zu kontrollieren, wer auf Ihre Dienste zugreifen kann",
     "errors": {
-      "access_list_rules_required": "Eine aktivierte Allowlist benötigt mindestens eine Regel. Füge eine Regel hinzu oder deaktiviere die Liste und speichere erneut."
+      "access_list_rules_required": "Eine aktivierte Allowlist benötigt mindestens eine Regel. Füge eine Regel hinzu oder deaktiviere die Liste und speichere erneut.",
+      "access_list_in_use": "Diese Zugriffsliste wird von der eigenen Oberfläche von Charon verwendet und kann daher nicht gelöscht werden. Wähle zuerst für die Oberfläche von Charon eine andere Liste aus und versuche es dann erneut."
+    },
+    "managementAccess": {
+      "title": "Verwaltungszugriff",
+      "description": "Wählen Sie die Zugriffslisten, die die eigene Oberfläche von Charon schützen, also den Teil, über den Sie Charon verwalten. Zugriffslisten an Proxy-Hosts gelten hier nicht.",
+      "fieldsetLabel": "Zugriffslisten für die eigene Oberfläche von Charon",
+      "noLists": "Es gibt noch keine Zugriffslisten. Legen Sie zuerst eine an und wählen Sie sie dann hier aus.",
+      "notRestricted": "Nicht eingeschränkt",
+      "notRestrictedHint": "Die eigene Oberfläche von Charon ist für jeden Besucher offen, der sie erreichen kann. Wählen Sie eine Liste, um sie einzuschränken.",
+      "restricted": "Nur Besucher, die die gewählten Listen zulassen, können die eigene Oberfläche von Charon nutzen.",
+      "notApplied": "Wird nicht angewendet, solange die Zugriffskontrolle aus ist oder keine gewählte Liste aktiv ist.",
+      "saved": "Verwaltungszugriff gespeichert.",
+      "saveFailed": "Die Auswahl für den Verwaltungszugriff konnte nicht gespeichert werden.",
+      "loadError": "Der Verwaltungszugriff konnte nicht geladen werden."
     }
   },
   "rateLimiting": {

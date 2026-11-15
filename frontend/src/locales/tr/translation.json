@@ -377,7 +377,10 @@
     "streamLimitReached": "Hesabınız için açık olan canlı bağlantı sayısı çok fazla. Başka bir canlı görünümü kapatıp yeniden deneyin.",
     "trustedProxyInvalid": "\"{{entry}}\" bir IP adresi veya CIDR aralığı değil.",
     "trustedProxyTooBroad": "\"{{entry}}\" çok geniş bir aralığı kapsıyor. IPv4 aralıkları /8 veya daha dar, IPv6 aralıkları /24 veya daha dar olmalıdır.",
-    "trustedProxiesTooMany": "Güvenilen proxy listesi en fazla 64 girdi içerebilir."
+    "trustedProxiesTooMany": "Güvenilen proxy listesi en fazla 64 girdi içerebilir.",
+    "managementListUnknown": "Seçilen erişim listelerinden biri artık yok. Sayfayı yenileyip yeniden seçin.",
+    "managementAccessWouldLockOut": "Bu, Charon'dan kilitlenmenize neden olur. Önce adresinizi yönetici izin listesine ekleyin veya size izin veren bir liste seçin.",
+    "accessListInvalid": "Bu erişim listesi Charon'un kendi arayüzünü koruyamaz. Kurallarını kontrol edip yeniden deneyin."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -747,7 +750,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "Etkin bir izin listesinin en az bir kurala ihtiyacı var. Bir kural ekleyin ya da listeyi kapatıp yeniden kaydedin."
+      "access_list_rules_required": "Etkin bir izin listesinin en az bir kurala ihtiyacı var. Bir kural ekleyin ya da listeyi kapatıp yeniden kaydedin.",
+      "access_list_in_use": "Bu erişim listesi Charon'un kendi arayüzü tarafından kullanılıyor, bu yüzden silinemez. Önce Charon arayüzü için başka bir liste seçin, sonra tekrar deneyin."
+    },
+    "managementAccess": {
+      "title": "Yönetim erişimi",
+      "description": "Charon'un kendi arayüzünü, yani onu yönettiğiniz bölümü koruyacak erişim listelerini seçin. Proxy sunucularındaki erişim listeleri burada uygulanmaz.",
+      "fieldsetLabel": "Charon'un kendi arayüzü için erişim listeleri",
+      "noLists": "Henüz erişim listesi yok. Önce bir tane oluşturun, sonra burada seçin.",
+      "notRestricted": "Kısıtlama yok",
+      "notRestrictedHint": "Charon'un kendi arayüzü, ulaşabilen her ziyaretçiye açıktır. Sınırlamak için bir liste seçin.",
+      "restricted": "Charon'un kendi arayüzünü yalnızca seçilen listelerin izin verdiği ziyaretçiler kullanabilir.",
+      "notApplied": "Erişim denetimi kapalıyken veya seçilen hiçbir liste etkin değilken uygulanmaz.",
+      "saved": "Yönetim erişimi kaydedildi.",
+      "saveFailed": "Yönetim erişimi seçimi kaydedilemedi.",
+      "loadError": "Yönetim erişimi yüklenemedi."
     }
   },
   "rateLimiting": {
