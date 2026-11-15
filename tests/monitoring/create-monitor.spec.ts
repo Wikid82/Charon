@@ -222,8 +222,8 @@ test.describe('Create Monitor Modal — destination refusals (real backend)', ()
     }
   });
 
-  test('TCP monitor to a link-local metadata address is refused with the fixed text and nothing is stored', async ({ page }) => {
-    const name = `Refused metadata ${Date.now()}`;
+  test('TCP monitor to a link-local address is refused with the fixed text and nothing is stored', async ({ page }) => {
+    const name = `Refused link-local ${Date.now()}`;
 
     await test.step('Submit the refused TCP destination', async () => {
       await openCreateModal(page);
@@ -287,24 +287,24 @@ test.describe('Uptime monitor creation API — destination policy', () => {
     }
   });
 
-  test('TCP create to the metadata address and to a reserved port return the same 400 body', async ({ page }) => {
-    const metadata = await page.request.post('/api/v1/uptime/monitors', {
-      data: { name: `API metadata ${Date.now()}`, url: '169.254.169.254:80', type: 'tcp' },
+  test('TCP create to a link-local address and to a reserved port return the same 400 body', async ({ page }) => {
+    const linkLocal = await page.request.post('/api/v1/uptime/monitors', {
+      data: { name: `API link-local ${Date.now()}`, url: '169.254.169.254:80', type: 'tcp' },
     });
     const reserved = await page.request.post('/api/v1/uptime/monitors', {
       data: { name: `API reserved ${Date.now()}`, url: '127.0.0.1:2019', type: 'tcp' },
     });
 
-    expect(metadata.status()).toBe(400);
+    expect(linkLocal.status()).toBe(400);
     expect(reserved.status()).toBe(400);
     const expected = { error: DESTINATION_REFUSED_TEXT, error_code: DESTINATION_REFUSED_CODE };
-    expect(await metadata.json()).toEqual(expected);
+    expect(await linkLocal.json()).toEqual(expected);
     expect(await reserved.json()).toEqual(expected);
   });
 
-  test('HTTP create to the link-local metadata URL is refused with destination_refused', async ({ page }) => {
+  test('HTTP create to the link-local URL is refused with destination_refused', async ({ page }) => {
     const response = await page.request.post('/api/v1/uptime/monitors', {
-      data: { name: `API metadata URL ${Date.now()}`, url: 'http://169.254.169.254/latest/meta-data/', type: 'http' },
+      data: { name: `API link-local URL ${Date.now()}`, url: 'http://169.254.169.254/latest/meta-data/', type: 'http' },
     });
 
     expect(response.status()).toBe(400);

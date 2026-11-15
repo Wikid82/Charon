@@ -1196,11 +1196,11 @@ test.describe('Standard user management permissions (PR 32)', () => {
     const FORWARD_TARGET_TEXT = 'This forward target is not allowed.';
     const DESTINATION_TEXT = 'This destination is not allowed.';
     const CONNECTION_FAILED_TEXT = 'Could not connect to the target.';
-    /** Link-local metadata address: refused by address whatever the port. */
-    const METADATA_TARGET = { label: 'link-local metadata address', forward_host: '169.254.169.254', forward_port: 80 };
+    /** Link-local address: refused by address whatever the port. */
+    const LINK_LOCAL_TARGET = { label: 'link-local address', forward_host: '169.254.169.254', forward_port: 80 };
     /** Loopback on the Caddy admin port, which Charon reserves: refused by port. Its body must match the address refusal. */
     const RESERVED_PORT_TARGET = { label: 'reserved Charon port', forward_host: '127.0.0.1', forward_port: CADDY_ADMIN_PORT };
-    const REFUSED_TARGETS = [METADATA_TARGET, RESERVED_PORT_TARGET];
+    const REFUSED_TARGETS = [LINK_LOCAL_TARGET, RESERVED_PORT_TARGET];
     /** RFC 1918 target: an allowed LAN-style destination that must keep saving. */
     const LAN_TARGET = { forward_host: '192.168.1.50', forward_port: 8080 };
 
@@ -1265,7 +1265,7 @@ test.describe('Standard user management permissions (PR 32)', () => {
     test.describe('Remote server custom test results (administrator)', () => {
       test('refused destination gets 400 destination_refused with the fixed text', async () => {
         const response = await adminApi.post('/api/v1/remote-servers/test', {
-          data: { host: METADATA_TARGET.forward_host, port: METADATA_TARGET.forward_port },
+          data: { host: LINK_LOCAL_TARGET.forward_host, port: LINK_LOCAL_TARGET.forward_port },
         });
         expect(response.status()).toBe(400);
         expect(await errorBody(response)).toEqual({ error: DESTINATION_TEXT, error_code: 'destination_refused' });

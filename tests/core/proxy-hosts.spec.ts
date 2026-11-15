@@ -1237,8 +1237,8 @@ test.describe('Proxy Hosts - destination policy', () => {
   test('Refused forward target on save shows the fixed text in the form and stores nothing', async ({ page }) => {
     const domain = uniqueDomain();
 
-    await test.step('Fill the form with a link-local metadata target', async () => {
-      await fillCreateForm(page, 'Refused metadata target', domain, '169.254.169.254', 80);
+    await test.step('Fill the form with a link-local target', async () => {
+      await fillCreateForm(page, 'Refused link-local target', domain, '169.254.169.254', 80);
     });
 
     await test.step('Save shows the refusal inside the form', async () => {
@@ -1308,7 +1308,7 @@ test.describe('Proxy Hosts - destination policy', () => {
   }) => {
     const leftOutDomain = uniqueDomain();
     const healthyDomain = uniqueDomain();
-    // Refused by the destination policy when the configuration is applied (link-local metadata address).
+    // Refused by the destination policy when the configuration is applied (link-local address).
     const REFUSED_TARGET = '169.254.169.254';
     let leftOutUuid = '';
     let healthyUuid = '';
