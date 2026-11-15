@@ -196,3 +196,142 @@ test.describe('Create Monitor Modal — TCP UX', () => {
     expect(capturedPayload?.type).toBe('tcp');
   });
 });
+
+const DESTINATION_REFUSED_TEXT = 'This destination is not allowed.';
+const DESTINATION_REFUSED_CODE = 'destination_refused';
+
+/** Lists monitors through the real API (page.request is not intercepted by page.route mocks). */
+async function listMonitorsViaAPI(page: import('@playwright/test').Page): Promise<UptimeMonitor[]> {
+  const response = await page.request.get('/api/v1/uptime/monitors');
+  expect(response.status(), 'GET /api/v1/uptime/monitors').toBe(200);
+  return (await response.json()) as UptimeMonitor[];
+}
+
+test.describe('Create Monitor Modal — destination refusals (real backend)', () => {
+  const createdMonitorIds: string[] = [];
+
+  test.beforeEach(async ({ page, authenticatedUser }) => {
+    await loginUser(page, authenticatedUser);
+    await page.goto('/uptime');
+    await waitForLoadingComplete(page);
+  });
+
+  test.afterEach(async ({ page }) => {
+    for (const id of createdMonitorIds.splice(0)) {
+      await page.request.delete(`/api/v1/uptime/monitors/${id}`);
+    }
+  });
+
+  test('TCP monitor to a link-local metadata address is refused with the fixed text and nothing is stored', async ({ page }) => {
+    const name = `Refused metadata ${Date.now()}`;
+
+    await test.step('Submit the refused TCP destination', async () => {
+      await openCreateModal(page);
+      await page.locator('#create-monitor-type').selectOption('tcp');
+      await page.locator('#create-monitor-name').fill(name);
+      await page.locator('#create-monitor-url').fill('169.254.169.254:80');
+      await page.getByRole('button', { name: /create/i }).click();
+    });
+
+    await test.step('The error alert shows the fixed text and the modal stays open', async () => {
+      await expect(page.getByRole('status').filter({ hasText: DESTINATION_REFUSED_TEXT })).toBeVisible();
+      await expect(page.getByRole('heading', { name: /create monitor/i })).toBeVisible();
+    });
+
+    await test.step('The monitor is not stored', async () => {
+      const monitors = await listMonitorsViaAPI(page);
+      expect(monitors.some((monitor) => monitor.name === name)).toBe(false);
+    });
+  });
+
+  test('HTTP monitor to a reserved Charon port is refused with the same fixed text', async ({ page }) => {
+    await openCreateModal(page);
+    await page.locator('#create-monitor-name').fill(`Refused reserved ${Date.now()}`);
+    await page.locator('#create-monitor-url').fill('http://127.0.0.1:2019/');
+    await page.getByRole('button', { name: /create/i }).click();
+
+    await expect(page.getByRole('status').filter({ hasText: DESTINATION_REFUSED_TEXT })).toBeVisible();
+    await expect(page.getByRole('heading', { name: /create monitor/i })).toBeVisible();
+  });
+
+  test('TCP monitor to an RFC 1918 host:port is created from the modal', async ({ page }) => {
+    const name = `LAN database ${Date.now()}`;
+
+    await test.step('Submit a bare host:port on a LAN address', async () => {
+      await openCreateModal(page);
+      await page.locator('#create-monitor-type').selectOption('tcp');
+      await page.locator('#create-monitor-name').fill(name);
+      await page.locator('#create-monitor-url').fill('192.168.1.1:5432');
+      await page.getByRole('button', { name: /create/i }).click();
+      await expect(page.getByRole('heading', { name: /create monitor/i })).not.toBeVisible({ timeout: 10000 });
+    });
+
+    await test.step('The stored monitor keeps the bare host:port and is removed by id after the test', async () => {
+      const created = (await listMonitorsViaAPI(page)).find((monitor) => monitor.name === name);
+      expect(created?.url).toBe('192.168.1.1:5432');
+      if (created) createdMonitorIds.push(String(created.id));
+    });
+  });
+});
+
+test.describe('Uptime monitor creation API — destination policy', () => {
+  const createdMonitorIds: string[] = [];
+
+  test.beforeEach(async ({ page, authenticatedUser }) => {
+    await loginUser(page, authenticatedUser);
+  });
+
+  test.afterEach(async ({ page }) => {
+    for (const id of createdMonitorIds.splice(0)) {
+      await page.request.delete(`/api/v1/uptime/monitors/${id}`);
+    }
+  });
+
+  test('TCP create to the metadata address and to a reserved port return the same 400 body', async ({ page }) => {
+    const metadata = await page.request.post('/api/v1/uptime/monitors', {
+      data: { name: `API metadata ${Date.now()}`, url: '169.254.169.254:80', type: 'tcp' },
+    });
+    const reserved = await page.request.post('/api/v1/uptime/monitors', {
+      data: { name: `API reserved ${Date.now()}`, url: '127.0.0.1:2019', type: 'tcp' },
+    });
+
+    expect(metadata.status()).toBe(400);
+    expect(reserved.status()).toBe(400);
+    const expected = { error: DESTINATION_REFUSED_TEXT, error_code: DESTINATION_REFUSED_CODE };
+    expect(await metadata.json()).toEqual(expected);
+    expect(await reserved.json()).toEqual(expected);
+  });
+
+  test('HTTP create to the link-local metadata URL is refused with destination_refused', async ({ page }) => {
+    const response = await page.request.post('/api/v1/uptime/monitors', {
+      data: { name: `API metadata URL ${Date.now()}`, url: 'http://169.254.169.254/latest/meta-data/', type: 'http' },
+    });
+
+    expect(response.status()).toBe(400);
+    expect(await response.json()).toEqual({ error: DESTINATION_REFUSED_TEXT, error_code: DESTINATION_REFUSED_CODE });
+  });
+
+  test('Invalid monitor input is a 400 with a message, not a server error', async ({ page }) => {
+    const response = await page.request.post('/api/v1/uptime/monitors', {
+      data: { name: '', url: '', type: 'http' },
+    });
+
+    expect(response.status()).toBe(400);
+    const body = (await response.json()) as { error?: unknown };
+    expect(typeof body.error === 'string' && body.error.length > 0).toBe(true);
+  });
+
+  test('TCP create accepts a bare host:port and a tcp:// prefixed host:port (201 for both)', async ({ page }) => {
+    const bare = await page.request.post('/api/v1/uptime/monitors', {
+      data: { name: `API bare ${Date.now()}`, url: '192.168.1.1:5433', type: 'tcp' },
+    });
+    expect(bare.status()).toBe(201);
+    createdMonitorIds.push(String(((await bare.json()) as UptimeMonitor).id));
+
+    const prefixed = await page.request.post('/api/v1/uptime/monitors', {
+      data: { name: `API prefixed ${Date.now()}`, url: 'tcp://192.168.1.1:5434', type: 'tcp' },
+    });
+    expect(prefixed.status()).toBe(201);
+    createdMonitorIds.push(String(((await prefixed.json()) as UptimeMonitor).id));
+  });
+});
