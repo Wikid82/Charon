@@ -417,7 +417,7 @@ func TestIsTrustedPeer(t *testing.T) {
 
 			var got bool
 			assert.NotPanics(t, func() {
-				got = isTrustedPeer(ctx, security.NewTrustedProxyMatcher(tt.trustedProxies))
+				got = middleware.TrustedPeer(ctx, security.NewTrustedProxyMatcher(tt.trustedProxies))
 			})
 			assert.Equal(t, tt.want, got)
 		})
