@@ -378,7 +378,8 @@
     "tooManyRequestsSeconds": "Trop de tentatives. Veuillez patienter {{count}} secondes puis réessayer.",
     "tooManyRequestsMinutes_one": "Trop de tentatives. Veuillez patienter {{count}} minute puis réessayer.",
     "tooManyRequestsMinutes_other": "Trop de tentatives. Veuillez patienter {{count}} minutes puis réessayer.",
-    "tooManyRequestsMinutes": "Trop de tentatives. Veuillez patienter {{count}} minutes puis réessayer."
+    "tooManyRequestsMinutes": "Trop de tentatives. Veuillez patienter {{count}} minutes puis réessayer.",
+    "streamLimitReached": "Trop de connexions en direct sont ouvertes pour votre compte. Fermez une autre vue en direct, puis réessayez."
   },
   "notifications": {
     "saveSuccess": "Modifications enregistrées avec succès",

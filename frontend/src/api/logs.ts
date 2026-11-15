@@ -163,7 +163,7 @@ export interface SecurityLogFilter {
  * @param onMessage - Callback invoked for each received LiveLogEntry
  * @param onOpen - Optional callback when WebSocket connection is established
  * @param onError - Optional callback on WebSocket error
- * @param onClose - Optional callback when WebSocket connection closes
+ * @param onClose - Optional callback with the close event (see `isStreamLimitClose` for the per-user cap)
  * @returns Function to close the WebSocket connection
  */
 export const connectLiveLogs = (
@@ -171,7 +171,7 @@ export const connectLiveLogs = (
   onMessage: (log: LiveLogEntry) => void,
   onOpen?: () => void,
   onError?: (error: Event) => void,
-  onClose?: () => void
+  onClose?: (event: CloseEvent) => void
 ): (() => void) => {
   const params = new URLSearchParams();
   if (filters.level) params.append('level', filters.level);
@@ -203,8 +203,8 @@ export const connectLiveLogs = (
     onError?.(error);
   };
 
-  ws.onclose = () => {
-    onClose?.();
+  ws.onclose = (event: CloseEvent) => {
+    onClose?.(event);
   };
 
   return () => {
@@ -222,7 +222,7 @@ export const connectLiveLogs = (
  * @param onMessage - Callback for each received SecurityLogEntry
  * @param onOpen - Callback when connection is established
  * @param onError - Callback on connection error
- * @param onClose - Callback when connection closes
+ * @param onClose - Callback with the close event (see `isStreamLimitClose` for the per-user cap)
  * @returns A function to close the WebSocket connection
  */
 export const connectSecurityLogs = (
@@ -230,7 +230,7 @@ export const connectSecurityLogs = (
   onMessage: (log: SecurityLogEntry) => void,
   onOpen?: () => void,
   onError?: (error: Event) => void,
-  onClose?: () => void
+  onClose?: (event: CloseEvent) => void
 ): (() => void) => {
   const params = new URLSearchParams();
   if (filters.source) params.append('source', filters.source);
@@ -265,8 +265,8 @@ export const connectSecurityLogs = (
     onError?.(error);
   };
 
-  ws.onclose = () => {
-    onClose?.();
+  ws.onclose = (event: CloseEvent) => {
+    onClose?.(event);
   };
 
   return () => {

@@ -23,7 +23,7 @@ func newUpgradeTestServer(t *testing.T, upgradeErr chan<- error) *httptest.Serve
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.GET("/ws", func(c *gin.Context) {
-		conn, err := upgradeWebSocket(c, nil, security.TrustedProxyMatcher{})
+		conn, _, err := upgradeWebSocket(c, nil, security.TrustedProxyMatcher{}, nil)
 		upgradeErr <- err
 		if err != nil {
 			return
@@ -99,10 +99,11 @@ func newForwardedHostUpgradeServer(t *testing.T, trusted security.TrustedProxyMa
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.GET("/ws", func(c *gin.Context) {
-		conn, err := upgradeWebSocket(c, nil, trusted)
+		conn, release, err := upgradeWebSocket(c, nil, trusted, nil)
 		if err != nil {
 			return
 		}
+		defer release()
 		defer func() { _ = conn.CloseNow() }()
 		_, _, _ = conn.Read(c.Request.Context())
 	})

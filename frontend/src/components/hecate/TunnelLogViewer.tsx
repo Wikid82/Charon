@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 
 import { connectTunnelLogs } from '../../api/hecate';
+import { isStreamLimitClose } from '../../api/streamLimit';
 import { cn } from '../../utils/cn';
 import { Button } from '../ui/Button';
 import {
@@ -57,6 +58,8 @@ export const TunnelLogViewer = ({
   const [paused, setPaused] = useState(false);
   const [reconnecting, setReconnecting] = useState(false);
   const [reconnectCount, setReconnectCount] = useState(0);
+  // The server refused this stream because the user holds too many live streams. Such a close is never retried.
+  const [streamLimited, setStreamLimited] = useState(false);
   const pausedRef = useRef(false);
   const receivedErrorRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -93,7 +96,16 @@ export const TunnelLogViewer = ({
       });
     });
 
-    ws.onclose = () => {
+    // A refused stream is accepted and then closed, so the open event clears the previous limit state.
+    ws.onopen = () => {
+      setStreamLimited(false);
+    };
+
+    ws.onclose = (event: CloseEvent) => {
+      if (isStreamLimitClose(event)) {
+        setStreamLimited(true);
+        return;
+      }
       if (!pausedRef.current && open && !receivedErrorRef.current) {
         setReconnecting(true);
         reconnectTimerRef.current = window.setTimeout(() => {
@@ -171,6 +183,11 @@ export const TunnelLogViewer = ({
               ? t('hecate.logs.lineCount', { count: lines.length })
               : t('hecate.logs.noLogs')}
           </span>
+          {streamLimited && (
+            <span role="alert" className="text-yellow-500 text-xs">
+              {t('errors.streamLimitReached')}
+            </span>
+          )}
           {reconnecting && (
             <span aria-live="polite" className="text-yellow-500 text-xs">
               {t('hecate.logs.reconnecting')}

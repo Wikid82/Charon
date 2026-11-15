@@ -28,6 +28,13 @@ type LogsWSHandler struct {
 	tracker        *services.WebSocketTracker
 	publicOrigins  PublicOriginSource           // may be nil: no public origin is trusted
 	trustedProxies security.TrustedProxyMatcher // API-layer trusted proxies for forwarded host headers
+	quota          *services.StreamQuota        // may be nil: no stream limit
+}
+
+// WithStreamQuota caps the live streams this handler admits per user and in total.
+func (h *LogsWSHandler) WithStreamQuota(q *services.StreamQuota) *LogsWSHandler {
+	h.quota = q
+	return h
 }
 
 // WithOriginPolicy wires the configured public origin and the trusted-proxy list into the WebSocket origin check.
@@ -47,11 +54,12 @@ func (h *LogsWSHandler) HandleWebSocket(c *gin.Context) {
 	logger.Log().Info("WebSocket connection attempt received")
 
 	// Upgrade HTTP connection to WebSocket
-	conn, err := upgradeWebSocket(c, h.publicOrigins, h.trustedProxies)
+	conn, release, err := upgradeWebSocket(c, h.publicOrigins, h.trustedProxies, h.quota)
 	if err != nil {
 		logger.Log().WithError(err).Error("Failed to upgrade WebSocket connection")
 		return
 	}
+	defer release()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	defer func() {

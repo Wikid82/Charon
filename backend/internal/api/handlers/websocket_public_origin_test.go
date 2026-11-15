@@ -104,7 +104,7 @@ func TestUpgradeWebSocket_UsesPublicOriginSource(t *testing.T) {
 			// Not a real handshake: once the origin check passes, the upgrade itself fails for another reason.
 			c := wsOriginContext("charon.internal:8080", wsUntrustedPeer, tc.origin, nil)
 
-			conn, err := upgradeWebSocket(c, tc.source, wsTrustedList)
+			conn, _, err := upgradeWebSocket(c, tc.source, wsTrustedList, nil)
 			require.Error(t, err)
 			assert.Nil(t, conn)
 			if tc.wantDenied {

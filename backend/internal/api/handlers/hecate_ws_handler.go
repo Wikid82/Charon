@@ -20,6 +20,13 @@ type HecateWSHandler struct {
 	tracker        *services.WebSocketTracker
 	publicOrigins  PublicOriginSource           // may be nil: no public origin is trusted
 	trustedProxies security.TrustedProxyMatcher // API-layer trusted proxies for forwarded host headers
+	quota          *services.StreamQuota        // may be nil: no stream limit
+}
+
+// WithStreamQuota caps the live streams this handler admits per user and in total.
+func (h *HecateWSHandler) WithStreamQuota(q *services.StreamQuota) *HecateWSHandler {
+	h.quota = q
+	return h
 }
 
 // WithOriginPolicy wires the configured public origin and the trusted-proxy list into the WebSocket origin check.
@@ -48,11 +55,12 @@ func (h *HecateWSHandler) StreamLogs(c *gin.Context) {
 		return
 	}
 
-	conn, upgradeErr := upgradeWebSocket(c, h.publicOrigins, h.trustedProxies)
+	conn, release, upgradeErr := upgradeWebSocket(c, h.publicOrigins, h.trustedProxies, h.quota)
 	if upgradeErr != nil {
 		logger.Log().WithError(upgradeErr).Error("hecate ws: upgrade failed")
 		return
 	}
+	defer release()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

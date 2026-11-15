@@ -378,7 +378,8 @@
     "tooManyRequestsSeconds": "Zu viele Versuche. Bitte warten Sie {{count}} Sekunden und versuchen Sie es erneut.",
     "tooManyRequestsMinutes_one": "Zu viele Versuche. Bitte warten Sie {{count}} Minute und versuchen Sie es erneut.",
     "tooManyRequestsMinutes_other": "Zu viele Versuche. Bitte warten Sie {{count}} Minuten und versuchen Sie es erneut.",
-    "tooManyRequestsMinutes": "Zu viele Versuche. Bitte warten Sie {{count}} Minuten und versuchen Sie es erneut."
+    "tooManyRequestsMinutes": "Zu viele Versuche. Bitte warten Sie {{count}} Minuten und versuchen Sie es erneut.",
+    "streamLimitReached": "Für Ihr Konto sind zu viele Live-Verbindungen geöffnet. Schließen Sie eine andere Live-Ansicht und versuchen Sie es erneut."
   },
   "notifications": {
     "saveSuccess": "Änderungen erfolgreich gespeichert",

@@ -378,7 +378,8 @@
     "tooManyRequestsSeconds": "尝试次数过多。请等待 {{count}} 秒后重试。",
     "tooManyRequestsMinutes_one": "尝试次数过多。请等待 {{count}} 分钟后重试。",
     "tooManyRequestsMinutes_other": "尝试次数过多。请等待 {{count}} 分钟后重试。",
-    "tooManyRequestsMinutes": "尝试次数过多。请等待 {{count}} 分钟后重试。"
+    "tooManyRequestsMinutes": "尝试次数过多。请等待 {{count}} 分钟后重试。",
+    "streamLimitReached": "您的账户打开的实时连接过多。请关闭另一个实时视图后重试。"
   },
   "notifications": {
     "saveSuccess": "更改已成功保存",

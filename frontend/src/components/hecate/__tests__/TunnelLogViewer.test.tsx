@@ -176,6 +176,28 @@ describe('TunnelLogViewer', () => {
     vi.useRealTimers()
   })
 
+  it('shows the stream limit message and does not reconnect on a 1013 close', async () => {
+    vi.useFakeTimers()
+    try {
+      render(<TunnelLogViewer {...defaultProps} />)
+      expect(hecateApi.connectTunnelLogs).toHaveBeenCalledTimes(1)
+
+      await act(async () => {
+        mockWs.onclose?.(new CloseEvent('close', { code: 1013, reason: 'stream_limit_reached' }))
+      })
+
+      expect(screen.getByRole('alert')).toHaveTextContent(/too many live connections/i)
+      expect(screen.queryByText('Reconnecting...')).not.toBeInTheDocument()
+
+      await act(async () => {
+        vi.advanceTimersByTime(10_000)
+      })
+      expect(hecateApi.connectTunnelLogs).toHaveBeenCalledTimes(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('ws error triggers close', () => {
     render(<TunnelLogViewer {...defaultProps} />)
 

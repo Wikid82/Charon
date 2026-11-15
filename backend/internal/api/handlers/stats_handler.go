@@ -29,6 +29,13 @@ type StatsHandler struct {
 	hub            *StatsWSHub                  // may be nil when WebSocket not needed
 	publicOrigins  PublicOriginSource           // may be nil: no public origin is trusted
 	trustedProxies security.TrustedProxyMatcher // API-layer trusted proxies for forwarded host headers
+	quota          *services.StreamQuota        // may be nil: no stream limit
+}
+
+// WithStreamQuota caps the live streams this handler admits per user and in total.
+func (h *StatsHandler) WithStreamQuota(q *services.StreamQuota) *StatsHandler {
+	h.quota = q
+	return h
 }
 
 // WithOriginPolicy wires the configured public origin and the trusted-proxy list into the WebSocket origin check.
@@ -182,10 +189,11 @@ func (h *StatsHandler) GetStatsHealth(c *gin.Context) {
 // StatsWS upgrades the connection to WebSocket and streams stats push messages.
 // GET /api/stats/ws
 func (h *StatsHandler) StatsWS(c *gin.Context) {
-	conn, err := upgradeWebSocket(c, h.publicOrigins, h.trustedProxies)
+	conn, release, err := upgradeWebSocket(c, h.publicOrigins, h.trustedProxies, h.quota)
 	if err != nil {
 		return
 	}
+	defer release()
 
 	if h.hub == nil {
 		// Hub not wired — close immediately.
