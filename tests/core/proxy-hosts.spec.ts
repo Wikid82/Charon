@@ -16,7 +16,29 @@ import { waitForLoadingComplete, waitForDialog, waitForDebounce } from '../utils
 import { clickSwitch } from '../utils/ui-helpers';
 import { generateProxyHost } from '../fixtures/proxy-hosts';
 import { getProxyHostsViaAPI, type ProxyHostResponse } from '../utils/api-helpers';
+import { execInContainer, findE2EContainer } from '../utils/container-exec';
 import type { Page, Request } from '@playwright/test';
+
+/** Database file inside the E2E container (CHARON_DB_PATH in the compose files). */
+const CONTAINER_DB_PATH = '/app/data/charon.db';
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Stores a forward target directly in the E2E container's database, bypassing the API. The API refuses a refused
+ * target on save, so this is the only way to reach a host that the apply leaves out. The UUID is checked before it is
+ * placed in SQL, and the sqlite3 CLI runs as the application user so the WAL files keep their owner.
+ */
+function storeForwardTargetInDatabase(uuid: string, forwardHost: string): void {
+  if (!UUID_PATTERN.test(uuid)) {
+    throw new Error(`Refusing to update a host with an unexpected uuid: ${uuid}`);
+  }
+  const sql = `PRAGMA busy_timeout = 5000; UPDATE proxy_hosts SET forward_host = '${forwardHost}' WHERE uuid = '${uuid}'; SELECT changes();`;
+  const output = execInContainer(findE2EContainer(), ['sqlite3', CONTAINER_DB_PATH, sql], { user: 'charon' });
+  const changed = output.trim().split('\n').at(-1);
+  if (changed !== '1') {
+    throw new Error(`Expected one proxy host row to change for ${uuid}, sqlite3 reported: ${output.trim()}`);
+  }
+}
 
 /**
  * Helper to dismiss the "New Base Domain Detected" dialog if it appears.
@@ -1279,41 +1301,82 @@ test.describe('Proxy Hosts - destination policy', () => {
     });
   });
 
-  test('Host left out of the active configuration shows the passive note with its hint', async ({ page }) => {
-    const domain = uniqueDomain();
-    const uuid = await createHostViaAPI(page, domain, '192.168.1.60', 8080);
+  test('Host left out of the active configuration is flagged by the real API and shown to admins and standard users', async ({
+    page,
+    adminUser,
+    regularUser,
+  }) => {
+    const leftOutDomain = uniqueDomain();
+    const healthyDomain = uniqueDomain();
+    // Refused by the destination policy when the configuration is applied (link-local metadata address).
+    const REFUSED_TARGET = '169.254.169.254';
+    let leftOutUuid = '';
+    let healthyUuid = '';
 
-    await test.step('Mark the host as left out in the list response the page renders', async () => {
-      await page.route('**/api/v1/proxy-hosts', async (route) => {
-        if (route.request().method() !== 'GET') {
-          await route.continue();
-          return;
-        }
-        const response = await route.fetch();
-        const hosts = (await response.json()) as Array<{ uuid: string }>;
-        await route.fulfill({
-          response,
-          json: hosts.map((host) => (host.uuid === uuid ? { ...host, active_config: false } : host)),
-        });
+    try {
+      await test.step('Create a normal host through the API', async () => {
+        leftOutUuid = await createHostViaAPI(page, leftOutDomain, '192.168.1.60', 8080);
       });
-      await page.reload();
-      await waitForLoadingComplete(page);
-    });
 
-    await test.step('The note is shown and its hint appears on hover', async () => {
-      const note = page.getByTestId('proxy-host-not-in-active-config');
-      await expect(note).toHaveText(LEFT_OUT_TEXT);
-      await note.hover();
-      await expect(page.getByRole('tooltip')).toHaveText(LEFT_OUT_HINT);
-    });
+      await test.step('Store the refused target in the database, then save a healthy host to apply', async () => {
+        storeForwardTargetInDatabase(leftOutUuid, REFUSED_TARGET);
+        // Creating a host runs a configuration apply, which drops the host with the refused target.
+        healthyUuid = await createHostViaAPI(page, healthyDomain, '192.168.1.70', 8080);
+      });
 
-    await test.step('The API marks a healthy host without the left-out flag', async () => {
-      const hosts = (await (await page.request.get('/api/v1/proxy-hosts')).json()) as Array<{
-        uuid: string;
-        active_config?: boolean;
-      }>;
-      const host = hosts.find((item) => item.uuid === uuid);
-      expect(host?.active_config).not.toBe(false);
-    });
+      await test.step('As admin, the API flags the left-out host and leaves the healthy host unflagged', async () => {
+        await expect
+          .poll(async () => {
+            const response = await page.request.get(`/api/v1/proxy-hosts/${leftOutUuid}`);
+            return ((await response.json()) as { active_config?: boolean }).active_config;
+          })
+          .toBe(false);
+
+        const listed = (await (await page.request.get('/api/v1/proxy-hosts')).json()) as Array<
+          Record<string, unknown>
+        >;
+        const leftOut = listed.find((host) => host.uuid === leftOutUuid);
+        const healthy = listed.find((host) => host.uuid === healthyUuid);
+        expect(leftOut?.active_config).toBe(false);
+        expect(healthy).toBeDefined();
+        expect(healthy).not.toHaveProperty('active_config');
+      });
+
+      await test.step('As admin, the list shows the passive note on the left-out row only', async () => {
+        await page.reload();
+        await waitForLoadingComplete(page);
+
+        const leftOutRow = page.locator('tbody tr').filter({ hasText: leftOutDomain });
+        const note = leftOutRow.getByTestId('proxy-host-not-in-active-config');
+        await expect(note).toHaveText(LEFT_OUT_TEXT);
+        await note.hover();
+        await expect(page.getByRole('tooltip')).toHaveText(LEFT_OUT_HINT);
+
+        await expect(page.locator('tbody tr').filter({ hasText: healthyDomain }).getByTestId('proxy-host-not-in-active-config')).toHaveCount(0);
+      });
+
+      await test.step('As a standard user, the API flags the left-out host and the list shows the note', async () => {
+        await loginUser(page, regularUser);
+
+        const detail = await page.request.get(`/api/v1/proxy-hosts/${leftOutUuid}`);
+        const body = (await detail.json()) as Record<string, unknown>;
+        // The redacted view is the standard-user response, so this confirms the request ran as the standard user.
+        expect(body).toHaveProperty('has_advanced_config');
+        expect(body.active_config).toBe(false);
+
+        await page.goto('/proxy-hosts');
+        await waitForLoadingComplete(page);
+        const leftOutRow = page.locator('tbody tr').filter({ hasText: leftOutDomain });
+        await expect(leftOutRow.getByTestId('proxy-host-not-in-active-config')).toHaveText(LEFT_OUT_TEXT);
+      });
+    } finally {
+      // Delete by UUID as admin: standard users cannot change proxy hosts.
+      await loginUser(page, adminUser);
+      for (const uuid of [leftOutUuid, healthyUuid]) {
+        if (uuid) {
+          await page.request.delete(`/api/v1/proxy-hosts/${uuid}`);
+        }
+      }
+    }
   });
 });
