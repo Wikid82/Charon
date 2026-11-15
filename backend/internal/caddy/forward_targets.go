@@ -60,7 +60,48 @@ func hostHasRefusedTarget(guard ForwardTargetGuard, h models.ProxyHost) (bool, e
 			return refused, err
 		}
 	}
-	return false, nil
+	return advancedConfigRefused(guard, h.AdvancedConfig)
+}
+
+// AdvancedDialGuard is optionally implemented by a ForwardTargetGuard. It decides
+// whether one dial inside a host's advanced configuration must be left out.
+type AdvancedDialGuard interface {
+	RefusesAdvancedDial(dial string) (bool, error)
+}
+
+// advancedConfigRefused reports whether a host's advanced configuration reaches a
+// refused destination. An unreadable configuration, dynamic upstreams and custom
+// resolvers are refused outright. Each dial is then checked when the guard
+// implements AdvancedDialGuard.
+func advancedConfigRefused(guard ForwardTargetGuard, raw string) (bool, error) {
+	if raw == "" {
+		return false, nil
+	}
+	var doc any
+	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
+		return true, nil
+	}
+	if HasDynamicUpstreams(doc) || HasTransportResolver(doc) {
+		return true, nil
+	}
+	adv, ok := guard.(AdvancedDialGuard)
+	if !ok {
+		return false, nil
+	}
+	err := WalkDials(doc, func(dial string) error {
+		refused, checkErr := adv.RefusesAdvancedDial(dial)
+		if checkErr != nil {
+			return checkErr
+		}
+		if refused {
+			return errDialRefused
+		}
+		return nil
+	})
+	if errors.Is(err, errDialRefused) {
+		return true, nil
+	}
+	return false, err
 }
 
 // errSnapshotRefusedTarget is returned by rollback when the snapshot routes a
@@ -85,31 +126,32 @@ func snapshotRoutesRefusedTarget(guard ForwardTargetGuard, conf *Config) (bool, 
 	return walkDialsRefused(guard, doc)
 }
 
+// errDialRefused stops a dial walk at the first refused dial.
+var errDialRefused = errors.New("dial refused")
+
 // walkDialsRefused checks every "dial" string under node against the guard. A dial
 // that does not split into host and port cannot name a listener and is skipped.
 func walkDialsRefused(guard ForwardTargetGuard, node any) (bool, error) {
-	switch v := node.(type) {
-	case map[string]any:
-		if dial, ok := v["dial"].(string); ok {
-			host, portStr, err := net.SplitHostPort(dial)
-			if port, convErr := strconv.Atoi(portStr); err == nil && convErr == nil {
-				refused, checkErr := guard.RefusesForwardTarget(host, port)
-				if checkErr != nil || refused {
-					return refused, checkErr
-				}
-			}
+	err := WalkDials(node, func(dial string) error {
+		host, portStr, splitErr := net.SplitHostPort(dial)
+		if splitErr != nil {
+			return nil
 		}
-		for _, child := range v {
-			if refused, err := walkDialsRefused(guard, child); err != nil || refused {
-				return refused, err
-			}
+		port, convErr := strconv.Atoi(portStr)
+		if convErr != nil {
+			return nil
 		}
-	case []any:
-		for _, child := range v {
-			if refused, err := walkDialsRefused(guard, child); err != nil || refused {
-				return refused, err
-			}
+		refused, checkErr := guard.RefusesForwardTarget(host, port)
+		if checkErr != nil {
+			return checkErr
 		}
+		if refused {
+			return errDialRefused
+		}
+		return nil
+	})
+	if errors.Is(err, errDialRefused) {
+		return true, nil
 	}
-	return false, nil
+	return false, err
 }

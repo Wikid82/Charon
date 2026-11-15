@@ -45,14 +45,19 @@ func respondAdminOnlyHostError(c *gin.Context, err error) bool {
 // forwardTargetRefusedCode is the error_code for a forward target this proxy will not dial.
 const forwardTargetRefusedCode = "forward_target_refused"
 
-// respondForwardTargetRefused writes the 400 for a forward target that reaches one of
-// this proxy's internal listeners and reports whether err was that refusal.
+// forwardTargetRefusedText is the one message for every refused forward target. It
+// does not say which rule applied, so a caller learns nothing about this proxy's
+// reserved ports or address policy.
+const forwardTargetRefusedText = "This forward target is not allowed."
+
+// respondForwardTargetRefused writes the 400 for a refused forward target and reports
+// whether err was that refusal. Every cause gets the same text.
 func respondForwardTargetRefused(c *gin.Context, err error) bool {
-	if !errors.Is(err, services.ErrOrthrusListenerTarget) && !errors.Is(err, services.ErrAdminListenerTarget) && !errors.Is(err, services.ErrAgentForwardTarget) {
+	if !errors.Is(err, services.ErrOrthrusListenerTarget) && !errors.Is(err, services.ErrAgentForwardTarget) && !errors.Is(err, services.ErrForwardTargetAddress) {
 		return false
 	}
 	c.JSON(http.StatusBadRequest, gin.H{
-		"error":      err.Error(),
+		"error":      forwardTargetRefusedText,
 		"error_code": forwardTargetRefusedCode,
 	})
 	return true

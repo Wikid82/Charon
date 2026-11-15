@@ -318,3 +318,19 @@ func TestProbeHTTPOptions_BuildClient(t *testing.T) {
 	assert.NotEmpty(t, opts)
 	assert.NotNil(t, network.NewSafeHTTPClient(opts...))
 }
+
+// Tests must not depend on the host's gateway names. The default gateway loader
+// is replaced with an empty one; tests that exercise the loader restore it.
+func init() {
+	gatewayCache.load = func() []netip.Addr { return nil }
+	lookupForwardHost = offlineLookup
+}
+
+// offlineLookup answers IP literals and refuses every name, so tests never wait
+// on the network. Tests that need a name install their own stub.
+func offlineLookup(_ context.Context, name string) ([]net.IPAddr, error) {
+	if ip := net.ParseIP(name); ip != nil {
+		return []net.IPAddr{{IP: ip}}, nil
+	}
+	return nil, errors.New("name lookups are offline in tests")
+}

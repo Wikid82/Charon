@@ -51,7 +51,7 @@ func TestPermissionProxyHostRefusesOrthrusListenerTargetForEveryRole(t *testing.
 				"forward_port": 2375,
 			})
 			assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
-			assert.Contains(t, rec.Body.String(), services.ErrOrthrusListenerTarget.Error())
+			assert.Contains(t, rec.Body.String(), forwardTargetRefusedText)
 			assert.Contains(t, rec.Body.String(), `"error_code":"forward_target_refused"`)
 		})
 	}
@@ -173,7 +173,7 @@ func TestPermissionProxyHostRefusesAgentNameFormForEveryRole(t *testing.T) {
 				"forward_port": 8080,
 			})
 			assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
-			assert.Contains(t, rec.Body.String(), services.ErrAgentForwardTarget.Error())
+			assert.Contains(t, rec.Body.String(), forwardTargetRefusedText)
 			assert.Contains(t, rec.Body.String(), `"error_code":"forward_target_refused"`)
 		})
 	}

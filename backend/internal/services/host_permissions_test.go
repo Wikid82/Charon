@@ -222,7 +222,7 @@ func TestHostPermsAdminListenerTargetRefusedForEveryRole(t *testing.T) {
 		svc := NewProxyHostService(db)
 		for _, target := range targets {
 			host := &models.ProxyHost{DomainNames: "loop-" + target + ".example.com", ForwardHost: target, ForwardPort: 2019}
-			require.ErrorIs(t, svc.CreateAs(host, admin), ErrAdminListenerTarget, "target %q admin=%v", target, admin)
+			requireForwardRefused(t, svc.CreateAs(host, admin))
 		}
 	}
 }
@@ -244,8 +244,11 @@ func TestHostPermsAdminListenerTargetAllowedForRemoteHost(t *testing.T) {
 func TestHostPermsAdminListenerTargetStripsSchemeAndPath(t *testing.T) {
 	db := setupProxyHostTestDB(t)
 	svc := NewProxyHostService(db)
-	host := &models.ProxyHost{DomainNames: "scheme-loop.example.com", ForwardHost: "http://localhost/admin", ForwardPort: 2019}
-	require.ErrorIs(t, svc.CreateAs(host, false), ErrAdminListenerTarget)
+	host := &models.ProxyHost{DomainNames: "scheme-loop.example.com", ForwardHost: "http://localhost:2019", ForwardPort: 2019}
+	requireForwardRefused(t, svc.CreateAs(host, false))
+
+	pathed := &models.ProxyHost{DomainNames: "scheme-path.example.com", ForwardHost: "http://localhost/admin", ForwardPort: 2019}
+	require.ErrorIs(t, svc.CreateAs(pathed, false), errForwardHostForm, "a path in the forward host is refused by the form check")
 }
 
 func TestHostPermsAdminListenerRefusedInLocations(t *testing.T) {
@@ -261,7 +264,7 @@ func TestHostPermsAdminListenerRefusedInLocations(t *testing.T) {
 				{Path: "/api", ForwardHost: "127.0.0.1", ForwardPort: 2019},
 			},
 		}
-		require.ErrorIs(t, svc.CreateAs(host, admin), ErrAdminListenerTarget, "admin=%v", admin)
+		requireForwardRefused(t, svc.CreateAs(host, admin))
 	}
 
 	host := &models.ProxyHost{
