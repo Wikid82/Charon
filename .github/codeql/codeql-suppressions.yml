@@ -27,8 +27,8 @@ suppressions:
   - rule_id: go/cookie-secure-not-set
     path: backend/internal/api/handlers/auth_handler.go
     line_range:
-      start: 187
-      end: 205
+      start: 167
+      end: 185
     reason: >
       Secure is false only when isLocalRequest(c) AND scheme != "https"
       (loopback/RFC1918/IPv6-ULA/Tailscale-CGNAT origin over plain HTTP) —
@@ -51,6 +51,9 @@ suppressions:
       line_range; this is the only SetCookie call in the file.
       Extended 2026-11-05: re-reviewed; behavior unchanged and still
       intentional, in-source annotation still not honored by the CLI.
+      Extended 2026-11-15: the forwarded host and scheme helper moved that
+      logic out of auth_handler.go, so the sink moved up to ~181; the range
+      follows it. Behavior unchanged.
     added: "2026-08-04"
     review_by: "2026-12-05"
 
