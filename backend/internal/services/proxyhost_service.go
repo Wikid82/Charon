@@ -283,7 +283,11 @@ func (s *ProxyHostService) Create(host *models.ProxyHost) error {
 // CreateKeepingSent). The uniqueness checks and the insert run in one
 // write-locked transaction (see WithWriteLock).
 func (s *ProxyHostService) CreateAs(host *models.ProxyHost, admin bool, sentKeys ...string) error {
-	verdicts := preflightHostNames(host)
+	return s.createChecked(host, admin, preflightHostNames(host), sentKeys...)
+}
+
+// createChecked is CreateAs with the name verdicts already collected.
+func (s *ProxyHostService) createChecked(host *models.ProxyHost, admin bool, verdicts forwardVerdicts, sentKeys ...string) error {
 	err := WithWriteLock(s.db, &models.ProxyHost{}, func(tx *gorm.DB) error {
 		if err := s.checkHostWrite(tx, host, 0, admin, verdicts); err != nil {
 			return err
@@ -313,7 +317,11 @@ func (s *ProxyHostService) Update(host *models.ProxyHost) error {
 // uniqueness checks and the write run in one write-locked transaction (see
 // WithWriteLock).
 func (s *ProxyHostService) UpdateAs(host *models.ProxyHost, admin bool) error {
-	verdicts := preflightHostNames(host)
+	return s.updateChecked(host, admin, preflightHostNames(host))
+}
+
+// updateChecked is UpdateAs with the name verdicts already collected.
+func (s *ProxyHostService) updateChecked(host *models.ProxyHost, admin bool, verdicts forwardVerdicts) error {
 	err := WithWriteLock(s.db, &models.ProxyHost{}, func(tx *gorm.DB) error {
 		if err := s.checkHostWrite(tx, host, host.ID, admin, verdicts); err != nil {
 			return err

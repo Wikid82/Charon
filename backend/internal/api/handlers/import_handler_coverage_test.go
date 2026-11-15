@@ -3,6 +3,7 @@ package handlers
 import (
 	"bytes"
 	"encoding/json"
+	"github.com/Wikid82/charon/backend/internal/services"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -506,4 +507,12 @@ func TestCancel_ReadOnlyDBSaveRespondsWithPermissionError(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.Contains(t, w.Body.String(), "permissions_db_readonly")
+}
+
+func (s importCoverageProxyHostSvcStub) CreateImported(_ *services.ImportNameBudget, host *models.ProxyHost) error {
+	return s.Create(host)
+}
+
+func (s importCoverageProxyHostSvcStub) UpdateImported(_ *services.ImportNameBudget, host *models.ProxyHost) error {
+	return s.Update(host)
 }
