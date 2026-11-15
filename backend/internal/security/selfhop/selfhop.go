@@ -26,9 +26,18 @@ const (
 	HeaderSecret = "X-Charon-Self-Hop" //nolint:gosec // header name, not a credential
 	// HeaderClient carries the address of the client connected to the proxy.
 	HeaderClient = "X-Charon-Self-Hop-Client"
-	// ClientPlaceholder is the Caddy placeholder that expands to the address of
-	// the TCP peer connected to the proxy.
-	ClientPlaceholder = "{http.request.remote.host}"
+	// HeaderPeer carries the TCP peer that connected to the proxy. The proxy sets it so the API can tell which hop
+	// delivered the request. Honoured only with a verified secret.
+	HeaderPeer = "X-Charon-Self-Hop-Peer"
+	// HeaderForwarded carries the X-Forwarded-For chain the client sent to the proxy, as received.
+	HeaderForwarded = "X-Charon-Self-Hop-Forwarded"
+	// ClientPlaceholder is the Caddy placeholder that expands to the visitor address the proxy decided on
+	// (the client_ip request variable). It is the same value the proxy checks use.
+	ClientPlaceholder = "{http.vars.client_ip}"
+	// PeerPlaceholder expands to the TCP peer that connected to the proxy.
+	PeerPlaceholder = "{http.request.remote.host}"
+	// ForwardedPlaceholder expands to the X-Forwarded-For header as the client sent it.
+	ForwardedPlaceholder = "{http.request.header.X-Forwarded-For}"
 
 	secretBytes     = 32
 	minSecretLength = 32

@@ -50,7 +50,7 @@ If rate limiting was already on but its request count or time window is empty or
 
 ### Visitors Behind a Tunnel or Shared Network
 
-Charon counts visitors by the network address that connects to it. If your site is reached through a tunnel, a proxy, or a shared network, many visitors can share one address. They then share one limit, and a busy page can reach it quickly. Raise the **Requests** number to give such visitors more room.
+Charon counts each visitor by their own address. It reads that address from your proxy's note only when the proxy is on your trusted list. If your site is reached through a tunnel or a proxy that is not trusted, every visitor can show the same address. They then share one limit, and a busy page can reach it quickly. List the proxy under **Trusted proxies** on the Security page, or raise the **Requests** number to give such visitors more room. See [Trusted Proxies](../configuration/trusted-proxies.md).
 
 ## Best Practices
 

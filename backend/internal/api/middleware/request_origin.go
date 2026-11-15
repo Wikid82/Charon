@@ -31,6 +31,10 @@ type RequestOrigin struct {
 	Scheme string
 	// Host is the host the client addressed, or empty.
 	Host string
+	// ProxyPeer is the TCP peer that connected to Charon's proxy, as the proxy reported it, or empty.
+	ProxyPeer string
+	// ForwardedFor is the X-Forwarded-For chain the client sent to the proxy, as received, or empty.
+	ForwardedFor string
 }
 
 // RequestOriginFrom returns the verified origin record, if the request carried one.
@@ -67,12 +71,17 @@ func selfHopHandler(secret *selfhop.Secret, trusted security.TrustedProxyMatcher
 		hdr := c.Request.Header
 		secretVals, hasSecret := hdr[http.CanonicalHeaderKey(selfhop.HeaderSecret)]
 		clientVals, hasClient := hdr[http.CanonicalHeaderKey(selfhop.HeaderClient)]
+		peerVals := hdr[http.CanonicalHeaderKey(selfhop.HeaderPeer)]
+		forwardedVals := hdr[http.CanonicalHeaderKey(selfhop.HeaderForwarded)]
+		// The hop headers never reach a handler, whether or not they verify.
+		hdr.Del(selfhop.HeaderSecret)
+		hdr.Del(selfhop.HeaderClient)
+		hdr.Del(selfhop.HeaderPeer)
+		hdr.Del(selfhop.HeaderForwarded)
 		if !hasSecret && !hasClient {
 			c.Next()
 			return
 		}
-		hdr.Del(selfhop.HeaderSecret)
-		hdr.Del(selfhop.HeaderClient)
 
 		peerHost, _, err := net.SplitHostPort(c.Request.RemoteAddr)
 		if err != nil {
@@ -111,10 +120,12 @@ func selfHopHandler(secret *selfhop.Secret, trusted security.TrustedProxyMatcher
 			}
 		}
 		origin := RequestOrigin{
-			Addr:   addr.String(),
-			Peer:   peerIP.String(),
-			Scheme: forwardedScheme(hdr.Get("X-Forwarded-Proto")),
-			Host:   firstListEntry(hdr.Get("X-Forwarded-Host")),
+			Addr:         addr.String(),
+			Peer:         peerIP.String(),
+			Scheme:       forwardedScheme(hdr.Get("X-Forwarded-Proto")),
+			Host:         firstListEntry(hdr.Get("X-Forwarded-Host")),
+			ProxyPeer:    firstValue(peerVals),
+			ForwardedFor: firstValue(forwardedVals),
 		}
 
 		// A peer the operator configured as a trusted proxy keeps the configured
@@ -130,6 +141,14 @@ func selfHopHandler(secret *selfhop.Secret, trusted security.TrustedProxyMatcher
 		c.Set(requestOriginKey, origin)
 		c.Next()
 	}
+}
+
+// firstValue returns the first header value, or "" when there is none.
+func firstValue(vals []string) string {
+	if len(vals) == 0 {
+		return ""
+	}
+	return vals[0]
 }
 
 func firstListEntry(v string) string {

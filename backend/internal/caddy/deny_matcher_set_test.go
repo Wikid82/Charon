@@ -17,7 +17,7 @@ func TestDenyMatcherSetMergesExistingNegation(t *testing.T) {
 
 	assert.Equal(t, []string{"/admin"}, set["path"], "positive matchers are kept")
 	assert.Equal(t, []map[string]any{
-		{"remote_ip": map[string]any{"ranges": []string{"192.0.2.1"}}},
+		{"client_ip": map[string]any{"ranges": []string{"192.0.2.1"}}},
 		{"path": []string{"/public"}},
 		{"host": []string{"app.example.com"}},
 	}, set["not"], "admin ranges, then the existing negation, then the negated sets")

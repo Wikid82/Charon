@@ -373,7 +373,14 @@
     "tooManyRequestsSeconds": "Too many attempts. Please wait {{count}} seconds and try again.",
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again."
+    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
+    "streamLimitReached": "יותר מדי חיבורים חיים פתוחים לחשבון שלך. סגור תצוגה חיה אחרת ונסה שוב.",
+    "trustedProxyInvalid": "\"{{entry}}\" אינה כתובת IP או טווח CIDR.",
+    "trustedProxyTooBroad": "\"{{entry}}\" מכסה טווח רחב מדי. טווחי IPv4 חייבים להיות /8 או צרים יותר, וטווחי IPv6 /24 או צרים יותר.",
+    "trustedProxiesTooMany": "רשימת שרתי המתווך המהימנים מכילה עד 64 רשומות.",
+    "managementListUnknown": "אחת מרשימות הגישה שנבחרו כבר אינה קיימת. טען מחדש את הדף ובחר שוב.",
+    "managementAccessWouldLockOut": "פעולה זו תנעל אותך מ-Charon. הוסף קודם את כתובתך לרשימת ההיתרים של המנהל, או בחר רשימה שמתירה לך גישה.",
+    "accessListInvalid": "רשימת גישה זו אינה יכולה להגן על הממשק של Charon עצמו. בדוק את כלליה ונסה שוב."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -403,7 +410,8 @@
         "messagePendingApply": "מסד הנתונים של GeoIP זמין שוב, אך {{count}} רשימות מדינות ({{lists}}) עדיין לא נאכפות. לחץ על טען מחדש בכרטיס מסד נתוני המדינות.",
         "docsLink": "כיצד לספק את מסד הנתונים",
         "issueHint": "Charon כולל בדרך כלל את מסד הנתונים הזה. אנא פתחו issue ב-GitHub כדי שנוכל לתקן זאת.",
-        "issueLink": "פתח issue"
+        "issueLink": "פתח issue",
+        "managementScope": "גם הממשק של Charon עצמו מושפע: רשימות הגישה לפי מדינה שלו גם הן אינן נאכפות."
       }
     }
   },
@@ -689,6 +697,25 @@
         "proxy_apply_failed": "Charon לא הצליח להחיל את תצורת ה-proxy.",
         "generic": "משהו השתבש. נסה שוב."
       }
+    },
+    "trustedProxies": {
+      "title": "שרתי מתווך מהימנים",
+      "description": "Charon משתמש בכתובת מבקר שמגיעה דרך פרוקסי רק אם הפרוקסי רשום כאן. הלולאה המקומית (loopback) תמיד נחשבת מהימנה.",
+      "fieldLabel": "שרתי מתווך מהימנים",
+      "fieldHint": "כתובת IP אחת או טווח CIDR בכל שורה. השאר ריק כדי לתת אמון רק בלולאה המקומית.",
+      "alwaysTrusted": "תמיד מהימן: {{entries}}",
+      "apiLayerNote": "הפורט של Charon עצמו סומך על הפרוקסים שנקבעו ב-CHARON_TRUSTED_PROXIES בשרת: {{entries}}. שנה אותם שם.",
+      "apiLayerNone": "אין",
+      "sourceSetting": "בשימוש הרשימה השמורה כאן.",
+      "sourceEnvironment": "בשימוש CHARON_TRUSTED_PROXIES מסביבת ההרצה עד ששומרים כאן רשימה.",
+      "sourceDefault": "בשימוש ברירת המחדל, רק לולאה מקומית, עד ששומרים כאן רשימה.",
+      "droppedEntries": "הוזנחו מ-CHARON_TRUSTED_PROXIES מכיוון שאינן תקינות או רחבות מדי: {{entries}}",
+      "saved": "שרתי המתווך המהימנים נשמרו.",
+      "saveFailed": "לא ניתן לשמור את רשימת שרתי המתווך המהימנים.",
+      "reset": "איפוס לברירת המחדל",
+      "resetDone": "הרשימה השמורה נוקתה. כעת חלה רשימת הסביבה או ברירת המחדל.",
+      "loadError": "לא ניתן לטעון את רשימת שרתי המתווך המהימנים.",
+      "docsLink": "איך להגדיר שרתי מתווך מהימנים"
     }
   },
   "accessLists": {
@@ -723,7 +750,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "רשימת היתרים פעילה דורשת לפחות כלל אחד. הוסיפו כלל, או כבו את הרשימה, ושמרו שוב."
+      "access_list_rules_required": "רשימת היתרים פעילה דורשת לפחות כלל אחד. הוסיפו כלל, או כבו את הרשימה, ושמרו שוב.",
+      "access_list_in_use": "רשימת הגישה הזו נמצאת בשימוש הממשק של Charon עצמו, ולכן לא ניתן למחוק אותה. בחרו תחילה רשימה אחרת לממשק של Charon, ואז נסו שוב."
+    },
+    "managementAccess": {
+      "title": "גישה לניהול",
+      "description": "בחר את רשימות הגישה שמגינות על הממשק של Charon עצמו, החלק שבו אתה מנהל אותו. רשימות גישה של מארחי פרוקסי אינן חלות כאן.",
+      "fieldsetLabel": "רשימות גישה לממשק של Charon עצמו",
+      "noLists": "עדיין אין רשימות גישה. צור קודם רשימה ואז בחר אותה כאן.",
+      "notRestricted": "ללא הגבלה",
+      "notRestrictedHint": "הממשק של Charon עצמו פתוח לכל מבקר שיכול להגיע אליו. בחר רשימה כדי להגביל אותו.",
+      "restricted": "רק מבקרים שהרשימות שנבחרו מתירות להם יכולים להשתמש בממשק של Charon עצמו.",
+      "notApplied": "לא חל בזמן שבקרת הגישה כבויה או שאף רשימה שנבחרה אינה פעילה.",
+      "saved": "הגישה לניהול נשמרה.",
+      "saveFailed": "לא ניתן לשמור את הבחירה בגישה לניהול.",
+      "loadError": "לא ניתן לטעון את הגישה לניהול."
     }
   },
   "rateLimiting": {

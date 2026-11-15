@@ -14,15 +14,12 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/crowdsec"
 	"github.com/Wikid82/charon/backend/internal/geoip"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
-	securitypkg "github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/services"
-	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 // WAFExclusionRequest represents a rule exclusion for false positives
@@ -361,6 +358,9 @@ func (h *SecurityHandler) UpdateConfig(c *gin.Context) {
 	name := models.DefaultSecurityConfigName
 	if update.Name != nil && *update.Name != "" {
 		name = *update.Name
+	}
+	if update.AdminWhitelist != nil && refuseAdminAllowList(c, h.db, h.cfg.ACLMode, *update.AdminWhitelist) {
+		return
 	}
 	saved, snapshot, err := h.svc.ApplyUpdate(auditActor(c), name, update)
 	if err != nil {
@@ -1119,7 +1119,7 @@ func (h *SecurityHandler) toggleSecurityModule(c *gin.Context, settingKey string
 		return
 	}
 
-	if settingKey == models.SecurityACLEnabledSettingKey && enabled && !allowACLEnable(c, h.db) {
+	if settingKey == models.SecurityACLEnabledSettingKey && enabled && !allowACLEnable(c, newManagementGuard(h.db, h.cfg.ACLMode)) {
 		return
 	}
 
@@ -1176,33 +1176,15 @@ func upsertSetting(db *gorm.DB, setting models.Setting) error {
 	return nil
 }
 
-// allowACLEnable is a lock-out guard, not authorisation: it stops an admin from enabling the ACL from an address the
-// admin allow-list would already cut off. It does not decide who may change security settings (that is requireAdmin).
-// An empty allow-list allows.
-func allowACLEnable(c *gin.Context, db *gorm.DB) bool {
-	if middleware.IsEmergencyBypass(c) {
-		return true
-	}
-
-	cfg, err := models.FindDefaultSecurityConfig(db)
+// allowACLEnable is a lock-out guard, not authorisation: it stops the ACL from being turned on in a state that would
+// refuse the calling administrator from Charon's own interface. It does not decide who may change security settings
+// (that is requireAdmin). The stored management choice is judged with the ACL on.
+func allowACLEnable(c *gin.Context, guard managementGuard) bool {
+	st, err := guard.current(callerAddress(c))
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return true
-		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to read security config"})
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check management access"})
 		return false
 	}
-
-	whitelist := strings.TrimSpace(cfg.AdminWhitelist)
-	if whitelist == "" {
-		return true
-	}
-
-	clientIP := util.CanonicalizeIPForSecurity(c.ClientIP())
-	if securitypkg.IsIPInCIDRList(clientIP, whitelist) {
-		return true
-	}
-
-	c.JSON(http.StatusForbidden, gin.H{"error": "admin IP not present in admin_whitelist"})
-	return false
+	st.aclOn = true
+	return !guard.refuses(c, st)
 }

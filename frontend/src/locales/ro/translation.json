@@ -373,7 +373,14 @@
     "tooManyRequestsSeconds": "Too many attempts. Please wait {{count}} seconds and try again.",
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again."
+    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
+    "streamLimitReached": "Există prea multe conexiuni live deschise pentru contul dvs. Închideți o altă vizualizare live și încercați din nou.",
+    "trustedProxyInvalid": "\"{{entry}}\" nu este o adresă IP sau un interval CIDR.",
+    "trustedProxyTooBroad": "\"{{entry}}\" acoperă un interval prea larg. Intervalele IPv4 trebuie să fie /8 sau mai înguste, iar cele IPv6 /24 sau mai înguste.",
+    "trustedProxiesTooMany": "Lista de proxy-uri de încredere conține cel mult 64 de intrări.",
+    "managementListUnknown": "Una dintre listele de acces alese nu mai există. Reîncărcați pagina și alegeți din nou.",
+    "managementAccessWouldLockOut": "Aceasta v-ar bloca accesul la Charon. Adăugați mai întâi adresa dvs. în lista de permise a administratorului sau alegeți o listă care vă permite accesul.",
+    "accessListInvalid": "Această listă de acces nu poate proteja interfața proprie a Charon. Verificați regulile și încercați din nou."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -403,7 +410,8 @@
         "messagePendingApply": "Baza de date GeoIP este din nou disponibilă, dar {{count}} listă/liste de țări ({{lists}}) nu sunt încă aplicate. Apasă Reîncarcă pe cardul Baza de date a țărilor.",
         "docsLink": "Cum se furnizează baza de date",
         "issueHint": "Charon include de obicei această bază de date. Deschide un issue pe GitHub ca să putem remedia problema.",
-        "issueLink": "Deschide un issue"
+        "issueLink": "Deschide un issue",
+        "managementScope": "Interfața proprie a Charon este afectată și ea: listele sale de acces pe țări nu sunt aplicate nici ele."
       }
     }
   },
@@ -689,6 +697,25 @@
         "proxy_apply_failed": "Charon nu a putut aplica configurația proxy.",
         "generic": "Ceva nu a mers bine. Încearcă din nou."
       }
+    },
+    "trustedProxies": {
+      "title": "Proxy-uri de încredere",
+      "description": "Charon folosește adresa unui vizitator venită printr-un proxy doar dacă acel proxy este listat aici. Loopback este întotdeauna de încredere.",
+      "fieldLabel": "Proxy-uri de încredere",
+      "fieldHint": "Câte o adresă IP sau un interval CIDR pe linie. Lăsați gol pentru a avea încredere doar în loopback.",
+      "alwaysTrusted": "Întotdeauna de încredere: {{entries}}",
+      "apiLayerNote": "Portul propriu al Charon are încredere în proxy-urile setate în CHARON_TRUSTED_PROXIES pe server: {{entries}}. Modificați-le acolo.",
+      "apiLayerNone": "niciunul",
+      "sourceSetting": "Se folosește lista salvată aici.",
+      "sourceEnvironment": "Se folosește CHARON_TRUSTED_PROXIES din mediu până salvați aici o listă.",
+      "sourceDefault": "Se folosește valoarea implicită, doar loopback, până salvați aici o listă.",
+      "droppedEntries": "Ignorate din CHARON_TRUSTED_PROXIES deoarece sunt invalide sau prea largi: {{entries}}",
+      "saved": "Proxy-urile de încredere au fost salvate.",
+      "saveFailed": "Lista de proxy-uri de încredere nu a putut fi salvată.",
+      "reset": "Resetați la valoarea implicită",
+      "resetDone": "Lista salvată a fost ștearsă. Acum se aplică lista din mediu sau valoarea implicită.",
+      "loadError": "Lista de proxy-uri de încredere nu a putut fi încărcată.",
+      "docsLink": "Cum setați proxy-urile de încredere"
     }
   },
   "accessLists": {
@@ -723,7 +750,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "O listă de permisiuni activată necesită cel puțin o regulă. Adăugați o regulă sau dezactivați lista, apoi salvați din nou."
+      "access_list_rules_required": "O listă de permisiuni activată necesită cel puțin o regulă. Adăugați o regulă sau dezactivați lista, apoi salvați din nou.",
+      "access_list_in_use": "Această listă de acces este folosită de interfața proprie a Charon, deci nu poate fi ștearsă. Alegeți mai întâi altă listă pentru interfața Charon, apoi încercați din nou."
+    },
+    "managementAccess": {
+      "title": "Acces de administrare",
+      "description": "Alegeți listele de acces care protejează interfața proprie a Charon, partea pe care o folosiți pentru administrare. Listele de acces de pe gazdele proxy nu se aplică aici.",
+      "fieldsetLabel": "Liste de acces pentru interfața proprie a Charon",
+      "noLists": "Nu există încă liste de acces. Creați mai întâi una, apoi alegeți-o aici.",
+      "notRestricted": "Fără restricții",
+      "notRestrictedHint": "Interfața proprie a Charon este deschisă oricărui vizitator care o poate accesa. Alegeți o listă pentru a o limita.",
+      "restricted": "Doar vizitatorii permiși de listele alese pot folosi interfața proprie a Charon.",
+      "notApplied": "Nu se aplică atât timp cât controlul accesului este dezactivat sau nicio listă aleasă nu este activată.",
+      "saved": "Accesul de administrare a fost salvat.",
+      "saveFailed": "Alegerea privind accesul de administrare nu a putut fi salvată.",
+      "loadError": "Accesul de administrare nu a putut fi încărcat."
     }
   },
   "rateLimiting": {

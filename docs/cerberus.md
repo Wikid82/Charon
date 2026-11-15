@@ -48,6 +48,14 @@ r.Use(cerberusMiddleware.RequestLogger())
 
 This means it protects the management API but does not directly inspect traffic to proxied websites (that happens in Caddy).
 
+Access lists attached to proxy hosts do not apply on this path. The management API is checked only against the management access lists chosen on the Access Lists page, and only while access control is on. The Orthrus agent connection is exempt. See [Access Control Lists](features/access-control.md#charons-own-interface).
+
+### Visitor Address
+
+Every check above uses one visitor address. Charon takes it from the proxy's `X-Forwarded-For` note only when the proxy that sent it is on the trusted proxy list. Loopback is always trusted. Otherwise Charon uses the address of the connection. The same address drives the block decisions, CrowdSec, the WAF, the rate limit, the access lists, the country rules, the `X-Real-IP` header sent to your apps, and the security log. See [Trusted Proxies](configuration/trusted-proxies.md).
+
+Live streams are limited too. Each user may have 8 live views open at once (live logs, Cerberus logs, Hecate logs and stats), and Charon allows 64 across all users. A view over the limit is closed with a "too many live connections" message, and it does not reconnect by itself.
+
 ---
 
 ## Threat Model & Protection Coverage
@@ -266,7 +274,7 @@ Each `AccessList` defines:
 - **Geo Blacklist:** If country matches → deny; else → allow
 - **Local Only:** If RFC1918 private IP → allow; else → deny
 
-Multiple ACLs can be assigned to a proxy host. The first denial wins.
+Multiple ACLs can be assigned to a proxy host. The first denial wins. These lists protect that proxy host's website only. Charon's own interface is protected by the management access lists chosen on the Access Lists page, which use the same list types.
 
 **Required entries:**
 
@@ -724,7 +732,7 @@ type SecurityDecision struct {
 
 - Set on the Security settings page as a list of IP addresses or ranges
 - Checked before every access list rule, for every list type (IP allow lists, IP block lists, country lists and local-network-only lists)
-- If the requesting address is on the whitelist → always allowed through, and no block list or country rule can refuse it
+- If the requesting address is on the whitelist → always allowed through, and no block list or country rule can refuse it, on a proxy host or on Charon's own interface
 - Block lists refuse only the addresses they list. A manual block decision on a whitelisted address has no effect, so remove the address from the whitelist first if you really want to block it
 - The Test IP tool on the Access Lists page gives the same answer the proxy gives
 

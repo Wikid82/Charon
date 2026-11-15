@@ -373,7 +373,14 @@
     "tooManyRequestsSeconds": "Too many attempts. Please wait {{count}} seconds and try again.",
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again."
+    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
+    "streamLimitReached": "Há conexões ao vivo demais abertas para a sua conta. Feche outra visualização ao vivo e tente novamente.",
+    "trustedProxyInvalid": "\"{{entry}}\" não é um endereço IP nem um intervalo CIDR.",
+    "trustedProxyTooBroad": "\"{{entry}}\" abrange um intervalo demasiado amplo. Os intervalos IPv4 devem ser /8 ou mais estreitos, e os IPv6 /24 ou mais estreitos.",
+    "trustedProxiesTooMany": "A lista de proxies confiáveis tem no máximo 64 entradas.",
+    "managementListUnknown": "Uma das listas de acesso escolhidas já não existe. Recarregue a página e escolha novamente.",
+    "managementAccessWouldLockOut": "Isto bloquearia o seu acesso ao Charon. Adicione primeiro o seu endereço à lista de permitidos do administrador, ou escolha uma lista que o permita.",
+    "accessListInvalid": "Esta lista de acesso não pode proteger a interface própria do Charon. Verifique as regras e tente novamente."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -403,7 +410,8 @@
         "messagePendingApply": "O banco de dados do GeoIP está disponível novamente, mas {{count}} lista(s) de países ({{lists}}) ainda não são aplicadas. Pressione Recarregar no cartão Banco de dados de países.",
         "docsLink": "Como fornecer o banco de dados",
         "issueHint": "O Charon normalmente inclui este banco de dados. Abra uma issue no GitHub para que possamos corrigir isso.",
-        "issueLink": "Abrir uma issue"
+        "issueLink": "Abrir uma issue",
+        "managementScope": "A própria interface do Charon também é afetada: as suas listas de acesso por país também não são aplicadas."
       }
     }
   },
@@ -689,6 +697,25 @@
         "proxy_apply_failed": "O Charon não conseguiu aplicar a configuração do proxy.",
         "generic": "Algo deu errado. Tente novamente."
       }
+    },
+    "trustedProxies": {
+      "title": "Proxies confiáveis",
+      "description": "O Charon só usa o endereço de um visitante vindo de um proxy quando esse proxy está listado aqui. O loopback é sempre confiável.",
+      "fieldLabel": "Proxies confiáveis",
+      "fieldHint": "Um endereço IP ou intervalo CIDR por linha. Deixe vazio para confiar apenas no loopback.",
+      "alwaysTrusted": "Sempre confiáveis: {{entries}}",
+      "apiLayerNote": "A porta própria do Charon confia nos proxies definidos por CHARON_TRUSTED_PROXIES no servidor: {{entries}}. Altere-os lá.",
+      "apiLayerNone": "nenhum",
+      "sourceSetting": "Está a ser usada a lista guardada aqui.",
+      "sourceEnvironment": "Está a ser usado o CHARON_TRUSTED_PROXIES do ambiente até guardar uma lista aqui.",
+      "sourceDefault": "Está a ser usado o valor predefinido, apenas o loopback, até guardar uma lista aqui.",
+      "droppedEntries": "Ignorados de CHARON_TRUSTED_PROXIES por serem inválidos ou demasiado amplos: {{entries}}",
+      "saved": "Proxies confiáveis guardados.",
+      "saveFailed": "Não foi possível guardar a lista de proxies confiáveis.",
+      "reset": "Repor o valor predefinido",
+      "resetDone": "Lista guardada limpa. Passa a aplicar-se a do ambiente ou a predefinida.",
+      "loadError": "Não foi possível carregar a lista de proxies confiáveis.",
+      "docsLink": "Como definir proxies confiáveis"
     }
   },
   "accessLists": {
@@ -723,7 +750,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "Uma lista de permissões ativada precisa de pelo menos uma regra. Adicione uma regra ou desative a lista e guarde novamente."
+      "access_list_rules_required": "Uma lista de permissões ativada precisa de pelo menos uma regra. Adicione uma regra ou desative a lista e guarde novamente.",
+      "access_list_in_use": "Esta lista de acesso é usada pela própria interface do Charon, por isso não pode ser excluída. Escolha primeiro outra lista para a interface do Charon e tente novamente."
+    },
+    "managementAccess": {
+      "title": "Acesso de gestão",
+      "description": "Escolha as listas de acesso que protegem a interface própria do Charon, a parte que usa para o gerir. As listas de acesso dos hosts proxy não se aplicam aqui.",
+      "fieldsetLabel": "Listas de acesso para a interface própria do Charon",
+      "noLists": "Ainda não existem listas de acesso. Crie primeiro uma e depois escolha-a aqui.",
+      "notRestricted": "Sem restrições",
+      "notRestrictedHint": "A interface própria do Charon está aberta a qualquer visitante que a consiga alcançar. Escolha uma lista para a limitar.",
+      "restricted": "Só os visitantes permitidos pelas listas escolhidas podem usar a interface própria do Charon.",
+      "notApplied": "Não aplicado enquanto o controlo de acesso estiver desligado ou nenhuma lista escolhida estiver ativa.",
+      "saved": "Acesso de gestão guardado.",
+      "saveFailed": "Não foi possível guardar a escolha de acesso de gestão.",
+      "loadError": "Não foi possível carregar o acesso de gestão."
     }
   },
   "rateLimiting": {

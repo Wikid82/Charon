@@ -39,7 +39,7 @@ func notSetsOfFirstMatch(t *testing.T, h Handler) []map[string]any {
 func requireAdminSetFirst(t *testing.T, sets []map[string]any, ranges []string) {
 	t.Helper()
 	require.NotEmpty(t, sets)
-	remote, ok := sets[0]["remote_ip"].(map[string]any)
+	remote, ok := sets[0]["client_ip"].(map[string]any)
 	require.True(t, ok, "the admin set is the first not entry")
 	var got []string
 	for _, r := range remote["ranges"].([]any) {
@@ -153,7 +153,7 @@ func TestCountryListMatcherSetShape(t *testing.T) {
 		require.NoError(t, err)
 		b, err := json.Marshal(h)
 		require.NoError(t, err)
-		require.JSONEq(t, `{"handler":"subroute","routes":[{"match":[{"expression":"{geoip2.country_code} in [\"DE\"]","not":[{"remote_ip":{"ranges":["10.0.0.0/8"]}}]}],"handle":[{"handler":"static_response","status_code":403,"body":"Access denied: Geographic restriction"}],"terminal":true}]}`, string(b))
+		require.JSONEq(t, `{"handler":"subroute","routes":[{"match":[{"expression":"{geoip2.country_code} in [\"DE\"]","not":[{"client_ip":{"ranges":["10.0.0.0/8"]}}]}],"handle":[{"handler":"static_response","status_code":403,"body":"Access denied: Geographic restriction"}],"terminal":true}]}`, string(b))
 	})
 
 	t.Run("block-list without admin has no not", func(t *testing.T) {
@@ -237,7 +237,7 @@ func TestLocalNetworkOnlyAdminExclusion(t *testing.T) {
 		sets := notSetsOfFirstMatch(t, handler)
 		require.Len(t, sets, 2)
 		requireAdminSetFirst(t, sets, []string{"203.0.113.0/24"})
-		local, ok := sets[1]["remote_ip"].(map[string]any)
+		local, ok := sets[1]["client_ip"].(map[string]any)
 		require.True(t, ok)
 		require.NotEmpty(t, local["ranges"])
 		require.Contains(t, network.LocalNetworkCIDRs(), "10.0.0.0/8")
@@ -248,7 +248,7 @@ func TestLocalNetworkOnlyAdminExclusion(t *testing.T) {
 		require.NoError(t, err)
 		sets := notSetsOfFirstMatch(t, handler)
 		require.Len(t, sets, 1)
-		require.Contains(t, sets[0], "remote_ip")
+		require.Contains(t, sets[0], "client_ip")
 	})
 }
 

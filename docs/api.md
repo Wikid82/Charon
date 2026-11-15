@@ -326,6 +326,31 @@ Response 200: `{ "deleted": true }`
 
 ---
 
+#### Trusted Proxies
+
+The proxy-layer trust list, shown on the Security page as **Trusted proxies**. Loopback is always trusted and is not stored. All paths are under `/api/v1`.
+
+| Method and path | Who | What it does |
+| --- | --- | --- |
+| `GET /security/trusted-proxies` | Management users | Returns the list in force, its source (`setting`, `environment` or `default`), the entries that were ignored, the always-trusted ranges and the warnings. Non-administrators get only `has_proxies`. |
+| `PUT /security/trusted-proxies` | Admin | Body `{"proxies": ["172.18.0.5", "172.18.0.0/16"]}`. An empty list trusts loopback only. Each entry is checked before anything is saved. |
+| `DELETE /security/trusted-proxies` | Admin | Removes the saved list, so the environment list or the loopback default applies again. |
+
+A refused entry returns `400` with `error_code` `trusted_proxy_invalid` or `trusted_proxy_too_broad`, and an `entry` field that names it. Too many entries (more than 64) returns `trusted_proxies_too_many`. A change that would lock you out of Charon's own interface returns `403` with `management_access_would_lock_out`. If the proxy cannot apply the new list, the previous list is restored and the reply is `500`.
+
+#### Management Access
+
+The access lists that protect Charon's own interface, shown on the Access Lists page as **Management access**. All paths are under `/api/v1`.
+
+| Method and path | Who | What it does |
+| --- | --- | --- |
+| `GET /security/management-access` | Management users | Returns the chosen lists (`uuid`, `name`, `type`, `enabled`) and `enforced`, which is true when access control is on and at least one chosen list is enabled. |
+| `PUT /security/management-access` | Admin | Body `{"list_uuids": ["..."]}`. An empty list means not restricted. |
+
+Errors: `400` with `management_list_unknown` (names the `uuid`) or `access_list_invalid`; `403` with `management_access_would_lock_out` when the change would lock you out. Deleting an access list that is chosen here returns `409` with `access_list_in_use`. Replacing or reloading the country database returns `409` with `management_access_would_lock_out` when the calling admin would be refused, and the old database stays in use.
+
+---
+
 #### GeoIP Database (Country Lists)
 
 Used by the Security page's Country database (GeoIP) card. All paths are under `/api/v1`.
@@ -1464,6 +1489,8 @@ The probe gives up after 2 seconds. A timeout reports `available: true` with rea
 #### Stream Live Logs (WebSocket)
 
 Connect to a WebSocket stream of live security logs. This endpoint uses WebSocket protocol for real-time bidirectional communication.
+
+Each user may hold 8 live streams open at once, and Charon allows 64 across all users. The live log, Cerberus log, Hecate log and stats streams share these limits. A connection over the limit is accepted and then closed with close code `1013` (Try Again Later) and the reason `stream_limit_reached`. Clients should not reconnect automatically on that code.
 
 ```http
 GET /api/v1/logs/live

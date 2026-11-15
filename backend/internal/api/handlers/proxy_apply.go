@@ -16,3 +16,8 @@ func applyProxyConfigDetached(ctx context.Context, mgr CaddyConfigManager, timeo
 	defer cancel()
 	return mgr.ApplyConfig(applyCtx)
 }
+
+// EmergencyResetReplyBudget bounds how long an emergency reset may take to answer: the wait for an apply lock held by
+// another apply, the reset's own apply, its throttle wait and the writes. The reset extends its write deadline by this
+// budget so the reply is not cut off by the Tier 2 server's write timeout.
+const EmergencyResetReplyBudget = 2*proxyApplyTimeout + 15*time.Second

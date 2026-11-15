@@ -373,7 +373,14 @@
     "tooManyRequestsSeconds": "Too many attempts. Please wait {{count}} seconds and try again.",
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again."
+    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
+    "streamLimitReached": "Для вашей учётной записи открыто слишком много live-подключений. Закройте другой просмотр в реальном времени и попробуйте снова.",
+    "trustedProxyInvalid": "«{{entry}}» не является IP-адресом или диапазоном CIDR.",
+    "trustedProxyTooBroad": "«{{entry}}» охватывает слишком широкий диапазон. Диапазоны IPv4 должны быть /8 или уже, диапазоны IPv6 — /24 или уже.",
+    "trustedProxiesTooMany": "Список доверенных прокси может содержать не более 64 записей.",
+    "managementListUnknown": "Один из выбранных списков доступа больше не существует. Перезагрузите страницу и выберите снова.",
+    "managementAccessWouldLockOut": "Это заблокирует ваш доступ к Charon. Сначала добавьте свой адрес в список разрешённых администратора или выберите список, который вас пропускает.",
+    "accessListInvalid": "Этот список доступа не может защитить собственный интерфейс Charon. Проверьте его правила и попробуйте снова."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -403,7 +410,8 @@
         "messagePendingApply": "База данных GeoIP снова доступна, но {{count}} список(ов) стран ({{lists}}) пока не применяются. Нажмите «Перезагрузить» на карточке «База данных стран».",
         "docsLink": "Как предоставить базу данных",
         "issueHint": "Обычно Charon включает эту базу данных. Создайте, пожалуйста, issue на GitHub, чтобы мы могли это исправить.",
-        "issueLink": "Создать issue"
+        "issueLink": "Создать issue",
+        "managementScope": "Затронут и собственный интерфейс Charon: его списки доступа по странам тоже не применяются."
       }
     }
   },
@@ -689,6 +697,25 @@
         "proxy_apply_failed": "Charon не смог применить конфигурацию прокси.",
         "generic": "Что-то пошло не так. Попробуйте ещё раз."
       }
+    },
+    "trustedProxies": {
+      "title": "Доверенные прокси",
+      "description": "Charon использует адрес посетителя, переданный прокси, только если этот прокси указан здесь. Loopback всегда доверенный.",
+      "fieldLabel": "Доверенные прокси",
+      "fieldHint": "По одному IP-адресу или диапазону CIDR в строке. Оставьте поле пустым, чтобы доверять только loopback.",
+      "alwaysTrusted": "Всегда доверенные: {{entries}}",
+      "apiLayerNote": "Собственный порт Charon доверяет прокси, заданным в CHARON_TRUSTED_PROXIES на сервере: {{entries}}. Измените их там.",
+      "apiLayerNone": "нет",
+      "sourceSetting": "Используется список, сохранённый здесь.",
+      "sourceEnvironment": "Используется CHARON_TRUSTED_PROXIES из окружения, пока вы не сохраните список здесь.",
+      "sourceDefault": "Используется значение по умолчанию: только loopback, пока вы не сохраните список здесь.",
+      "droppedEntries": "Пропущены из CHARON_TRUSTED_PROXIES, так как недопустимы или слишком широки: {{entries}}",
+      "saved": "Доверенные прокси сохранены.",
+      "saveFailed": "Не удалось сохранить список доверенных прокси.",
+      "reset": "Сбросить до значения по умолчанию",
+      "resetDone": "Сохранённый список очищен. Теперь действует список из окружения или значение по умолчанию.",
+      "loadError": "Не удалось загрузить список доверенных прокси.",
+      "docsLink": "Как задать доверенные прокси"
     }
   },
   "accessLists": {
@@ -723,7 +750,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "Включённому списку разрешённых нужно хотя бы одно правило. Добавьте правило или выключите список и сохраните снова."
+      "access_list_rules_required": "Включённому списку разрешённых нужно хотя бы одно правило. Добавьте правило или выключите список и сохраните снова.",
+      "access_list_in_use": "Этот список доступа используется собственным интерфейсом Charon, поэтому его нельзя удалить. Сначала выберите для интерфейса Charon другой список и повторите попытку."
+    },
+    "managementAccess": {
+      "title": "Доступ к управлению",
+      "description": "Выберите списки доступа, которые защищают собственный интерфейс Charon, то есть часть, которой вы управляете программой. Списки доступа прокси-хостов здесь не применяются.",
+      "fieldsetLabel": "Списки доступа для собственного интерфейса Charon",
+      "noLists": "Списков доступа пока нет. Сначала создайте список, а затем выберите его здесь.",
+      "notRestricted": "Без ограничений",
+      "notRestrictedHint": "Собственный интерфейс Charon открыт любому посетителю, который может до него добраться. Выберите список, чтобы ограничить доступ.",
+      "restricted": "Собственным интерфейсом Charon могут пользоваться только посетители, которым разрешают выбранные списки.",
+      "notApplied": "Не применяется, пока контроль доступа выключен или ни один выбранный список не включён.",
+      "saved": "Доступ к управлению сохранён.",
+      "saveFailed": "Не удалось сохранить выбор доступа к управлению.",
+      "loadError": "Не удалось загрузить доступ к управлению."
     }
   },
   "rateLimiting": {

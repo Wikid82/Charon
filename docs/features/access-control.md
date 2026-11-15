@@ -120,7 +120,7 @@ For where to get a map and how to fix a missing one, see [Country Access Lists A
 
 ### Admin Whitelist: Your Addresses Always Get In
 
-The admin whitelist is a list of addresses you set in **Security** settings, such as your home IP, your office IP, or a VPN or Tailscale address. Requests from these addresses are always let through, whichever access list a site uses. This is what keeps you from locking yourself out.
+The admin whitelist is a list of addresses you set in **Security** settings, such as your home IP, your office IP, or a VPN or Tailscale address. Requests from these addresses are always let through, whichever access list a site uses and whichever lists protect Charon's own interface. The exemption is decided by the visitor's address alone, so an address on the list gets in even when a list would otherwise refuse it. This is what keeps you from locking yourself out.
 
 The admin whitelist works the same way for every list type:
 
@@ -142,7 +142,49 @@ A block list refuses only the addresses it lists. Everyone else gets through as 
 3. Select your Access List from the dropdown
 4. Save changes
 
-Each proxy host can have one Access List assigned. Create multiple lists for different access patterns.
+Each proxy host can have one Access List assigned. Create multiple lists for different access patterns. A list on a proxy host protects only that host's website. It does not protect Charon's own interface. For that, see [Charon's Own Interface](#charons-own-interface).
+
+### Charon's Own Interface
+
+Access lists on proxy hosts never apply to the Charon page you use to manage your sites. Charon's own interface has its own choice, the **Management access** card on the **Access Lists** page.
+
+1. Open **Access Lists**.
+2. In **Management access**, tick the lists that should protect Charon's own interface.
+3. Click **Save**.
+
+What the choice does:
+
+- **Nothing ticked.** Charon's own interface is not restricted. This is the default for new installs.
+- **Several ticked.** A visitor must be allowed by every ticked list that is turned on. A list that is turned off is ignored.
+- **Access control is off.** The card says the choice is not applied. It takes effect when the access control switch on the **Security** page is on.
+
+Some traffic is never checked against these lists:
+
+- **Admin whitelist addresses.** Your admin addresses get in, as described above.
+- **Orthrus agents.** An agent connects with its own key from a remote machine. It is not checked against your management lists, so it stays connected. See [Orthrus](orthrus.md).
+
+**Country lists on Charon's own interface** use the Country database (GeoIP) the same way proxy-host country lists do. If the database is not available, these lists are not enforced. The bell alert then says that the list is on Charon's own interface.
+
+**Lock-out protection.** Charon refuses any change that would lock you out, and shows the message "This change would lock you out of Charon." Add your address to the admin whitelist, or choose a different list, then try again. These changes are refused:
+
+- saving the Management access choice;
+- turning on access control;
+- editing a list that is ticked here, or turning it on;
+- changing the admin whitelist;
+- changing the trusted proxy list, which changes which address Charon sees for you;
+- uploading or reloading a country database that would refuse you. The old database stays in use.
+
+**Deleting a list.** Charon refuses to delete a list that is ticked for Charon's own interface. Untick it on the Management access card first.
+
+**Upgrading from an earlier version.** Before this change, proxy-host lists also protected Charon's own interface. Charon carries that protection over once, when it first starts with this version:
+
+- IP allow lists, IP block lists and local-network-only lists are ticked for Charon's own interface, so the interface behaves as before. This happens only if access control was on before the upgrade.
+- Country lists are not carried over, even when they had the local-network option. Choose them again on the Management access card if you want them.
+- Charon writes the names of the lists it carried over to its log, with a warning for each local-network-only list. Behind a tunnel or proxy on the same machine, that option checks the visitor's address, not `127.0.0.1`, so the list may refuse visitors you expect to reach. Charon also writes a warning for each country list it left out. See [Same-Machine Tunnels](../configuration/trusted-proxies.md#same-machine-tunnels).
+
+Charon carries the lists over only once. Change the choice later on the Access Lists page.
+
+If you still lock yourself out, the emergency reset turns access control off, so you can sign back in. See [Emergency Break Glass Protocol](../configuration/emergency-setup.md).
 
 ## Rule Evaluation Order
 

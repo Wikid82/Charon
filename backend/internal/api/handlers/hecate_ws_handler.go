@@ -2,6 +2,7 @@ package handlers
 
 import (
 	"context"
+	"github.com/Wikid82/charon/backend/internal/security"
 	"net/http"
 	"time"
 
@@ -15,14 +16,23 @@ import (
 
 // HecateWSHandler streams tunnel log entries over WebSocket.
 type HecateWSHandler struct {
-	svc           *services.HecateService
-	tracker       *services.WebSocketTracker
-	publicOrigins PublicOriginSource // may be nil: no public origin is trusted
+	svc            *services.HecateService
+	tracker        *services.WebSocketTracker
+	publicOrigins  PublicOriginSource           // may be nil: no public origin is trusted
+	trustedProxies security.TrustedProxyMatcher // API-layer trusted proxies for forwarded host headers
+	quota          *services.StreamQuota        // may be nil: no stream limit
 }
 
-// WithPublicOriginSource wires the configured public origin into the WebSocket origin check.
-func (h *HecateWSHandler) WithPublicOriginSource(s PublicOriginSource) *HecateWSHandler {
+// WithStreamQuota caps the live streams this handler admits per user and in total.
+func (h *HecateWSHandler) WithStreamQuota(q *services.StreamQuota) *HecateWSHandler {
+	h.quota = q
+	return h
+}
+
+// WithOriginPolicy wires the configured public origin and the trusted-proxy list into the WebSocket origin check.
+func (h *HecateWSHandler) WithOriginPolicy(s PublicOriginSource, trusted security.TrustedProxyMatcher) *HecateWSHandler {
 	h.publicOrigins = s
+	h.trustedProxies = trusted
 	return h
 }
 
@@ -45,11 +55,12 @@ func (h *HecateWSHandler) StreamLogs(c *gin.Context) {
 		return
 	}
 
-	conn, upgradeErr := upgradeWebSocket(c, h.publicOrigins)
+	conn, release, upgradeErr := upgradeWebSocket(c, h.publicOrigins, h.trustedProxies, h.quota)
 	if upgradeErr != nil {
 		logger.Log().WithError(upgradeErr).Error("hecate ws: upgrade failed")
 		return
 	}
+	defer release()
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

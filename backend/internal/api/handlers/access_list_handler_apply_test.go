@@ -21,7 +21,7 @@ func accessListApplyRouter(t *testing.T, mgr CaddyConfigManager) (*gin.Engine, *
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.AccessList{}, &models.ProxyHost{}))
+	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.AccessList{}, &models.ProxyHost{}))
 
 	h := NewAccessListHandlerWithDeps(db, mgr)
 	r := gin.New()

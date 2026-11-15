@@ -35,7 +35,7 @@ func newSelfCheckFixture(t *testing.T, role string) *selfCheckFixture {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
-	require.NoError(t, db.AutoMigrate(&models.AccessList{}, &models.ProxyHost{}, &models.SecurityConfig{}))
+	require.NoError(t, db.AutoMigrate(&models.Setting{}, &models.AccessList{}, &models.ProxyHost{}, &models.SecurityConfig{}))
 
 	handler := NewAccessListHandler(db)
 	router := gin.New()

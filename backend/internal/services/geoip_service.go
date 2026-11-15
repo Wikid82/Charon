@@ -4,7 +4,6 @@ package services
 import (
 	"errors"
 	"fmt"
-	"net"
 	"net/netip"
 	"sync"
 	"time"
@@ -168,27 +167,7 @@ func (s *GeoIPService) LookupCountry(ipStr string) (string, error) {
 		return "", ErrGeoIPDatabaseNotLoaded
 	}
 
-	ip := net.ParseIP(ipStr)
-	if ip == nil {
-		return "", ErrInvalidGeoIP
-	}
-
-	// Convert net.IP to netip.Addr for v2 API
-	addr, ok := netip.AddrFromSlice(ip)
-	if !ok {
-		return "", ErrInvalidGeoIP
-	}
-
-	record, err := s.db.Country(addr)
-	if err != nil {
-		return "", err
-	}
-
-	if record.Country.ISOCode == "" {
-		return "", ErrCountryNotFound
-	}
-
-	return record.Country.ISOCode, nil
+	return lookupISOCountry(s.db, ipStr)
 }
 
 // Available reports whether the database can serve country lookups now: it is loaded and the file the proxy module

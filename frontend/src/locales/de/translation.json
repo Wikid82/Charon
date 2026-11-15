@@ -378,7 +378,14 @@
     "tooManyRequestsSeconds": "Zu viele Versuche. Bitte warten Sie {{count}} Sekunden und versuchen Sie es erneut.",
     "tooManyRequestsMinutes_one": "Zu viele Versuche. Bitte warten Sie {{count}} Minute und versuchen Sie es erneut.",
     "tooManyRequestsMinutes_other": "Zu viele Versuche. Bitte warten Sie {{count}} Minuten und versuchen Sie es erneut.",
-    "tooManyRequestsMinutes": "Zu viele Versuche. Bitte warten Sie {{count}} Minuten und versuchen Sie es erneut."
+    "tooManyRequestsMinutes": "Zu viele Versuche. Bitte warten Sie {{count}} Minuten und versuchen Sie es erneut.",
+    "streamLimitReached": "Für Ihr Konto sind zu viele Live-Verbindungen geöffnet. Schließen Sie eine andere Live-Ansicht und versuchen Sie es erneut.",
+    "trustedProxyInvalid": "\"{{entry}}\" ist keine IP-Adresse und kein CIDR-Bereich.",
+    "trustedProxyTooBroad": "\"{{entry}}\" umfasst einen zu großen Bereich. IPv4-Bereiche müssen /8 oder enger sein, IPv6-Bereiche /24 oder enger.",
+    "trustedProxiesTooMany": "Die Liste der vertrauenswürdigen Proxys darf höchstens 64 Einträge enthalten.",
+    "managementListUnknown": "Eine der gewählten Zugriffslisten existiert nicht mehr. Laden Sie die Seite neu und wählen Sie erneut.",
+    "managementAccessWouldLockOut": "Dadurch würden Sie sich von Charon aussperren. Fügen Sie zuerst Ihre Adresse der Admin-Erlaubnisliste hinzu oder wählen Sie eine Liste, die Sie zulässt.",
+    "accessListInvalid": "Diese Zugriffsliste kann die eigene Oberfläche von Charon nicht schützen. Prüfen Sie ihre Regeln und versuchen Sie es erneut."
   },
   "notifications": {
     "saveSuccess": "Änderungen erfolgreich gespeichert",
@@ -408,7 +415,8 @@
         "messagePendingApply": "Die GeoIP-Datenbank ist wieder verfügbar, aber {{count}} Länderliste(n) ({{lists}}) werden noch nicht erzwungen. Drücken Sie auf „Neu laden“ auf der Karte Länderdatenbank.",
         "docsLink": "So stellst du die Datenbank bereit",
         "issueHint": "Charon enthält diese Datenbank normalerweise. Bitte ein GitHub-Issue eröffnen, damit wir das beheben können.",
-        "issueLink": "Issue eröffnen"
+        "issueLink": "Issue eröffnen",
+        "managementScope": "Auch die eigene Oberfläche von Charon ist betroffen: ihre Länderlisten werden ebenfalls nicht durchgesetzt."
       }
     }
   },
@@ -714,6 +722,25 @@
         "proxy_apply_failed": "Charon konnte die Proxy-Konfiguration nicht anwenden.",
         "generic": "Etwas ist schiefgegangen. Versuchen Sie es erneut."
       }
+    },
+    "trustedProxies": {
+      "title": "Vertrauenswürdige Proxys",
+      "description": "Charon übernimmt die Adresse eines Besuchers von einem Proxy nur, wenn dieser Proxy hier aufgeführt ist. Loopback ist immer vertrauenswürdig.",
+      "fieldLabel": "Vertrauenswürdige Proxys",
+      "fieldHint": "Eine IP-Adresse oder ein CIDR-Bereich pro Zeile. Leer lassen, um nur Loopback zu vertrauen.",
+      "alwaysTrusted": "Immer vertraut: {{entries}}",
+      "apiLayerNote": "Der eigene Port von Charon vertraut den Proxys, die in CHARON_TRUSTED_PROXIES auf dem Server festgelegt sind: {{entries}}. Ändern Sie sie dort.",
+      "apiLayerNone": "keine",
+      "sourceSetting": "Es wird die hier gespeicherte Liste verwendet.",
+      "sourceEnvironment": "Es wird CHARON_TRUSTED_PROXIES aus der Umgebung verwendet, bis Sie hier eine Liste speichern.",
+      "sourceDefault": "Es gilt der Standard, nur Loopback, bis Sie hier eine Liste speichern.",
+      "droppedEntries": "Aus CHARON_TRUSTED_PROXIES ignoriert, weil ungültig oder zu weit gefasst: {{entries}}",
+      "saved": "Vertrauenswürdige Proxys gespeichert.",
+      "saveFailed": "Die Liste der vertrauenswürdigen Proxys konnte nicht gespeichert werden.",
+      "reset": "Auf Standard zurücksetzen",
+      "resetDone": "Gespeicherte Liste gelöscht. Jetzt gilt die Liste aus der Umgebung bzw. der Standard.",
+      "loadError": "Die Liste der vertrauenswürdigen Proxys konnte nicht geladen werden.",
+      "docsLink": "So legen Sie vertrauenswürdige Proxys fest"
     }
   },
   "accessLists": {
@@ -748,7 +775,21 @@
     "noAccessLists": "Keine Zugriffslisten",
     "noAccessListsDescription": "Erstellen Sie Ihre erste Zugriffsliste, um zu kontrollieren, wer auf Ihre Dienste zugreifen kann",
     "errors": {
-      "access_list_rules_required": "Eine aktivierte Allowlist benötigt mindestens eine Regel. Füge eine Regel hinzu oder deaktiviere die Liste und speichere erneut."
+      "access_list_rules_required": "Eine aktivierte Allowlist benötigt mindestens eine Regel. Füge eine Regel hinzu oder deaktiviere die Liste und speichere erneut.",
+      "access_list_in_use": "Diese Zugriffsliste wird von der eigenen Oberfläche von Charon verwendet und kann daher nicht gelöscht werden. Wähle zuerst für die Oberfläche von Charon eine andere Liste aus und versuche es dann erneut."
+    },
+    "managementAccess": {
+      "title": "Verwaltungszugriff",
+      "description": "Wählen Sie die Zugriffslisten, die die eigene Oberfläche von Charon schützen, also den Teil, über den Sie Charon verwalten. Zugriffslisten an Proxy-Hosts gelten hier nicht.",
+      "fieldsetLabel": "Zugriffslisten für die eigene Oberfläche von Charon",
+      "noLists": "Es gibt noch keine Zugriffslisten. Legen Sie zuerst eine an und wählen Sie sie dann hier aus.",
+      "notRestricted": "Nicht eingeschränkt",
+      "notRestrictedHint": "Die eigene Oberfläche von Charon ist für jeden Besucher offen, der sie erreichen kann. Wählen Sie eine Liste, um sie einzuschränken.",
+      "restricted": "Nur Besucher, die die gewählten Listen zulassen, können die eigene Oberfläche von Charon nutzen.",
+      "notApplied": "Wird nicht angewendet, solange die Zugriffskontrolle aus ist oder keine gewählte Liste aktiv ist.",
+      "saved": "Verwaltungszugriff gespeichert.",
+      "saveFailed": "Die Auswahl für den Verwaltungszugriff konnte nicht gespeichert werden.",
+      "loadError": "Der Verwaltungszugriff konnte nicht geladen werden."
     }
   },
   "rateLimiting": {

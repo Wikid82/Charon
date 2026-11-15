@@ -82,6 +82,14 @@ Charon slows down repeated sign-in attempts automatically, so password guessing 
 
 ---
 
+### 🧭 Trusted Proxies
+
+Charon trusts only the proxies you list, so it sees your visitors' real addresses and no one can fake them. Add your proxy on the Security page.
+
+→ [Learn More](configuration/trusted-proxies.md)
+
+---
+
 ### 🎛️ Security Dashboard Toggles
 
 Control your security modules with a single click. The Security Dashboard provides instant toggles for each security layer:
@@ -132,6 +140,8 @@ No SSH required. No CLI commands. Just open the Dashboard tab and see what's hap
 ### 🔐 Access Control Lists (ACLs)
 
 Define exactly who can access what. Block specific countries, allow only certain IP ranges, or require authentication for sensitive applications. Fine-grained rules give you complete control.
+
+- **Management access:** Choose which lists protect Charon's own interface, separately from your websites.
 
 - **Country database card:** Admins can check, reload, or replace the country map from the Security page, without using a terminal.
 

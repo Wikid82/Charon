@@ -122,6 +122,10 @@ Sign-in cookies are marked `Secure` whenever the visitor is on HTTPS or is not o
 
 Only trust proxy headers from known sources. If your backend blindly trusts X-Forwarded-For, attackers can spoof their IP by injecting fake headers.
 
+Charon follows the same rule. It reads a visitor's address from a forwarded note only when the proxy that sent it is on your trusted list (loopback is always trusted). Otherwise it uses the address of the connection itself. The `X-Real-IP` header that Charon sends to your app holds that visitor address. Set up the list on the Security page, or with `CHARON_TRUSTED_PROXIES`. See [Trusted Proxies](../configuration/trusted-proxies.md).
+
+On a host that uses a [country list](access-control.md), Charon also rewrites the `X-Forwarded-For` note it sends to your app. Your app then receives the visitor's address followed by the address of the proxy that passed it on.
+
 ### Header Injection Prevention
 
 Charon sanitizes incoming proxy headers before adding its own, preventing header injection attacks where malicious clients send fake forwarded headers.

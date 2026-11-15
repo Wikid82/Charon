@@ -373,7 +373,14 @@
     "tooManyRequestsSeconds": "Too many attempts. Please wait {{count}} seconds and try again.",
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again."
+    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
+    "streamLimitReached": "Tililläsi on liian monta live-yhteyttä auki. Sulje toinen live-näkymä ja yritä uudelleen.",
+    "trustedProxyInvalid": "\"{{entry}}\" ei ole IP-osoite eikä CIDR-alue.",
+    "trustedProxyTooBroad": "\"{{entry}}\" kattaa liian laajan alueen. IPv4-alueiden on oltava /8 tai kapeampia ja IPv6-alueiden /24 tai kapeampia.",
+    "trustedProxiesTooMany": "Luotettujen välityspalvelimien listassa voi olla enintään 64 merkintää.",
+    "managementListUnknown": "Yksi valituista käyttöoikeuslistoista ei ole enää olemassa. Lataa sivu uudelleen ja valitse uudelleen.",
+    "managementAccessWouldLockOut": "Tämä sulkisi sinut Charonin ulkopuolelle. Lisää ensin osoitteesi ylläpitäjän sallittuihin, tai valitse lista, joka sallii sinut.",
+    "accessListInvalid": "Tämä käyttöoikeuslista ei voi suojata Charonin omaa käyttöliittymää. Tarkista sen säännöt ja yritä uudelleen."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -403,7 +410,8 @@
         "messagePendingApply": "GeoIP-tietokanta on taas saatavilla, mutta {{count}} maalistaa ({{lists}}) ei vielä noudateta. Paina Lataa uudelleen Maatietokanta-kortilla.",
         "docsLink": "Näin toimitat tietokannan",
         "issueHint": "Charon sisältää yleensä tämän tietokannan. Avaa GitHubiin issue, jotta voimme korjata asian.",
-        "issueLink": "Avaa issue"
+        "issueLink": "Avaa issue",
+        "managementScope": "Charonin oma käyttöliittymä on myös vaikuttunut: sen maakohtaisia käyttöoikeuslistoja ei myöskään noudateta."
       }
     }
   },
@@ -689,6 +697,25 @@
         "proxy_apply_failed": "Charon ei voinut ottaa välityspalvelimen asetuksia käyttöön.",
         "generic": "Jotain meni pieleen. Yritä uudelleen."
       }
+    },
+    "trustedProxies": {
+      "title": "Luotetut välityspalvelimet",
+      "description": "Charon käyttää kävijän osoitetta välityspalvelimelta vain, jos palvelin on lueteltu tässä. Loopback on aina luotettu.",
+      "fieldLabel": "Luotetut välityspalvelimet",
+      "fieldHint": "Yksi IP-osoite tai CIDR-alue per rivi. Jätä tyhjäksi, jos luotat vain loopbackiin.",
+      "alwaysTrusted": "Aina luotettu: {{entries}}",
+      "apiLayerNote": "Charonin oma portti luottaa palvelimen CHARON_TRUSTED_PROXIES-asetuksessa määriteltyihin välityspalvelimiin: {{entries}}. Muuta ne siellä.",
+      "apiLayerNone": "ei yhtään",
+      "sourceSetting": "Käytössä on täällä tallennettu lista.",
+      "sourceEnvironment": "Käytössä on ympäristön CHARON_TRUSTED_PROXIES, kunnes tallennat tänne listan.",
+      "sourceDefault": "Käytössä on oletus, vain loopback, kunnes tallennat tänne listan.",
+      "droppedEntries": "Ohitettu CHARON_TRUSTED_PROXIES-asetuksesta, koska ne ovat virheellisiä tai liian laajoja: {{entries}}",
+      "saved": "Luotetut välityspalvelimet tallennettu.",
+      "saveFailed": "Luotettujen välityspalvelimien listaa ei voitu tallentaa.",
+      "reset": "Palauta oletus",
+      "resetDone": "Tallennettu lista tyhjennetty. Nyt on käytössä ympäristön lista tai oletus.",
+      "loadError": "Luotettujen välityspalvelimien listaa ei voitu ladata.",
+      "docsLink": "Näin määrität luotetut välityspalvelimet"
     }
   },
   "accessLists": {
@@ -723,7 +750,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "Käytössä oleva sallittujen luettelo tarvitsee vähintään yhden säännön. Lisää sääntö tai poista luettelo käytöstä ja tallenna uudelleen."
+      "access_list_rules_required": "Käytössä oleva sallittujen luettelo tarvitsee vähintään yhden säännön. Lisää sääntö tai poista luettelo käytöstä ja tallenna uudelleen.",
+      "access_list_in_use": "Charonin oma käyttöliittymä käyttää tätä käyttöoikeuslistaa, joten sitä ei voi poistaa. Valitse ensin Charonin käyttöliittymälle toinen lista ja yritä sitten uudelleen."
+    },
+    "managementAccess": {
+      "title": "Hallinnan käyttöoikeus",
+      "description": "Valitse käyttöoikeuslistat, jotka suojaavat Charonin omaa käyttöliittymää, eli osaa, jota käytät sen hallintaan. Välityspalvelinkohteiden käyttöoikeuslistat eivät koske tätä.",
+      "fieldsetLabel": "Charonin oman käyttöliittymän käyttöoikeuslistat",
+      "noLists": "Käyttöoikeuslistoja ei ole vielä. Luo ensin yksi ja valitse se sitten täältä.",
+      "notRestricted": "Ei rajoituksia",
+      "notRestrictedHint": "Charonin oma käyttöliittymä on avoinna jokaiselle kävijälle, joka pääsee siihen. Valitse lista rajoittaaksesi sitä.",
+      "restricted": "Vain valittujen listojen sallimat kävijät voivat käyttää Charonin omaa käyttöliittymää.",
+      "notApplied": "Ei sovelleta, kun käyttöoikeuksien hallinta on pois päältä tai yhtään valittua listaa ei ole otettu käyttöön.",
+      "saved": "Hallinnan käyttöoikeus tallennettu.",
+      "saveFailed": "Hallinnan käyttöoikeusvalintaa ei voitu tallentaa.",
+      "loadError": "Hallinnan käyttöoikeutta ei voitu ladata."
     }
   },
   "rateLimiting": {

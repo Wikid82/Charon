@@ -135,14 +135,14 @@ export const getStatsHealth = async (): Promise<StatsHealth> => {
  * @param onMessage - Callback invoked for each StatsPushMessage received
  * @param onOpen - Optional callback when the connection is established
  * @param onError - Optional callback on WebSocket error
- * @param onClose - Optional callback when the connection closes
+ * @param onClose - Optional callback with the close event
  * @returns Function to close the WebSocket connection
  */
 export const connectStatsWebSocket = (
   onMessage: (msg: StatsPushMessage) => void,
   onOpen?: () => void,
   onError?: (error: Event) => void,
-  onClose?: () => void
+  onClose?: (event: CloseEvent) => void
 ): (() => void) => {
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = `${protocol}//${window.location.host}/api/v1/stats/ws`;
@@ -169,7 +169,7 @@ export const connectStatsWebSocket = (
 
   ws.onclose = (event: CloseEvent) => {
     console.log('Stats WebSocket closed', { code: event.code, reason: event.reason, wasClean: event.wasClean });
-    onClose?.();
+    onClose?.(event);
   };
 
   return () => {

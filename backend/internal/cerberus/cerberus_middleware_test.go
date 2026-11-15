@@ -1,6 +1,7 @@
 package cerberus_test
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/cerberus"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
+	securitypkg "github.com/Wikid82/charon/backend/internal/security"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -51,112 +53,187 @@ func TestMiddleware_WAFEnabledTracksMetrics(t *testing.T) {
 	require.False(t, ctx.IsAborted(), "cerberus middleware should not block - WAF is handled by Coraza at Caddy layer")
 }
 
-func TestMiddleware_ACLBlocksClientIP(t *testing.T) {
+// managementSetting stores the chosen management lists, as the settings row the middleware reads.
+func managementSetting(t *testing.T, db *gorm.DB, uuids ...string) {
+	t.Helper()
+	raw, err := json.Marshal(uuids)
+	require.NoError(t, err)
+	require.NoError(t, db.Create(&models.Setting{Key: securitypkg.ManagementListsSettingKey, Value: string(raw), Category: "security", Type: "json"}).Error)
+}
+
+// aclMiddlewareContext runs the middleware for one request from remote and reports whether it was aborted.
+func aclMiddlewareContext(t *testing.T, c *cerberus.Cerberus, remote string) (aborted bool, code int) {
+	t.Helper()
+	gin.SetMode(gin.TestMode)
+	w := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(w)
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req.RemoteAddr = remote
+	ctx.Request = req
+	mw := c.Middleware()
+	mw(ctx)
+	return ctx.IsAborted(), w.Code
+}
+
+func TestMiddleware_ManagementListBlocksListedBlacklist(t *testing.T) {
 	db := setupDB(t)
-	cfg := config.SecurityConfig{ACLMode: "enabled"}
-	// Create an ACL that blocks 8.8.8.8
-	ruleJSON := `[ { "cidr": "8.8.8.8/32", "description": "block" } ]`
-	acl := &models.AccessList{Name: "Block8", Type: "blacklist", IPRules: ruleJSON, Enabled: true}
+	acl := &models.AccessList{UUID: "block-8", Name: "Block8", Type: "blacklist", IPRules: `[{"cidr":"8.8.8.8/32"}]`, Enabled: true}
 	require.NoError(t, db.Create(acl).Error)
+	managementSetting(t, db, acl.UUID)
 
-	c := cerberus.New(cfg, db)
-
-	// Setup gin context with remote address 8.8.8.8
-	w := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
-	req.RemoteAddr = "8.8.8.8:1234"
-	ctx.Request = req
-
-	mw := c.Middleware()
-	mw(ctx)
-
-	require.Equal(t, http.StatusForbidden, w.Code)
+	c := cerberus.New(config.SecurityConfig{ACLMode: "enabled"}, db)
+	aborted, code := aclMiddlewareContext(t, c, "8.8.8.8:1234")
+	require.True(t, aborted)
+	require.Equal(t, http.StatusForbidden, code)
 }
 
-func TestMiddleware_ACLAllowsClientIP(t *testing.T) {
+func TestMiddleware_ManagementListAllowsListedWhitelist(t *testing.T) {
 	db := setupDB(t)
-	cfg := config.SecurityConfig{ACLMode: "enabled"}
-	// Create a whitelist that allows 8.8.8.8
-	ruleJSON := `[ { "cidr": "8.8.8.8/32", "description": "allow" } ]`
-	acl := &models.AccessList{Name: "Allow8", Type: "whitelist", IPRules: ruleJSON, Enabled: true}
+	acl := &models.AccessList{UUID: "allow-8", Name: "Allow8", Type: "whitelist", IPRules: `[{"cidr":"8.8.8.8/32"}]`, Enabled: true}
 	require.NoError(t, db.Create(acl).Error)
+	managementSetting(t, db, acl.UUID)
 
-	c := cerberus.New(cfg, db)
-
-	// Setup gin context with remote address 8.8.8.8 (allowed)
-	w := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
-	req.RemoteAddr = "8.8.8.8:1234"
-	ctx.Request = req
-
-	mw := c.Middleware()
-	mw(ctx)
-	// Should not block - middleware did not abort
-	require.False(t, ctx.IsAborted())
+	c := cerberus.New(config.SecurityConfig{ACLMode: "enabled"}, db)
+	aborted, _ := aclMiddlewareContext(t, c, "8.8.8.8:1234")
+	require.False(t, aborted)
 }
 
-func TestMiddleware_ACLDefaultDenyWhenNoLists(t *testing.T) {
+func TestMiddleware_ManagementWhitelistRefusesUnlistedCaller(t *testing.T) {
 	db := setupDB(t)
-	cfg := config.SecurityConfig{ACLMode: "enabled"}
+	acl := &models.AccessList{UUID: "allow-8-only", Name: "Allow8", Type: "whitelist", IPRules: `[{"cidr":"8.8.8.8/32"}]`, Enabled: true}
+	require.NoError(t, db.Create(acl).Error)
+	managementSetting(t, db, acl.UUID)
 
-	c := cerberus.New(cfg, db)
-
-	w := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
-	req.RemoteAddr = "203.0.113.5:1234"
-	ctx.Request = req
-
-	mw := c.Middleware()
-	mw(ctx)
-
-	require.Equal(t, http.StatusForbidden, w.Code)
+	c := cerberus.New(config.SecurityConfig{ACLMode: "enabled"}, db)
+	aborted, code := aclMiddlewareContext(t, c, "203.0.113.5:1234")
+	require.True(t, aborted)
+	require.Equal(t, http.StatusForbidden, code)
 }
 
-func TestMiddleware_ACLAdminWhitelistBypass(t *testing.T) {
+// TestMiddleware_NoManagementListIsNotRestricted: with no list chosen, the interface is not restricted, whatever the
+// proxy-host lists say.
+func TestMiddleware_NoManagementListIsNotRestricted(t *testing.T) {
 	db := setupDB(t)
-	cfg := config.SecurityConfig{ACLMode: "enabled"}
+	require.NoError(t, db.Create(&models.AccessList{UUID: "site-only", Name: "Site", Type: "whitelist", IPRules: `[{"cidr":"8.8.8.8/32"}]`, Enabled: true}).Error)
 
-	whitelist := "203.0.113.5/32"
-	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: whitelist}).Error)
-
-	c := cerberus.New(cfg, db)
-
-	w := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(w)
-	ctx.Set("role", "admin")
-	ctx.Set("userID", uint(1))
-	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
-	req.RemoteAddr = "203.0.113.5:1234"
-	ctx.Request = req
-
-	mw := c.Middleware()
-	mw(ctx)
-
-	require.False(t, ctx.IsAborted())
+	c := cerberus.New(config.SecurityConfig{ACLMode: "enabled"}, db)
+	aborted, _ := aclMiddlewareContext(t, c, "203.0.113.5:1234")
+	require.False(t, aborted)
 }
 
-func TestMiddleware_ACLAdminWhitelistBypass_RequiresAuthenticatedAdmin(t *testing.T) {
+func TestMiddleware_ManagementListDisabledAllows(t *testing.T) {
 	db := setupDB(t)
-	cfg := config.SecurityConfig{ACLMode: "enabled"}
+	acl := &models.AccessList{UUID: "off", Name: "Off", Type: "whitelist", IPRules: `[{"cidr":"8.8.8.8/32"}]`, Enabled: false}
+	require.NoError(t, db.Create(acl).Error)
+	managementSetting(t, db, acl.UUID)
 
-	whitelist := "203.0.113.5/32"
-	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: whitelist}).Error)
+	c := cerberus.New(config.SecurityConfig{ACLMode: "enabled"}, db)
+	aborted, _ := aclMiddlewareContext(t, c, "203.0.113.5:1234")
+	require.False(t, aborted)
+}
 
-	c := cerberus.New(cfg, db)
+func TestMiddleware_ManagementListMissingUUIDIsSkipped(t *testing.T) {
+	db := setupDB(t)
+	managementSetting(t, db, "deleted-list")
 
-	w := httptest.NewRecorder()
-	ctx, _ := gin.CreateTestContext(w)
-	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	c := cerberus.New(config.SecurityConfig{ACLMode: "enabled"}, db)
+	aborted, _ := aclMiddlewareContext(t, c, "203.0.113.5:1234")
+	require.False(t, aborted)
+}
+
+func TestMiddleware_ManagementAdminAllowListExemptsByAddress(t *testing.T) {
+	db := setupDB(t)
+	acl := &models.AccessList{UUID: "allow-8-only", Name: "Allow8", Type: "whitelist", IPRules: `[{"cidr":"8.8.8.8/32"}]`, Enabled: true}
+	require.NoError(t, db.Create(acl).Error)
+	managementSetting(t, db, acl.UUID)
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: "default", Enabled: true, AdminWhitelist: "203.0.113.5/32"}).Error)
+
+	c := cerberus.New(config.SecurityConfig{ACLMode: "enabled"}, db)
+	aborted, _ := aclMiddlewareContext(t, c, "203.0.113.5:1234")
+	require.False(t, aborted, "an admin allow-list address is exempt, whatever the caller's role")
+}
+
+func TestMiddleware_ManagementUnusableClientAddressIsRefused(t *testing.T) {
+	db := setupDB(t)
+	acl := &models.AccessList{UUID: "allow-8-only", Name: "Allow8", Type: "whitelist", IPRules: `[{"cidr":"8.8.8.8/32"}]`, Enabled: true}
+	require.NoError(t, db.Create(acl).Error)
+	managementSetting(t, db, acl.UUID)
+
+	c := cerberus.New(config.SecurityConfig{ACLMode: "enabled"}, db)
+	aborted, code := aclMiddlewareContext(t, c, "not-an-address")
+	require.True(t, aborted)
+	require.Equal(t, http.StatusForbidden, code)
+}
+
+func TestMiddleware_ManagementCorruptChoiceIsRefused(t *testing.T) {
+	db := setupDB(t)
+	require.NoError(t, db.Create(&models.Setting{Key: securitypkg.ManagementListsSettingKey, Value: "{not json", Category: "security", Type: "json"}).Error)
+
+	c := cerberus.New(config.SecurityConfig{ACLMode: "enabled"}, db)
+	aborted, code := aclMiddlewareContext(t, c, "203.0.113.5:1234")
+	require.True(t, aborted)
+	require.Equal(t, http.StatusForbidden, code)
+}
+
+func TestMiddleware_ManagementUnusableWhitelistRefuses(t *testing.T) {
+	db := setupDB(t)
+	acl := &models.AccessList{UUID: "bad-allow", Name: "Bad", Type: "whitelist", IPRules: `[{"cidr":"bogus"}]`, Enabled: true}
+	require.NoError(t, db.Create(acl).Error)
+	managementSetting(t, db, acl.UUID)
+
+	c := cerberus.New(config.SecurityConfig{ACLMode: "enabled"}, db)
+	aborted, code := aclMiddlewareContext(t, c, "8.8.8.8:1234")
+	require.True(t, aborted)
+	require.Equal(t, http.StatusForbidden, code)
+}
+
+func TestMiddleware_ManagementUnusableBlacklistIsNotApplied(t *testing.T) {
+	db := setupDB(t)
+	acl := &models.AccessList{UUID: "bad-block", Name: "Bad", Type: "blacklist", IPRules: `[{"cidr":"bogus"}]`, Enabled: true}
+	require.NoError(t, db.Create(acl).Error)
+	managementSetting(t, db, acl.UUID)
+
+	c := cerberus.New(config.SecurityConfig{ACLMode: "enabled"}, db)
+	aborted, _ := aclMiddlewareContext(t, c, "8.8.8.8:1234")
+	require.False(t, aborted, "a block-list that cannot be used blocks nobody, as at the proxy")
+}
+
+// TestMiddleware_OrthrusRouteIsExemptFromManagementLists: the agent route is not judged by the management lists.
+func TestMiddleware_OrthrusRouteIsExemptFromManagementLists(t *testing.T) {
+	db := setupDB(t)
+	acl := &models.AccessList{UUID: "allow-8-only", Name: "Allow8", Type: "whitelist", IPRules: `[{"cidr":"8.8.8.8/32"}]`, Enabled: true}
+	require.NoError(t, db.Create(acl).Error)
+	managementSetting(t, db, acl.UUID)
+
+	gin.SetMode(gin.TestMode)
+	c := cerberus.New(config.SecurityConfig{ACLMode: "enabled"}, db)
+	router := gin.New()
+	router.GET("/api/v1/ws/orthrus/connect", c.Middleware(), func(ctx *gin.Context) { ctx.Status(http.StatusNoContent) })
+	router.GET("/api/v1/other", c.Middleware(), func(ctx *gin.Context) { ctx.Status(http.StatusNoContent) })
+
+	agent := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/ws/orthrus/connect", http.NoBody)
 	req.RemoteAddr = "203.0.113.5:1234"
-	ctx.Request = req
+	router.ServeHTTP(agent, req)
+	require.Equal(t, http.StatusNoContent, agent.Code, "the agent route is exempt")
 
-	mw := c.Middleware()
-	mw(ctx)
+	other := httptest.NewRecorder()
+	req = httptest.NewRequest(http.MethodGet, "/api/v1/other", http.NoBody)
+	req.RemoteAddr = "203.0.113.5:1234"
+	router.ServeHTTP(other, req)
+	require.Equal(t, http.StatusForbidden, other.Code)
+}
 
-	require.Equal(t, http.StatusForbidden, w.Code)
+func TestMiddleware_ACLSwitchInSettingsOverridesConfig(t *testing.T) {
+	db := setupDB(t)
+	acl := &models.AccessList{UUID: "allow-8-only", Name: "Allow8", Type: "whitelist", IPRules: `[{"cidr":"8.8.8.8/32"}]`, Enabled: true}
+	require.NoError(t, db.Create(acl).Error)
+	managementSetting(t, db, acl.UUID)
+	require.NoError(t, db.Create(&models.Setting{Key: models.SecurityACLEnabledSettingKey, Value: "false", Category: "security", Type: "bool"}).Error)
+
+	c := cerberus.New(config.SecurityConfig{ACLMode: "enabled"}, db)
+	aborted, _ := aclMiddlewareContext(t, c, "203.0.113.5:1234")
+	require.False(t, aborted, "a runtime switch set to off wins over the static configuration")
 }
 
 func TestMiddleware_NotEnabledSkips(t *testing.T) {
@@ -262,4 +339,21 @@ func TestMiddleware_EmergencyBypassSkipsChecks(t *testing.T) {
 	mw(ctx)
 
 	require.False(t, ctx.IsAborted(), "middleware should short-circuit when emergency_bypass=true")
+}
+
+// TestMiddleware_CountryManagementListUsesGeoIPService: a country list chosen for Charon's own interface is decided with
+// the GeoIP service once one is wired; without a service it is not enforced.
+func TestMiddleware_CountryManagementListUsesGeoIPService(t *testing.T) {
+	db := setupDB(t)
+	acl := &models.AccessList{UUID: "geo-block", Name: "geo", Type: "geo_blacklist", CountryCodes: "RU", Enabled: true}
+	require.NoError(t, db.Create(acl).Error)
+	managementSetting(t, db, acl.UUID)
+
+	c := cerberus.New(config.SecurityConfig{ACLMode: "enabled"}, db)
+	aborted, _ := aclMiddlewareContext(t, c, "8.8.8.8:1234")
+	require.False(t, aborted, "without a GeoIP service the country list is not enforced")
+
+	c.SetGeoIPService(nil)
+	aborted, _ = aclMiddlewareContext(t, c, "8.8.8.8:1234")
+	require.False(t, aborted, "a nil GeoIP service is the same as none")
 }

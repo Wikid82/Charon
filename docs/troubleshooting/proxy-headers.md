@@ -277,7 +277,7 @@ app.set('trust proxy', trustedProxies);
 
 ### Cause 1: A proxy in front of Charon isn't trusted
 
-**Fix:** add the proxy's exact address to `CHARON_TRUSTED_PROXIES` and restart Charon. Your proxy must also pass the visitor address along in `X-Forwarded-For`. Steps and examples: [Trusted Proxies](../configuration/trusted-proxies.md).
+**Fix:** add the proxy's exact address under **Trusted proxies** on the Security page. No restart is needed. Your proxy must also pass the visitor address along in `X-Forwarded-For`. Steps and examples: [Trusted Proxies](../configuration/trusted-proxies.md).
 
 ### Cause 2: Your container setup hides visitor addresses
 
@@ -298,6 +298,8 @@ All users share the same rate limit, or all requests appear to come from one IP.
 ### Cause
 
 Rate limiting middleware is checking the connection IP instead of proxy headers.
+
+Charon itself uses the visitor address only when the proxy in front of it is trusted. If every visitor shows the same address in Charon's rate limit, list your proxy under **Trusted proxies** on the Security page (see [Trusted Proxies](../configuration/trusted-proxies.md)).
 
 ### Solutions
 
@@ -445,13 +447,16 @@ curl -H "Host: yourdomain.com" https://yourdomain.com/test
 
 ### IP Spoofing Prevention
 
-Charon configures Caddy with `trusted_proxies` to prevent clients from spoofing headers.
+Charon trusts forwarded notes only from the proxies you list (loopback by default), so clients can't use them to pick their own address.
 
 **What this means:**
 
-- Clients CANNOT inject fake X-Real-IP headers
-- Caddy overwrites any client-provided proxy headers
+- Clients CANNOT inject fake X-Real-IP headers from an untrusted connection
+- Charon overwrites any client-provided proxy headers
 - Only Charon's headers are trusted
+- Charon uses one visitor address for every check, including the address it sends as `X-Real-IP`
+
+See [Trusted Proxies](../configuration/trusted-proxies.md) for how to list your proxy.
 
 **Backend security:**
 Your backend should still:

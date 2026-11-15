@@ -240,7 +240,7 @@ func TestCoverageBoost_AccessListService_Paths(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = db.AutoMigrate(&models.AccessList{})
+	err = db.AutoMigrate(&models.Setting{}, &models.AccessList{})
 	require.NoError(t, err)
 
 	svc := NewAccessListService(db)

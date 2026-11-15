@@ -1,4 +1,4 @@
-import { Plus, Pencil, Trash2, TestTube2, ExternalLink, Shield } from 'lucide-react';
+import { Plus, Pencil, Trash2, TestTube2, ExternalLink, Shield, XCircle } from 'lucide-react';
 import { useState } from 'react';
 import toast from 'react-hot-toast';
 import { useTranslation } from 'react-i18next';
@@ -6,9 +6,10 @@ import { useTranslation } from 'react-i18next';
 
 
 import { createBackup } from '../api/backups';
-import { accessListErrorMessage } from '../api/errorBody';
+import { accessListDeleteErrorMessage, accessListErrorMessage } from '../api/errorBody';
 import { AccessListForm, type AccessListFormData } from '../components/AccessListForm';
 import { PageShell } from '../components/layout/PageShell';
+import { ManagementAccessCard } from '../components/ManagementAccessCard';
 import {
   Badge,
   Button,
@@ -56,6 +57,8 @@ export default function AccessLists() {
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<AccessList | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
+  // Refusal shown inside the delete dialog, so the reason sits next to the action that failed.
+  const [deleteError, setDeleteError] = useState<string | null>(null);
 
   const handleCreate = (data: AccessListFormData) => {
     createMutation.mutate(data, {
@@ -74,6 +77,7 @@ export default function AccessLists() {
   };
 
   const handleDeleteWithBackup = async (acl: AccessList) => {
+    setDeleteError(null);
     setIsDeleting(true);
     try {
       // Create backup before deletion
@@ -89,6 +93,11 @@ export default function AccessLists() {
           toast.success(`"${acl.name}" ${t('accessLists.deletedWithBackup')}`);
         },
         onError: (error) => {
+          const refusal = accessListDeleteErrorMessage(error, t);
+          if (refusal) {
+            setDeleteError(refusal);
+            return;
+          }
           toast.error(`${t('accessLists.failedToDelete')}: ${error.message}`);
         },
         onSettled: () => {
@@ -186,8 +195,8 @@ export default function AccessLists() {
     const type = acl.type;
     // blacklist or geo_blacklist
     return type === 'whitelist' || type === 'geo_whitelist'
-      ? <Badge variant="success" size="sm">{t('accessLists.allow')}</Badge>
-      : <Badge variant="error" size="sm">{t('accessLists.deny')}</Badge>;
+      ? <Badge variant="success" size="sm">{t('common.allow')}</Badge>
+      : <Badge variant="error" size="sm">{t('common.deny')}</Badge>;
   };
 
   const columns: Column<AccessList>[] = [
@@ -372,7 +381,13 @@ export default function AccessLists() {
       )}
 
       {/* Delete Confirmation Dialog */}
-      <Dialog open={showDeleteConfirm !== null} onOpenChange={() => setShowDeleteConfirm(null)}>
+      <Dialog
+        open={showDeleteConfirm !== null}
+        onOpenChange={() => {
+          setShowDeleteConfirm(null);
+          setDeleteError(null);
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('accessLists.deleteAccessList')}</DialogTitle>
@@ -380,6 +395,11 @@ export default function AccessLists() {
           <p className="text-content-secondary py-4">
             {t('accessLists.deleteConfirmation', { name: showDeleteConfirm?.name })}
           </p>
+          {deleteError && (
+            <Alert variant="error" icon={XCircle}>
+              {deleteError}
+            </Alert>
+          )}
           <DialogFooter>
             <Button variant="secondary" onClick={() => setShowDeleteConfirm(null)} disabled={isDeleting}>
               {t('common.cancel')}
@@ -446,6 +466,8 @@ export default function AccessLists() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ManagementAccessCard accessLists={accessLists ?? []} />
 
       {/* Empty State or DataTable */}
       {!showCreateForm && !editingACL && (

@@ -373,7 +373,14 @@
     "tooManyRequestsSeconds": "Too many attempts. Please wait {{count}} seconds and try again.",
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again."
+    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
+    "streamLimitReached": "계정에 열린 실시간 연결이 너무 많습니다. 다른 실시간 보기를 닫은 후 다시 시도하세요.",
+    "trustedProxyInvalid": "\"{{entry}}\"은(는) IP 주소나 CIDR 범위가 아닙니다.",
+    "trustedProxyTooBroad": "\"{{entry}}\"은(는) 범위가 너무 넓습니다. IPv4 범위는 /8 이하, IPv6 범위는 /24 이하여야 합니다.",
+    "trustedProxiesTooMany": "신뢰하는 프록시 목록에는 최대 64개 항목만 넣을 수 있습니다.",
+    "managementListUnknown": "선택한 접근 목록 중 하나가 더 이상 없습니다. 페이지를 새로 고친 후 다시 선택하세요.",
+    "managementAccessWouldLockOut": "이 설정을 저장하면 Charon에서 자신이 차단됩니다. 먼저 관리자 허용 목록에 자신의 주소를 추가하거나 접근을 허용하는 목록을 선택하세요.",
+    "accessListInvalid": "이 접근 목록으로는 Charon 자체 인터페이스를 보호할 수 없습니다. 규칙을 확인한 후 다시 시도하세요."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -403,7 +410,8 @@
         "messagePendingApply": "GeoIP 데이터베이스를 다시 사용할 수 있지만 적용되지 않은 국가 목록 {{count}}개({{lists}})가 있습니다. 국가 데이터베이스 카드에서 다시 로드를 누르세요.",
         "docsLink": "데이터베이스 제공 방법",
         "issueHint": "Charon에는 보통 이 데이터베이스가 포함되어 있습니다. 수정할 수 있도록 GitHub에 issue를 열어 주세요.",
-        "issueLink": "issue 열기"
+        "issueLink": "issue 열기",
+        "managementScope": "Charon 자체 인터페이스도 영향을 받습니다. 해당 국가별 접근 목록도 적용되지 않습니다."
       }
     }
   },
@@ -689,6 +697,25 @@
         "proxy_apply_failed": "Charon이 프록시 구성을 적용할 수 없습니다.",
         "generic": "문제가 발생했습니다. 다시 시도하세요."
       }
+    },
+    "trustedProxies": {
+      "title": "신뢰하는 프록시",
+      "description": "Charon은 프록시가 전달한 방문자 주소를 해당 프록시가 여기에 등록된 경우에만 사용합니다. 루프백은 항상 신뢰됩니다.",
+      "fieldLabel": "신뢰하는 프록시",
+      "fieldHint": "줄마다 IP 주소 또는 CIDR 범위 하나를 입력합니다. 비워 두면 루프백만 신뢰합니다.",
+      "alwaysTrusted": "항상 신뢰: {{entries}}",
+      "apiLayerNote": "Charon 자체 포트는 서버의 CHARON_TRUSTED_PROXIES에 설정된 프록시를 신뢰합니다: {{entries}}. 변경은 그곳에서 하세요.",
+      "apiLayerNone": "없음",
+      "sourceSetting": "여기에 저장된 목록을 사용 중입니다.",
+      "sourceEnvironment": "여기에서 목록을 저장하기 전까지는 환경의 CHARON_TRUSTED_PROXIES를 사용합니다.",
+      "sourceDefault": "여기에서 목록을 저장하기 전까지는 기본값(루프백만)을 사용합니다.",
+      "droppedEntries": "CHARON_TRUSTED_PROXIES에서 잘못되었거나 범위가 너무 넓어 무시된 항목: {{entries}}",
+      "saved": "신뢰하는 프록시를 저장했습니다.",
+      "saveFailed": "신뢰하는 프록시 목록을 저장할 수 없습니다.",
+      "reset": "기본값으로 재설정",
+      "resetDone": "저장된 목록을 지웠습니다. 이제 환경 설정 목록 또는 기본값이 적용됩니다.",
+      "loadError": "신뢰하는 프록시 목록을 불러올 수 없습니다.",
+      "docsLink": "신뢰하는 프록시 설정 방법"
     }
   },
   "accessLists": {
@@ -723,7 +750,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "사용 중인 허용 목록에는 규칙이 하나 이상 필요합니다. 규칙을 추가하거나 목록을 끈 뒤 다시 저장하세요."
+      "access_list_rules_required": "사용 중인 허용 목록에는 규칙이 하나 이상 필요합니다. 규칙을 추가하거나 목록을 끈 뒤 다시 저장하세요.",
+      "access_list_in_use": "이 액세스 목록은 Charon 자체 인터페이스에서 사용 중이므로 삭제할 수 없습니다. 먼저 Charon 인터페이스에 다른 목록을 선택한 뒤 다시 시도하세요."
+    },
+    "managementAccess": {
+      "title": "관리 접근",
+      "description": "Charon 자체 인터페이스(관리에 사용하는 부분)를 보호할 접근 목록을 선택하세요. 프록시 호스트의 접근 목록은 여기에 적용되지 않습니다.",
+      "fieldsetLabel": "Charon 자체 인터페이스의 접근 목록",
+      "noLists": "아직 접근 목록이 없습니다. 먼저 만든 다음 여기에서 선택하세요.",
+      "notRestricted": "제한 없음",
+      "notRestrictedHint": "Charon 자체 인터페이스는 접근할 수 있는 모든 방문자에게 열려 있습니다. 제한하려면 목록을 선택하세요.",
+      "restricted": "선택한 목록에서 허용한 방문자만 Charon 자체 인터페이스를 사용할 수 있습니다.",
+      "notApplied": "접근 제어가 꺼져 있거나 선택한 목록이 모두 사용 중이 아니면 적용되지 않습니다.",
+      "saved": "관리 접근을 저장했습니다.",
+      "saveFailed": "관리 접근 선택을 저장할 수 없습니다.",
+      "loadError": "관리 접근을 불러올 수 없습니다."
     }
   },
   "rateLimiting": {

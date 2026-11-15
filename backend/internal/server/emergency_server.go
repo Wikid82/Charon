@@ -177,12 +177,7 @@ func (s *EmergencyServer) Start() error {
 	router.POST("/emergency/security-reset", resetThrottle.Middleware(), emergencyHandler.SecurityReset)
 
 	// Create HTTP server with sensible timeouts
-	s.server = &http.Server{
-		Handler:      router,
-		ReadTimeout:  10 * time.Second,
-		WriteTimeout: 10 * time.Second,
-		IdleTimeout:  30 * time.Second,
-	}
+	s.server = newEmergencyHTTPServer(router)
 
 	// Create listener (this allows us to get the actual port when using :0 for testing)
 	listener, err := net.Listen("tcp", s.cfg.BindAddress)
@@ -190,6 +185,7 @@ func (s *EmergencyServer) Start() error {
 		return fmt.Errorf("failed to create listener: %w", err)
 	}
 	s.listener = listener
+	warnIfBeyondLoopback(s.cfg.BindAddress)
 
 	// Start server in goroutine
 	go func() {
@@ -240,4 +236,47 @@ func redactToken(token string) string {
 		return "[EMERGENCY_TOKEN:***]"
 	}
 	return fmt.Sprintf("[EMERGENCY_TOKEN:%s...%s]", token[:4], token[len(token)-4:])
+}
+
+// emergencyWriteTimeout bounds one Tier 2 response. Only the reset raises its own deadline (see the handler), so the
+// rest of the server keeps this bound. It is a variable so tests can shorten it.
+var emergencyWriteTimeout = 10 * time.Second
+
+// emergencyReadHeaderTimeout bounds how long a client may take to send request headers, so a stalled client cannot
+// hold a connection open.
+const emergencyReadHeaderTimeout = 5 * time.Second
+
+// newEmergencyHTTPServer builds the Tier 2 HTTP server with its connection timeouts.
+func newEmergencyHTTPServer(handler http.Handler) *http.Server {
+	return &http.Server{
+		Handler:           handler,
+		ReadHeaderTimeout: emergencyReadHeaderTimeout,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      emergencyWriteTimeout,
+		IdleTimeout:       30 * time.Second,
+	}
+}
+
+// isLoopbackBind reports whether a listen address accepts connections only from this host. An empty host (all
+// interfaces) and any unparsable address are not loopback.
+func isLoopbackBind(address string) bool {
+	host, _, err := net.SplitHostPort(address)
+	if err != nil {
+		return false
+	}
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback()
+}
+
+// warnIfBeyondLoopback logs a startup warning when the Tier 2 server listens beyond loopback. The server has no TLS
+// option, so such a bind relies on the operator's network controls. It reports whether it warned.
+func warnIfBeyondLoopback(address string) bool {
+	if isLoopbackBind(address) {
+		return false
+	}
+	logger.Log().WithField("address", util.SanitizeForLog(address)).Warn("Emergency server listens beyond loopback and serves plain HTTP; expose it only through a VPN or SSH tunnel")
+	return true
 }

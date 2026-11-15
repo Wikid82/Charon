@@ -2,6 +2,9 @@ package handlers
 
 import (
 	"context"
+	"errors"
+	"sort"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 
@@ -9,6 +12,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/services"
 )
 
 // enforcementReporter is implemented by the caddy manager. It returns the enforcement report of the last successful
@@ -126,6 +130,59 @@ func (h *SecurityHandler) GeoIPAlertSource() alerts.Source {
 		available := h.geoipSvc.Available()
 		return alerts.Alert{
 			Key:                alerts.KeyGeoIPUnavailable,
+			Severity:           models.NotificationTypeError,
+			AffectedLists:      lists[:min(len(lists), alerts.MaxAffectedLists)],
+			AffectedListsTotal: len(lists),
+			DatabaseAvailable:  &available,
+		}, true, nil
+	}
+}
+
+// managementCountryListsNotEnforced returns the sorted names of the enabled country lists chosen to protect Charon's
+// own interface that are not decided because no GeoIP database is usable. Like the proxy-host list, a country list is
+// not enforced then, so the interface admits the caller. It is empty while access control is off.
+func (h *SecurityHandler) managementCountryListsNotEnforced(aclEnabled bool) ([]string, error) {
+	if h.db == nil || !aclEnabled || h.geoipSvc.Available() {
+		return nil, nil
+	}
+	uuids, err := services.ManagementListUUIDs(h.db)
+	if err != nil {
+		return nil, err
+	}
+	accessSvc := services.NewAccessListService(h.db)
+	var names []string
+	for _, uuid := range uuids {
+		acl, err := accessSvc.GetByUUID(uuid)
+		if errors.Is(err, services.ErrAccessListNotFound) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		if acl.Enabled && strings.HasPrefix(acl.Type, "geo_") {
+			names = append(names, acl.Name)
+		}
+	}
+	sort.Strings(names)
+	return names, nil
+}
+
+// GeoIPManagementAlertSource returns the bell alert for country lists that protect Charon's own interface and are not
+// enforced because no GeoIP database is usable. It carries the "management" scope, so it is kept apart from the
+// proxy-host alert with the same key.
+func (h *SecurityHandler) GeoIPManagementAlertSource() alerts.Source {
+	return func(context.Context) (alerts.Alert, bool, error) {
+		lists, err := h.managementCountryListsNotEnforced(h.aclEnabledForAlerts())
+		if err != nil {
+			return alerts.Alert{}, false, err
+		}
+		if len(lists) == 0 {
+			return alerts.Alert{}, false, nil
+		}
+		available := h.geoipSvc.Available()
+		return alerts.Alert{
+			Key:                alerts.KeyGeoIPUnavailable,
+			Scope:              alerts.ScopeManagement,
 			Severity:           models.NotificationTypeError,
 			AffectedLists:      lists[:min(len(lists), alerts.MaxAffectedLists)],
 			AffectedListsTotal: len(lists),

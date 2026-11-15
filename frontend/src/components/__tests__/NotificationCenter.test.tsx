@@ -371,6 +371,31 @@ describe('NotificationCenter', () => {
       expect(region).toHaveTextContent('so 0 country list(s) () let every visitor')
     })
 
+    it('adds a passive note when the alert guards Charon\'s own interface', async () => {
+      const user = userEvent.setup()
+      vi.mocked(api.getNotifications).mockResolvedValue([])
+      vi.mocked(api.getActiveAlerts).mockResolvedValue([{ ...geoipAlert, scope: 'management' }])
+      render(<NotificationCenter />, { wrapper: createWrapper() })
+
+      await openBell(user)
+
+      const region = await screen.findByRole('region', { name: 'Needs attention' })
+      expect(region).toHaveTextContent("Charon's own interface is affected too")
+    })
+
+    it('adds no interface note for an alert without a scope', async () => {
+      const user = userEvent.setup()
+      vi.mocked(api.getNotifications).mockResolvedValue([])
+      vi.mocked(api.getActiveAlerts).mockResolvedValue([geoipAlert])
+      render(<NotificationCenter />, { wrapper: createWrapper() })
+
+      await openBell(user)
+
+      const region = await screen.findByRole('region', { name: 'Needs attention' })
+      expect(region).toHaveTextContent(GEOIP_MESSAGE)
+      expect(region).not.toHaveTextContent("Charon's own interface")
+    })
+
     it('does not render or count an alert with an unknown key and logs nothing', async () => {
       const user = userEvent.setup()
       const consoleSpies = [vi.spyOn(console, 'log'), vi.spyOn(console, 'warn'), vi.spyOn(console, 'error')]

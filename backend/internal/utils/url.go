@@ -6,7 +6,6 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -32,19 +31,6 @@ func GetConfiguredPublicURL(db *gorm.DB) (string, bool) {
 	}
 
 	return normalized, true
-}
-
-// GetPublicURL retrieves the configured public URL or falls back to request host.
-// This should be used for all user-facing URLs (emails, invite links).
-func GetPublicURL(db *gorm.DB, c *gin.Context) string {
-	var setting models.Setting
-	if err := db.Where("key = ?", PublicURLSettingKey).First(&setting).Error; err == nil {
-		if setting.Value != "" {
-			return strings.TrimSuffix(setting.Value, "/")
-		}
-	}
-	// Fallback to request-derived URL
-	return getBaseURL(c)
 }
 
 func normalizeConfiguredPublicURL(raw string) (string, error) {
@@ -110,20 +96,6 @@ func defaultPortForScheme(scheme string) string {
 	default:
 		return ""
 	}
-}
-
-// getBaseURL extracts the base URL from the request.
-func getBaseURL(c *gin.Context) string {
-	scheme := "https"
-	if c.Request.TLS == nil {
-		// Check for X-Forwarded-Proto header
-		if proto := c.GetHeader("X-Forwarded-Proto"); proto != "" {
-			scheme = proto
-		} else {
-			scheme = "http"
-		}
-	}
-	return scheme + "://" + c.Request.Host
 }
 
 // ValidateURL validates that a URL is properly formatted for use as an application URL.

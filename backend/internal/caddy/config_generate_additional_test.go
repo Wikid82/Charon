@@ -380,7 +380,8 @@ func TestGenerateConfig_CrowdSecHandlerFromSecCfg(t *testing.T) {
 	require.NotNil(t, server, "Server should be configured")
 	require.NotNil(t, server.TrustedProxies, "TrustedProxies should be configured at server level")
 	require.Equal(t, "static", server.TrustedProxies.Source, "TrustedProxies source should be 'static'")
-	require.Contains(t, server.TrustedProxies.Ranges, "172.16.0.0/12", "Should trust Docker networks")
+	require.Equal(t, []string{"127.0.0.1/32", "::1/128"}, server.TrustedProxies.Ranges, "without a configured list only loopback is trusted")
+	require.Equal(t, 1, server.TrustedProxiesStrict)
 
 	// Check handler is minimal
 	route := cfg.Apps.HTTP.Servers["charon_server"].Routes[0] // Main route

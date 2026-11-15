@@ -41,6 +41,8 @@ type Cerberus struct {
 	now func() time.Time
 	// rateLimitWarn caps per-episode WARN lines from the API limiter.
 	rateLimitWarn *ratelimit.WarnBudget
+	// managementWarn caps the WARN lines about management access lists that cannot be used.
+	managementWarn *ratelimit.WarnBudget
 }
 
 // New creates a new Cerberus instance
@@ -56,6 +58,7 @@ func New(cfg config.SecurityConfig, db *gorm.DB) *Cerberus {
 		now:               time.Now,
 	}
 	c.rateLimitWarn = ratelimit.NewWarnBudget(rateLimitWarnBurst, rateLimitWarnInterval, func() time.Time { return c.now() })
+	c.managementWarn = ratelimit.NewWarnBudget(rateLimitWarnBurst, rateLimitWarnInterval, func() time.Time { return c.now() })
 	return c
 }
 
@@ -111,6 +114,12 @@ func (c *Cerberus) InvalidateCache() {
 	c.settingsCacheMu.Unlock()
 }
 
+// SetGeoIPService gives the management access check the GeoIP service, so country lists on Charon's own interface are
+// decided with the same database as proxy hosts.
+func (c *Cerberus) SetGeoIPService(geoipSvc *services.GeoIPService) {
+	c.accessSvc.SetGeoIPService(geoipSvc)
+}
+
 // IsEnabled returns whether Cerberus features are enabled via config or settings.
 func (c *Cerberus) IsEnabled() bool {
 	// DB-backed break-glass disable must take effect even when static config defaults to enabled.
@@ -153,6 +162,16 @@ func (c *Cerberus) IsEnabled() bool {
 	return false
 }
 
+// orthrusConnectRoute is the agent WebSocket route. It is exempt from the management access lists.
+const orthrusConnectRoute = "/api/v1/ws/orthrus/connect"
+
+// warnManagement logs a management access problem, within the WARN budget.
+func (c *Cerberus) warnManagement(msg string, err error) {
+	if ok, suppressed := c.managementWarn.Take(); ok {
+		logger.Log().WithError(err).WithField("suppressed", suppressed).Warn(msg)
+	}
+}
+
 // Middleware returns a Gin middleware that enforces Cerberus checks when enabled.
 func (c *Cerberus) Middleware() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
@@ -187,62 +206,11 @@ func (c *Cerberus) Middleware() gin.HandlerFunc {
 		// Notifications are sent when Caddy middleware detects limit exceeded via webhook.
 		// No per-request tracking needed here (Blocker 1: Production runtime dispatch for rate limit hits).
 
-		// ACL: simple per-request evaluation against all access lists if enabled
-		// Check runtime setting first (from cache), then fall back to static config.
-		aclEnabled := c.cfg.ACLMode == "enabled"
-		if val, ok := c.getSetting(models.SecurityACLEnabledSettingKey); ok {
-			aclEnabled = strings.EqualFold(val, "true")
-		}
-
-		if aclEnabled {
-			clientIP := util.CanonicalizeIPForSecurity(ctx.ClientIP())
-			isAdmin := c.isAuthenticatedAdmin(ctx)
-			adminWhitelistConfigured := false
-			if isAdmin {
-				whitelisted, hasWhitelist := c.adminWhitelistStatus(clientIP)
-				adminWhitelistConfigured = hasWhitelist
-				if whitelisted {
-					ctx.Next()
-					return
-				}
-			}
-
-			acls, err := c.accessSvc.List()
-			if err == nil {
-				activeCount := 0
-				for _, acl := range acls {
-					if !acl.Enabled {
-						continue
-					}
-					activeCount++
-					allowed, _, err := c.accessSvc.TestIP(acl.ID, clientIP)
-					if err == nil && !allowed {
-						// Send security notification via appropriate dispatch path
-						_ = c.sendSecurityNotification(context.Background(), models.SecurityEvent{
-							EventType: "acl_deny",
-							Severity:  "warn",
-							Message:   "Access control list blocked request",
-							ClientIP:  clientIP,
-							Path:      ctx.Request.URL.Path,
-							Timestamp: time.Now(),
-							Metadata: map[string]any{
-								"acl_name": acl.Name,
-								"acl_id":   acl.ID,
-							},
-						})
-
-						ctx.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Blocked by access control list"})
-						return
-					}
-				}
-				if activeCount == 0 {
-					if isAdmin && !adminWhitelistConfigured {
-						ctx.Next()
-						return
-					}
-					ctx.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Blocked by access control list"})
-					return
-				}
+		// Access lists protecting Charon's own interface. Proxy-host lists never apply here. The Orthrus agent route is
+		// exempt: agents authenticate with their own key and connect from remote hosts by design.
+		if services.ACLEnabled(c.getSetting, c.cfg) && ctx.FullPath() != orthrusConnectRoute {
+			if !c.managementAllows(ctx) {
+				return
 			}
 		}
 
@@ -273,6 +241,7 @@ func (c *Cerberus) NotifySecurityEvent(ctx *gin.Context, event models.SecurityEv
 	return c.sendSecurityNotification(ctx.Request.Context(), event)
 }
 
+// isAuthenticatedAdmin reports whether the caller is an authenticated administrator with an ID.
 func (c *Cerberus) isAuthenticatedAdmin(ctx *gin.Context) bool {
 	if middleware.CallerRole(ctx) != string(models.RoleAdmin) {
 		return false
@@ -281,20 +250,54 @@ func (c *Cerberus) isAuthenticatedAdmin(ctx *gin.Context) bool {
 	return ok && id > 0
 }
 
-func (c *Cerberus) adminWhitelistStatus(clientIP string) (allowed, configured bool) {
-	if c.db == nil {
-		return false, false
-	}
-
-	sc, err := models.FindDefaultSecurityConfig(c.db)
+// managementAllows judges the caller against the access lists chosen to protect Charon's own interface. It answers
+// 403 and returns false when a listed, enabled list refuses the caller, or when the stored choice cannot be read or
+// used: a set that cannot be read must not leave the interface open.
+func (c *Cerberus) managementAllows(ctx *gin.Context) bool {
+	uuids, err := services.ParseManagementListUUIDs(c.settingValue(securitypkg.ManagementListsSettingKey))
 	if err != nil {
-		return false, false
+		c.warnManagement("Management access list choice cannot be read; refusing the request", err)
+		ctx.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Blocked by access control list"})
+		return false
 	}
-	if strings.TrimSpace(sc.AdminWhitelist) == "" {
-		return false, false
+	if len(uuids) == 0 {
+		return true
 	}
 
-	return securitypkg.IsIPInCIDRList(clientIP, sc.AdminWhitelist), true
+	clientIP := util.CanonicalizeIPForSecurity(ctx.ClientIP())
+	verdict, err := c.accessSvc.EvaluateManagement(uuids, clientIP, c.accessSvc.AdminWhitelistRanges(), nil)
+	if err != nil {
+		c.warnManagement("Management access list cannot be used; refusing the request", err)
+		ctx.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Blocked by access control list"})
+		return false
+	}
+	for _, name := range verdict.Skipped {
+		c.warnManagement("Management access list not applied", errors.New(name))
+	}
+	if verdict.Allowed {
+		return true
+	}
+
+	_ = c.sendSecurityNotification(context.Background(), models.SecurityEvent{
+		EventType: "acl_deny",
+		Severity:  "warn",
+		Message:   "Access control list blocked request",
+		ClientIP:  clientIP,
+		Path:      ctx.Request.URL.Path,
+		Timestamp: time.Now(),
+		Metadata: map[string]any{
+			"acl_name": verdict.Refused.Name,
+			"acl_id":   verdict.Refused.ID,
+		},
+	})
+	ctx.AbortWithStatusJSON(http.StatusForbidden, gin.H{"error": "Blocked by access control list"})
+	return false
+}
+
+// settingValue returns the cached value of a security setting, or "" when it is absent.
+func (c *Cerberus) settingValue(key string) string {
+	val, _ := c.getSetting(key)
+	return val
 }
 
 // sendSecurityNotification dispatches a security event notification.

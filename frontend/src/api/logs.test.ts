@@ -341,6 +341,17 @@ describe('connectSecurityLogs', () => {
     expect(onClose).toHaveBeenCalled()
   })
 
+  it('passes the close event to onClose so a stream-limit close can be recognised', () => {
+    const onClose = vi.fn()
+    connectSecurityLogs({}, () => {}, undefined, undefined, onClose)
+
+    const socket = MockWebSocket.instances[MockWebSocket.instances.length - 1]!
+    const closeEvent = new CloseEvent('close', { code: 1013, reason: 'stream_limit_reached' })
+    socket.onclose?.(closeEvent)
+
+    expect(onClose).toHaveBeenCalledWith(closeEvent)
+  })
+
   it('returns disconnect function that closes websocket', () => {
     const disconnect = connectSecurityLogs({}, () => {})
 

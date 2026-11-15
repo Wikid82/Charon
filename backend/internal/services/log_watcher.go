@@ -234,7 +234,8 @@ func (w *LogWatcher) ParseLogEntry(line string) *models.SecurityLogEntry {
 		Timestamp: timestamp.Format(time.RFC3339),
 		Level:     caddyLog.Level,
 		Logger:    caddyLog.Logger,
-		ClientIP:  caddyLog.Request.RemoteIP,
+		ClientIP:  visitorAddress(caddyLog.Request.ClientIP, caddyLog.Request.RemoteIP),
+		RemoteIP:  caddyLog.Request.RemoteIP,
 		Method:    caddyLog.Request.Method,
 		URI:       stripQueryToken(caddyLog.Request.URI),
 		Status:    caddyLog.Status,
@@ -403,4 +404,13 @@ func stripQueryToken(uri string) string {
 		return path
 	}
 	return path + "?" + query.Encode()
+}
+
+// visitorAddress returns the client address Caddy decided on (client_ip). Older or partial log lines carry only the
+// connection address (remote_ip), which is then the best available value.
+func visitorAddress(clientIP, remoteIP string) string {
+	if clientIP != "" {
+		return clientIP
+	}
+	return remoteIP
 }

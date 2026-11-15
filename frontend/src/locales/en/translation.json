@@ -378,7 +378,14 @@
     "tooManyRequestsSeconds": "Too many attempts. Please wait {{count}} seconds and try again.",
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again."
+    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
+    "streamLimitReached": "Too many live connections are open for your account. Close another live view, then try again.",
+    "trustedProxyInvalid": "\"{{entry}}\" is not an IP address or CIDR range.",
+    "trustedProxyTooBroad": "\"{{entry}}\" covers too wide a range. IPv4 ranges must be /8 or narrower, and IPv6 ranges /24 or narrower.",
+    "trustedProxiesTooMany": "The trusted proxy list holds at most 64 entries.",
+    "managementListUnknown": "One of the chosen access lists no longer exists. Reload the page and choose again.",
+    "managementAccessWouldLockOut": "This would lock you out of Charon. Add your address to the admin allow-list first, or choose a list that allows you.",
+    "accessListInvalid": "This access list cannot protect Charon's own interface. Check its rules, then try again."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -408,7 +415,8 @@
         "messagePendingApply": "The GeoIP database is available again, but {{count}} country list(s) ({{lists}}) are not enforced yet. Press Reload on the Country database card.",
         "docsLink": "How to provide the database",
         "issueHint": "Charon normally includes this database. Please open a GitHub issue so we can fix it.",
-        "issueLink": "Open an issue"
+        "issueLink": "Open an issue",
+        "managementScope": "Charon's own interface is affected too: its country access lists are not enforced either."
       }
     }
   },
@@ -714,6 +722,25 @@
         "proxy_apply_failed": "Charon could not apply the proxy configuration.",
         "generic": "Something went wrong. Try again."
       }
+    },
+    "trustedProxies": {
+      "title": "Trusted proxies",
+      "description": "Charon uses a visitor's address from a proxy only when that proxy is listed here. Loopback is always trusted.",
+      "fieldLabel": "Trusted proxies",
+      "fieldHint": "One IP address or CIDR range per line. Leave it empty to trust loopback only.",
+      "alwaysTrusted": "Always trusted: {{entries}}",
+      "apiLayerNote": "Charon's own port trusts the proxies set by CHARON_TRUSTED_PROXIES on the server: {{entries}}. Change them there.",
+      "apiLayerNone": "none",
+      "sourceSetting": "Using the list saved here.",
+      "sourceEnvironment": "Using CHARON_TRUSTED_PROXIES from the environment until you save a list here.",
+      "sourceDefault": "Using the default, loopback only, until you save a list here.",
+      "droppedEntries": "Ignored from CHARON_TRUSTED_PROXIES because they are invalid or too broad: {{entries}}",
+      "saved": "Trusted proxies saved.",
+      "saveFailed": "The trusted proxy list could not be saved.",
+      "reset": "Reset to default",
+      "resetDone": "Saved list cleared. The environment list or the default applies now.",
+      "loadError": "The trusted proxy list could not be loaded.",
+      "docsLink": "How to set trusted proxies"
     }
   },
   "accessLists": {
@@ -748,7 +775,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "An enabled allow-list needs at least one rule. Add a rule, or turn the list off, then save again."
+      "access_list_rules_required": "An enabled allow-list needs at least one rule. Add a rule, or turn the list off, then save again.",
+      "access_list_in_use": "This access list is used by Charon's own interface, so it cannot be deleted. Choose another list for Charon's interface first, then try again."
+    },
+    "managementAccess": {
+      "title": "Management access",
+      "description": "Choose the access lists that protect Charon's own interface, the part you use to manage it. Access lists on proxy hosts do not apply here.",
+      "fieldsetLabel": "Access lists for Charon's own interface",
+      "noLists": "No access lists exist yet. Create one first, then choose it here.",
+      "notRestricted": "Not restricted",
+      "notRestrictedHint": "Charon's own interface is open to any visitor who can reach it. Choose a list to limit it.",
+      "restricted": "Only visitors allowed by the chosen lists can use Charon's own interface.",
+      "notApplied": "Not applied while access control is off or no chosen list is enabled.",
+      "saved": "Management access saved.",
+      "saveFailed": "The management access choice could not be saved.",
+      "loadError": "Management access could not be loaded."
     }
   },
   "rateLimiting": {

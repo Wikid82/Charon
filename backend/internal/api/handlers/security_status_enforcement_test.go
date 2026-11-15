@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -13,6 +14,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/alerts"
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -203,3 +205,50 @@ func TestEnforcementStatus_ReasonInResponse(t *testing.T) {
 	assert.True(t, has)
 	assert.Equal(t, caddy.ReasonGeoIPUnavailable, reason)
 }
+
+// TestGeoIPManagementAlert_ScopedAndSeparateFromProxyAlert: with no usable GeoIP database and access control on, an enabled
+// country list chosen for Charon's own interface raises an alert scoped "management", and a proxy-host country list raises
+// the unscoped alert. Each has the same key, and both are kept.
+func TestGeoIPManagementAlert_ScopedAndSeparateFromProxyAlert(t *testing.T) {
+	db := aclGuardDB(t, nil)
+	require.NoError(t, db.Create(&models.SecurityConfig{Name: models.DefaultSecurityConfigName, Enabled: true}).Error)
+	require.NoError(t, db.Create(&models.Setting{Key: models.SecurityACLEnabledSettingKey, Value: "true", Category: "security", Type: "bool"}).Error)
+	require.NoError(t, db.Create(&models.AccessList{UUID: "mgmt-geo", Name: "office-country", Type: "geo_blacklist", CountryCodes: "RU", Enabled: true}).Error)
+	require.NoError(t, db.Create(&models.Setting{Key: "security.acl.management_lists", Value: `["mgmt-geo"]`, Category: "security", Type: "json"}).Error)
+	require.NoError(t, db.Create(&models.AccessList{UUID: "site-geo", Name: "site-country", Type: "geo_whitelist", CountryCodes: "DE", Enabled: true}).Error)
+	require.NoError(t, db.Create(&models.ProxyHost{UUID: "host-1", DomainNames: "site.example.com", ForwardHost: "app", ForwardPort: 80, Enabled: true, AccessListID: ptrUint(2)}).Error)
+
+	h := NewSecurityHandler(config.SecurityConfig{ACLMode: "enabled"}, db, nil)
+	t.Cleanup(h.Close)
+
+	mgmt, ok, err := h.GeoIPManagementAlertSource()(context.Background())
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Equal(t, alerts.KeyGeoIPUnavailable, mgmt.Key)
+	assert.Equal(t, "management", mgmt.Scope)
+	assert.Equal(t, []string{"office-country"}, mgmt.AffectedLists)
+
+	proxy, ok, err := h.GeoIPAlertSource()(context.Background())
+	require.NoError(t, err)
+	require.True(t, ok)
+	assert.Empty(t, proxy.Scope, "the proxy-host alert keeps the unscoped contract")
+	assert.Equal(t, []string{"site-country"}, proxy.AffectedLists)
+
+	active := alerts.NewService(h.GeoIPAlertSource(), h.GeoIPManagementAlertSource()).Active(context.Background())
+	require.Len(t, active, 2, "same key, different scope: both are kept")
+}
+
+func TestGeoIPManagementAlert_QuietWhenNotApplicable(t *testing.T) {
+	db := aclGuardDB(t, nil)
+	require.NoError(t, db.Create(&models.AccessList{UUID: "mgmt-geo", Name: "office-country", Type: "geo_blacklist", CountryCodes: "RU", Enabled: true}).Error)
+	require.NoError(t, db.Create(&models.Setting{Key: "security.acl.management_lists", Value: `["mgmt-geo"]`, Category: "security", Type: "json"}).Error)
+	h := NewSecurityHandler(config.SecurityConfig{}, db, nil)
+	t.Cleanup(h.Close)
+
+	_, ok, err := h.GeoIPManagementAlertSource()(context.Background())
+	require.NoError(t, err)
+	assert.False(t, ok, "access control off: nothing is enforced, so nothing is unenforced")
+
+}
+
+func ptrUint(v uint) *uint { return &v }
