@@ -91,7 +91,16 @@ export const testRemoteServerConnection = async (uuid: string): Promise<{ addres
  * @returns Promise resolving to connection result with reachable status
  * @throws {AxiosError} If request fails
  */
-export const testCustomRemoteServerConnection = async (host: string, port: number): Promise<{ address: string; reachable: boolean; error?: string }> => {
-  const { data } = await client.post<{ address: string; reachable: boolean; error?: string }>('/remote-servers/test', { host, port });
+export interface CustomRemoteServerConnectionResult {
+  address: string;
+  reachable: boolean;
+  /** Round-trip time of the TCP dial in milliseconds, present when reachable. */
+  latency_ms?: number;
+  /** Fixed text from the server when the target is not reachable. */
+  error?: string;
+}
+
+export const testCustomRemoteServerConnection = async (host: string, port: number): Promise<CustomRemoteServerConnectionResult> => {
+  const { data } = await client.post<CustomRemoteServerConnectionResult>('/remote-servers/test', { host, port });
   return data;
 };

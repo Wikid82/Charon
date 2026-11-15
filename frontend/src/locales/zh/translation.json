@@ -182,7 +182,9 @@
     "bulkApplySecurityHeaders": "安全标头配置文件",
     "bulkApplySecurityHeadersHelp": "将安全标头配置文件应用于所有选定的主机",
     "noSecurityProfile": "无（移除配置文件）",
-    "removeSecurityHeadersWarning": "这将从所有选定的主机中移除安全标头配置文件，可能降低其安全态势。"
+    "removeSecurityHeadersWarning": "这将从所有选定的主机中移除安全标头配置文件，可能降低其安全态势。",
+    "notInActiveConfig": "不在当前生效的配置中",
+    "notInActiveConfigHint": "其转发目标不被允许，需要使用其他地址。"
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -385,7 +387,10 @@
     "trustedProxiesTooMany": "受信任的代理列表最多只能包含 64 个条目。",
     "managementListUnknown": "所选的某个访问列表已不存在。请刷新页面后重新选择。",
     "managementAccessWouldLockOut": "这样会把您锁在 Charon 之外。请先把您的地址加入管理员允许列表，或选择一个允许您访问的列表。",
-    "accessListInvalid": "此访问列表无法保护 Charon 自身的管理界面。请检查其规则后重试。"
+    "accessListInvalid": "此访问列表无法保护 Charon 自身的管理界面。请检查其规则后重试。",
+    "forwardTargetRefused": "此转发目标不被允许。",
+    "destinationRefused": "此目标不被允许。",
+    "connectionTestFailed": "无法连接到目标。"
   },
   "notifications": {
     "saveSuccess": "更改已成功保存",
@@ -978,7 +983,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "{{ms}} 毫秒内可达"
   },
   "notificationProviders": {
     "title": "通知提供商",

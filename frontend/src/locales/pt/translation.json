@@ -177,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Não está na configuração ativa",
+    "notInActiveConfigHint": "O destino de encaminhamento não é permitido e precisa de outro endereço."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -380,7 +382,10 @@
     "trustedProxiesTooMany": "A lista de proxies confiáveis tem no máximo 64 entradas.",
     "managementListUnknown": "Uma das listas de acesso escolhidas já não existe. Recarregue a página e escolha novamente.",
     "managementAccessWouldLockOut": "Isto bloquearia o seu acesso ao Charon. Adicione primeiro o seu endereço à lista de permitidos do administrador, ou escolha uma lista que o permita.",
-    "accessListInvalid": "Esta lista de acesso não pode proteger a interface própria do Charon. Verifique as regras e tente novamente."
+    "accessListInvalid": "Esta lista de acesso não pode proteger a interface própria do Charon. Verifique as regras e tente novamente.",
+    "forwardTargetRefused": "Este destino de encaminhamento não é permitido.",
+    "destinationRefused": "Este destino não é permitido.",
+    "connectionTestFailed": "Não foi possível ligar ao destino."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -939,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Acessível em {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Notification Providers",

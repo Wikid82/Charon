@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"github.com/Wikid82/charon/backend/internal/services"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -325,4 +326,12 @@ func TestImportCommit_OverwriteMatchesOverlappingExistingHost(t *testing.T) {
 		resp := uploadThenOverwriteCommit(t, router, "/api/v1/import/json/upload", "/api/v1/import/json/commit", string(charonContent), "target.example.com")
 		assertOverwritten(t, db, orig, resp)
 	})
+}
+
+func (f failingListProxyHostSvc) CreateImported(_ *services.ImportNameBudget, host *models.ProxyHost) error {
+	return f.Create(host)
+}
+
+func (f failingListProxyHostSvc) UpdateImported(_ *services.ImportNameBudget, host *models.ProxyHost) error {
+	return f.Update(host)
 }

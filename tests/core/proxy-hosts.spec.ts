@@ -16,7 +16,29 @@ import { waitForLoadingComplete, waitForDialog, waitForDebounce } from '../utils
 import { clickSwitch } from '../utils/ui-helpers';
 import { generateProxyHost } from '../fixtures/proxy-hosts';
 import { getProxyHostsViaAPI, type ProxyHostResponse } from '../utils/api-helpers';
+import { execInContainer, findE2EContainer } from '../utils/container-exec';
 import type { Page, Request } from '@playwright/test';
+
+/** Database file inside the E2E container (CHARON_DB_PATH in the compose files). */
+const CONTAINER_DB_PATH = '/app/data/charon.db';
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Stores a forward target directly in the E2E container's database, bypassing the API. The API refuses a refused
+ * target on save, so this is the only way to reach a host that the apply leaves out. The UUID is checked before it is
+ * placed in SQL, and the sqlite3 CLI runs as the application user so the WAL files keep their owner.
+ */
+function storeForwardTargetInDatabase(uuid: string, forwardHost: string): void {
+  if (!UUID_PATTERN.test(uuid)) {
+    throw new Error(`Refusing to update a host with an unexpected uuid: ${uuid}`);
+  }
+  const sql = `PRAGMA busy_timeout = 5000; UPDATE proxy_hosts SET forward_host = '${forwardHost}' WHERE uuid = '${uuid}'; SELECT changes();`;
+  const output = execInContainer(findE2EContainer(), ['sqlite3', CONTAINER_DB_PATH, sql], { user: 'charon' });
+  const changed = output.trim().split('\n').at(-1);
+  if (changed !== '1') {
+    throw new Error(`Expected one proxy host row to change for ${uuid}, sqlite3 reported: ${output.trim()}`);
+  }
+}
 
 /**
  * Helper to dismiss the "New Base Domain Detected" dialog if it appears.
@@ -1155,5 +1177,206 @@ test.describe('Proxy Hosts - CRUD Operations', () => {
         await expect(containersSelect).toBeDisabled();
       });
     });
+  });
+});
+
+/**
+ * Destination policy in the proxy host form: refused forward targets give one fixed text on save and on the
+ * connection test, allowed LAN-style targets still save, and a host the active configuration left out carries a
+ * passive note. Every host created here is removed by UUID in afterEach.
+ */
+test.describe('Proxy Hosts - destination policy', () => {
+  const FORWARD_TARGET_TEXT = 'This forward target is not allowed.';
+  const CONNECTION_FAILED_TEXT = 'Could not connect to the target.';
+  const LEFT_OUT_TEXT = 'Not in the active configuration';
+  const LEFT_OUT_HINT = 'Its forward target is not allowed and needs another address.';
+
+  let domainCounter = 0;
+  const createdUuids: string[] = [];
+
+  function uniqueDomain(): string {
+    domainCounter += 1;
+    return `destination-policy-${Date.now()}-${domainCounter}.example.test`;
+  }
+
+  async function createHostViaAPI(page: Page, domain: string, forwardHost: string, forwardPort: number): Promise<string> {
+    const response = await page.request.post('/api/v1/proxy-hosts', {
+      data: { domain_names: domain, forward_host: forwardHost, forward_port: forwardPort, forward_scheme: 'http', enabled: true },
+    });
+    expect(response.status(), `seed proxy host ${domain}`).toBe(201);
+    const uuid = String((await response.json()).uuid);
+    createdUuids.push(uuid);
+    return uuid;
+  }
+
+  async function fillCreateForm(page: Page, name: string, domain: string, forwardHost: string, forwardPort: number): Promise<void> {
+    await page.getByRole('button', { name: /add.*proxy.*host/i }).first().click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+    await page.locator('#proxy-name').fill(name);
+    await page.locator('#domain-names').click();
+    await page.keyboard.type(domain);
+    await page.keyboard.press('Tab');
+    await dismissDomainDialog(page);
+    await page.locator('#forward-host').fill(forwardHost);
+    await page.locator('#forward-port').clear();
+    await page.locator('#forward-port').fill(String(forwardPort));
+  }
+
+  test.beforeEach(async ({ page, adminUser }) => {
+    await loginUser(page, adminUser);
+    await page.goto('/proxy-hosts');
+    await waitForLoadingComplete(page);
+  });
+
+  test.afterEach(async ({ page }) => {
+    for (const uuid of createdUuids.splice(0)) {
+      await page.request.delete(`/api/v1/proxy-hosts/${uuid}`);
+    }
+  });
+
+  test('Refused forward target on save shows the fixed text in the form and stores nothing', async ({ page }) => {
+    const domain = uniqueDomain();
+
+    await test.step('Fill the form with a link-local target', async () => {
+      await fillCreateForm(page, 'Refused link-local target', domain, '169.254.169.254', 80);
+    });
+
+    await test.step('Save shows the refusal inside the form', async () => {
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await dismissDomainDialog(page);
+      await expect(page.getByRole('dialog').getByText(FORWARD_TARGET_TEXT)).toBeVisible();
+      await expect(page.getByRole('dialog')).toBeVisible();
+    });
+
+    await test.step('The API has no host for the refused domain', async () => {
+      const response = await page.request.get('/api/v1/proxy-hosts');
+      const hosts = (await response.json()) as Array<{ domain_names: string }>;
+      expect(hosts.some((host) => host.domain_names === domain)).toBe(false);
+    });
+  });
+
+  test('Refused forward target on the connection test shows the fixed text under Test Connection', async ({ page }) => {
+    await page.getByRole('button', { name: /add.*proxy.*host/i }).first().click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+
+    await page.locator('#forward-host').fill('169.254.169.254');
+    await page.locator('#forward-port').clear();
+    await page.locator('#forward-port').fill('80');
+    await page.getByRole('button', { name: /test.*connection/i }).click();
+
+    await expect(page.getByTestId('proxy-host-test-message')).toHaveText(FORWARD_TARGET_TEXT);
+  });
+
+  test('Connection test to a closed loopback port shows the plain failure text', async ({ page }) => {
+    await page.getByRole('button', { name: /add.*proxy.*host/i }).first().click();
+    await expect(page.getByRole('dialog')).toBeVisible();
+
+    await page.locator('#forward-host').fill('127.0.0.1');
+    await page.locator('#forward-port').clear();
+    await page.locator('#forward-port').fill('1');
+    await page.getByRole('button', { name: /test.*connection/i }).click();
+
+    await expect(page.getByTestId('proxy-host-test-message')).toHaveText(CONNECTION_FAILED_TEXT);
+  });
+
+  test('LAN-style forward target still saves from the form', async ({ page }) => {
+    const domain = uniqueDomain();
+
+    await test.step('Fill the form with an RFC 1918 target and save', async () => {
+      await fillCreateForm(page, 'LAN target host', domain, '192.168.1.50', 8080);
+      await page.getByRole('button', { name: 'Save', exact: true }).click();
+      await dismissDomainDialog(page);
+      await expect(page.getByRole('dialog')).toBeHidden({ timeout: 10000 });
+    });
+
+    await test.step('The stored host keeps the LAN target and is tracked for cleanup', async () => {
+      const hosts = (await (await page.request.get('/api/v1/proxy-hosts')).json()) as Array<{
+        uuid: string;
+        domain_names: string;
+        forward_host: string;
+      }>;
+      const saved = hosts.find((host) => host.domain_names === domain);
+      expect(saved?.forward_host).toBe('192.168.1.50');
+      if (saved) createdUuids.push(saved.uuid);
+    });
+  });
+
+  test('Host left out of the active configuration is flagged by the real API and shown to admins and standard users', async ({
+    page,
+    adminUser,
+    regularUser,
+  }) => {
+    const leftOutDomain = uniqueDomain();
+    const healthyDomain = uniqueDomain();
+    // Refused by the destination policy when the configuration is applied (link-local address).
+    const REFUSED_TARGET = '169.254.169.254';
+    let leftOutUuid = '';
+    let healthyUuid = '';
+
+    try {
+      await test.step('Create a normal host through the API', async () => {
+        leftOutUuid = await createHostViaAPI(page, leftOutDomain, '192.168.1.60', 8080);
+      });
+
+      await test.step('Store the refused target in the database, then save a healthy host to apply', async () => {
+        storeForwardTargetInDatabase(leftOutUuid, REFUSED_TARGET);
+        // Creating a host runs a configuration apply, which drops the host with the refused target.
+        healthyUuid = await createHostViaAPI(page, healthyDomain, '192.168.1.70', 8080);
+      });
+
+      await test.step('As admin, the API flags the left-out host and leaves the healthy host unflagged', async () => {
+        await expect
+          .poll(async () => {
+            const response = await page.request.get(`/api/v1/proxy-hosts/${leftOutUuid}`);
+            return ((await response.json()) as { active_config?: boolean }).active_config;
+          })
+          .toBe(false);
+
+        const listed = (await (await page.request.get('/api/v1/proxy-hosts')).json()) as Array<
+          Record<string, unknown>
+        >;
+        const leftOut = listed.find((host) => host.uuid === leftOutUuid);
+        const healthy = listed.find((host) => host.uuid === healthyUuid);
+        expect(leftOut?.active_config).toBe(false);
+        expect(healthy).toBeDefined();
+        expect(healthy).not.toHaveProperty('active_config');
+      });
+
+      await test.step('As admin, the list shows the passive note on the left-out row only', async () => {
+        await page.reload();
+        await waitForLoadingComplete(page);
+
+        const leftOutRow = page.locator('tbody tr').filter({ hasText: leftOutDomain });
+        const note = leftOutRow.getByTestId('proxy-host-not-in-active-config');
+        await expect(note).toHaveText(LEFT_OUT_TEXT);
+        await note.hover();
+        await expect(page.getByRole('tooltip')).toHaveText(LEFT_OUT_HINT);
+
+        await expect(page.locator('tbody tr').filter({ hasText: healthyDomain }).getByTestId('proxy-host-not-in-active-config')).toHaveCount(0);
+      });
+
+      await test.step('As a standard user, the API flags the left-out host and the list shows the note', async () => {
+        await loginUser(page, regularUser);
+
+        const detail = await page.request.get(`/api/v1/proxy-hosts/${leftOutUuid}`);
+        const body = (await detail.json()) as Record<string, unknown>;
+        // The redacted view is the standard-user response, so this confirms the request ran as the standard user.
+        expect(body).toHaveProperty('has_advanced_config');
+        expect(body.active_config).toBe(false);
+
+        await page.goto('/proxy-hosts');
+        await waitForLoadingComplete(page);
+        const leftOutRow = page.locator('tbody tr').filter({ hasText: leftOutDomain });
+        await expect(leftOutRow.getByTestId('proxy-host-not-in-active-config')).toHaveText(LEFT_OUT_TEXT);
+      });
+    } finally {
+      // Delete by UUID as admin: standard users cannot change proxy hosts.
+      await loginUser(page, adminUser);
+      for (const uuid of [leftOutUuid, healthyUuid]) {
+        if (uuid) {
+          await page.request.delete(`/api/v1/proxy-hosts/${uuid}`);
+        }
+      }
+    }
   });
 });

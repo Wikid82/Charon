@@ -238,7 +238,7 @@ func (s *UptimeService) SyncMonitors() error {
 			scheme = "https"
 		}
 		publicURL := fmt.Sprintf("%s://%s", scheme, firstDomain)
-		internalURL := fmt.Sprintf("%s:%d", host.ForwardHost, host.ForwardPort)
+		internalURL := net.JoinHostPort(host.ForwardHost, strconv.Itoa(host.ForwardPort))
 
 		// The upstream host for grouping is the ForwardHost
 		upstreamHost := host.ForwardHost
@@ -326,11 +326,11 @@ func (s *UptimeService) SyncMonitors() error {
 		err := s.DB.Where("remote_server_id = ?", server.ID).First(&monitor).Error
 
 		targetType := "tcp"
-		targetURL := fmt.Sprintf("%s:%d", server.Host, server.Port)
+		targetURL := net.JoinHostPort(server.Host, strconv.Itoa(server.Port))
 
 		if server.Scheme == "http" || server.Scheme == "https" {
 			targetType = server.Scheme
-			targetURL = fmt.Sprintf("%s://%s:%d", server.Scheme, server.Host, server.Port)
+			targetURL = server.Scheme + "://" + net.JoinHostPort(server.Host, strconv.Itoa(server.Port))
 		}
 
 		// The upstream host for grouping
@@ -704,7 +704,7 @@ func (s *UptimeService) checkHost(ctx context.Context, host *models.UptimeHost) 
 
 		attempted = true
 		addr := net.JoinHostPort(host.Host, port) // net.JoinHostPort for IPv6 compatibility
-		dialer := net.Dialer{Timeout: dialTimeout}
+		dialer := NewProbeDialer(s.DB, dialTimeout)
 		conn, err := dialer.DialContext(ctx, "tcp", addr)
 		if err == nil {
 			if closeErr := conn.Close(); closeErr != nil {
@@ -715,7 +715,7 @@ func (s *UptimeService) checkHost(ctx context.Context, host *models.UptimeHost) 
 			break
 		}
 		lastErr = err
-		msg = fmt.Sprintf("TCP check failed: %v", err)
+		msg = probeErrorMessage(err, "TCP check failed: ")
 	}
 
 	// If every monitor for this host is Orthrus-type, there are no dialable ports.
@@ -1212,26 +1212,25 @@ func (s *UptimeService) ListMonitors() ([]models.UptimeMonitor, error) {
 
 // CreateMonitor creates a new uptime monitor with the given parameters
 func (s *UptimeService) CreateMonitor(name, urlStr, monitorType string, interval, maxRetries int) (*models.UptimeMonitor, error) {
-	// Validate URL format
-	parsedURL, err := url.Parse(urlStr)
-	if err != nil {
-		return nil, fmt.Errorf("invalid URL format: %w", err)
-	}
-
-	// For HTTP/HTTPS, ensure the scheme is present
-	if monitorType == "http" || monitorType == "https" {
-		if parsedURL.Scheme == "" {
-			return nil, errors.New("URL must include scheme (http:// or https://)")
-		}
-		if parsedURL.Host == "" {
-			return nil, errors.New("URL must include host")
-		}
-	}
-
-	// For TCP, validate host:port format
+	// A TCP monitor is host:port, optionally written with the tcp:// prefix. It is
+	// not a URL, so only HTTP and HTTPS monitors go through URL parsing.
 	if monitorType == "tcp" {
-		if _, _, err := net.SplitHostPort(urlStr); err != nil {
-			return nil, fmt.Errorf("TCP URL must be in host:port format: %w", err)
+		if _, _, err := monitorDestination(monitorType, urlStr); err != nil {
+			return nil, err
+		}
+	} else {
+		parsedURL, err := url.Parse(urlStr)
+		if err != nil {
+			return nil, invalidMonitorInput("invalid URL format: " + err.Error())
+		}
+		// For HTTP/HTTPS, ensure the scheme is present
+		if monitorType == "http" || monitorType == "https" {
+			if parsedURL.Scheme == "" {
+				return nil, invalidMonitorInput("URL must include scheme (http:// or https://)")
+			}
+			if parsedURL.Host == "" {
+				return nil, invalidMonitorInput("URL must include host")
+			}
 		}
 	}
 
@@ -1241,6 +1240,12 @@ func (s *UptimeService) CreateMonitor(name, urlStr, monitorType string, interval
 	interval = clampInterval(interval, s.uptimeCfg)
 	if maxRetries <= 0 {
 		maxRetries = 3 // Default 3 retries
+	}
+
+	// The destination must pass the probe policy, so an address that can never be
+	// checked is refused now instead of reporting down later.
+	if err := checkMonitorDestination(s.DB, monitorType, urlStr); err != nil {
+		return nil, err
 	}
 
 	monitor := &models.UptimeMonitor{
@@ -1631,9 +1636,9 @@ func remoteServerMonitorTarget(server models.RemoteServer) (monitorType, monitor
 		return "orthrus", *server.OrthrusAgentUUID, true
 	}
 	if server.Scheme == "http" || server.Scheme == "https" {
-		return server.Scheme, fmt.Sprintf("%s://%s:%d", server.Scheme, server.Host, server.Port), true
+		return server.Scheme, server.Scheme + "://" + net.JoinHostPort(server.Host, strconv.Itoa(server.Port)), true
 	}
-	return "tcp", fmt.Sprintf("%s:%d", server.Host, server.Port), true
+	return "tcp", net.JoinHostPort(server.Host, strconv.Itoa(server.Port)), true
 }
 
 // createMonitorWithRetry creates an UptimeMonitor row, retrying with backoff

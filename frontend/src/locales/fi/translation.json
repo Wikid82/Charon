@@ -177,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Ei ole aktiivisessa määrityksessä",
+    "notInActiveConfigHint": "Sen välityskohde ei ole sallittu, ja se tarvitsee toisen osoitteen."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -380,7 +382,10 @@
     "trustedProxiesTooMany": "Luotettujen välityspalvelimien listassa voi olla enintään 64 merkintää.",
     "managementListUnknown": "Yksi valituista käyttöoikeuslistoista ei ole enää olemassa. Lataa sivu uudelleen ja valitse uudelleen.",
     "managementAccessWouldLockOut": "Tämä sulkisi sinut Charonin ulkopuolelle. Lisää ensin osoitteesi ylläpitäjän sallittuihin, tai valitse lista, joka sallii sinut.",
-    "accessListInvalid": "Tämä käyttöoikeuslista ei voi suojata Charonin omaa käyttöliittymää. Tarkista sen säännöt ja yritä uudelleen."
+    "accessListInvalid": "Tämä käyttöoikeuslista ei voi suojata Charonin omaa käyttöliittymää. Tarkista sen säännöt ja yritä uudelleen.",
+    "forwardTargetRefused": "Tämä välityskohde ei ole sallittu.",
+    "destinationRefused": "Tämä kohde ei ole sallittu.",
+    "connectionTestFailed": "Kohteeseen ei voitu muodostaa yhteyttä."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -939,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Tavoitettavissa {{ms}} ms:ssä"
   },
   "notificationProviders": {
     "title": "Notification Providers",

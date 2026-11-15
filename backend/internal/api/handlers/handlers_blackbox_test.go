@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"github.com/Wikid82/charon/backend/internal/services"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -1641,4 +1642,12 @@ func TestUpload_MkdirAllFailure(t *testing.T) {
 	handler.Upload(c)
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
+}
+
+func (m *mockProxyHostService) CreateImported(_ *services.ImportNameBudget, host *models.ProxyHost) error {
+	return m.Create(host)
+}
+
+func (m *mockProxyHostService) UpdateImported(_ *services.ImportNameBudget, host *models.ProxyHost) error {
+	return m.Update(host)
 }

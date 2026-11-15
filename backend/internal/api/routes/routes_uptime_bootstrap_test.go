@@ -13,6 +13,7 @@ type testUptimeBootstrapService struct {
 
 	cleanupCalls int
 	syncCalls    int
+	reportCalls  int
 }
 
 func (s *testUptimeBootstrapService) CleanupStaleFailureCounts() error {
@@ -23,6 +24,10 @@ func (s *testUptimeBootstrapService) CleanupStaleFailureCounts() error {
 func (s *testUptimeBootstrapService) SyncMonitors() error {
 	s.syncCalls++
 	return s.syncErr
+}
+
+func (s *testUptimeBootstrapService) ReportRefusedMonitors() {
+	s.reportCalls++
 }
 
 func TestRunInitialUptimeBootstrap_Disabled_DoesNothing(t *testing.T) {

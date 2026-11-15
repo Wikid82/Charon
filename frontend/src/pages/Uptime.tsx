@@ -5,7 +5,7 @@ import { useMemo, useState, type FC, type FormEvent } from 'react';
 import { toast } from 'react-hot-toast'
 import { useTranslation } from 'react-i18next';
 
-import { permissionsErrorMessage } from '../api/errorBody';
+import { connectionTestErrorMessage, permissionsErrorMessage } from '../api/errorBody';
 import { updateMonitor, deleteMonitor, checkMonitor, createMonitor, syncMonitors, type UptimeMonitor, type MonitorSummary, type BeatDTO } from '../api/uptime';
 import { useAuth } from '../hooks/useAuth';
 import { useUptimeSummary } from '../hooks/useUptimeSummary';
@@ -374,7 +374,7 @@ const EditMonitorModal: FC<{ monitor: MonitorSummary; onClose: () => void; t: (k
     );
 };
 
-const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }> = ({ onClose, t }) => {
+const CreateMonitorModal: FC<{ onClose: () => void; t: TFunction }> = ({ onClose, t }) => {
     const queryClient = useQueryClient();
     const [name, setName] = useState('');
     const [url, setUrl] = useState('');
@@ -396,7 +396,7 @@ const CreateMonitorModal: FC<{ onClose: () => void; t: (key: string) => string }
             onClose();
         },
         onError: (err: unknown) => {
-            toast.error(err instanceof Error ? err.message : t('errors.genericError'));
+            toast.error(connectionTestErrorMessage(err, t) ?? (err instanceof Error ? err.message : t('errors.genericError')));
         },
     });
 

@@ -45,14 +45,19 @@ func respondAdminOnlyHostError(c *gin.Context, err error) bool {
 // forwardTargetRefusedCode is the error_code for a forward target this proxy will not dial.
 const forwardTargetRefusedCode = "forward_target_refused"
 
-// respondForwardTargetRefused writes the 400 for a forward target that reaches one of
-// this proxy's internal listeners and reports whether err was that refusal.
+// forwardTargetRefusedText is the one message for every refused forward target. It
+// does not say which rule applied, so a caller learns nothing about this proxy's
+// reserved ports or address policy.
+const forwardTargetRefusedText = "This forward target is not allowed."
+
+// respondForwardTargetRefused writes the 400 for a refused forward target and reports
+// whether err was that refusal. Every cause gets the same text.
 func respondForwardTargetRefused(c *gin.Context, err error) bool {
-	if !errors.Is(err, services.ErrOrthrusListenerTarget) && !errors.Is(err, services.ErrAdminListenerTarget) && !errors.Is(err, services.ErrAgentForwardTarget) {
+	if !errors.Is(err, services.ErrOrthrusListenerTarget) && !errors.Is(err, services.ErrAgentForwardTarget) && !errors.Is(err, services.ErrForwardTargetAddress) {
 		return false
 	}
 	c.JSON(http.StatusBadRequest, gin.H{
-		"error":      err.Error(),
+		"error":      forwardTargetRefusedText,
 		"error_code": forwardTargetRefusedCode,
 	})
 	return true
@@ -231,4 +236,53 @@ func logPermissionAudit(securityService *services.SecurityService, c *gin.Contex
 		IPAddress:     c.ClientIP(),
 		UserAgent:     c.Request.UserAgent(),
 	})
+}
+
+// redactForRoleWithFlags is redactForRole for a resource whose derived flags
+// administrators need as well. Administrators receive every field plus the flags.
+// Other callers also lose the hidden keys.
+func redactForRoleWithFlags[T any](c *gin.Context, item T, hidden []string, flags func(T) map[string]any) (any, error) {
+	if isAdmin(c) {
+		return redactItem(item, nil, flags)
+	}
+	return redactItem(item, hidden, flags)
+}
+
+// redactListForRoleWithFlags applies redactForRoleWithFlags to every element of items.
+// An empty result still encodes as [].
+func redactListForRoleWithFlags[T any](c *gin.Context, items []T, hidden []string, flags func(T) map[string]any) (any, error) {
+	out := make([]map[string]any, 0, len(items))
+	admin := isAdmin(c)
+	for _, item := range items {
+		keep := hidden
+		if admin {
+			keep = nil
+		}
+		redacted, err := redactItem(item, keep, flags)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, redacted)
+	}
+	return out, nil
+}
+
+// jsonForRoleWithFlags is jsonForRole for resources whose flags apply to administrators too.
+func jsonForRoleWithFlags[T any](c *gin.Context, status int, item T, hidden []string, flags func(T) map[string]any) {
+	body, err := redactForRoleWithFlags(c, item, hidden, flags)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build response"})
+		return
+	}
+	c.JSON(status, body)
+}
+
+// jsonListForRoleWithFlags is jsonListForRole for resources whose flags apply to administrators too.
+func jsonListForRoleWithFlags[T any](c *gin.Context, status int, items []T, hidden []string, flags func(T) map[string]any) {
+	body, err := redactListForRoleWithFlags(c, items, hidden, flags)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to build response"})
+		return
+	}
+	c.JSON(status, body)
 }

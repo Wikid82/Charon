@@ -177,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Δεν βρίσκεται στην ενεργή διαμόρφωση",
+    "notInActiveConfigHint": "Ο προορισμός προώθησής του δεν επιτρέπεται και χρειάζεται άλλη διεύθυνση."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -380,7 +382,10 @@
     "trustedProxiesTooMany": "Η λίστα αξιόπιστων διακομιστών μεσολάβησης χωρά το πολύ 64 καταχωρίσεις.",
     "managementListUnknown": "Μία από τις επιλεγμένες λίστες πρόσβασης δεν υπάρχει πια. Φορτώστε ξανά τη σελίδα και επιλέξτε ξανά.",
     "managementAccessWouldLockOut": "Αυτό θα σας κλείδωνε έξω από το Charon. Προσθέστε πρώτα τη διεύθυνσή σας στη λίστα επιτρεπόμενων διαχειριστών ή επιλέξτε μια λίστα που σας επιτρέπει.",
-    "accessListInvalid": "Αυτή η λίστα πρόσβασης δεν μπορεί να προστατεύσει τη διεπαφή του Charon. Ελέγξτε τους κανόνες της και δοκιμάστε ξανά."
+    "accessListInvalid": "Αυτή η λίστα πρόσβασης δεν μπορεί να προστατεύσει τη διεπαφή του Charon. Ελέγξτε τους κανόνες της και δοκιμάστε ξανά.",
+    "forwardTargetRefused": "Αυτός ο προορισμός προώθησης δεν επιτρέπεται.",
+    "destinationRefused": "Αυτός ο προορισμός δεν επιτρέπεται.",
+    "connectionTestFailed": "Δεν ήταν δυνατή η σύνδεση με τον προορισμό."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -939,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Προσβάσιμο σε {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Notification Providers",

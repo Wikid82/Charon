@@ -288,7 +288,7 @@ func TestPermissionProxyHostRefusesAdminListenerTargetForEveryRole(t *testing.T)
 				"forward_port": 2019,
 			})
 			assert.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
-			assert.Contains(t, rec.Body.String(), services.ErrAdminListenerTarget.Error())
+			assert.Contains(t, rec.Body.String(), forwardTargetRefusedText)
 		})
 	}
 }

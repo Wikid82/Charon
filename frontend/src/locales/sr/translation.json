@@ -177,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Није у активној конфигурацији",
+    "notInActiveConfigHint": "Његово одредиште прослеђивања није дозвољено и потребна му је друга адреса."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -380,7 +382,10 @@
     "trustedProxiesTooMany": "Lista pouzdanih proksija može imati najviše 64 stavke.",
     "managementListUnknown": "Jedna od izabranih lista pristupa više ne postoji. Ponovo učitajte stranicu i izaberite ponovo.",
     "managementAccessWouldLockOut": "Ovo bi vas zaključalo van programa Charon. Prvo dodajte svoju adresu na listu dozvoljenih administratora ili izaberite listu koja vas dopušta.",
-    "accessListInvalid": "Ova lista pristupa ne može da štiti sopstveni interfejs programa Charon. Proverite njena pravila i pokušajte ponovo."
+    "accessListInvalid": "Ova lista pristupa ne može da štiti sopstveni interfejs programa Charon. Proverite njena pravila i pokušajte ponovo.",
+    "forwardTargetRefused": "Ово одредиште прослеђивања није дозвољено.",
+    "destinationRefused": "Ово odredište nije dozvoljeno.",
+    "connectionTestFailed": "Није могуће повезати се са циљем."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -939,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Доступно за {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Notification Providers",

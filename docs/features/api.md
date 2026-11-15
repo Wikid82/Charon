@@ -153,6 +153,7 @@ The API returns standard HTTP status codes:
 | `401` | Invalid or missing token |
 | `403` | Insufficient permissions |
 | `404` | Resource not found |
+| `429` | Too many requests in a short time. Wait for the `Retry-After` time, then try again |
 | `500` | Server error |
 
 ## Related

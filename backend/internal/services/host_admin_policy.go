@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net"
 	"net/url"
-	"strconv"
 	"strings"
 
 	"gorm.io/gorm"
@@ -21,14 +20,10 @@ import (
 // permissions_admin_only.
 var ErrAdminOnlyHostField = errors.New("admin privileges required to change DNS provider, DNS challenge or advanced config")
 
-// ErrAdminListenerTarget is returned when a forward target would reach the
-// proxy's own administrative API. It applies to every caller.
-var ErrAdminListenerTarget = errors.New("forward target cannot point at this proxy's own admin API")
-
 // caddyAdminAPIPort is the port of the Caddy admin TCP listener. The default
 // admin API is a unix socket with no TCP listener, so this refusal is defense in
 // depth for loopback TCP setups and also refuses loopback targets on this port.
-var caddyAdminAPIPort = adminAPIPortFrom(config.CaddyAdminTCPAddress)
+var caddyAdminAPIPort = listenPortFrom(config.CaddyAdminTCPAddress)
 
 // localHostChecker answers whether a dial host names this machine.
 var localHostChecker = selfhop.NewLocalAddrs()
@@ -119,20 +114,6 @@ func canonicalAdvancedConfig(raw string) string {
 	return norm
 }
 
-// adminAPIPortFrom extracts the port of a host:port listen address. It returns 0
-// for an address without a valid port, which matches no forward target.
-func adminAPIPortFrom(address string) int {
-	_, portStr, err := net.SplitHostPort(address)
-	if err != nil {
-		return 0
-	}
-	port, err := strconv.Atoi(portStr)
-	if err != nil {
-		return 0
-	}
-	return port
-}
-
 // forwardTargetHost returns the host part of a forward target, with any scheme,
 // port and path removed.
 func forwardTargetHost(raw string) string {
@@ -152,17 +133,4 @@ func forwardTargetHost(raw string) string {
 		target = target[:idx]
 	}
 	return target
-}
-
-// refuseAdminListenerTarget rejects a forward target that reaches the proxy's own
-// admin listener: a local name or address on the admin port. It is shared by proxy
-// host and location validation.
-func refuseAdminListenerTarget(forwardHost string, port int) error {
-	if caddyAdminAPIPort == 0 || port != caddyAdminAPIPort {
-		return nil
-	}
-	if localHostChecker.IsLocalHost(forwardTargetHost(forwardHost)) {
-		return ErrAdminListenerTarget
-	}
-	return nil
 }

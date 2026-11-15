@@ -177,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Etkin yapılandırmada değil",
+    "notInActiveConfigHint": "Yönlendirme hedefine izin verilmiyor ve başka bir adres gerekiyor."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -380,7 +382,10 @@
     "trustedProxiesTooMany": "Güvenilen proxy listesi en fazla 64 girdi içerebilir.",
     "managementListUnknown": "Seçilen erişim listelerinden biri artık yok. Sayfayı yenileyip yeniden seçin.",
     "managementAccessWouldLockOut": "Bu, Charon'dan kilitlenmenize neden olur. Önce adresinizi yönetici izin listesine ekleyin veya size izin veren bir liste seçin.",
-    "accessListInvalid": "Bu erişim listesi Charon'un kendi arayüzünü koruyamaz. Kurallarını kontrol edip yeniden deneyin."
+    "accessListInvalid": "Bu erişim listesi Charon'un kendi arayüzünü koruyamaz. Kurallarını kontrol edip yeniden deneyin.",
+    "forwardTargetRefused": "Bu yönlendirme hedefine izin verilmiyor.",
+    "destinationRefused": "Bu hedefe izin verilmiyor.",
+    "connectionTestFailed": "Hedefe bağlanılamadı."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -939,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "{{ms}} ms içinde erişilebilir"
   },
   "notificationProviders": {
     "title": "Notification Providers",

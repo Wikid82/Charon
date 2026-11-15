@@ -177,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Nie in die aktiewe konfigurasie nie",
+    "notInActiveConfigHint": "Die aanstuurteiken word nie toegelaat nie en benodig 'n ander adres."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -380,7 +382,10 @@
     "trustedProxiesTooMany": "Die lys van vertroude proxies bevat hoogstens 64 inskrywings.",
     "managementListUnknown": "Een van die gekose toegangslyste bestaan nie meer nie. Laai die bladsy weer en kies opnuut.",
     "managementAccessWouldLockOut": "Dit sal jou uit Charon sluit. Voeg eers jou adres by die admin-toelaatlys, of kies 'n lys wat jou toelaat.",
-    "accessListInvalid": "Hierdie toegangslys kan nie Charon se eie koppelvlak beskerm nie. Kontroleer die reëls en probeer weer."
+    "accessListInvalid": "Hierdie toegangslys kan nie Charon se eie koppelvlak beskerm nie. Kontroleer die reëls en probeer weer.",
+    "forwardTargetRefused": "Hierdie aanstuurteiken word nie toegelaat nie.",
+    "destinationRefused": "Hierdie bestemming word nie toegelaat nie.",
+    "connectionTestFailed": "Kon nie aan die teiken koppel nie."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -939,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Bereikbaar binne {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Notification Providers",

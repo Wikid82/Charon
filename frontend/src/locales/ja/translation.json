@@ -177,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "有効な構成に含まれていません",
+    "notInActiveConfigHint": "転送先が許可されていないため、別のアドレスが必要です。"
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -380,7 +382,10 @@
     "trustedProxiesTooMany": "信頼するプロキシの一覧には最大 64 件まで登録できます。",
     "managementListUnknown": "選択したアクセスリストの一部が存在しなくなりました。ページを再読み込みして選び直してください。",
     "managementAccessWouldLockOut": "この設定では Charon から締め出されます。先に管理者の許可リストにご自身のアドレスを追加するか、アクセスを許可するリストを選択してください。",
-    "accessListInvalid": "このアクセスリストでは Charon 自身の管理画面を保護できません。ルールを確認してから、もう一度お試しください。"
+    "accessListInvalid": "このアクセスリストでは Charon 自身の管理画面を保護できません。ルールを確認してから、もう一度お試しください。",
+    "forwardTargetRefused": "この転送先は許可されていません。",
+    "destinationRefused": "この宛先は許可されていません。",
+    "connectionTestFailed": "転送先に接続できませんでした。"
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -939,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "{{ms}} ms で到達可能"
   },
   "notificationProviders": {
     "title": "Notification Providers",

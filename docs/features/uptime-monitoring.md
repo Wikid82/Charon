@@ -51,9 +51,9 @@ Check 4: ✅ Success → Status: Up, Failure Count: 0  (recovery alert)
 
 ### Timeout Settings
 
-**Default TCP timeout:** 10 seconds
+**Connection timeout:** 3 seconds
 
-This timeout determines how long Charon waits for a TCP connection before considering it failed.
+This is how long Charon waits for a connection to a monitor's address before it counts that check as failed.
 
 **Increase timeout if:**
 
@@ -151,6 +151,39 @@ expect about 15 MB per monitor per 30 days at 60-second checks.
 Monitors are checked by Charon itself, so only administrators can point them at
 new targets.
 
+## Which Addresses a Monitor Can Check
+
+Monitors can check addresses on your own network:
+
+- This machine (`localhost` or `127.0.0.1`), on ports Charon does not use itself
+- Home and office networks (`10.x.x.x`, `172.16.x.x` to `172.31.x.x`, `192.168.x.x`)
+- Tailscale and other overlay networks (`100.64.0.0/10`)
+- IPv6 private addresses (`fc00::/7`)
+- Fake-IP addresses used by some VPN and proxy tools (`198.18.0.0/15`)
+- The names Docker Desktop, OrbStack and Podman use for the host machine: `host.docker.internal`, `host.containers.internal` and `gateway.docker.internal`
+
+Charon will not check:
+
+- Link-local addresses (`169.254.0.0/16` and `fe80::/10`)
+- Cloud instance service addresses, such as `169.254.169.254`, `100.100.100.200`, `168.63.129.16`, and the IPv6 addresses `fd00:ec2::/32` and `fd20:ce::254`. These are refused even when their wider network is allowed.
+- Reserved addresses such as `0.0.0.0`, multicast and broadcast addresses
+- The ports Charon uses for itself on this machine: its agent ports, its internal admin port (2019), its bundled CrowdSec port (8085), and the emergency server port while that server is turned on
+
+**Monitor types:**
+
+- **TCP** monitors take `host:port`, such as `192.168.1.20:5432`, or `tcp://host:port`.
+- **HTTP** and **HTTPS** monitors take a full web address, such as `https://nas.local:8443`. Without a port, the web default (80 or 443) is used.
+
+**When Charon checks an address:**
+
+- When you save a monitor, Charon refuses the save with the message "This destination is not allowed." when the address is one it does not check. A name is looked up at that moment, and the monitor is refused if any address it points to is refused. If the lookup fails or takes too long, the monitor is saved anyway.
+- Charon checks the address again each time a check connects. If a name later points to a refused address, the check reports the monitor as down.
+
+**Monitors saved before a rule applied:**
+
+- The monitor is kept, but each check reports it as down with the message "Destination is not allowed for checks". At startup, Charon also writes a warning to its log for each such monitor that it can spot from the address alone, without a name lookup.
+- Delete the monitor, or create a new one with another address.
+
 ## Enabling Uptime Monitoring
 
 Turning monitoring on is an administrator task. The steps below are for an
@@ -214,6 +247,15 @@ little more slowly than usual. It returns to normal on its own once the
 housekeeping finishes. There is nothing you need to do.
 
 ## Troubleshooting
+
+### Monitor Shows "Destination is not allowed for checks"
+
+**Cause:** The monitor's address is one Charon does not check. It was saved before the rule applied, or it points to a link-local, cloud instance service, or Charon-reserved address.
+
+**Solution:**
+
+1. Compare the monitor's address with the list in [Which Addresses a Monitor Can Check](#which-addresses-a-monitor-can-check)
+2. Delete the monitor and create a new one with an address Charon allows, such as the device's address on your local network
 
 ### False Positive: Host Shown as Down but Actually Up
 
@@ -285,7 +327,7 @@ docker logs charon 2>&1 | grep "Host status changed"
 
    **Solution:** Use multiple monitoring providers for critical services
 
-**Current limitation:** Charon performs TCP health checks only. HTTP-based health checks are planned for a future release.
+**Current limitation:** A TCP monitor only confirms that the port accepts a connection. HTTP and HTTPS monitors also check the status the site answers with: a success or redirect status (200 to 399), or 401 or 403, counts as up. Charon does not read the content of the page.
 
 ### Intermittent Status Flapping
 

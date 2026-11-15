@@ -177,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Inte i den aktiva konfigurationen",
+    "notInActiveConfigHint": "Dess vidarebefordringsmål är inte tillåtet och behöver en annan adress."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -380,7 +382,10 @@
     "trustedProxiesTooMany": "Listan över betrodda proxyservrar kan innehålla högst 64 poster.",
     "managementListUnknown": "En av de valda åtkomstlistorna finns inte längre. Ladda om sidan och välj igen.",
     "managementAccessWouldLockOut": "Detta skulle låsa ute dig från Charon. Lägg först till din adress i administratörens tillåtna lista, eller välj en lista som tillåter dig.",
-    "accessListInvalid": "Den här åtkomstlistan kan inte skydda Charons egna gränssnitt. Kontrollera dess regler och försök igen."
+    "accessListInvalid": "Den här åtkomstlistan kan inte skydda Charons egna gränssnitt. Kontrollera dess regler och försök igen.",
+    "forwardTargetRefused": "Detta vidarebefordringsmål är inte tillåtet.",
+    "destinationRefused": "Det här målet är inte tillåtet.",
+    "connectionTestFailed": "Kunde inte ansluta till målet."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -939,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Nåbar på {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Notification Providers",

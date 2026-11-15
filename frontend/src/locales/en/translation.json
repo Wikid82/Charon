@@ -182,7 +182,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Not in the active configuration",
+    "notInActiveConfigHint": "Its forward target is not allowed and needs another address."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -385,7 +387,10 @@
     "trustedProxiesTooMany": "The trusted proxy list holds at most 64 entries.",
     "managementListUnknown": "One of the chosen access lists no longer exists. Reload the page and choose again.",
     "managementAccessWouldLockOut": "This would lock you out of Charon. Add your address to the admin allow-list first, or choose a list that allows you.",
-    "accessListInvalid": "This access list cannot protect Charon's own interface. Check its rules, then try again."
+    "accessListInvalid": "This access list cannot protect Charon's own interface. Check its rules, then try again.",
+    "forwardTargetRefused": "This forward target is not allowed.",
+    "destinationRefused": "This destination is not allowed.",
+    "connectionTestFailed": "Could not connect to the target."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -978,7 +983,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Reachable in {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Notification Providers",

@@ -1181,13 +1181,115 @@ test.describe('Standard user management permissions (PR 32)', () => {
             data: hostPayload({ domain_names: domain, forward_host: forwardHost, forward_port: CADDY_ADMIN_PORT }),
           });
           expect(response.status()).toBe(400);
-          expect((await errorBody(response)).error).toMatch(/admin API/i);
+          // One fixed text for every refusal reason, so the reply does not name the reserved admin listener.
+          expect(await errorBody(response)).toEqual({ error: 'This forward target is not allowed.', error_code: 'forward_target_refused' });
 
           const hosts = await listBy(adminApi, '/api/v1/proxy-hosts');
           expect(hosts.some((host) => host.domain_names === domain)).toBe(false);
         });
       }
     }
+  });
+
+  test.describe('Destination refusals (fixed text, same answer for every reason)', () => {
+    const FORWARD_TARGET_CODE = 'forward_target_refused';
+    const FORWARD_TARGET_TEXT = 'This forward target is not allowed.';
+    const DESTINATION_TEXT = 'This destination is not allowed.';
+    const CONNECTION_FAILED_TEXT = 'Could not connect to the target.';
+    /** Link-local address: refused by address whatever the port. */
+    const LINK_LOCAL_TARGET = { label: 'link-local address', forward_host: '169.254.169.254', forward_port: 80 };
+    /** Loopback on the Caddy admin port, which Charon reserves: refused by port. Its body must match the address refusal. */
+    const RESERVED_PORT_TARGET = { label: 'reserved Charon port', forward_host: '127.0.0.1', forward_port: CADDY_ADMIN_PORT };
+    const REFUSED_TARGETS = [LINK_LOCAL_TARGET, RESERVED_PORT_TARGET];
+    /** RFC 1918 target: an allowed LAN-style destination that must keep saving. */
+    const LAN_TARGET = { forward_host: '192.168.1.50', forward_port: 8080 };
+
+    for (const role of roles) {
+      for (const target of REFUSED_TARGETS) {
+        test(`${role.label} cannot create a proxy host to a ${target.label} (400, fixed text, nothing stored)`, async () => {
+          const domain = uniqueDomain();
+          const response = await role.api().post('/api/v1/proxy-hosts', {
+            data: hostPayload({ domain_names: domain, forward_host: target.forward_host, forward_port: target.forward_port }),
+          });
+          expect(response.status()).toBe(400);
+          expect(await errorBody(response)).toEqual({ error: FORWARD_TARGET_TEXT, error_code: FORWARD_TARGET_CODE });
+
+          const hosts = await listBy(adminApi, '/api/v1/proxy-hosts');
+          expect(hosts.some((host) => host.domain_names === domain)).toBe(false);
+        });
+
+        test(`${role.label} cannot move an existing host to a ${target.label} (400, forward target unchanged)`, async () => {
+          const created = await role.api().post('/api/v1/proxy-hosts', { data: hostPayload(LAN_TARGET) });
+          expect(created.status()).toBe(201);
+          const uuid = String(((await created.json()) as JsonObject).uuid);
+          createdHostUuids.push(uuid);
+          const before = await getHost(role.api(), uuid);
+
+          const response = await role.api().put(`/api/v1/proxy-hosts/${uuid}`, {
+            data: { ...before, forward_host: target.forward_host, forward_port: target.forward_port },
+          });
+          expect(response.status()).toBe(400);
+          expect(await errorBody(response)).toEqual({ error: FORWARD_TARGET_TEXT, error_code: FORWARD_TARGET_CODE });
+
+          const after = await getHost(adminApi, uuid);
+          expect(after.forward_host).toBe(LAN_TARGET.forward_host);
+          expect(after.forward_port).toBe(LAN_TARGET.forward_port);
+        });
+
+        test(`${role.label} connection test to a ${target.label} is refused with the same fixed text`, async () => {
+          const response = await role.api().post('/api/v1/proxy-hosts/test', {
+            data: { forward_host: target.forward_host, forward_port: target.forward_port },
+          });
+          expect(response.status()).toBe(400);
+          expect(await errorBody(response)).toEqual({ error: FORWARD_TARGET_TEXT, error_code: FORWARD_TARGET_CODE });
+        });
+      }
+
+      test(`${role.label} can still save a proxy host to a LAN-style target (201)`, async () => {
+        const response = await role.api().post('/api/v1/proxy-hosts', { data: hostPayload(LAN_TARGET) });
+        expect(response.status()).toBe(201);
+        const host = (await response.json()) as JsonObject;
+        createdHostUuids.push(String(host.uuid));
+        expect(host.forward_host).toBe(LAN_TARGET.forward_host);
+      });
+    }
+
+    test('standard user connection test to a reachable loopback target still runs (200)', async () => {
+      // The application listens on loopback port 8080 inside the test container, so the dial succeeds.
+      const response = await userApi.post('/api/v1/proxy-hosts/test', {
+        data: { forward_host: '127.0.0.1', forward_port: 8080 },
+      });
+      expect(response.status()).toBe(200);
+    });
+
+    test.describe('Remote server custom test results (administrator)', () => {
+      test('refused destination gets 400 destination_refused with the fixed text', async () => {
+        const response = await adminApi.post('/api/v1/remote-servers/test', {
+          data: { host: LINK_LOCAL_TARGET.forward_host, port: LINK_LOCAL_TARGET.forward_port },
+        });
+        expect(response.status()).toBe(400);
+        expect(await errorBody(response)).toEqual({ error: DESTINATION_TEXT, error_code: 'destination_refused' });
+      });
+
+      test('unreachable target gets 200 with reachable:false and the fixed connection text', async () => {
+        // Port 1 on loopback is closed, so the dial is refused quickly and the outcome is a plain failure.
+        const response = await adminApi.post('/api/v1/remote-servers/test', { data: { host: '127.0.0.1', port: 1 } });
+        expect(response.status()).toBe(200);
+        const body = (await response.json()) as JsonObject;
+        expect(body.reachable).toBe(false);
+        expect(body.error).toBe(CONNECTION_FAILED_TEXT);
+        expect(body).not.toHaveProperty('latency_ms');
+      });
+
+      test('reachable target gets 200 with reachable:true and a measured latency', async () => {
+        const response = await adminApi.post('/api/v1/remote-servers/test', { data: { host: '127.0.0.1', port: 8080 } });
+        expect(response.status()).toBe(200);
+        const body = (await response.json()) as JsonObject;
+        expect(body.reachable).toBe(true);
+        expect(typeof body.latency_ms).toBe('number');
+        expect(body.latency_ms as number).toBeGreaterThanOrEqual(0);
+      });
+    });
   });
 
   test.describe('Container list for a disabled remote server', () => {

@@ -4,7 +4,7 @@ import { toast } from 'react-hot-toast'
 import { useTranslation } from 'react-i18next'
 import { parse } from 'tldts'
 
-import { permissionsErrorMessage } from '../api/errorBody'
+import { connectionTestErrorMessage, permissionsErrorMessage } from '../api/errorBody'
 import { testProxyHostConnection, type ProxyHost, type ApplicationPreset  } from '../api/proxyHosts'
 import { syncMonitors } from '../api/uptime'
 import { useAuth } from '../hooks/useAuth'
@@ -465,6 +465,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   const [dontAskAgain, setDontAskAgain] = useState(readDontAskDomainPreference)
 
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle')
+  const [testMessage, setTestMessage] = useState<string | null>(null)
   const [showPresetConfirmModal, setShowPresetConfirmModal] = useState(false)
   const [pendingPreset, setPendingPreset] = useState<ApplicationPreset | null>(null)
 
@@ -541,13 +542,15 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
     if (!formData.forward_host || !formData.forward_port) return
 
     setTestStatus('testing')
+    setTestMessage(null)
     try {
       await testProxyHostConnection(formData.forward_host, formData.forward_port)
       setTestStatus('success')
       // Reset status after 3 seconds
       setTimeout(() => setTestStatus('idle'), 3000)
-    } catch {
+    } catch (err) {
       setTestStatus('error')
+      setTestMessage(connectionTestErrorMessage(err, t) ?? t('errors.connectionTestFailed'))
       // Reset status after 3 seconds
       setTimeout(() => setTestStatus('idle'), 3000)
     }
@@ -620,7 +623,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
       onCancel()
       return res
     } catch (err) {
-      const message = permissionsErrorMessage(err, t) ?? (err instanceof Error ? err.message : 'Failed to save host')
+      const message = permissionsErrorMessage(err, t) ?? connectionTestErrorMessage(err, t) ?? (err instanceof Error ? err.message : 'Failed to save host')
       setError(message)
       toast.error(message)
       throw err
@@ -1558,6 +1561,11 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
           )}
 
           {/* Actions */}
+          {testMessage && (
+            <p role="status" data-testid="proxy-host-test-message" className="text-sm text-red-400 text-right">
+              {testMessage}
+            </p>
+          )}
           <div className="flex gap-3 justify-end pt-4 border-t border-gray-800">
             <button
               type="button"

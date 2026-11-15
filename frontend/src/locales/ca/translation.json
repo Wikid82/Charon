@@ -177,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "No és a la configuració activa",
+    "notInActiveConfigHint": "El seu destí de reenviament no està permès i necessita una altra adreça."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -380,7 +382,10 @@
     "trustedProxiesTooMany": "La llista de proxies de confiança admet com a màxim 64 entrades.",
     "managementListUnknown": "Una de les llistes d'accés triades ja no existeix. Torneu a carregar la pàgina i trieu de nou.",
     "managementAccessWouldLockOut": "Això us bloquejaria l'accés a Charon. Afegiu primer la vostra adreça a la llista d'admin permesos, o trieu una llista que us permeti l'accés.",
-    "accessListInvalid": "Aquesta llista d'accés no pot protegir la interfície pròpia de Charon. Revegeu-ne les regles i torneu-ho a provar."
+    "accessListInvalid": "Aquesta llista d'accés no pot protegir la interfície pròpia de Charon. Revegeu-ne les regles i torneu-ho a provar.",
+    "forwardTargetRefused": "Aquest destí de reenviament no està permès.",
+    "destinationRefused": "Aquesta destinació no està permesa.",
+    "connectionTestFailed": "No s'ha pogut connectar amb el destí."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -939,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Accessible en {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Notification Providers",

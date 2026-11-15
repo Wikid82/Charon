@@ -1126,3 +1126,11 @@ func TestImportHandler_Commit_OverwriteMatchesCaseVariant(t *testing.T) {
 		assert.Equal(t, "site.example.com", got.DomainNames)
 	})
 }
+
+func (m *mockProxyHostService) CreateImported(_ *services.ImportNameBudget, host *models.ProxyHost) error {
+	return m.Create(host)
+}
+
+func (m *mockProxyHostService) UpdateImported(_ *services.ImportNameBudget, host *models.ProxyHost) error {
+	return m.Update(host)
+}

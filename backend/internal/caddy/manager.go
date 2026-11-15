@@ -93,6 +93,8 @@ type Manager struct {
 	// lastApplied is the report of the last successful apply. Unlike enforcement it is not cleared when an apply starts
 	// or fails, because on every failure Caddy keeps running that configuration.
 	lastApplied atomic.Pointer[EnforcementReport]
+	// leftOut holds the UUIDs of the enabled proxy hosts the last successful apply left out of the configuration.
+	leftOut atomic.Pointer[map[string]struct{}]
 }
 
 // EnforcementReport returns the enforcement report of the last successful apply. ok is false when no successful apply
@@ -167,6 +169,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		return fmt.Errorf("fetch proxy hosts: %w", err)
 	}
 	// Hosts whose stored forward target reaches an agent listener are left out before anything else reads them.
+	fetched := hosts
 	kept, filterErr := dropRefusedForwardTargets(m.forwardGuard, hosts)
 	if filterErr != nil {
 		return filterErr
@@ -596,6 +599,8 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	m.recordConfigChange(configHash, true, "")
 	m.enforcement.Store(generatedReport)
 	m.lastApplied.Store(generatedReport)
+	leftOut := droppedHostUUIDs(fetched, hosts)
+	m.leftOut.Store(&leftOut)
 
 	// Cleanup old snapshots (keep last 10)
 	if err := m.rotateSnapshots(10); err != nil {
@@ -862,4 +867,33 @@ func warnDroppedEnvTrustedProxies(envEntries []string) {
 	if _, dropped := security.ClampTrustedProxies(envEntries); len(dropped) > 0 {
 		logger.Log().WithField("entries", dropped).Warn("CHARON_TRUSTED_PROXIES entries were refused by the proxy layer (invalid or too broad); save a trusted proxy list to replace the environment list")
 	}
+}
+
+// LeftOutHostUUIDs returns the UUIDs of the enabled proxy hosts that the last
+// successful apply left out of the configuration. A nil manager, or one that has
+// not applied yet, reports none. The caller must not modify the map.
+func (m *Manager) LeftOutHostUUIDs() map[string]struct{} {
+	if m == nil {
+		return nil
+	}
+	if out := m.leftOut.Load(); out != nil {
+		return *out
+	}
+	return nil
+}
+
+// droppedHostUUIDs returns the UUIDs present in all but missing from kept, that is
+// the hosts the forward target filter left out.
+func droppedHostUUIDs(all, kept []models.ProxyHost) map[string]struct{} {
+	keptUUIDs := make(map[string]struct{}, len(kept))
+	for _, h := range kept {
+		keptUUIDs[h.UUID] = struct{}{}
+	}
+	dropped := make(map[string]struct{})
+	for _, h := range all {
+		if _, ok := keptUUIDs[h.UUID]; !ok {
+			dropped[h.UUID] = struct{}{}
+		}
+	}
+	return dropped
 }

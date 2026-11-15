@@ -251,7 +251,7 @@ func TestUptimeHandler_Create(t *testing.T) {
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
 
-		assert.Equal(t, http.StatusInternalServerError, w.Code)
+		assert.Equal(t, http.StatusBadRequest, w.Code)
 	})
 }
 

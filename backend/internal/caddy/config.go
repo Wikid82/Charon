@@ -639,7 +639,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 
 		// Handle custom locations first (more specific routes)
 		for _, loc := range host.Locations {
-			dial := fmt.Sprintf("%s:%d", loc.ForwardHost, loc.ForwardPort)
+			dial := forwardDial(loc.ForwardHost, loc.ForwardPort)
 			// For each location, we want the same security pre-handlers before proxy
 			locHandlers := append(append([]Handler{}, prefixHandlers...), handlers...)
 			// Determine if standard headers should be enabled (default true if nil)
@@ -660,7 +660,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		}
 
 		// Main proxy handler
-		dial := fmt.Sprintf("%s:%d", host.ForwardHost, host.ForwardPort)
+		dial := forwardDial(host.ForwardHost, host.ForwardPort)
 		// Insert user advanced config (if present) as headers or handlers before the reverse proxy
 		// so user-specified headers/handlers are applied prior to proxying.
 		if host.AdvancedConfig != "" {

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -111,10 +112,6 @@ func (s *ProxyHostService) validateProxyHost(host *models.ProxyHost) error {
 		return errors.New("forward host is required")
 	}
 
-	if err := refuseAdminListenerTarget(host.ForwardHost, host.ForwardPort); err != nil {
-		return err
-	}
-
 	if err := checkForwardHostForm(host.ForwardHost); err != nil {
 		return err
 	}
@@ -178,7 +175,7 @@ func normalizeAdvancedJSON(raw string) (string, error) {
 // and the subsequent write are atomic. A non-nil certificate_id must reference
 // an existing certificate. When admin is false, the write must not change the
 // admin-only fields relative to the stored row.
-func (s *ProxyHostService) checkHostWrite(tx *gorm.DB, host *models.ProxyHost, excludeID uint, admin bool) error {
+func (s *ProxyHostService) checkHostWrite(tx *gorm.DB, host *models.ProxyHost, excludeID uint, admin bool, v forwardVerdicts) error {
 	if err := checkSameTableDomainConflict(tx, host.DomainNames, &models.ProxyHost{}, excludeID); err != nil {
 		return err
 	}
@@ -188,7 +185,7 @@ func (s *ProxyHostService) checkHostWrite(tx *gorm.DB, host *models.ProxyHost, e
 	if err := s.validateProxyHost(host); err != nil {
 		return err
 	}
-	if err := refuseListenerHostTargets(tx, host); err != nil {
+	if err := refuseListenerHostTargets(tx, host, v); err != nil {
 		return err
 	}
 	if err := validateLocationTargets(host.Locations); err != nil {
@@ -200,6 +197,9 @@ func (s *ProxyHostService) checkHostWrite(tx *gorm.DB, host *models.ProxyHost, e
 	if err := normalizeAdvancedConfig(host); err != nil {
 		return err
 	}
+	if err := refuseAdvancedConfigTargets(tx, host.AdvancedConfig, v); err != nil {
+		return err
+	}
 	stored, err := storedProxyAdminFields(tx, excludeID)
 	if err != nil {
 		return err
@@ -209,12 +209,12 @@ func (s *ProxyHostService) checkHostWrite(tx *gorm.DB, host *models.ProxyHost, e
 
 // refuseListenerHostTargets rejects a host whose own forward target or any location
 // target reaches an agent listener. It runs inside the caller's transaction.
-func refuseListenerHostTargets(tx *gorm.DB, host *models.ProxyHost) error {
-	if err := refuseOrthrusListenerTarget(tx, host.ForwardHost, host.ForwardPort); err != nil {
+func refuseListenerHostTargets(tx *gorm.DB, host *models.ProxyHost, v forwardVerdicts) error {
+	if err := refuseForwardTarget(tx, host.ForwardHost, host.ForwardPort, v); err != nil {
 		return err
 	}
 	for i := range host.Locations {
-		if err := refuseOrthrusListenerTarget(tx, host.Locations[i].ForwardHost, host.Locations[i].ForwardPort); err != nil {
+		if err := refuseForwardTarget(tx, host.Locations[i].ForwardHost, host.Locations[i].ForwardPort, v); err != nil {
 			return err
 		}
 	}
@@ -262,9 +262,6 @@ func checkForwardHostForm(raw string) error {
 // validateLocationTargets applies the forward target rules to each location.
 func validateLocationTargets(locations []models.Location) error {
 	for i := range locations {
-		if err := refuseAdminListenerTarget(locations[i].ForwardHost, locations[i].ForwardPort); err != nil {
-			return err
-		}
 		if err := checkForwardHostForm(locations[i].ForwardHost); err != nil {
 			return err
 		}
@@ -286,8 +283,13 @@ func (s *ProxyHostService) Create(host *models.ProxyHost) error {
 // CreateKeepingSent). The uniqueness checks and the insert run in one
 // write-locked transaction (see WithWriteLock).
 func (s *ProxyHostService) CreateAs(host *models.ProxyHost, admin bool, sentKeys ...string) error {
+	return s.createChecked(host, admin, preflightHostNames(host), sentKeys...)
+}
+
+// createChecked is CreateAs with the name verdicts already collected.
+func (s *ProxyHostService) createChecked(host *models.ProxyHost, admin bool, verdicts forwardVerdicts, sentKeys ...string) error {
 	err := WithWriteLock(s.db, &models.ProxyHost{}, func(tx *gorm.DB) error {
-		if err := s.checkHostWrite(tx, host, 0, admin); err != nil {
+		if err := s.checkHostWrite(tx, host, 0, admin, verdicts); err != nil {
 			return err
 		}
 		sentColumns, err := SentDefaultColumns(tx, &models.ProxyHost{}, sentKeys, reflect.Bool)
@@ -315,8 +317,13 @@ func (s *ProxyHostService) Update(host *models.ProxyHost) error {
 // uniqueness checks and the write run in one write-locked transaction (see
 // WithWriteLock).
 func (s *ProxyHostService) UpdateAs(host *models.ProxyHost, admin bool) error {
+	return s.updateChecked(host, admin, preflightHostNames(host))
+}
+
+// updateChecked is UpdateAs with the name verdicts already collected.
+func (s *ProxyHostService) updateChecked(host *models.ProxyHost, admin bool, verdicts forwardVerdicts) error {
 	err := WithWriteLock(s.db, &models.ProxyHost{}, func(tx *gorm.DB) error {
-		if err := s.checkHostWrite(tx, host, host.ID, admin); err != nil {
+		if err := s.checkHostWrite(tx, host, host.ID, admin, verdicts); err != nil {
 			return err
 		}
 		// Use Updates to handle nullable foreign keys properly
@@ -374,14 +381,17 @@ func (s *ProxyHostService) TestConnection(host string, port int) error {
 	if host == "" || port <= 0 {
 		return errors.New("invalid host or port")
 	}
-	if err := refuseOrthrusListenerTarget(s.db, host, port); err != nil {
+	ctx, cancel := context.WithTimeout(context.Background(), forwardNameBudget)
+	defer cancel()
+	verdicts := preflightForwardNames(ctx, []string{host})
+	if err := refuseForwardTarget(s.db, host, port, verdicts); err != nil {
 		return err
 	}
 
 	target := net.JoinHostPort(host, strconv.Itoa(port))
-	conn, err := net.DialTimeout("tcp", target, 3*time.Second)
+	conn, err := NewProbeDialer(s.db, 3*time.Second).DialContext(context.Background(), "tcp", target)
 	if err != nil {
-		return fmt.Errorf("connection failed: %w", err)
+		return ErrConnectionTestFailed
 	}
 	defer func() {
 		if err := conn.Close(); err != nil {

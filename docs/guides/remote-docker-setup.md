@@ -114,7 +114,7 @@ Not sure which option applies to you? The [Hecate guide](../features/hecate.md) 
 
 If you see a green success message, Charon can reach your Docker. Click **Save**.
 
-If the test fails, check that the agent still shows **Online** in Hecate → Agent.
+If the test fails, check that the agent still shows **Online** in Hecate → Agent. For a Source that you connect by host and port, see [Diagnosing a Failed Connection Test](#diagnosing-a-failed-connection-test) below.
 
 ---
 
@@ -160,6 +160,33 @@ Want to know immediately if a remote service goes down? Enable uptime monitoring
 Charon will check the service regularly and alert you through your configured notification channels if it becomes unreachable.
 
 → Learn more: [Uptime Monitoring](../features/uptime-monitoring.md)
+
+---
+
+## Diagnosing a Failed Connection Test
+
+**Test Connection** only tells you whether Charon could reach the machine. It shows **Reachable in N ms** on success, and **Could not connect to the target.** on failure. It does not say why, and Charon's logs do not record the address or port it tried. Only administrators can run this test.
+
+If you connect a Source by its host and port and the test fails, check the address from inside the Charon container:
+
+1. On the machine that runs Charon, open a terminal.
+2. Run this command, replacing `<host>` and `<port>` with the address and port you entered in the Source:
+
+   ```bash
+   docker exec charon nc -zv <host> <port>
+   ```
+
+3. Read the answer:
+
+| What the command says | What it means | What to do |
+| --- | --- | --- |
+| `open` or `succeeded` | Charon can reach the address | Save the Source. If Charon still says the test failed, try again in a minute |
+| `Connection refused` | The machine answers, but nothing listens on that port | Check the port number and that Docker's remote API is turned on |
+| `timed out` or `No route to host` | The address is wrong, or a firewall blocks the way | Check the address, and any firewall on the remote machine |
+
+If the command works but Charon still shows **This destination is not allowed.**, the address is one Charon does not connect to, such as a link-local address or a port Charon uses for itself. See [Which Addresses a Monitor Can Check](../features/uptime-monitoring.md#which-addresses-a-monitor-can-check) for the list.
+
+If you see **Too many attempts**, Charon allows 10 connection tests per minute for each account, shared by all connection tests. Wait a minute and try again.
 
 ---
 
