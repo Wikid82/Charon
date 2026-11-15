@@ -95,6 +95,7 @@ func applyInitialCaddyConfig(ctx context.Context, mgr caddyBootstrapper, timeout
 type uptimeBootstrapService interface {
 	CleanupStaleFailureCounts() error
 	SyncMonitors() error
+	ReportRefusedMonitors()
 }
 
 func runInitialUptimeBootstrap(enabled bool, uptimeService uptimeBootstrapService, logWarn, logError func(error, string)) {
@@ -109,6 +110,9 @@ func runInitialUptimeBootstrap(enabled bool, uptimeService uptimeBootstrapServic
 	if err := uptimeService.SyncMonitors(); err != nil && logError != nil {
 		logError(err, "Failed to sync monitors")
 	}
+
+	// Monitors whose stored destination the policy refuses are named once, here.
+	uptimeService.ReportRefusedMonitors()
 
 	// No initial CheckAll() — the per-monitor scheduler's jittered cold-start
 	// backfill (60s window) covers the "no blind window on boot" goal

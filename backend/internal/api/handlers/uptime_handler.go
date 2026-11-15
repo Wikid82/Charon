@@ -73,8 +73,15 @@ func (h *UptimeHandler) Create(c *gin.Context) {
 
 	monitor, err := h.service.CreateMonitor(req.Name, req.URL, req.Type, req.Interval, req.MaxRetries)
 	if err != nil {
-		logger.Log().WithError(err).Error("Failed to create uptime monitor")
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		switch {
+		case errors.Is(err, services.ErrDestinationRefused):
+			respondDestinationRefused(c)
+		case services.IsMonitorInputError(err):
+			c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		default:
+			logger.Log().WithError(err).Error("Failed to create uptime monitor")
+			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		}
 		return
 	}
 

@@ -349,7 +349,7 @@ func CheckProbeTarget(ctx context.Context, db *gorm.DB, host string, port int) e
 	switch {
 	case err == nil:
 		return nil
-	case errors.Is(err, ErrForwardTargetAddress), errors.Is(err, ErrOrthrusListenerTarget), errors.Is(err, ErrAgentForwardTarget):
+	case isPolicyRefusal(err):
 		return ErrDestinationRefused
 	default:
 		return fmt.Errorf("check probe destination: %w", err)

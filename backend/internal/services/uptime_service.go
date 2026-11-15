@@ -1212,26 +1212,25 @@ func (s *UptimeService) ListMonitors() ([]models.UptimeMonitor, error) {
 
 // CreateMonitor creates a new uptime monitor with the given parameters
 func (s *UptimeService) CreateMonitor(name, urlStr, monitorType string, interval, maxRetries int) (*models.UptimeMonitor, error) {
-	// Validate URL format
-	parsedURL, err := url.Parse(urlStr)
-	if err != nil {
-		return nil, fmt.Errorf("invalid URL format: %w", err)
-	}
-
-	// For HTTP/HTTPS, ensure the scheme is present
-	if monitorType == "http" || monitorType == "https" {
-		if parsedURL.Scheme == "" {
-			return nil, errors.New("URL must include scheme (http:// or https://)")
-		}
-		if parsedURL.Host == "" {
-			return nil, errors.New("URL must include host")
-		}
-	}
-
-	// For TCP, validate host:port format
+	// A TCP monitor is host:port, optionally written with the tcp:// prefix. It is
+	// not a URL, so only HTTP and HTTPS monitors go through URL parsing.
 	if monitorType == "tcp" {
-		if _, _, err := net.SplitHostPort(urlStr); err != nil {
-			return nil, fmt.Errorf("TCP URL must be in host:port format: %w", err)
+		if _, _, err := monitorDestination(monitorType, urlStr); err != nil {
+			return nil, err
+		}
+	} else {
+		parsedURL, err := url.Parse(urlStr)
+		if err != nil {
+			return nil, invalidMonitorInput("invalid URL format: " + err.Error())
+		}
+		// For HTTP/HTTPS, ensure the scheme is present
+		if monitorType == "http" || monitorType == "https" {
+			if parsedURL.Scheme == "" {
+				return nil, invalidMonitorInput("URL must include scheme (http:// or https://)")
+			}
+			if parsedURL.Host == "" {
+				return nil, invalidMonitorInput("URL must include host")
+			}
 		}
 	}
 
@@ -1241,6 +1240,12 @@ func (s *UptimeService) CreateMonitor(name, urlStr, monitorType string, interval
 	interval = clampInterval(interval, s.uptimeCfg)
 	if maxRetries <= 0 {
 		maxRetries = 3 // Default 3 retries
+	}
+
+	// The destination must pass the probe policy, so an address that can never be
+	// checked is refused now instead of reporting down later.
+	if err := checkMonitorDestination(s.DB, monitorType, urlStr); err != nil {
+		return nil, err
 	}
 
 	monitor := &models.UptimeMonitor{

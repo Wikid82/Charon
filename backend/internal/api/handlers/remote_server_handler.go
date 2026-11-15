@@ -203,15 +203,6 @@ func (h *RemoteServerHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusNoContent, nil)
 }
 
-// Fixed texts for remote server connection tests. They name no address, port or
-// rule, so the response does not reveal this machine's reserved ports or policy.
-const (
-	connectionTestFailedText = "Could not connect to the target."
-	destinationRefusedText   = "This destination is not allowed."
-	destinationRefusedCode   = "destination_refused"
-	connectionTestErrorText  = "Could not run the connection test."
-)
-
 // runRemoteDialTest runs the remote server connection test. It writes the 400 for a
 // refused destination and the 500 for a failed check, and reports whether the
 // response was written. A failed connection is not an error here: it is returned
@@ -230,7 +221,7 @@ func runRemoteDialTest(c *gin.Context, service *services.RemoteServerService, ho
 	latency, err := service.TestDial(ctx, host, port)
 	switch {
 	case errors.Is(err, services.ErrDestinationRefused):
-		c.JSON(http.StatusBadRequest, gin.H{"error": destinationRefusedText, "error_code": destinationRefusedCode})
+		respondDestinationRefused(c)
 		return remoteDialOutcome{}, true
 	case err != nil && !errors.Is(err, services.ErrConnectionTestFailed):
 		logger.Log().WithError(err).Warn("remote server connection test could not run")
