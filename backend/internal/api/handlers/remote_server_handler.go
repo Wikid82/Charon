@@ -22,6 +22,7 @@ type RemoteServerHandler struct {
 	service             *services.RemoteServerService
 	notificationService *services.NotificationService
 	uptimeService       *services.UptimeService // nil-guarded; wired via SetUptimeService
+	connectionTestGate
 }
 
 // NewRemoteServerHandler creates a new remote server handler.
@@ -221,18 +222,26 @@ func runRemoteDialTest(c *gin.Context, service *services.RemoteServerService, ho
 	latency, err := service.TestDial(ctx, host, port)
 	switch {
 	case errors.Is(err, services.ErrDestinationRefused):
+		logConnectionTest(c, "refused")
 		respondDestinationRefused(c)
 		return remoteDialOutcome{}, true
-	case err != nil && !errors.Is(err, services.ErrConnectionTestFailed):
+	case errors.Is(err, services.ErrConnectionTestFailed):
+		logConnectionTest(c, "failed")
+	case err != nil:
 		logger.Log().WithError(err).Warn("remote server connection test could not run")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": connectionTestErrorText})
 		return remoteDialOutcome{}, true
+	default:
+		logConnectionTest(c, "ok")
 	}
 	return remoteDialOutcome{latency: latency, err: err}, false
 }
 
 // TestConnection tests the TCP connection to a remote server.
 func (h *RemoteServerHandler) TestConnection(c *gin.Context) {
+	if !h.allowConnectionTest(c) {
+		return
+	}
 	uuidStr := c.Param("uuid")
 
 	server, err := h.service.GetByUUID(uuidStr)
@@ -275,6 +284,9 @@ func (h *RemoteServerHandler) TestConnection(c *gin.Context) {
 
 // TestConnectionCustom tests connectivity to a host/port provided in the body
 func (h *RemoteServerHandler) TestConnectionCustom(c *gin.Context) {
+	if !h.allowConnectionTest(c) {
+		return
+	}
 	var req struct {
 		Host string `json:"host" binding:"required"`
 		Port int    `json:"port" binding:"required"`

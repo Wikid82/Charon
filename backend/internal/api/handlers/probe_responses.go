@@ -14,6 +14,7 @@ const (
 	destinationRefusedCode   = "destination_refused"
 	connectionTestFailedText = "Could not connect to the target."
 	connectionTestErrorText  = "Could not run the connection test."
+	connectionTestFailedCode = "connection_test_failed"
 )
 
 // respondDestinationRefused writes the 400 for a destination the probe policy refuses.

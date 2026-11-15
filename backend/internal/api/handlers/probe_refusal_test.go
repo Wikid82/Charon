@@ -94,7 +94,7 @@ func TestProxyHostTestConnection_FailureUsesFixedText(t *testing.T) {
 		"forward_port": closed,
 	})
 	assert.Equal(t, http.StatusBadGateway, rec.Code, rec.Body.String())
-	assert.JSONEq(t, `{"error":"Could not connect to the target."}`, rec.Body.String())
+	assert.JSONEq(t, `{"error":"Could not connect to the target.","error_code":"connection_test_failed"}`, rec.Body.String())
 }
 
 // closedPort returns a loopback port with nothing listening on it.

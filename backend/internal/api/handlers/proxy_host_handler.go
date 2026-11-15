@@ -153,6 +153,7 @@ type ProxyHostHandler struct {
 	caddyManager        *caddy.Manager
 	notificationService *services.NotificationService
 	uptimeService       *services.UptimeService
+	connectionTestGate
 }
 
 // safeIntToUint safely converts int to uint, returning false if negative (gosec G115)
@@ -875,6 +876,10 @@ func (h *ProxyHostHandler) Delete(c *gin.Context) {
 
 // TestConnection checks if the proxy host is reachable.
 func (h *ProxyHostHandler) TestConnection(c *gin.Context) {
+	if !h.allowConnectionTest(c) {
+		return
+	}
+
 	var req struct {
 		ForwardHost string `json:"forward_host" binding:"required"`
 		ForwardPort int    `json:"forward_port" binding:"required"`
@@ -887,16 +892,19 @@ func (h *ProxyHostHandler) TestConnection(c *gin.Context) {
 
 	if err := h.service.TestConnection(req.ForwardHost, req.ForwardPort); err != nil {
 		if respondForwardTargetRefused(c, err) {
+			logConnectionTest(c, "refused")
 			return
 		}
 		if errors.Is(err, services.ErrConnectionTestFailed) {
-			c.JSON(http.StatusBadGateway, gin.H{"error": connectionTestFailedText})
+			logConnectionTest(c, "failed")
+			c.JSON(http.StatusBadGateway, gin.H{"error": connectionTestFailedText, "error_code": connectionTestFailedCode})
 			return
 		}
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return
 	}
 
+	logConnectionTest(c, "ok")
 	c.JSON(http.StatusOK, gin.H{"message": "Connection successful"})
 }
 
