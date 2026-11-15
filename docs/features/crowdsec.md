@@ -193,6 +193,10 @@ CrowdSec settings are stored in Charon's database and synchronized with the Secu
 - **State Persistence** — Decisions and configurations survive restarts
 - **Downloaded Data Survives Recreating the Container** — CrowdSec's own database and the lists it downloads (such as blocklists and the location database) are stored in your Charon data folder. If any are missing after an upgrade, Charon re-downloads them on startup. If the CrowdSec Hub is unreachable, a restart with missing data files may take up to about two minutes longer while the refresh times out.
 
+## Which Address CrowdSec Judges
+
+CrowdSec checks the same visitor address as the rest of Charon. Behind a proxy, that is the visitor's address only when the proxy is on your trusted list. If it isn't, CrowdSec judges the proxy, and it can't ban the real visitor. See [Trusted Proxies](../configuration/trusted-proxies.md).
+
 ## Managing the CrowdSec bouncer key
 
 The bouncer key is the password Charon's built-in firewall layer uses to talk to CrowdSec. Charon creates and registers it for you the first time CrowdSec starts, so most people never need to touch it.

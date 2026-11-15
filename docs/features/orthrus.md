@@ -266,6 +266,8 @@ The agent only needs an address it can use to reach Charon. The path (`/api/v1/w
 
 If agents reach Charon through another reverse proxy, add that proxy to `CHARON_TRUSTED_PROXIES` so Charon counts each agent's connections by its own address. See [Trusted Proxies](../configuration/trusted-proxies.md).
 
+Agents are not affected by the access lists that protect Charon's own interface. Those lists would otherwise cut off every agent, since agents connect from remote machines. An agent still has to sign in with its own key. See [Access Control Lists](access-control.md#charons-own-interface).
+
 ### When Is Plain `ws://` Allowed?
 
 Plain `ws://` does not encrypt the connection. The agent accepts it without any extra setting when the address is one of these:

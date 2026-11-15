@@ -883,6 +883,30 @@ graph LR
     style WAF fill:#fbb,stroke:#333,stroke-width:2px
 ```
 
+### Client Address and Trusted Proxies
+
+Charon decides "who is the visitor" one way on each layer, and the proxy layer and the management API use the same trust rules.
+
+- **Proxy layer (ports 80/443):** Caddy's `charon_server` trusts the ranges from the proxy trust list (loopback always included), with `trusted_proxies_strict` and `client_ip_headers: ["X-Forwarded-For"]`. Caddy walks the forwarded chain from the right and stops at the first untrusted entry. That result is the `client_ip` request variable, read as `{http.vars.client_ip}`. Every proxy check uses it: decisions, local-network, block and allow lists, the admin exemption, the rate-limit key and bypass, CrowdSec, Coraza, `X-Real-IP` and the self-proxy hop header. The security log entry carries `client_ip`, falling back to `remote_ip`.
+- **Trust list sources:** the setting `security.proxy.trusted_proxies` (canonical CIDRs, validated by `security.NormalizeTrustedProxies`: at most 64 entries, nothing wider than /8 IPv4 or /24 IPv6, whole private blocks accepted with a warning). Until it is saved, `CHARON_TRUSTED_PROXIES` is clamped with the same rules and dropped entries are logged once at start. With neither, only loopback is trusted. `GET`, `PUT` and `DELETE /api/v1/security/trusted-proxies` (admin write) manage it; a change is guarded against lock-out and rolled back if the apply fails.
+- **Country lookup:** the `geoip2` handler runs in `trusted_proxies` mode, so a `headers` handler first sets `X-Forwarded-For` to `{http.vars.client_ip}`. Only country-list hosts send the normalised header upstream.
+- **Management API:** Gin's `ClientIP()` uses the API-layer list from `CHARON_TRUSTED_PROXIES` (validated at start, one invalid entry empties it). The self-proxy hop forwards the proxy peer and the incoming chain under a verified secret, so `security.StrictClientAddr` can recompute the caller's address under a new trust list.
+- **Forwarded host and scheme:** honoured only from a verified self-proxy hop or a peer in `CHARON_TRUSTED_PROXIES` (`middleware.ForwardedRequest`). Used by login and by the WebSocket origin check. The public origin match is unchanged.
+
+### Management Access Lists
+
+Charon's own interface (`/api/v1`) is no longer checked against proxy-host lists. It is checked only against the lists in the setting `security.acl.management_lists` (a JSON array of access-list UUIDs), and only while Cerberus and the ACL module are on.
+
+- **Evaluation:** `services.EvaluateManagement` uses the same proxy-model decision as `Evaluate`: every chosen, enabled list must allow. An empty set is not restricted. A disabled list allows. A missing UUID is skipped with one warning per cache refresh. The error policy refuses an allow-type list it cannot use and skips a block-type one with a warning. The admin allow-list is exempt by address. `POST /api/v1/ws/orthrus/connect` is exempt by exact route path (`c.FullPath()`).
+- **Country lists on the interface:** use the shared GeoIP service. With no usable database they are not enforced, and the `geoip_unavailable` alert carries `scope: "management"`.
+- **Seeding:** `services.SeedManagementListsOnce` runs once at start when the key is absent. With ACL on, it stores enabled whitelist, blacklist and local-network-only lists, except `geo_*` lists with the local-network flag (they are skipped with a warning). With ACL off, it stores `[]`. A failed read retries on the next start.
+- **Guards (`management_access_would_lock_out`, 403; 409 for GeoIP replace or reload):** saving the set, enabling ACL, editing or enabling a listed list, editing the admin allow-list, changing the trust list, and replacing or reloading the GeoIP database (candidate reader checked before the swap). `InUse` counts the set, so deletion returns `409 access_list_in_use`.
+- **Endpoints:** `GET /api/v1/security/management-access` (management), `PUT` (admin). Route groups are described under "Management API Authentication & Authorization".
+
+### Live Stream Quota
+
+`services.StreamQuota` (8 per user, 64 total) covers the four live streams: `/logs/live`, `/cerberus/logs/ws`, `/ws/hecate/logs/:uuid` and `/stats/ws`. The slot is taken after the origin check and before `websocket.Accept`. Over the cap, the handler accepts the upgrade, closes with status 1013 and reason `stream_limit_reached`, and returns a sentinel error. The slot is released in a defer, including on panic. The key is the caller's user ID, falling back to the client address. The frontend does not reconnect on 1013.
+
 ### Layer 1: Rate Limiting
 
 **Purpose:** Prevent brute-force attacks and API abuse
@@ -1019,10 +1043,11 @@ pin (the stage already carries ~40 such pins).
 
 **Features:**
 
-- Per-proxy-host allow/deny rules
+- Per-proxy-host allow/deny rules (protect that site only)
+- Management access lists for Charon's own interface (see "Management Access Lists")
 - CIDR range support (e.g., `192.168.1.0/24`)
 - Geographic blocking via GeoIP2 (MaxMind)
-- Admin whitelist (emergency access)
+- Admin whitelist (emergency access), matched by visitor address and applied to both paths
 
 **Evaluation Order:**
 
@@ -1373,6 +1398,8 @@ sequenceDiagram
     F->>B: Close WebSocket
     B->>L: Unsubscribe
 ```
+
+Live streams share a quota of 8 per user and 64 in total. A stream over the limit is closed with 1013 `stream_limit_reached` (see "Live Stream Quota").
 
 ### Stats Ingestion & Push
 
