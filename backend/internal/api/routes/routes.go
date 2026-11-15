@@ -997,6 +997,8 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		// POST /security/geoip/reload and every consumer (including the proxy state) sees the same live service.
 		geoipSvc := initGeoIPAtStartup(geoip.ResolveDatabasePath)
 		caddyManager.SetGeoIPState(geoIPProxyState(geoipSvc))
+		// The management access check decides country lists on Charon's own interface with the same database.
+		cerb.SetGeoIPService(geoipSvc)
 
 		// Security Status
 		securityHandler := handlers.NewSecurityHandlerWithDeps(cfg.Security, db, caddyManager, cerb).WithCrowdsecLifecycle(crowdsecHandler)

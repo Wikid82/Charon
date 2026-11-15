@@ -292,3 +292,53 @@ func TestCallerAddressUnder_DirectRequestKeepsConnectionAddress(t *testing.T) {
 type guardCacheCounter struct{ calls int }
 
 func (g *guardCacheCounter) InvalidateCache() { g.calls++ }
+
+// TestGeoIPErrorResponse_LockOutIs409: a GeoIP change refused by the management lock-out check is answered 409 with the
+// lock-out code, and the database is not changed.
+func TestGeoIPErrorResponse_LockOutIs409(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	c, w := aclGuardContext(t, http.MethodPost, "")
+	geoipErrorResponse(c, services.ErrGeoIPWouldLockOut)
+	assert.Equal(t, http.StatusConflict, w.Code)
+	assert.Contains(t, w.Body.String(), codeManagementLockout)
+}
+
+// TestManagementAccessPut_UnusableAllowListIs400: choosing an allow-list whose stored rules the proxy cannot use is
+// answered 400 with the list named, and nothing is written.
+func TestManagementAccessPut_UnusableAllowListIs400(t *testing.T) {
+	db := aclGuardDB(t, nil)
+	require.NoError(t, db.Create(&models.Setting{Key: models.SecurityACLEnabledSettingKey, Value: "true", Category: "security", Type: "bool"}).Error)
+	require.NoError(t, db.Create(&models.AccessList{UUID: "unusable", Name: "unusable", Type: "whitelist", Enabled: true, IPRules: `[{"cidr":"192.0.2.0/24"},{"cidr":"not-a-range"}]`}).Error)
+	h := NewManagementAccessHandler(db, "", nil)
+	r := guardRouter(t, http.MethodPut, "/security/management-access", h.Put)
+
+	w := guardDo(t, r, http.MethodPut, "/security/management-access", `{"list_uuids":["unusable"]}`)
+	require.Equal(t, http.StatusBadRequest, w.Code, w.Body.String())
+	assert.Equal(t, codeAccessListInvalid, guardCode(t, w))
+	assert.Contains(t, w.Body.String(), `"list":"unusable"`)
+	stored, err := services.ManagementListUUIDs(db)
+	require.NoError(t, err)
+	assert.Empty(t, stored, "a refused choice is not written")
+}
+
+// TestCallerAddressUnder_UnusableHopPeerKeepsHopClient: a verified hop whose peer value does not parse is judged by the
+// client address the hop reported, not by a recomputed one.
+func TestCallerAddressUnder_UnusableHopPeerKeepsHopClient(t *testing.T) {
+	secret, err := selfhop.NewSecret()
+	require.NoError(t, err)
+	gin.SetMode(gin.TestMode)
+	r := gin.New()
+	r.Use(middleware.SelfHop(secret, security.TrustedProxyMatcher{}))
+	var got string
+	r.GET("/", func(c *gin.Context) { got = callerAddressUnder(c, nil) })
+
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	req.RemoteAddr = "127.0.0.1:4000"
+	req.Header.Set(selfhop.HeaderSecret, secret.Reveal())
+	req.Header.Set(selfhop.HeaderClient, "198.51.100.7")
+	req.Header.Set(selfhop.HeaderPeer, "not-an-address")
+	req.Header.Set(selfhop.HeaderForwarded, "203.0.113.9")
+	r.ServeHTTP(httptest.NewRecorder(), req)
+
+	assert.Equal(t, "198.51.100.7", got)
+}

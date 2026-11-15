@@ -211,10 +211,11 @@ func TestPatchCrowdSec_InvalidBody(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-func TestACLForbiddenIfIPNotWhitelisted(t *testing.T) {
+// Access control on Charon's own interface is decided by the management access lists only (see acl_enable_guard_test.go
+// for the refused case). With no list chosen, an address outside the admin allow-list does not stop the switch.
+func TestACLEnabledWithoutManagementListsOutsideAdminAllowList(t *testing.T) {
 	h, db := setupToggleTest(t)
 
-	// Update config to have whitelist
 	err := db.Model(&models.SecurityConfig{}).Where("name = ?", "default").Update("admin_whitelist", "10.0.0.1").Error
 	require.NoError(t, err)
 
@@ -223,11 +224,14 @@ func TestACLForbiddenIfIPNotWhitelisted(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = req
 	c.Set("role", "admin")
-	c.Request.RemoteAddr = "192.168.1.5:1234" // Different IP
+	c.Request.RemoteAddr = "192.168.1.5:1234" // outside the admin allow-list
 
 	h.EnableACL(c)
 
-	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code)
+	var setting models.Setting
+	require.NoError(t, db.Where("key = ?", models.SecurityACLEnabledSettingKey).First(&setting).Error)
+	assert.Equal(t, "true", setting.Value)
 }
 
 func TestACLEnabledIfIPWhitelisted(t *testing.T) {

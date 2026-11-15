@@ -114,6 +114,12 @@ func (c *Cerberus) InvalidateCache() {
 	c.settingsCacheMu.Unlock()
 }
 
+// SetGeoIPService gives the management access check the GeoIP service, so country lists on Charon's own interface are
+// decided with the same database as proxy hosts.
+func (c *Cerberus) SetGeoIPService(geoipSvc *services.GeoIPService) {
+	c.accessSvc.SetGeoIPService(geoipSvc)
+}
+
 // IsEnabled returns whether Cerberus features are enabled via config or settings.
 func (c *Cerberus) IsEnabled() bool {
 	// DB-backed break-glass disable must take effect even when static config defaults to enabled.

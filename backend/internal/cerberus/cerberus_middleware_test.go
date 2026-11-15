@@ -340,3 +340,20 @@ func TestMiddleware_EmergencyBypassSkipsChecks(t *testing.T) {
 
 	require.False(t, ctx.IsAborted(), "middleware should short-circuit when emergency_bypass=true")
 }
+
+// TestMiddleware_CountryManagementListUsesGeoIPService: a country list chosen for Charon's own interface is decided with
+// the GeoIP service once one is wired; without a service it is not enforced.
+func TestMiddleware_CountryManagementListUsesGeoIPService(t *testing.T) {
+	db := setupDB(t)
+	acl := &models.AccessList{UUID: "geo-block", Name: "geo", Type: "geo_blacklist", CountryCodes: "RU", Enabled: true}
+	require.NoError(t, db.Create(acl).Error)
+	managementSetting(t, db, acl.UUID)
+
+	c := cerberus.New(config.SecurityConfig{ACLMode: "enabled"}, db)
+	aborted, _ := aclMiddlewareContext(t, c, "8.8.8.8:1234")
+	require.False(t, aborted, "without a GeoIP service the country list is not enforced")
+
+	c.SetGeoIPService(nil)
+	aborted, _ = aclMiddlewareContext(t, c, "8.8.8.8:1234")
+	require.False(t, aborted, "a nil GeoIP service is the same as none")
+}

@@ -169,6 +169,9 @@ func (s *GeoIPDatabaseStore) Replace(ctx context.Context, upload io.Reader) (Rep
 	if err := s.checkBuildEpoch(info.BuildEpoch); err != nil {
 		return result, err
 	}
+	if err := runCandidateGuard(ctx, tmpPath); err != nil {
+		return result, err
+	}
 
 	st := swapState{live: live, prev: live + prevSuffix, hadPrevious: hadPrevious, before: s.svc.Info()}
 	if hadPrevious {

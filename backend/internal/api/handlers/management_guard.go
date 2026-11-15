@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"net/netip"
@@ -77,7 +78,7 @@ func (g managementGuard) refuses(c *gin.Context, st managementState) bool {
 	case errors.As(err, &listErr):
 		c.JSON(http.StatusBadRequest, gin.H{"error": "an access list chosen for Charon's own interface cannot be used", "error_code": codeAccessListInvalid, "list": listErr.List})
 	case err != nil && !errors.Is(err, services.ErrUnusableClientAddress):
-		logger.Log().WithError(err).Error("Management access check failed")
+		logger.Log().WithField("error", util.SanitizeForLog(err.Error())).Error("Management access check failed")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check management access"})
 	default:
 		respondCoded(c, http.StatusForbidden, codeManagementLockout, msgManagementLockout, nil)
@@ -116,4 +117,20 @@ func refuseAdminAllowList(c *gin.Context, db *gorm.DB, aclMode, proposed string)
 	}
 	st.admin = network.SplitAddressList(proposed)
 	return guard.refuses(c, st)
+}
+
+// geoipChangeContext returns the request context for a GeoIP database change. It carries the management lock-out
+// check, which runs against the candidate database before the live one is replaced. An emergency bypass request is not
+// checked, and neither is a handler without a database, which holds no management set.
+func (h *SecurityHandler) geoipChangeContext(c *gin.Context) context.Context {
+	ctx := c.Request.Context()
+	if middleware.IsEmergencyBypass(c) || h.db == nil {
+		return ctx
+	}
+	guard := newManagementGuard(h.db, h.cfg.ACLMode)
+	st, err := guard.current(callerAddress(c))
+	if err != nil {
+		return services.WithCandidateGuard(ctx, func(string) error { return err })
+	}
+	return services.WithCandidateGuard(ctx, services.ManagementCandidateCheck(h.db, st.lists, st.clientAddr, st.admin, st.aclOn))
 }

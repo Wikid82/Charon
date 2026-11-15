@@ -161,6 +161,9 @@ func (s *GeoIPDatabaseStore) Reload(ctx context.Context) error {
 		return ErrGeoIPBusy
 	}
 	defer s.mu.Unlock()
+	if err := runCandidateGuard(ctx, s.svc.pathToLoad()); err != nil {
+		return err
+	}
 
 	loadErr := s.svc.Load()
 	var applyErr error

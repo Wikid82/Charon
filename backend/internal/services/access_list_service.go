@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/netip"
 	"regexp"
 	"strings"
 
@@ -238,104 +237,6 @@ func (s *AccessListService) Delete(id uint) error {
 		return ErrAccessListNotFound
 	}
 	return nil
-}
-
-// TestIP reports whether the access list allows ipAddress, with a reason. It is used by the Cerberus middleware on
-// Charon's own API. It is not the proxy model; see Evaluate. Its outcomes are kept as they were: no admin exemption,
-// local network before geo, and a GeoIP service that is missing or not loaded allows.
-func (s *AccessListService) TestIP(aclID uint, ipAddress string) (allowed bool, reason string, err error) {
-	acl, err := s.GetByID(aclID)
-	if err != nil {
-		return false, "", err
-	}
-
-	if !acl.Enabled {
-		return true, "Access list is disabled - all traffic allowed", nil
-	}
-
-	// A zoned address (for example "fe80::1%eth0") is refused, as net.ParseIP refused it before.
-	addr, err := netip.ParseAddr(ipAddress)
-	if err != nil || addr.Zone() != "" {
-		return false, "", ErrInvalidIPAddress
-	}
-	addr = addr.Unmap()
-
-	// Test local network only
-	if acl.LocalNetworkOnly {
-		if !localNetworkContains(addr) {
-			return false, "Not a private network IP (RFC1918)", nil
-		}
-		return true, "Allowed by local network only rule", nil
-	}
-
-	// Handle geo-based access lists
-	if strings.HasPrefix(acl.Type, "geo_") {
-		return s.testGeoIP(acl, ipAddress)
-	}
-
-	// Test IP rules
-	if acl.IPRules != "" {
-		var rules []models.AccessListRule
-		if err := json.Unmarshal([]byte(acl.IPRules), &rules); err == nil {
-			for _, rule := range rules {
-				if addrInEntry(rule.CIDR, addr) {
-					if acl.Type == "whitelist" {
-						return true, fmt.Sprintf("Allowed by whitelist rule: %s", rule.CIDR), nil
-					}
-					if acl.Type == "blacklist" {
-						return false, fmt.Sprintf("Blocked by blacklist rule: %s", rule.CIDR), nil
-					}
-				}
-			}
-		}
-	}
-
-	// Default behavior based on type
-	if acl.Type == "whitelist" {
-		return false, "Not in whitelist", nil
-	}
-	return true, "Not in blacklist", nil
-}
-
-// testGeoIP tests an IP against geo-based access list rules.
-func (s *AccessListService) testGeoIP(acl *models.AccessList, ipAddress string) (allowed bool, reason string, err error) {
-	// Check if GeoIP service is available
-	if s.geoipSvc == nil || !s.geoipSvc.IsLoaded() {
-		// Graceful degradation: if GeoIP is not available, allow traffic with warning
-		return true, "GeoIP database not available - allowing by default", nil
-	}
-
-	// Look up the country for this IP
-	country, err := s.geoipSvc.LookupCountry(ipAddress)
-	if err != nil {
-		// Handle specific errors
-		if errors.Is(err, ErrCountryNotFound) {
-			// IP has no associated country (e.g., private IP, reserved range)
-			if acl.Type == "geo_whitelist" {
-				return false, "No country found for IP - not in geo whitelist", nil
-			}
-			// For blacklist, unknown country means not blocked
-			return true, "No country found for IP - not in geo blacklist", nil
-		}
-		// Other errors: graceful degradation
-		return true, fmt.Sprintf("GeoIP lookup error: %v - allowing by default", err), nil
-	}
-
-	inList := countryInList(acl.CountryCodes, country)
-
-	// Apply whitelist/blacklist logic
-	if acl.Type == "geo_whitelist" {
-		if inList {
-			return true, fmt.Sprintf("Allowed by geo whitelist: IP is from %s", country), nil
-		}
-		return false, fmt.Sprintf("Blocked by geo whitelist: IP is from %s (not in allowed countries)", country), nil
-	}
-
-	// geo_blacklist
-	if inList {
-		return false, fmt.Sprintf("Blocked by geo blacklist: IP is from %s", country), nil
-	}
-	return true, fmt.Sprintf("Allowed: IP is from %s (not in blocked countries)", country), nil
 }
 
 // parseCountryCodes parses a comma-separated list of country codes.
