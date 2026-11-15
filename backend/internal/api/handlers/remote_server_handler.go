@@ -204,16 +204,16 @@ func (h *RemoteServerHandler) Delete(c *gin.Context) {
 	c.JSON(http.StatusNoContent, nil)
 }
 
-// runRemoteDialTest runs the remote server connection test. It writes the 400 for a
-// refused destination and the 500 for a failed check, and reports whether the
-// response was written. A failed connection is not an error here: it is returned
-// as the dial error with its fixed text, and the caller reports reachable false.
 // remoteDialOutcome is the result of a remote server connection test that ran.
 type remoteDialOutcome struct {
 	latency time.Duration
 	err     error
 }
 
+// runRemoteDialTest runs the remote server connection test. It writes the 400 for a
+// refused destination and the 500 for a failed check, and reports whether the
+// response was written. A failed connection is not an error here: it is returned
+// as the dial error with its fixed text, and the caller reports reachable false.
 func runRemoteDialTest(c *gin.Context, service *services.RemoteServerService, host string, port int) (remoteDialOutcome, bool) {
 	ctx := context.Background()
 	if c.Request != nil {

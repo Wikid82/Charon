@@ -51,8 +51,7 @@ func ParseDial(dial string) (DialAddress, error) {
 	return DialAddress{Network: network, Host: host, PortStart: start, PortEnd: end}, nil
 }
 
-// parsePortRange reads "port" or "start-end" and checks that both ends are valid ports.
-// parsePortRange reads a port range. It returns the first and last port.
+// parsePortRange reads "port" or "start-end" and returns the first and last port.
 func parsePortRange(raw string) (first, last int, err error) {
 	startStr, endStr, isRange := strings.Cut(raw, "-")
 	if !isRange {

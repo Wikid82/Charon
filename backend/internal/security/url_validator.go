@@ -142,6 +142,11 @@ type ValidationConfig struct {
 
 	// AllowExact returns exact addresses allowed even inside a blocked range.
 	AllowExact func() []netip.Addr
+
+	// AllowResolvedLoopback permits names and literals that resolve to loopback
+	// addresses other than the exact localhost forms. Callers that probe the
+	// local host set it; the connection itself still goes through the guarded dialer.
+	AllowResolvedLoopback bool
 }
 
 // ValidationOption allows customizing validation behavior.
@@ -196,6 +201,13 @@ func WithAllowBenchmarking() ValidationOption {
 // range. Always-blocked instance service addresses stay blocked.
 func WithAllowExact(allow func() []netip.Addr) ValidationOption {
 	return func(c *ValidationConfig) { c.AllowExact = allow }
+}
+
+// WithAllowResolvedLoopback permits addresses that resolve to loopback. Only the
+// probe pre-check uses it, because the probe dialer checks the connected address
+// and refuses reserved ports on this machine.
+func WithAllowResolvedLoopback() ValidationOption {
+	return func(c *ValidationConfig) { c.AllowResolvedLoopback = true }
 }
 
 // ValidateExternalURL validates a URL for external HTTP requests with comprehensive SSRF protection.
@@ -324,6 +336,7 @@ func ValidateExternalURL(rawURL string, options ...ValidationOption) (string, er
 	// localhost hosts in Phase 2.
 	if config.BlockPrivateIPs {
 		policy := network.AddressPolicy{
+			AllowLocalhost:    config.AllowResolvedLoopback,
 			AllowRFC1918:      config.AllowRFC1918,
 			AllowCGNAT:        config.AllowCGNAT,
 			AllowUniqueLocal:  config.AllowUniqueLocal,

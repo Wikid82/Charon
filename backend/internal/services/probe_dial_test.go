@@ -202,3 +202,17 @@ func TestEmergencyPortRefusedAsProbeWhileEnabled(t *testing.T) {
 
 	assert.ErrorIs(t, CheckProbeTarget(context.Background(), db, "localhost", 2020), ErrDestinationRefused)
 }
+
+func TestHTTPMonitorLoopbackNameIsCheckedNotPreRefused(t *testing.T) {
+	setHostSideAddrs(t)
+	resetEmergency(t)
+	db := setupUptimeTestDB(t)
+	c := newUptimeChecker(NewUptimeService(db, nil))
+	// 127.0.0.2 is loopback but not an exact localhost form. The monitor is created
+	// and probed; the probe must reach the connection step and report how that failed,
+	// not the destination refusal.
+	res := c.probe(context.Background(), models.UptimeMonitor{Type: "http", URL: "http://127.0.0.2:" + strconv.Itoa(closedLocalPort(t)) + "/"})
+	assert.False(t, res.Success)
+	assert.NotEqual(t, destinationRefusedMessage, res.Message)
+	assert.NotContains(t, res.Message, "security validation failed")
+}

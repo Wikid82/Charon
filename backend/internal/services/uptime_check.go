@@ -120,6 +120,9 @@ func (c *uptimeChecker) probe(ctx context.Context, monitor models.UptimeMonitor)
 			security.WithAllowUniqueLocal(),
 			security.WithAllowBenchmarking(),
 			security.WithAllowExact(gatewayAllowAddrs),
+			// The probe dialer checks the address it connects to, so loopback names are
+			// allowed here and reserved ports on this machine are still refused.
+			security.WithAllowResolvedLoopback(),
 		)
 		if err != nil {
 			msg = probeErrorMessage(err, "security validation failed: ")

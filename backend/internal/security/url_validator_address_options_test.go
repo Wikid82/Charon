@@ -5,6 +5,9 @@ import (
 	"net/netip"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+
 	"github.com/Wikid82/charon/backend/internal/network"
 )
 
@@ -47,4 +50,18 @@ func TestValidateExternalURL_AddressPolicyOptions(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateExternalURL_ResolvedLoopbackOption(t *testing.T) {
+	t.Parallel()
+	// 127.0.0.2 is loopback but not one of the exact localhost forms, so it takes
+	// the resolved-address path.
+	_, err := ValidateExternalURL("http://127.0.0.2:8080", WithAllowHTTP(), WithAllowLocalhost())
+	assert.ErrorIs(t, err, network.ErrBlockedAddress, "exact localhost forms only without the option")
+
+	_, err = ValidateExternalURL("http://127.0.0.2:8080", WithAllowHTTP(), WithAllowResolvedLoopback())
+	require.NoError(t, err, "resolved loopback is allowed with the option")
+
+	_, err = ValidateExternalURL("http://169.254.169.254/", WithAllowHTTP(), WithAllowResolvedLoopback())
+	assert.ErrorIs(t, err, network.ErrBlockedAddress, "link-local stays refused")
 }
