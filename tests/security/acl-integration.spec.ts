@@ -220,7 +220,7 @@ test.describe('Proxy + ACL Integration', () => {
         // Navigate to access lists to verify
         await page.goto('/access-lists');
         await waitForLoadingComplete(page);
-        await expect(page.getByText(aclConfig.name)).toBeVisible();
+        await expect(page.locator('p').filter({ hasText: aclConfig.name })).toBeVisible();
       });
     });
 
@@ -570,7 +570,7 @@ test.describe('Proxy + ACL Integration', () => {
       });
 
       await test.step('Verify ACL is in list', async () => {
-        await expect(page.getByText(aclConfig.name)).toBeVisible();
+        await expect(page.locator('p').filter({ hasText: aclConfig.name })).toBeVisible();
       });
     });
 
