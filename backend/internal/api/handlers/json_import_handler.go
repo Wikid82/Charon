@@ -278,6 +278,8 @@ func (h *JSONImportHandler) Cancel(c *gin.Context) {
 
 // commitCharonImport commits a Charon format import.
 func (h *JSONImportHandler) commitCharonImport(c *gin.Context, export CharonExport, resolutions, names map[string]string, sessionUUID string) {
+	budget := services.NewImportNameBudget()
+	defer budget.Close()
 	result := h.convertCharonToImportResult(export)
 	proxyHosts := caddy.ConvertToProxyHosts(result.Hosts)
 
@@ -314,7 +316,7 @@ func (h *JSONImportHandler) commitCharonImport(c *gin.Context, export CharonExpo
 				host.CertificateID = existing.CertificateID
 				host.CreatedAt = existing.CreatedAt
 
-				if err := h.proxyHostSvc.Update(&host); err != nil {
+				if err := h.proxyHostSvc.UpdateImported(budget, &host); err != nil {
 					errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, err.Error()))
 				} else {
 					updated++
@@ -324,7 +326,7 @@ func (h *JSONImportHandler) commitCharonImport(c *gin.Context, export CharonExpo
 		}
 
 		host.UUID = uuid.NewString()
-		if err := h.proxyHostSvc.Create(&host); err != nil {
+		if err := h.proxyHostSvc.CreateImported(budget, &host); err != nil {
 			errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, err.Error()))
 		} else {
 			created++
@@ -346,6 +348,8 @@ func (h *JSONImportHandler) commitCharonImport(c *gin.Context, export CharonExpo
 
 // commitNPMImport commits an NPM format import.
 func (h *JSONImportHandler) commitNPMImport(c *gin.Context, export NPMExport, resolutions, names map[string]string, sessionUUID string) {
+	budget := services.NewImportNameBudget()
+	defer budget.Close()
 	npmHandler := NewNPMImportHandler(h.db)
 	result := npmHandler.convertNPMToImportResult(export)
 	proxyHosts := caddy.ConvertToProxyHosts(result.Hosts)
@@ -383,7 +387,7 @@ func (h *JSONImportHandler) commitNPMImport(c *gin.Context, export NPMExport, re
 				host.CertificateID = existing.CertificateID
 				host.CreatedAt = existing.CreatedAt
 
-				if err := h.proxyHostSvc.Update(&host); err != nil {
+				if err := h.proxyHostSvc.UpdateImported(budget, &host); err != nil {
 					errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, err.Error()))
 				} else {
 					updated++
@@ -393,7 +397,7 @@ func (h *JSONImportHandler) commitNPMImport(c *gin.Context, export NPMExport, re
 		}
 
 		host.UUID = uuid.NewString()
-		if err := h.proxyHostSvc.Create(&host); err != nil {
+		if err := h.proxyHostSvc.CreateImported(budget, &host); err != nil {
 			errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, err.Error()))
 		} else {
 			created++

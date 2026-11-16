@@ -4,6 +4,7 @@ package routes
 import (
 	"context"
 	"fmt"
+	"github.com/Wikid82/charon/backend/internal/security"
 	"os"
 	"path/filepath"
 	"time"
@@ -94,6 +95,7 @@ func applyInitialCaddyConfig(ctx context.Context, mgr caddyBootstrapper, timeout
 type uptimeBootstrapService interface {
 	CleanupStaleFailureCounts() error
 	SyncMonitors() error
+	ReportRefusedMonitors()
 }
 
 func runInitialUptimeBootstrap(enabled bool, uptimeService uptimeBootstrapService, logWarn, logError func(error, string)) {
@@ -108,6 +110,9 @@ func runInitialUptimeBootstrap(enabled bool, uptimeService uptimeBootstrapServic
 	if err := uptimeService.SyncMonitors(); err != nil && logError != nil {
 		logError(err, "Failed to sync monitors")
 	}
+
+	// Monitors whose stored destination the policy refuses are named once, here.
+	uptimeService.ReportRefusedMonitors()
 
 	// No initial CheckAll() — the per-monitor scheduler's jittered cold-start
 	// backfill (60s window) covers the "no blind window on boot" goal
@@ -215,6 +220,7 @@ type Registered struct {
 // is permanently idle. The caller installs gate.Middleware itself so it runs
 // before every middleware registered here.
 func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg config.Config, caddyManager *caddy.Manager, cerb *cerberus.Cerberus, gate *dbmaint.Gate) (Registered, error) {
+	services.SetEmergencyListener(cfg.Emergency)
 	uptimeShutdown := UptimeShutdownFunc(func(context.Context) error { return nil })
 	// Emergency bypass must be registered FIRST.
 	// When a valid X-Emergency-Token is present from an authorized source,
@@ -261,11 +267,19 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		logger.Log().WithError(err).Warn("Failed to seed default SecurityConfig — continuing startup")
 	}
 
+	// Choose the access lists that protect Charon's own interface, once, from the previous settings (an upgrade keeps
+	// today's effective result). A failure is retried on the next start.
+	if err := services.SeedManagementListsOnce(db, services.ACLEnabled(services.SettingGetter(db), cfg.Security)); err != nil {
+		logger.Log().WithError(err).Warn("Failed to choose the management access lists — continuing startup, retried on the next start")
+	}
+
 	// Before the first proxy apply: a WAF that is on with no stored mode gets monitor (detection) mode, so it does not
 	// block until an admin sets blocking (idempotent).
 	if _, err := models.ReconcileWAFDetectionMode(db); err != nil {
 		logger.Log().WithError(err).Warn("Failed to reconcile WAF detection mode — continuing startup")
 	}
+
+	warnUnrecognisedCerberusSwitches(db)
 
 	// Let's Encrypt certs are auto-managed by Caddy and should not be assigned via certificate_id
 	logger.Log().Info("Cleaning up invalid Let's Encrypt certificate associations...")
@@ -427,6 +441,9 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 	// Cross-origin check for cookie sessions. It trusts the configured public address (read from the database here and
 	// on every public address save, never per request), so a proxy that rewrites Host does not refuse its own page.
+	apiTrustedProxies := security.NewTrustedProxyMatcher(cfg.Security.TrustedProxies)
+	// One quota covers the four live streams: 8 per user, 64 in total.
+	streamQuota := services.NewStreamQuota(services.MaxStreamsPerUser, services.MaxStreamsTotal)
 	browserOrigin := middleware.NewBrowserOriginGuard(func() (string, bool) {
 		return utils.GetConfiguredPublicURL(db)
 	})
@@ -562,7 +579,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 		// Logs
 		// WebSocket endpoints
-		logsWSHandler := handlers.NewLogsWSHandler(wsTracker).WithPublicOriginSource(browserOrigin)
+		logsWSHandler := handlers.NewLogsWSHandler(wsTracker).WithOriginPolicy(browserOrigin, apiTrustedProxies).WithStreamQuota(streamQuota)
 		management.GET("/logs/live", logsWSHandler.HandleWebSocket)
 		management.GET("/logs", logsHandler.List)
 		management.GET("/logs/:filename", logsHandler.Read)
@@ -604,7 +621,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 		// Settings - with CaddyManager and Cerberus for security settings reload
 		settingsHandler := handlers.NewSettingsHandlerWithDeps(db, caddyManager, cerb, securityService, dataRoot).
-			WithCrowdsecLifecycle(crowdsecHandler).WithBrowserOriginRefresher(browserOrigin)
+			WithCrowdsecLifecycle(crowdsecHandler).WithBrowserOriginRefresher(browserOrigin).WithACLMode(cfg.Security.ACLMode)
 
 		// Settings reads load for every role; every mutation is admin-only
 		// (per-route guard here + belt-and-braces in-handler checks retained).
@@ -641,7 +658,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management.POST("/settings/test-url", middleware.RequireRole(models.RoleAdmin), settingsHandler.TestPublicURL)
 
 		// Feature flags (DB-backed with env fallback)
-		featureFlagsHandler := handlers.NewFeatureFlagsHandler(db)
+		featureFlagsHandler := handlers.NewFeatureFlagsHandler(db, caddyManager, cerb)
 		management.GET("/feature-flags", featureFlagsHandler.GetFlags)
 		management.PUT("/feature-flags", middleware.RequireRole(models.RoleAdmin), featureFlagsHandler.UpdateFlags)
 
@@ -798,7 +815,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 					orthrusServer.SetAuditLogger(securityService)
 				}
 
-				hecateWSHandler := handlers.NewHecateWSHandler(hecateSvc, wsTracker).WithPublicOriginSource(browserOrigin)
+				hecateWSHandler := handlers.NewHecateWSHandler(hecateSvc, wsTracker).WithOriginPolicy(browserOrigin, apiTrustedProxies).WithStreamQuota(streamQuota)
 				management.GET("/ws/hecate/logs/:uuid", hecateWSHandler.StreamLogs)
 
 				if orthrusServer != nil {
@@ -985,13 +1002,15 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		// POST /security/geoip/reload and every consumer (including the proxy state) sees the same live service.
 		geoipSvc := initGeoIPAtStartup(geoip.ResolveDatabasePath)
 		caddyManager.SetGeoIPState(geoIPProxyState(geoipSvc))
+		// The management access check decides country lists on Charon's own interface with the same database.
+		cerb.SetGeoIPService(geoipSvc)
 
 		// Security Status
 		securityHandler := handlers.NewSecurityHandlerWithDeps(cfg.Security, db, caddyManager, cerb).WithCrowdsecLifecycle(crowdsecHandler)
 		securityHandler.SetGeoIPService(geoipSvc)
 
 		// Notification bell alerts: country lists not enforced because no GeoIP database is usable.
-		alertsSvc := alerts.NewService(securityHandler.GeoIPAlertSource())
+		alertsSvc := alerts.NewService(securityHandler.GeoIPAlertSource(), securityHandler.GeoIPManagementAlertSource())
 		management.GET("/notifications/alerts", handlers.NewAlertsHandler(alertsSvc).List)
 
 		management.GET("/security/status", securityHandler.GetStatus)
@@ -1021,6 +1040,15 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		securityAdmin.DELETE("/geoip/database", securityHandler.RemoveGeoIPDatabase)
 		securityAdmin.POST("/waf/exclusions", securityHandler.AddWAFExclusion)
 		securityAdmin.DELETE("/waf/exclusions/:rule_id", securityHandler.DeleteWAFExclusion)
+		// Proxy-layer trust list: read by management, changed by administrators only.
+		trustedProxyHandler := handlers.NewTrustedProxyHandler(db, caddyManager, cfg.Security.TrustedProxies, cfg.Security.ACLMode)
+		management.GET("/security/trusted-proxies", trustedProxyHandler.Get)
+		securityAdmin.PUT("/trusted-proxies", trustedProxyHandler.Put)
+		securityAdmin.DELETE("/trusted-proxies", trustedProxyHandler.Delete)
+		// Access lists that protect Charon's own interface: read by management, changed by administrators only.
+		managementAccessHandler := handlers.NewManagementAccessHandler(db, cfg.Security.ACLMode, cerb)
+		management.GET("/security/management-access", managementAccessHandler.Get)
+		securityAdmin.PUT("/management-access", managementAccessHandler.Put)
 
 		// Security module enable/disable endpoints (granular control)
 		securityAdmin.POST("/acl/enable", securityHandler.EnableACL)
@@ -1101,12 +1129,12 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		} else {
 			logger.Log().WithField("path", accessLogPath).Info("Security log watcher started - stats collection enabled")
 		}
-		cerberusLogsHandler := handlers.NewCerberusLogsHandler(logWatcher, wsTracker).WithPublicOriginSource(browserOrigin)
+		cerberusLogsHandler := handlers.NewCerberusLogsHandler(logWatcher, wsTracker).WithOriginPolicy(browserOrigin, apiTrustedProxies).WithStreamQuota(streamQuota)
 		management.GET("/cerberus/logs/ws", cerberusLogsHandler.LiveLogs)
 
 		// Stats API routes (Issue #25)
 		statsService := services.NewStatsService(db)
-		statsHandler := handlers.NewStatsHandlerFull(statsService, statsIngester, statsWSHub).WithPublicOriginSource(browserOrigin)
+		statsHandler := handlers.NewStatsHandlerFull(statsService, statsIngester, statsWSHub).WithOriginPolicy(browserOrigin, apiTrustedProxies).WithStreamQuota(streamQuota)
 		management.GET("/stats/summary", statsHandler.GetStatsSummary)
 		management.GET("/stats/top-hosts", statsHandler.GetTopHosts)
 		management.GET("/stats/status-distribution", statsHandler.GetStatusDistribution)
@@ -1117,7 +1145,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management.GET("/stats/ws", statsHandler.StatsWS)
 
 		// Access Lists
-		accessListHandler := handlers.NewAccessListHandlerWithDeps(db, caddyManager)
+		accessListHandler := handlers.NewAccessListHandlerWithDeps(db, caddyManager).WithACLMode(cfg.Security.ACLMode)
 		accessListHandler.SetGeoIPService(geoipSvc)
 		// ACLs are a security control: reads + the non-persisting /:id/test
 		// dry-run stay on management; create/update/delete are admin-only.
@@ -1337,4 +1365,17 @@ func reapplyProxyConfig(mgr proxyConfigReapplier) {
 // goroutine, so the caller never waits for Caddy.
 func backgroundReapply(mgr proxyConfigReapplier) func() {
 	return func() { go reapplyProxyConfig(mgr) }
+}
+
+// warnUnrecognisedCerberusSwitches logs one warning per Cerberus switch key that holds a value other than true or false.
+// Such a value reads as off everywhere; nothing is rewritten, and saving the Cerberus toggle stores a recognised value.
+func warnUnrecognisedCerberusSwitches(db *gorm.DB) {
+	keys, err := models.UnrecognisedCerberusSwitchKeys(db)
+	if err != nil {
+		logger.Log().WithError(err).Warn("Failed to check the Cerberus switch values — continuing startup")
+		return
+	}
+	for _, key := range keys {
+		logger.Log().WithField("setting_key", key).Warn("Cerberus switch holds a value other than true or false and reads as off; save the Cerberus toggle to store a recognised value")
+	}
 }

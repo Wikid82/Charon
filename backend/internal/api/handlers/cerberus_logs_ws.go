@@ -3,6 +3,7 @@ package handlers
 
 import (
 	"context"
+	"github.com/Wikid82/charon/backend/internal/security"
 	"strings"
 	"time"
 
@@ -16,14 +17,23 @@ import (
 
 // CerberusLogsHandler handles WebSocket connections for streaming security logs.
 type CerberusLogsHandler struct {
-	watcher       *services.LogWatcher
-	tracker       *services.WebSocketTracker
-	publicOrigins PublicOriginSource // may be nil: no public origin is trusted
+	watcher        *services.LogWatcher
+	tracker        *services.WebSocketTracker
+	publicOrigins  PublicOriginSource           // may be nil: no public origin is trusted
+	trustedProxies security.TrustedProxyMatcher // API-layer trusted proxies for forwarded host headers
+	quota          *services.StreamQuota        // may be nil: no stream limit
 }
 
-// WithPublicOriginSource wires the configured public origin into the WebSocket origin check.
-func (h *CerberusLogsHandler) WithPublicOriginSource(s PublicOriginSource) *CerberusLogsHandler {
+// WithStreamQuota caps the live streams this handler admits per user and in total.
+func (h *CerberusLogsHandler) WithStreamQuota(q *services.StreamQuota) *CerberusLogsHandler {
+	h.quota = q
+	return h
+}
+
+// WithOriginPolicy wires the configured public origin and the trusted-proxy list into the WebSocket origin check.
+func (h *CerberusLogsHandler) WithOriginPolicy(s PublicOriginSource, trusted security.TrustedProxyMatcher) *CerberusLogsHandler {
 	h.publicOrigins = s
+	h.trustedProxies = trusted
 	return h
 }
 
@@ -49,11 +59,12 @@ func (h *CerberusLogsHandler) LiveLogs(c *gin.Context) {
 	logger.Log().Info("Cerberus logs WebSocket connection attempt")
 
 	// Upgrade HTTP connection to WebSocket
-	conn, err := upgradeWebSocket(c, h.publicOrigins)
+	conn, release, err := upgradeWebSocket(c, h.publicOrigins, h.trustedProxies, h.quota)
 	if err != nil {
 		logger.Log().WithError(err).Error("Failed to upgrade Cerberus logs WebSocket")
 		return
 	}
+	defer release()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	defer func() {

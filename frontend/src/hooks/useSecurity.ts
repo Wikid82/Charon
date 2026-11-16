@@ -5,6 +5,11 @@ import { useTranslation } from 'react-i18next'
 import { wafErrorMessage } from '../api/errorBody'
 import {
   getSecurityStatus,
+  getManagementAccess,
+  getTrustedProxies,
+  resetTrustedProxies,
+  saveManagementAccess,
+  saveTrustedProxies,
   getSecurityConfig,
   getLoginProtectionStatus,
   updateSecurityConfig,
@@ -38,6 +43,55 @@ export function useLoginProtectionStatus({ enabled }: { enabled: boolean }) {
     queryFn: getLoginProtectionStatus,
     enabled,
     retry: false,
+  })
+}
+
+/** The one query key for the proxy-layer trust list. */
+export const TRUSTED_PROXIES_QUERY_KEY = ['trustedProxies'] as const
+
+/** The one query key for the access lists that protect Charon's own interface. */
+export const MANAGEMENT_ACCESS_QUERY_KEY = ['managementAccess'] as const
+
+/** Access lists chosen for Charon's own interface; every signed-in user may read it. */
+export function useManagementAccess() {
+  return useQuery({ queryKey: MANAGEMENT_ACCESS_QUERY_KEY, queryFn: getManagementAccess })
+}
+
+/** Replaces the chosen management access lists and stores the set the server now holds. */
+export function useSaveManagementAccess() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (listUuids: string[]) => saveManagementAccess(listUuids),
+    onSuccess: (data) => {
+      qc.setQueryData(MANAGEMENT_ACCESS_QUERY_KEY, data)
+    },
+  })
+}
+
+/** Proxy-layer trust list; every signed-in user may read it (non-administrators get a reduced response). */
+export function useTrustedProxies() {
+  return useQuery({ queryKey: TRUSTED_PROXIES_QUERY_KEY, queryFn: getTrustedProxies })
+}
+
+/** Saves the trusted-proxy list and stores the list the server now applies. Refusals reach the caller's error state. */
+export function useSaveTrustedProxies() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (proxies: string[]) => saveTrustedProxies(proxies),
+    onSuccess: (data) => {
+      qc.setQueryData(TRUSTED_PROXIES_QUERY_KEY, data)
+    },
+  })
+}
+
+/** Clears the saved trusted-proxy list and stores the list that applies instead. */
+export function useResetTrustedProxies() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => resetTrustedProxies(),
+    onSuccess: (data) => {
+      qc.setQueryData(TRUSTED_PROXIES_QUERY_KEY, data)
+    },
   })
 }
 

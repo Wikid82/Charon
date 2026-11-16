@@ -1,5 +1,7 @@
 import client from './client'
 
+import type { AccessList } from './accessLists'
+
 /**
  * Whether a module that is on is applied to the proxy. `enforced` is omitted when the report does not apply
  * (module off, no hosts, or a stale report); `reason` names the state when `enforced` is false.
@@ -127,7 +129,11 @@ export interface SecurityConfigPayload {
 /** Stored security configuration fields the UI reads. Other stored fields are not listed. */
 export interface SecurityConfigRecord {
   name?: string
+  /** Omitted for standard users; `has_admin_whitelist` tells them whether one is set. */
   admin_whitelist?: string
+  has_admin_whitelist?: boolean
+  /** Omitted for standard users; `has_rate_limit_bypass_list` tells them whether one is set. */
+  has_rate_limit_bypass_list?: boolean
   waf_mode?: string
   waf_rules_source?: string
   rate_limit_requests?: number | null
@@ -236,10 +242,15 @@ export const createDecision = async (payload: CreateDecisionPayload) => {
 export interface SecurityRuleSet {
   uuid: string
   name: string
-  source_url: string
+  /** Omitted for standard users. */
+  source_url?: string
   mode: string
   last_updated: string
-  content: string
+  /** Omitted for standard users; `has_content` and `content_line_count` describe it instead. */
+  content?: string
+  has_content?: boolean
+  /** Non-blank lines in the rule content. Sent to standard users in place of `content`. */
+  content_line_count?: number
 }
 
 /** Response containing WAF rulesets. */
@@ -379,5 +390,93 @@ export const replaceGeoIPDatabase = async (file: File): Promise<GeoIPStatusChang
  */
 export const removeGeoIPDatabase = async (): Promise<GeoIPStatusChange> => {
   const response = await client.delete<GeoIPStatusChange>('/security/geoip/database')
+  return response.data
+}
+
+/** Where the proxy layer's trusted list comes from: the saved setting, the environment, or the loopback default. */
+export type TrustedProxySource = 'setting' | 'environment' | 'default'
+
+/**
+ * Proxy-layer trust list (`/security/trusted-proxies`). Administrators receive every field. Other users receive
+ * `has_proxies` in place of the list fields, so `proxies` and the other list fields are absent for them.
+ */
+export interface TrustedProxiesResponse {
+  source: TrustedProxySource
+  /** Loopback addresses that are always trusted. */
+  always_trusted: string[]
+  /** Administrators only: the list in force, canonical CIDR text. */
+  proxies?: string[]
+  /** Administrators only: environment entries ignored because they are invalid or too broad. */
+  dropped_entries?: string[]
+  /** Administrators only: the list set by CHARON_TRUSTED_PROXIES for Charon's own port (read-only). */
+  api_layer?: string[]
+  /** Administrators only: passive notes about entries that are accepted but wide. */
+  warnings?: string[]
+  /** Non-administrators only: whether any proxy is configured. */
+  has_proxies?: boolean
+}
+
+/**
+ * Gets the proxy-layer trust list in force.
+ * @returns Promise resolving to TrustedProxiesResponse
+ * @throws {AxiosError} If the request fails
+ */
+export const getTrustedProxies = async (): Promise<TrustedProxiesResponse> => {
+  const response = await client.get<TrustedProxiesResponse>('/security/trusted-proxies')
+  return response.data
+}
+
+/**
+ * Replaces the saved trusted-proxy list (administrators only). An empty list trusts loopback only.
+ * @param proxies - Entries as typed; the server validates and canonicalises them
+ * @returns Promise resolving to the list now in force
+ * @throws {AxiosError} If the entries are refused (400) or the proxy cannot be reloaded (500)
+ */
+export const saveTrustedProxies = async (proxies: string[]): Promise<TrustedProxiesResponse> => {
+  const response = await client.put<TrustedProxiesResponse>('/security/trusted-proxies', { proxies })
+  return response.data
+}
+
+/**
+ * Clears the saved trusted-proxy list so the environment list or the loopback default applies again
+ * (administrators only).
+ * @returns Promise resolving to the list now in force
+ * @throws {AxiosError} If the proxy cannot be reloaded
+ */
+export const resetTrustedProxies = async (): Promise<TrustedProxiesResponse> => {
+  const response = await client.delete<TrustedProxiesResponse>('/security/trusted-proxies')
+  return response.data
+}
+
+/** One access list chosen to protect Charon's own interface (a row of the management set). */
+export type ManagementAccessList = Pick<AccessList, 'uuid' | 'name' | 'type' | 'enabled'>
+
+/**
+ * Access lists that protect Charon's own interface (`/security/management-access`). `lists` is the chosen set;
+ * `enforced` is false while the set is not applied (access control off, or no chosen list enabled).
+ */
+export interface ManagementAccessResponse {
+  lists: ManagementAccessList[]
+  enforced: boolean
+}
+
+/**
+ * Gets the access lists chosen for Charon's own interface.
+ * @returns Promise resolving to ManagementAccessResponse
+ * @throws {AxiosError} If the request fails
+ */
+export const getManagementAccess = async (): Promise<ManagementAccessResponse> => {
+  const response = await client.get<ManagementAccessResponse>('/security/management-access')
+  return response.data
+}
+
+/**
+ * Replaces the set of access lists that protect Charon's own interface (administrators only).
+ * @param listUuids - UUIDs of the chosen lists; an empty array means not restricted
+ * @returns Promise resolving to the stored set
+ * @throws {AxiosError} If the choice is refused (400, or 403 when it would lock the caller out)
+ */
+export const saveManagementAccess = async (listUuids: string[]): Promise<ManagementAccessResponse> => {
+  const response = await client.put<ManagementAccessResponse>('/security/management-access', { list_uuids: listUuids })
   return response.data
 }

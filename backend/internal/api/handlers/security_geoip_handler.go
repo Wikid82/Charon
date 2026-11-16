@@ -9,10 +9,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/geoip"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/util"
@@ -97,7 +97,7 @@ func (h *SecurityHandler) ReloadGeoIP(c *gin.Context) {
 	}
 
 	// The store loads the file and applies the proxy config, so country lists follow the reload at once.
-	if err := h.geoipStore.Reload(c.Request.Context()); err != nil {
+	if err := h.geoipStore.Reload(h.geoipChangeContext(c)); err != nil {
 		geoipErrorResponse(c, err)
 		return
 	}
@@ -191,6 +191,10 @@ func geoipFailureFor(err error) geoipFailure {
 // geoipErrorResponse writes the answer for a failed GeoIP database change. The body carries a fixed message, the
 // error_code, and for an older upload the two build dates. The detail of err is logged, sanitized, and never returned.
 func geoipErrorResponse(c *gin.Context, err error) {
+	if errors.Is(err, services.ErrGeoIPWouldLockOut) {
+		respondCoded(c, http.StatusConflict, codeManagementLockout, msgManagementLockout, nil)
+		return
+	}
 	f := geoipFailureFor(err)
 	body := gin.H{"error": f.msg, "error_code": f.code}
 	var older *services.OlderThanCurrentError
@@ -200,9 +204,9 @@ func geoipErrorResponse(c *gin.Context, err error) {
 	}
 	detail := util.SanitizeForLog(err.Error())
 	if f.status >= http.StatusInternalServerError {
-		log.WithField("detail", detail).Error("GeoIP database change failed")
+		logger.Log().WithField("detail", detail).Error("GeoIP database change failed")
 	} else {
-		log.WithField("detail", detail).Warn("GeoIP database change refused")
+		logger.Log().WithField("detail", detail).Warn("GeoIP database change refused")
 	}
 	c.JSON(f.status, body)
 }
@@ -278,7 +282,7 @@ func (h *SecurityHandler) ReplaceGeoIPDatabase(c *gin.Context) {
 		return
 	}
 
-	result, err := h.geoipStore.Replace(c.Request.Context(), singlePartReader{part: part, mr: mr})
+	result, err := h.geoipStore.Replace(h.geoipChangeContext(c), singlePartReader{part: part, mr: mr})
 	if err != nil {
 		h.auditRefusedUpload(c, err, result)
 		geoipErrorResponse(c, err)

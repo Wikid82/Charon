@@ -29,11 +29,10 @@ export function ThemePreviewOverlay({
   resolvedCurrentTheme,
 }: ThemePreviewOverlayProps) {
   useEffect(() => {
-    if (previewTheme !== null) {
-      document.documentElement.setAttribute('data-theme', resolveDataTheme(previewTheme))
-    } else {
-      document.documentElement.setAttribute('data-theme', resolvedCurrentTheme)
-    }
+    document.documentElement.setAttribute(
+      'data-theme',
+      previewTheme === null ? resolvedCurrentTheme : resolveDataTheme(previewTheme),
+    )
   }, [previewTheme, resolvedCurrentTheme])
 
   return null

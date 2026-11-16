@@ -21,6 +21,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/security/selfhop"
 )
 
@@ -92,6 +93,8 @@ type Manager struct {
 	// lastApplied is the report of the last successful apply. Unlike enforcement it is not cleared when an apply starts
 	// or fails, because on every failure Caddy keeps running that configuration.
 	lastApplied atomic.Pointer[EnforcementReport]
+	// leftOut holds the UUIDs of the enabled proxy hosts the last successful apply left out of the configuration.
+	leftOut atomic.Pointer[map[string]struct{}]
 }
 
 // EnforcementReport returns the enforcement report of the last successful apply. ok is false when no successful apply
@@ -117,6 +120,7 @@ func loadReport(ptr *atomic.Pointer[EnforcementReport]) (report EnforcementRepor
 
 // NewManager creates a configuration manager.
 func NewManager(client CaddyClient, db *gorm.DB, configDir, frontendDir string, acmeStaging bool, securityCfg config.SecurityConfig) *Manager {
+	warnDroppedEnvTrustedProxies(securityCfg.TrustedProxies)
 	return &Manager{
 		client:      client,
 		db:          db,
@@ -165,6 +169,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		return fmt.Errorf("fetch proxy hosts: %w", err)
 	}
 	// Hosts whose stored forward target reaches an agent listener are left out before anything else reads them.
+	fetched := hosts
 	kept, filterErr := dropRefusedForwardTargets(m.forwardGuard, hosts)
 	if filterErr != nil {
 		return filterErr
@@ -453,7 +458,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 			// - SecRuleEngine DetectionOnly: monitor mode (logs but doesn't block)
 			// - SecRequestBodyAccess On: allows inspecting POST body content
 			content := rs.Content
-			if !strings.Contains(strings.ToLower(content), "secruleengine") {
+			if !models.HasEngineDirective(content) {
 				// Determine WAF engine mode: per-ruleset mode takes precedence,
 				// then global WAFMode, defaulting to blocking if neither is set
 				engineMode := "On" // default to blocking
@@ -527,6 +532,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		geoPath, geoAvailable := m.geoIPState()
 		genOpts = append(genOpts, WithGeoIPDatabase(geoPath, geoAvailable))
 	}
+	genOpts = append(genOpts, WithTrustedProxies(m.trustedProxyRanges()))
 
 	generatedConfig, err := generateConfigFunc(hosts, filepath.Join(m.configDir, "data"), acmeEmail, m.frontendDir, effectiveProvider, effectiveStaging, crowdsecEnabled, wafEnabled, rateLimitEnabled, aclEnabled, adminWhitelist, rulesets, rulesetPaths, decisions, &secCfg, dnsProviderConfigs, genOpts...)
 	if err != nil {
@@ -593,6 +599,8 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	m.recordConfigChange(configHash, true, "")
 	m.enforcement.Store(generatedReport)
 	m.lastApplied.Store(generatedReport)
+	leftOut := droppedHostUUIDs(fetched, hosts)
+	m.leftOut.Store(&leftOut)
 
 	// Cleanup old snapshots (keep last 10)
 	if err := m.rotateSnapshots(10); err != nil {
@@ -835,4 +843,57 @@ func logModuleReadError(module string, err error) {
 		return
 	}
 	logger.Log().WithError(err).WithField("module", module).Warn("Failed to read security module setting, using the default SecurityConfig row or static configuration")
+}
+
+// trustedProxyRanges returns the proxy-layer trust list in force: the saved list when there is one, otherwise the
+// CHARON_TRUSTED_PROXIES environment list clamped to the accepted ranges, otherwise loopback only. A failed read of the
+// saved list trusts loopback only, so a database fault never widens trust.
+func (m *Manager) trustedProxyRanges() []string {
+	stored, err := models.ReadTrustedProxiesSetting(m.db)
+	if err != nil {
+		logger.Log().WithError(err).Warn("Could not read the trusted proxy setting; only loopback is trusted for this apply")
+		return security.AlwaysTrustedProxies()
+	}
+	trust := security.EffectiveTrustedProxies(stored, m.securityCfg.TrustedProxies)
+	if trust.StoredError != nil {
+		logger.Log().WithError(trust.StoredError).Warn("Saved trusted proxy list no longer validates; only loopback is trusted until it is saved again")
+	}
+	return trust.Ranges
+}
+
+// warnDroppedEnvTrustedProxies logs once, at start, the CHARON_TRUSTED_PROXIES entries the proxy layer refuses. The
+// entries stay in the API layer's list, which is unchanged.
+func warnDroppedEnvTrustedProxies(envEntries []string) {
+	if _, dropped := security.ClampTrustedProxies(envEntries); len(dropped) > 0 {
+		logger.Log().WithField("entries", dropped).Warn("CHARON_TRUSTED_PROXIES entries were refused by the proxy layer (invalid or too broad); save a trusted proxy list to replace the environment list")
+	}
+}
+
+// LeftOutHostUUIDs returns the UUIDs of the enabled proxy hosts that the last
+// successful apply left out of the configuration. A nil manager, or one that has
+// not applied yet, reports none. The caller must not modify the map.
+func (m *Manager) LeftOutHostUUIDs() map[string]struct{} {
+	if m == nil {
+		return nil
+	}
+	if out := m.leftOut.Load(); out != nil {
+		return *out
+	}
+	return nil
+}
+
+// droppedHostUUIDs returns the UUIDs present in all but missing from kept, that is
+// the hosts the forward target filter left out.
+func droppedHostUUIDs(all, kept []models.ProxyHost) map[string]struct{} {
+	keptUUIDs := make(map[string]struct{}, len(kept))
+	for _, h := range kept {
+		keptUUIDs[h.UUID] = struct{}{}
+	}
+	dropped := make(map[string]struct{})
+	for _, h := range all {
+		if _, ok := keptUUIDs[h.UUID]; !ok {
+			dropped[h.UUID] = struct{}{}
+		}
+	}
+	return dropped
 }

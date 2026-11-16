@@ -48,7 +48,8 @@
     "activeCount": "{{count}} active",
     "noHistoryAvailable": "No history available",
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "Nie udało się zaktualizować"
   },
   "permissions": {
     "adminOnlyError": "Tylko administratorzy mogą zmienić to ustawienie.",
@@ -176,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Brak w aktywnej konfiguracji",
+    "notInActiveConfigHint": "Jego cel przekierowania jest niedozwolony i wymaga innego adresu."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -372,7 +375,17 @@
     "tooManyRequestsSeconds": "Too many attempts. Please wait {{count}} seconds and try again.",
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again."
+    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
+    "streamLimitReached": "Na Twoim koncie otwarto zbyt wiele połączeń na żywo. Zamknij inny podgląd na żywo i spróbuj ponownie.",
+    "trustedProxyInvalid": "\"{{entry}}\" nie jest adresem IP ani zakresem CIDR.",
+    "trustedProxyTooBroad": "\"{{entry}}\" obejmuje zbyt szeroki zakres. Zakresy IPv4 muszą mieć /8 lub węższe, a zakresy IPv6 /24 lub węższe.",
+    "trustedProxiesTooMany": "Lista zaufanych serwerów proxy może zawierać najwyżej 64 wpisy.",
+    "managementListUnknown": "Jedna z wybranych list dostępu już nie istnieje. Załaduj stronę ponownie i wybierz od nowa.",
+    "managementAccessWouldLockOut": "To zablokowałoby Ci dostęp do Charon. Najpierw dodaj swój adres do listy dozwolonych administratora albo wybierz listę, która Cię dopuszcza.",
+    "accessListInvalid": "Ta lista dostępu nie może chronić własnego interfejsu Charon. Sprawdź jej reguły i spróbuj ponownie.",
+    "forwardTargetRefused": "Ten cel przekierowania jest niedozwolony.",
+    "destinationRefused": "Ten cel jest niedozwolony.",
+    "connectionTestFailed": "Nie udało się połączyć z celem."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -402,7 +415,8 @@
         "messagePendingApply": "Baza danych GeoIP jest znów dostępna, ale {{count}} list(y) krajów ({{lists}}) nadal nie są egzekwowane. Naciśnij Wczytaj ponownie na karcie Baza danych krajów.",
         "docsLink": "Jak dostarczyć bazę danych",
         "issueHint": "Charon zwykle zawiera tę bazę danych. Otwórz zgłoszenie (issue) na GitHubie, abyśmy mogli to naprawić.",
-        "issueLink": "Otwórz zgłoszenie"
+        "issueLink": "Otwórz zgłoszenie",
+        "managementScope": "Dotyczy to także własnego interfejsu Charon: jego listy dostępu według kraju również nie są egzekwowane."
       }
     }
   },
@@ -688,6 +702,25 @@
         "proxy_apply_failed": "Charon nie mógł zastosować konfiguracji proxy.",
         "generic": "Coś poszło nie tak. Spróbuj ponownie."
       }
+    },
+    "trustedProxies": {
+      "title": "Zaufane serwery proxy",
+      "description": "Charon używa adresu odwiedzającego przekazanego przez serwer proxy tylko wtedy, gdy ten serwer jest tutaj wymieniony. Pętla zwrotna (loopback) jest zawsze zaufana.",
+      "fieldLabel": "Zaufane serwery proxy",
+      "fieldHint": "Jeden adres IP lub zakres CIDR w wierszu. Pozostaw puste, aby ufać tylko pętli zwrotnej.",
+      "alwaysTrusted": "Zawsze zaufane: {{entries}}",
+      "apiLayerNote": "Własny port Charon ufa serwerom proxy ustawionym w CHARON_TRUSTED_PROXIES na serwerze: {{entries}}. Zmień je tam.",
+      "apiLayerNone": "brak",
+      "sourceSetting": "Używana jest lista zapisana tutaj.",
+      "sourceEnvironment": "Używana jest zmienna CHARON_TRUSTED_PROXIES ze środowiska, dopóki nie zapiszesz tu listy.",
+      "sourceDefault": "Używana jest wartość domyślna, tylko pętla zwrotna, dopóki nie zapiszesz tu listy.",
+      "droppedEntries": "Pominięto z CHARON_TRUSTED_PROXIES, ponieważ są nieprawidłowe lub zbyt szerokie: {{entries}}",
+      "saved": "Zaufane serwery proxy zapisane.",
+      "saveFailed": "Nie udało się zapisać listy zaufanych serwerów proxy.",
+      "reset": "Przywróć domyślne",
+      "resetDone": "Zapisana lista została wyczyszczona. Obowiązuje teraz lista ze środowiska lub wartość domyślna.",
+      "loadError": "Nie udało się wczytać listy zaufanych serwerów proxy.",
+      "docsLink": "Jak ustawić zaufane serwery proxy"
     }
   },
   "accessLists": {
@@ -722,7 +755,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "Włączona lista dozwolonych wymaga co najmniej jednej reguły. Dodaj regułę lub wyłącz listę i zapisz ponownie."
+      "access_list_rules_required": "Włączona lista dozwolonych wymaga co najmniej jednej reguły. Dodaj regułę lub wyłącz listę i zapisz ponownie.",
+      "access_list_in_use": "Ta lista dostępu jest używana przez własny interfejs Charon, dlatego nie można jej usunąć. Najpierw wybierz inną listę dla interfejsu Charon, a potem spróbuj ponownie."
+    },
+    "managementAccess": {
+      "title": "Dostęp do zarządzania",
+      "description": "Wybierz listy dostępu, które chronią własny interfejs Charon, czyli część służącą do zarządzania nim. Listy dostępu hostów proxy nie mają tu zastosowania.",
+      "fieldsetLabel": "Listy dostępu dla własnego interfejsu Charon",
+      "noLists": "Nie ma jeszcze list dostępu. Najpierw utwórz jedną, a potem wybierz ją tutaj.",
+      "notRestricted": "Bez ograniczeń",
+      "notRestrictedHint": "Własny interfejs Charon jest otwarty dla każdego odwiedzającego, który może do niego dotrzeć. Wybierz listę, aby go ograniczyć.",
+      "restricted": "Własnego interfejsu Charon mogą używać tylko odwiedzający dopuszczeni przez wybrane listy.",
+      "notApplied": "Nie jest stosowane, dopóki kontrola dostępu jest wyłączona lub żadna z wybranych list nie jest włączona.",
+      "saved": "Dostęp do zarządzania został zapisany.",
+      "saveFailed": "Nie udało się zapisać wyboru dostępu do zarządzania.",
+      "loadError": "Nie udało się wczytać dostępu do zarządzania."
     }
   },
   "rateLimiting": {
@@ -745,7 +792,10 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "saveConfiguration": "Zapisz konfigurację",
+    "settingUpdated": "Zaktualizowano ustawienie limitu żądań",
+    "invalidValue": "Wpisz liczbę całkowitą większą od 0."
   },
   "wafConfig": {
     "title": "WAF Configuration",
@@ -894,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Osiągalny w {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Notification Providers",

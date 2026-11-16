@@ -48,7 +48,8 @@
     "activeCount": "{{count}} active",
     "noHistoryAvailable": "No history available",
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "Kon nie opdateer nie"
   },
   "permissions": {
     "adminOnlyError": "Slegs administrateurs kan hierdie instelling verander.",
@@ -176,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Nie in die aktiewe konfigurasie nie",
+    "notInActiveConfigHint": "Die aanstuurteiken word nie toegelaat nie en benodig 'n ander adres."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -372,7 +375,17 @@
     "tooManyRequestsSeconds": "Too many attempts. Please wait {{count}} seconds and try again.",
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again."
+    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
+    "streamLimitReached": "Te veel lewendige verbindings is oop vir jou rekening. Maak nog 'n lewendige aansig toe en probeer dan weer.",
+    "trustedProxyInvalid": "\"{{entry}}\" is nie 'n IP-adres of CIDR-reeks nie.",
+    "trustedProxyTooBroad": "\"{{entry}}\" dek 'n te wye reeks. IPv4-reekse moet /8 of smaller wees, en IPv6-reekse /24 of smaller.",
+    "trustedProxiesTooMany": "Die lys van vertroude proxies bevat hoogstens 64 inskrywings.",
+    "managementListUnknown": "Een van die gekose toegangslyste bestaan nie meer nie. Laai die bladsy weer en kies opnuut.",
+    "managementAccessWouldLockOut": "Dit sal jou uit Charon sluit. Voeg eers jou adres by die admin-toelaatlys, of kies 'n lys wat jou toelaat.",
+    "accessListInvalid": "Hierdie toegangslys kan nie Charon se eie koppelvlak beskerm nie. Kontroleer die reëls en probeer weer.",
+    "forwardTargetRefused": "Hierdie aanstuurteiken word nie toegelaat nie.",
+    "destinationRefused": "Hierdie bestemming word nie toegelaat nie.",
+    "connectionTestFailed": "Kon nie aan die teiken koppel nie."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -402,7 +415,8 @@
         "messagePendingApply": "Die GeoIP-databasis is weer beskikbaar, maar {{count}} landlys(te) ({{lists}}) word nog nie afgedwing nie. Druk Herlaai op die Landedatabasis-kaart.",
         "docsLink": "Hoe om die databasis te verskaf",
         "issueHint": "Charon sluit gewoonlik hierdie databasis in. Maak asseblief ’n GitHub-issue oop sodat ons dit kan regmaak.",
-        "issueLink": "Maak ’n issue oop"
+        "issueLink": "Maak ’n issue oop",
+        "managementScope": "Charon se eie koppelvlak word ook geraak: die landtoegangslyste daarvan word ook nie afgedwing nie."
       }
     }
   },
@@ -688,6 +702,25 @@
         "proxy_apply_failed": "Charon kon nie die proxy-konfigurasie toepas nie.",
         "generic": "Iets het verkeerd gegaan. Probeer weer."
       }
+    },
+    "trustedProxies": {
+      "title": "Vertroude proxies",
+      "description": "Charon gebruik 'n besoeker se adres van 'n proxy slegs as daardie proxy hier gelys is. Loopback word altyd vertrou.",
+      "fieldLabel": "Vertroude proxies",
+      "fieldHint": "Een IP-adres of CIDR-reeks per lyn. Laat dit leeg om slegs loopback te vertrou.",
+      "alwaysTrusted": "Altyd vertrou: {{entries}}",
+      "apiLayerNote": "Charon se eie poort vertrou die proxies wat deur CHARON_TRUSTED_PROXIES op die bediener gestel word: {{entries}}. Verander dit daar.",
+      "apiLayerNone": "geen",
+      "sourceSetting": "Gebruik die lys wat hier gestoor is.",
+      "sourceEnvironment": "Gebruik CHARON_TRUSTED_PROXIES uit die omgewing totdat jy hier 'n lys stoor.",
+      "sourceDefault": "Gebruik die verstek, slegs loopback, totdat jy hier 'n lys stoor.",
+      "droppedEntries": "Geïgnoreer uit CHARON_TRUSTED_PROXIES omdat hulle ongeldig of te wyd is: {{entries}}",
+      "saved": "Vertroude proxies gestoor.",
+      "saveFailed": "Die lys van vertroude proxies kon nie gestoor word nie.",
+      "reset": "Herstel na verstek",
+      "resetDone": "Gestoorde lys uitgevee. Die omgewingslys of die verstek is nou van toepassing.",
+      "loadError": "Die lys van vertroude proxies kon nie gelaai word nie.",
+      "docsLink": "Hoe om vertroude proxies in te stel"
     }
   },
   "accessLists": {
@@ -722,7 +755,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "'n Geaktiveerde toelatelys benodig ten minste een reël. Voeg 'n reël by, of skakel die lys af, en stoor weer."
+      "access_list_rules_required": "'n Geaktiveerde toelatelys benodig ten minste een reël. Voeg 'n reël by, of skakel die lys af, en stoor weer.",
+      "access_list_in_use": "Hierdie toelatelys word deur Charon se eie koppelvlak gebruik, so dit kan nie uitgevee word nie. Kies eers 'n ander lys vir Charon se koppelvlak, en probeer dan weer."
+    },
+    "managementAccess": {
+      "title": "Bestuurstoegang",
+      "description": "Kies die toegangslyste wat Charon se eie koppelvlak beskerm, die deel waarmee jy dit bestuur. Toegangslyste op proxy-gashere geld hier nie.",
+      "fieldsetLabel": "Toegangslyste vir Charon se eie koppelvlak",
+      "noLists": "Daar is nog geen toegangslyste nie. Skep eers een, en kies dit dan hier.",
+      "notRestricted": "Nie beperk nie",
+      "notRestrictedHint": "Charon se eie koppelvlak is oop vir enige besoeker wat dit kan bereik. Kies 'n lys om dit te beperk.",
+      "restricted": "Slegs besoekers wat deur die gekose lyste toegelaat word, kan Charon se eie koppelvlak gebruik.",
+      "notApplied": "Nie toegepas solank toegangsbeheer af is of geen gekose lys aan is nie.",
+      "saved": "Bestuurstoegang gestoor.",
+      "saveFailed": "Die keuse van bestuurstoegang kon nie gestoor word nie.",
+      "loadError": "Bestuurstoegang kon nie gelaai word nie."
     }
   },
   "rateLimiting": {
@@ -745,7 +792,10 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "saveConfiguration": "Stoor konfigurasie",
+    "settingUpdated": "Tarief-beperkingsinstelling opgedateer",
+    "invalidValue": "Voer 'n heelgetal groter as 0 in."
   },
   "wafConfig": {
     "title": "WAF Configuration",
@@ -894,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Bereikbaar binne {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Notification Providers",

@@ -27,11 +27,21 @@ import (
 	"testing"
 )
 
-// Probe describes one request as Caddy sees it: the connection address and the country the strict geoip2 handler
-// found for it. Country "" means the lookup found nothing (not found or lookup error).
+// Probe describes one request as Caddy sees it: the connection address, the visitor address Caddy decided on, and the
+// country the geoip2 handler found for the visitor. Client is the zero value when the visitor is the connection
+// address. Country "" means the lookup found nothing (not found or lookup error).
 type Probe struct {
 	Addr    netip.Addr
+	Client  netip.Addr
 	Country string
+}
+
+// visitor returns the address client_ip matchers judge: Client when set, otherwise the connection address.
+func (p Probe) visitor() netip.Addr {
+	if p.Client.IsValid() {
+		return p.Client
+	}
+	return p.Addr
 }
 
 // countryExpression is the only expression form the charon configuration emits.
@@ -53,6 +63,8 @@ var passThroughHandlers = map[string]bool{
 // chain is the per-request state of a walk through one handler chain.
 type chain struct {
 	geoipPassed bool
+	// visitorHeader is set once a headers handler has pointed X-Forwarded-For at the visitor address.
+	visitorHeader bool
 }
 
 // HostRefuses finds the host's catch-all route (a route whose only match is {host: [...domain...]} with no path) in
@@ -96,8 +108,15 @@ func runHandlers(t testing.TB, handlers []any, p Probe, c *chain) (ended, refuse
 			if subEnded, subRefused := runSubroute(t, h, p, c); subEnded {
 				return true, subRefused
 			}
+		case name == "headers":
+			if c != nil && setsVisitorForwardedFor(t, h) {
+				c.visitorHeader = true
+			}
 		case name == "geoip2":
 			if c != nil {
+				if enable, _ := h["enable"].(string); enable == "trusted_proxies" && !c.visitorHeader {
+					t.Fatalf("caddymatchtest: geoip2 trusted_proxies reads X-Forwarded-For, but no headers handler set it before the lookup")
+				}
 				c.geoipPassed = true
 			}
 		case passThroughHandlers[name]:
@@ -159,7 +178,7 @@ func matchSet(t testing.TB, set map[string]any, p Probe, c *chain) bool {
 	sort.Strings(keys)
 	for _, key := range keys {
 		switch key {
-		case "remote_ip", "not", "expression":
+		case "remote_ip", "client_ip", "not", "expression":
 		default:
 			t.Fatalf("caddymatchtest: matcher %q is not classified; add it to the model on purpose", key)
 		}
@@ -168,7 +187,9 @@ func matchSet(t testing.TB, set map[string]any, p Probe, c *chain) bool {
 	for _, key := range keys {
 		switch key {
 		case "remote_ip":
-			matched = remoteIPMatches(t, set[key], p) && matched
+			matched = ipRangesMatch(t, set[key], p.Addr, "remote_ip") && matched
+		case "client_ip":
+			matched = ipRangesMatch(t, set[key], p.visitor(), "client_ip") && matched
 		case "not":
 			matched = !anySetMatches(t, listOf(t, set[key], "not"), p, c) && matched
 		case "expression":
@@ -178,15 +199,16 @@ func matchSet(t testing.TB, set map[string]any, p Probe, c *chain) bool {
 	return matched
 }
 
-// remoteIPMatches reports whether the probe address is inside one of the ranges. Only the ranges key is supported.
-func remoteIPMatches(t testing.TB, raw any, p Probe) bool {
+// ipRangesMatch reports whether addr is inside one of the ranges of a remote_ip or client_ip matcher. Only the ranges key
+// is supported.
+func ipRangesMatch(t testing.TB, raw any, addr netip.Addr, matcher string) bool {
 	t.Helper()
-	m := asMap(t, raw, "remote_ip")
+	m := asMap(t, raw, matcher)
 	if len(m) != 1 {
-		t.Fatalf("caddymatchtest: remote_ip supports only the ranges key, got %d keys", len(m))
+		t.Fatalf("caddymatchtest: %s supports only the ranges key, got %d keys", matcher, len(m))
 	}
-	addr := p.Addr.Unmap()
-	for _, rawRange := range listOf(t, m["ranges"], "remote_ip ranges") {
+	addr = addr.Unmap()
+	for _, rawRange := range listOf(t, m["ranges"], matcher+" ranges") {
 		if parsePrefix(t, rawRange).Contains(addr) {
 			return true
 		}
@@ -321,4 +343,19 @@ func listOf(t testing.TB, v any, what string) []any {
 		t.Fatalf("caddymatchtest: %s is %T, want an array", what, v)
 	}
 	return list
+}
+
+// setsVisitorForwardedFor reports whether a headers handler sets X-Forwarded-For to the visitor address placeholder.
+func setsVisitorForwardedFor(t testing.TB, h map[string]any) bool {
+	t.Helper()
+	request, ok := h["request"].(map[string]any)
+	if !ok {
+		return false
+	}
+	set, ok := request["set"].(map[string]any)
+	if !ok {
+		return false
+	}
+	values := listOf(t, set["X-Forwarded-For"], "X-Forwarded-For")
+	return len(values) == 1 && values[0] == "{http.vars.client_ip}"
 }

@@ -48,7 +48,8 @@
     "activeCount": "{{count}} active",
     "noHistoryAvailable": "No history available",
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "Aggiornamento non riuscito"
   },
   "permissions": {
     "adminOnlyError": "Solo gli amministratori possono modificare questa impostazione.",
@@ -176,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Non nella configurazione attiva",
+    "notInActiveConfigHint": "La sua destinazione di inoltro non è consentita e richiede un altro indirizzo."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -372,7 +375,17 @@
     "tooManyRequestsSeconds": "Too many attempts. Please wait {{count}} seconds and try again.",
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again."
+    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
+    "streamLimitReached": "Sono aperte troppe connessioni in tempo reale per il tuo account. Chiudi un'altra vista in tempo reale e riprova.",
+    "trustedProxyInvalid": "\"{{entry}}\" non è un indirizzo IP né un intervallo CIDR.",
+    "trustedProxyTooBroad": "\"{{entry}}\" copre un intervallo troppo ampio. Gli intervalli IPv4 devono essere /8 o più stretti, quelli IPv6 /24 o più stretti.",
+    "trustedProxiesTooMany": "L'elenco dei proxy attendibili può contenere al massimo 64 voci.",
+    "managementListUnknown": "Uno degli elenchi di accesso scelti non esiste più. Ricarica la pagina e scegli di nuovo.",
+    "managementAccessWouldLockOut": "Così resteresti fuori da Charon. Aggiungi prima il tuo indirizzo all'elenco di autorizzazione dell'amministratore, o scegli un elenco che ti consenta l'accesso.",
+    "accessListInvalid": "Questo elenco di accesso non può proteggere l'interfaccia di Charon. Controlla le sue regole e riprova.",
+    "forwardTargetRefused": "Questa destinazione di inoltro non è consentita.",
+    "destinationRefused": "Questa destinazione non è consentita.",
+    "connectionTestFailed": "Impossibile connettersi alla destinazione."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -402,7 +415,8 @@
         "messagePendingApply": "Il database GeoIP è di nuovo disponibile, ma {{count}} lista/e per paese ({{lists}}) non sono ancora applicate. Premi Ricarica sulla scheda Database dei paesi.",
         "docsLink": "Come fornire il database",
         "issueHint": "Charon normalmente include questo database. Apri una segnalazione (issue) su GitHub così possiamo risolvere il problema.",
-        "issueLink": "Apri una issue"
+        "issueLink": "Apri una issue",
+        "managementScope": "Anche l'interfaccia di Charon è interessata: anche le sue liste di accesso per paese non vengono applicate."
       }
     }
   },
@@ -688,6 +702,25 @@
         "proxy_apply_failed": "Charon non è riuscito ad applicare la configurazione del proxy.",
         "generic": "Qualcosa è andato storto. Riprova."
       }
+    },
+    "trustedProxies": {
+      "title": "Proxy attendibili",
+      "description": "Charon usa l'indirizzo di un visitatore inviato da un proxy solo se quel proxy è indicato qui. Il loopback è sempre attendibile.",
+      "fieldLabel": "Proxy attendibili",
+      "fieldHint": "Un indirizzo IP o un intervallo CIDR per riga. Lasciare vuoto per fidarsi solo del loopback.",
+      "alwaysTrusted": "Sempre attendibili: {{entries}}",
+      "apiLayerNote": "La porta di Charon considera attendibili i proxy impostati in CHARON_TRUSTED_PROXIES sul server: {{entries}}. Modificali lì.",
+      "apiLayerNone": "nessuno",
+      "sourceSetting": "Viene usato l'elenco salvato qui.",
+      "sourceEnvironment": "Viene usato CHARON_TRUSTED_PROXIES dell'ambiente finché non salvi un elenco qui.",
+      "sourceDefault": "Viene usato il valore predefinito, solo il loopback, finché non salvi un elenco qui.",
+      "droppedEntries": "Ignorati da CHARON_TRUSTED_PROXIES perché non validi o troppo ampi: {{entries}}",
+      "saved": "Proxy attendibili salvati.",
+      "saveFailed": "Impossibile salvare l'elenco dei proxy attendibili.",
+      "reset": "Ripristina il valore predefinito",
+      "resetDone": "Elenco salvato cancellato. Ora si applica quello dell'ambiente o il valore predefinito.",
+      "loadError": "Impossibile caricare l'elenco dei proxy attendibili.",
+      "docsLink": "Come impostare i proxy attendibili"
     }
   },
   "accessLists": {
@@ -722,7 +755,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "Una lista di autorizzazione attiva richiede almeno una regola. Aggiungi una regola o disattiva la lista, quindi salva di nuovo."
+      "access_list_rules_required": "Una lista di autorizzazione attiva richiede almeno una regola. Aggiungi una regola o disattiva la lista, quindi salva di nuovo.",
+      "access_list_in_use": "Questa lista di accesso è usata dall'interfaccia di Charon stessa, quindi non può essere eliminata. Scegli prima un'altra lista per l'interfaccia di Charon, poi riprova."
+    },
+    "managementAccess": {
+      "title": "Accesso alla gestione",
+      "description": "Scegli gli elenchi di accesso che proteggono l'interfaccia di Charon stesso, la parte che usi per gestirlo. Gli elenchi di accesso degli host proxy non si applicano qui.",
+      "fieldsetLabel": "Elenchi di accesso per l'interfaccia di Charon",
+      "noLists": "Non esistono ancora elenchi di accesso. Creane prima uno, poi sceglilo qui.",
+      "notRestricted": "Non limitato",
+      "notRestrictedHint": "L'interfaccia di Charon è aperta a ogni visitatore che può raggiungerla. Scegli un elenco per limitarla.",
+      "restricted": "Solo i visitatori consentiti dagli elenchi scelti possono usare l'interfaccia di Charon.",
+      "notApplied": "Non applicato finché il controllo accessi è disattivato o nessun elenco scelto è abilitato.",
+      "saved": "Accesso alla gestione salvato.",
+      "saveFailed": "Impossibile salvare la scelta dell'accesso alla gestione.",
+      "loadError": "Impossibile caricare l'accesso alla gestione."
     }
   },
   "rateLimiting": {
@@ -745,7 +792,10 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "saveConfiguration": "Salva configurazione",
+    "settingUpdated": "Impostazione del limite di frequenza aggiornata",
+    "invalidValue": "Inserisci un numero intero maggiore di 0."
   },
   "wafConfig": {
     "title": "WAF Configuration",
@@ -894,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Raggiungibile in {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Notification Providers",

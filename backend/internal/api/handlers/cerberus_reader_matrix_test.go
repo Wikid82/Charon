@@ -53,7 +53,7 @@ var readerStatics = map[string]config.SecurityConfig{
 var (
 	readerStaticNames = []string{"on", "off", "zero"}
 	readerRowNames    = []string{"absent", "enabled", "disabled"}
-	readerKeyValues   = []string{readerKeyAbsent, "true", "false", "TRUE", "1", "yes", "", "garbage"}
+	readerKeyValues   = []string{readerKeyAbsent, "true", "false", "TRUE", "1", "yes", "", "garbage", " true", "true "}
 	readerEnvValues   = []string{
 		"FEATURE_CERBERUS_ENABLED=false",
 		"FEATURE_CERBERUS_ENABLED=1",
@@ -197,7 +197,7 @@ func stepFeatureFlag(value bool) func(t *testing.T, db *gorm.DB, h *SecurityHand
 		c, _ := gin.CreateTestContext(w)
 		c.Request = httptest.NewRequest(http.MethodPut, "/api/v1/feature-flags", strings.NewReader(body))
 		c.Request.Header.Set("Content-Type", "application/json")
-		NewFeatureFlagsHandler(db).UpdateFlags(c)
+		NewFeatureFlagsHandler(db, nil, nil).UpdateFlags(c)
 		require.Equal(t, http.StatusOK, w.Code)
 	}
 }

@@ -266,6 +266,8 @@ The agent only needs an address it can use to reach Charon. The path (`/api/v1/w
 
 If agents reach Charon through another reverse proxy, add that proxy to `CHARON_TRUSTED_PROXIES` so Charon counts each agent's connections by its own address. See [Trusted Proxies](../configuration/trusted-proxies.md).
 
+Agents are not affected by the access lists that protect Charon's own interface. Those lists would otherwise cut off every agent, since agents connect from remote machines. An agent still has to sign in with its own key. See [Access Control Lists](access-control.md#charons-own-interface).
+
 ### When Is Plain `ws://` Allowed?
 
 Plain `ws://` does not encrypt the connection. The agent accepts it without any extra setting when the address is one of these:
@@ -393,7 +395,30 @@ The registry check needs a note. Read-only means the proxy can't change anything
 
 ### Forward Targets
 
-Charon keeps its own internal Orthrus ports off the list of valid forward targets. A proxy host or location that points at this machine on an agent's external proxy port, or on one of the internal ports Charon opens for a connected agent, is refused when it is saved. That includes the host-side address of the Docker network Charon is attached to, the name `host.docker.internal`, and any name that cannot be resolved. The agent-name form (`orthrus:<agent>`) is not accepted as a forward target at all. A host saved before this rule, or one whose agent port changes later, is left out of the generated config until its target is corrected, and Charon logs a warning that names the host.
+When you save a proxy host or a location, Charon checks its forward target. It refuses the save if the target is:
+
+- A link-local address (`169.254.0.0/16` or `fe80::/10`), a cloud instance service address such as `169.254.169.254`, or another reserved address such as `0.0.0.0`, multicast or broadcast
+- This machine on a port Charon uses for itself: the agent proxy ports and the internal ports opened for connected agents, the internal admin port (2019), the bundled CrowdSec port (8085), and the emergency server port while that server is turned on. This applies to `localhost`, `127.0.0.1`, the machine's own addresses, and the Docker and Podman host names (`host.docker.internal`, `host.containers.internal`, `gateway.docker.internal`).
+- The agent-name form (`orthrus:<agent>`). It is not accepted as a forward target at all.
+
+Everything else is allowed, including private network addresses, loopback on ports Charon does not use, Tailscale-style addresses (`100.64.0.0/10`), IPv6 private addresses, and the fake-IP range `198.18.0.0/15`.
+
+The refusal message is the same for every reason: "This forward target is not allowed." It does not say which rule applied, so compare the address with the list above.
+
+**Names:** Charon looks up a name when you save the host and refuses the save if any address the name points to is refused. If the lookup fails or takes too long, the host is saved anyway. Charon does not look the name up again after that, and the proxy resolves the name again on each visit. A name whose address changes later is therefore not caught.
+
+**Hosts saved before a rule applied:** A host whose target is now refused, or whose agent port has changed, is left out of the generated configuration, so its site is not served. Charon writes a warning to the log that names the host, and the host list shows **Not in the active configuration** next to it. Edit the forward target to bring the host back.
+
+**Advanced configuration (administrators):** Upstreams in a host's advanced configuration get the same checks. Charon refuses these:
+
+- Socket or file-descriptor connections (`unix`, `unixgram`, `unixpacket`, `fd`, `fdgram`)
+- Placeholders such as `{http.request.header.X}`
+- Port ranges that include a port Charon uses for itself on this machine
+- Addresses Charon cannot read
+- Dynamic upstreams
+- Custom DNS resolvers for the transport
+
+Use a plain address and port instead, such as `192.168.1.20:8080`.
 
 ---
 

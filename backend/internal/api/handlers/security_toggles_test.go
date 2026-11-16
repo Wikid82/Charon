@@ -6,17 +6,18 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/testutil/gormfault"
 )
@@ -210,10 +211,11 @@ func TestPatchCrowdSec_InvalidBody(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 }
 
-func TestACLForbiddenIfIPNotWhitelisted(t *testing.T) {
+// Access control on Charon's own interface is decided by the management access lists only (see acl_enable_guard_test.go
+// for the refused case). With no list chosen, an address outside the admin allow-list does not stop the switch.
+func TestACLEnabledWithoutManagementListsOutsideAdminAllowList(t *testing.T) {
 	h, db := setupToggleTest(t)
 
-	// Update config to have whitelist
 	err := db.Model(&models.SecurityConfig{}).Where("name = ?", "default").Update("admin_whitelist", "10.0.0.1").Error
 	require.NoError(t, err)
 
@@ -222,11 +224,14 @@ func TestACLForbiddenIfIPNotWhitelisted(t *testing.T) {
 	c, _ := gin.CreateTestContext(w)
 	c.Request = req
 	c.Set("role", "admin")
-	c.Request.RemoteAddr = "192.168.1.5:1234" // Different IP
+	c.Request.RemoteAddr = "192.168.1.5:1234" // outside the admin allow-list
 
 	h.EnableACL(c)
 
-	assert.Equal(t, http.StatusForbidden, w.Code)
+	assert.Equal(t, http.StatusOK, w.Code)
+	var setting models.Setting
+	require.NoError(t, db.Where("key = ?", models.SecurityACLEnabledSettingKey).First(&setting).Error)
+	assert.Equal(t, "true", setting.Value)
 }
 
 func TestACLEnabledIfIPWhitelisted(t *testing.T) {
@@ -317,14 +322,13 @@ func patchWAFEnable(t *testing.T, h *SecurityHandler) *httptest.ResponseRecorder
 	return w
 }
 
-// captureLogrusOutput routes the logrus standard logger, which the security handlers write to, into a buffer
-// for the rest of the test.
+// captureLogrusOutput routes the shared application logger, which the security handlers write to, into a buffer for
+// the rest of the test. The logger has no writer getter, so the test restores the default output (stdout) on cleanup.
 func captureLogrusOutput(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	buf := &bytes.Buffer{}
-	previous := log.StandardLogger().Out
-	log.SetOutput(buf)
-	t.Cleanup(func() { log.SetOutput(previous) })
+	logger.Init(false, buf)
+	t.Cleanup(func() { logger.Init(false, os.Stdout) })
 	return buf
 }
 

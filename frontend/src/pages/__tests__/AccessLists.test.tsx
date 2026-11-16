@@ -143,6 +143,11 @@ const createQueryResult = <TData,>(data: TData): UseQueryResult<TData, Error> =>
   refetch: vi.fn(),
 } as unknown as UseQueryResult<TData, Error>)
 
+// The management card has its own tests; here it is not rendered so no security request is made.
+vi.mock('../../components/ManagementAccessCard', () => ({
+  ManagementAccessCard: () => null,
+}))
+
 vi.mock('../../hooks/useAccessLists', () => ({
   useAccessLists: vi.fn(),
   useCreateAccessList: vi.fn(),
@@ -266,8 +271,8 @@ describe('AccessLists', () => {
 
     renderWithQueryClient(<AccessLists />)
 
-    expect(await screen.findByText('accessLists.allow')).toBeInTheDocument()
-    expect(screen.getByText('accessLists.deny')).toBeInTheDocument()
+    expect(await screen.findByText('common.allow')).toBeInTheDocument()
+    expect(screen.getByText('common.deny')).toBeInTheDocument()
   })
 
   it('deletes access list with backup', async () => {
@@ -290,6 +295,34 @@ describe('AccessLists', () => {
       expect(createBackup).toHaveBeenCalled()
       expect(deleteMutation.mutate).toHaveBeenCalledWith('acl-1', expect.any(Object))
     })
+  })
+
+  it('shows the refusal for a list still used by Charon\'s own interface inside the delete dialog', async () => {
+    const baseMutation = deleteMutationMock()
+    const refused = Object.assign(new Error('Request failed with status code 409'), {
+      isAxiosError: true,
+      response: {
+        status: 409,
+        data: { error: "access list is used by Charon's own interface", error_code: 'access_list_in_use' },
+      },
+    })
+    const deleteMutation = {
+      ...baseMutation,
+      mutate: vi.fn((_uuid: string, options?: { onError?: (error: Error) => void }) => options?.onError?.(refused)),
+    } as unknown as ReturnType<typeof useDeleteAccessList>
+    vi.mocked(useDeleteAccessList).mockReturnValue(deleteMutation)
+    vi.mocked(useAccessLists).mockReturnValue(createQueryResult([createAccessList()]))
+    vi.mocked(createBackup).mockResolvedValue({ job_id: 'job-1', type: 'create', status: 'pending' })
+
+    const user = userEvent.setup()
+    renderWithQueryClient(<AccessLists />)
+
+    const row = (await screen.findByText('Office Access')).closest('tr')
+    await user.click(within(row as HTMLElement).getByTitle(t('common.delete')))
+    const dialog = await screen.findByRole('dialog', { name: t('accessLists.deleteAccessList') })
+    await user.click(within(dialog).getByRole('button', { name: t('common.delete') }))
+
+    expect(await within(dialog).findByRole('alert')).toHaveTextContent(t('accessLists.errors.access_list_in_use'))
   })
 
   it('bulk deletes selected access lists', async () => {

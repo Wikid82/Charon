@@ -12,6 +12,14 @@ const utf8BOM = "\uFEFF"
 // never a rule, while a continued rule line counts by its first line. Comment lines are never continued. The scan has
 // no per-line size limit because legacy rows may be larger than the save cap.
 func HasRuleLines(content string) bool {
+	return scanDirectiveLines(content, isRuleDirectiveName)
+}
+
+// scanDirectiveLines reports whether match accepts the directive name of any line that starts a directive. Blank and
+// comment lines are skipped, a line that ends in a backslash continues onto the next line, and comment lines are never
+// continued, so a comment ending in a backslash cannot hide the next line. The directive name is the first word of the
+// trimmed line, ending at a space or tab.
+func scanDirectiveLines(content string, match func(name string) bool) bool {
 	content = strings.TrimPrefix(content, utf8BOM)
 	continued := false
 	for rest := content; ; {
@@ -21,8 +29,8 @@ func HasRuleLines(content string) bool {
 		case continued:
 			continued = strings.HasSuffix(trimmed, `\`)
 		case trimmed == "" || strings.HasPrefix(trimmed, "#"):
-			// Blank and comment lines never continue, so a comment ending in a backslash cannot hide the next line.
-		case isRuleDirective(trimmed):
+			// Blank and comment lines never continue.
+		case match(directiveName(trimmed)):
 			return true
 		default:
 			continued = strings.HasSuffix(trimmed, `\`)
@@ -34,16 +42,31 @@ func HasRuleLines(content string) bool {
 	}
 }
 
-// isRuleDirective reports whether a trimmed, non-comment line starts with one of the directives that carry a rule.
-// The directive name must end at a space or tab, so SecRuleEngine does not match SecRule.
-func isRuleDirective(trimmed string) bool {
-	name := trimmed
+// directiveName returns the first word of a trimmed, non-comment line.
+func directiveName(trimmed string) string {
 	if i := strings.IndexAny(trimmed, " \t"); i >= 0 {
-		name = trimmed[:i]
+		return trimmed[:i]
 	}
+	return trimmed
+}
+
+// isRuleDirectiveName reports whether a directive name starts a rule: SecRule, SecAction or Include.
+func isRuleDirectiveName(name string) bool {
 	switch strings.ToLower(name) {
 	case "secrule", "secaction", "include":
 		return true
 	}
 	return false
+}
+
+// HasEngineDirective reports whether a rule set sets its own engine mode on a directive line: a SecRuleEngine line that
+// is not a comment and not part of a continued line, matched case-insensitively. A comment that mentions SecRuleEngine
+// does not count, so Charon still prepends its own engine line for such a rule set.
+func HasEngineDirective(content string) bool {
+	return scanDirectiveLines(content, isEngineDirectiveName)
+}
+
+// isEngineDirectiveName reports whether a directive name is SecRuleEngine.
+func isEngineDirectiveName(name string) bool {
+	return strings.EqualFold(name, "SecRuleEngine")
 }

@@ -280,9 +280,9 @@ func TestRefuseOrthrusListenerTarget_ReturnsSentinel(t *testing.T) {
 	useListenerSource(t, fakeListenerSource{})
 	noLookup(t)
 
-	err := refuseOrthrusListenerTarget(db, "127.0.0.1", 2375)
+	err := refuseForwardTarget(db, "127.0.0.1", 2375, verdictsFor(t))
 	require.ErrorIs(t, err, ErrOrthrusListenerTarget)
-	assert.NoError(t, refuseOrthrusListenerTarget(db, "10.0.0.5", 2375))
+	assert.NoError(t, refuseForwardTarget(db, "10.0.0.5", 2375, verdictsFor(t)))
 }
 
 func TestRefuseOrthrusListenerTarget_WrapsDatabaseError(t *testing.T) {
@@ -292,7 +292,7 @@ func TestRefuseOrthrusListenerTarget_WrapsDatabaseError(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
 
-	err = refuseOrthrusListenerTarget(db, "127.0.0.1", 2375)
+	err = refuseForwardTarget(db, "127.0.0.1", 2375, verdictsFor(t))
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, ErrOrthrusListenerTarget)
 }
@@ -447,7 +447,25 @@ func setHostSideAddrs(t *testing.T, addrs ...string) {
 		parsed = append(parsed, netip.MustParseAddr(a))
 	}
 	hostSideAddrs = func() []netip.Addr { return parsed }
-	t.Cleanup(func() { hostSideAddrs = prev })
+	resetProbeAddrCaches()
+	t.Cleanup(func() {
+		hostSideAddrs = prev
+		resetProbeAddrCaches()
+	})
+	// Gateway names must not resolve in the test environment either.
+	isolateGatewayAddrs(t, nil)
+}
+
+// isolateGatewayAddrs replaces the gateway address source for one test.
+func isolateGatewayAddrs(t *testing.T, addrs []netip.Addr) {
+	t.Helper()
+	prev := gatewayCache.load
+	gatewayCache.load = func() []netip.Addr { return addrs }
+	resetProbeAddrCaches()
+	t.Cleanup(func() {
+		gatewayCache.load = prev
+		resetProbeAddrCaches()
+	})
 }
 
 func TestRefusesListenerTarget_AgentNameFormRefusedOnAnyPort(t *testing.T) {
@@ -591,4 +609,21 @@ func TestProxyHostCreateAndUpdate_RefuseAgentNameFormForImports(t *testing.T) {
 	require.NoError(t, svc.Create(ok))
 	ok.ForwardHost = "orthrus:agent-uuid"
 	require.ErrorIs(t, svc.Update(ok), ErrAgentForwardTarget)
+}
+
+// verdictsFor returns the save-time verdicts for hosts with no gateway lookups
+// and no real name resolution, so a test sees only the rules it exercises.
+func verdictsFor(t *testing.T, hosts ...string) forwardVerdicts {
+	t.Helper()
+	isolateGatewayAddrs(t, nil)
+	return preflightForwardNames(context.Background(), hosts)
+}
+
+// requireForwardRefused asserts that err is one of the refusals a forward target
+// can get. Callers that do not care which rule applied use it.
+func requireForwardRefused(t *testing.T, err error) {
+	t.Helper()
+	require.Error(t, err)
+	assert.True(t, errors.Is(err, ErrOrthrusListenerTarget) || errors.Is(err, ErrForwardTargetAddress),
+		"unexpected refusal %v", err)
 }

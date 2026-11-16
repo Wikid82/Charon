@@ -70,6 +70,10 @@ WAF can be enabled independently for each proxy host:
 
 The Detection or Blocking mode belongs to each rule set, not to a host. Hosts that use the same rule set get the same mode.
 
+## Visitor Addresses
+
+The WAF's log entries show the visitor's address, the same address that every other check uses. Behind a proxy, that address is only the visitor's when the proxy is on your trusted list. See [Trusted Proxies](../configuration/trusted-proxies.md).
+
 ## Zero-Day Protection
 
 Charon does not include, download or update the OWASP Core Rule Set (CRS) or any other rules. Your rule sets are the text you paste in, and Charon keeps them as you saved them.

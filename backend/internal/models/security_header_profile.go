@@ -40,7 +40,7 @@ type SecurityHeaderProfile struct {
 	CrossOriginResourcePolicy string `json:"cross_origin_resource_policy" gorm:"default:same-origin"`
 	CrossOriginEmbedderPolicy string `json:"cross_origin_embedder_policy"` // require-corp or empty
 
-	// X-XSS-Protection (legacy but still useful)
+	// X-XSS-Protection: the header is sent as 0 when this is on (the browser filter is off)
 	XSSProtection bool `json:"xss_protection" gorm:"default:true"`
 
 	// Cache-Control for security

@@ -69,6 +69,8 @@ If WebSocket connections fail:
 2. **Verify Port**: WebSocket uses the same port as HTTP
 3. **Test Directly**: Try connecting to the backend without the proxy
 4. **Check Logs**: Look for connection errors in real-time logs
+5. **Check the Host Header**: If a proxy in front of Charon rewrites the web address, live views show 403. Set the Application URL, or list the proxy in `CHARON_TRUSTED_PROXIES`. See [WebSocket troubleshooting](../troubleshooting/websocket.md)
+6. **Check the Connection Count**: Each user can have 8 live views open. A view over that limit shows "Too many live connections" and does not reconnect by itself. Close another view and try again
 
 ## Related
 

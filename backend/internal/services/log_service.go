@@ -455,6 +455,7 @@ func (s *LogService) matchesFilter(entry models.CaddyAccessLog, filter models.Lo
 		if !strings.Contains(strings.ToLower(entry.Request.URI), term) &&
 			!strings.Contains(strings.ToLower(entry.Request.Method), term) &&
 			!strings.Contains(strings.ToLower(entry.Request.RemoteIP), term) &&
+			!strings.Contains(strings.ToLower(entry.Request.ClientIP), term) &&
 			!strings.Contains(strings.ToLower(entry.Msg), term) {
 			return false
 		}

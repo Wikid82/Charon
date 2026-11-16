@@ -48,7 +48,8 @@
     "activeCount": "{{count}} active",
     "noHistoryAvailable": "No history available",
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "Kunne ikke oppdatere"
   },
   "permissions": {
     "adminOnlyError": "Bare administratorer kan endre denne innstillingen.",
@@ -176,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Ikke i den aktive konfigurasjonen",
+    "notInActiveConfigHint": "Videresendingsmålet er ikke tillatt og trenger en annen adresse."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -372,7 +375,17 @@
     "tooManyRequestsSeconds": "Too many attempts. Please wait {{count}} seconds and try again.",
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again."
+    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
+    "streamLimitReached": "Det er for mange live-tilkoblinger åpne for kontoen din. Lukk en annen live-visning, og prøv igjen.",
+    "trustedProxyInvalid": "\"{{entry}}\" er ikke en IP-adresse eller et CIDR-område.",
+    "trustedProxyTooBroad": "\"{{entry}}\" dekker et for bredt område. IPv4-områder må være /8 eller smalere, og IPv6-områder /24 eller smalere.",
+    "trustedProxiesTooMany": "Listen over klarerte proxyer kan ha høyst 64 oppføringer.",
+    "managementListUnknown": "En av de valgte tilgangslistene finnes ikke lenger. Last siden på nytt og velg igjen.",
+    "managementAccessWouldLockOut": "Dette ville låse deg ute av Charon. Legg først til adressen din på admin-tillatelseslisten, eller velg en liste som tillater deg.",
+    "accessListInvalid": "Denne tilgangslisten kan ikke beskytte Charons eget grensesnitt. Sjekk reglene og prøv igjen.",
+    "forwardTargetRefused": "Dette videresendingsmålet er ikke tillatt.",
+    "destinationRefused": "Denne destinasjonen er ikke tillatt.",
+    "connectionTestFailed": "Kunne ikke koble til målet."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -402,7 +415,8 @@
         "messagePendingApply": "GeoIP-databasen er tilgjengelig igjen, men {{count}} landliste(r) ({{lists}}) håndheves ikke ennå. Trykk Last inn på nytt på kortet Landdatabase.",
         "docsLink": "Slik skaffer du databasen",
         "issueHint": "Charon inkluderer normalt denne databasen. Åpne en sak på GitHub, så vi kan rette opp i dette.",
-        "issueLink": "Åpne en sak"
+        "issueLink": "Åpne en sak",
+        "managementScope": "Charons eget grensesnitt er også berørt: landlistene der håndheves heller ikke."
       }
     }
   },
@@ -688,6 +702,25 @@
         "proxy_apply_failed": "Charon kunne ikke bruke proxy-konfigurasjonen.",
         "generic": "Noe gikk galt. Prøv igjen."
       }
+    },
+    "trustedProxies": {
+      "title": "Klarerte proxyer",
+      "description": "Charon bruker en besøkendes adresse fra en proxy bare når proxyen står oppført her. Loopback er alltid klarert.",
+      "fieldLabel": "Klarerte proxyer",
+      "fieldHint": "Én IP-adresse eller CIDR-område per linje. La feltet stå tomt for bare å klarere loopback.",
+      "alwaysTrusted": "Alltid klarert: {{entries}}",
+      "apiLayerNote": "Charons egen port klarerer proxyene som er satt i CHARON_TRUSTED_PROXIES på serveren: {{entries}}. Endre dem der.",
+      "apiLayerNone": "ingen",
+      "sourceSetting": "Listen som er lagret her, brukes.",
+      "sourceEnvironment": "CHARON_TRUSTED_PROXIES fra miljøet brukes inntil du lagrer en liste her.",
+      "sourceDefault": "Standarden, bare loopback, brukes inntil du lagrer en liste her.",
+      "droppedEntries": "Ignorert fra CHARON_TRUSTED_PROXIES fordi de er ugyldige eller for brede: {{entries}}",
+      "saved": "Klarerte proxyer er lagret.",
+      "saveFailed": "Listen over klarerte proxyer kunne ikke lagres.",
+      "reset": "Tilbakestill til standard",
+      "resetDone": "Lagret liste er tømt. Listen fra miljøet eller standarden gjelder nå.",
+      "loadError": "Listen over klarerte proxyer kunne ikke lastes.",
+      "docsLink": "Slik angir du klarerte proxyer"
     }
   },
   "accessLists": {
@@ -722,7 +755,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "En aktivert tillatelsesliste trenger minst én regel. Legg til en regel, eller slå av listen, og lagre på nytt."
+      "access_list_rules_required": "En aktivert tillatelsesliste trenger minst én regel. Legg til en regel, eller slå av listen, og lagre på nytt.",
+      "access_list_in_use": "Denne tilgangslisten brukes av Charons eget grensesnitt, så den kan ikke slettes. Velg først en annen liste for Charons grensesnitt, og prøv igjen."
+    },
+    "managementAccess": {
+      "title": "Administrasjonstilgang",
+      "description": "Velg tilgangslistene som beskytter Charons eget grensesnitt, delen du bruker til å administrere den. Tilgangslister på proxy-verter gjelder ikke her.",
+      "fieldsetLabel": "Tilgangslister for Charons eget grensesnitt",
+      "noLists": "Det finnes ingen tilgangslister ennå. Opprett en først, og velg den deretter her.",
+      "notRestricted": "Ikke begrenset",
+      "notRestrictedHint": "Charons eget grensesnitt er åpent for enhver besøkende som kan nå det. Velg en liste for å begrense det.",
+      "restricted": "Bare besøkende som tillates av de valgte listene, kan bruke Charons eget grensesnitt.",
+      "notApplied": "Gjelder ikke mens tilgangskontroll er av, eller ingen valgte liste er aktivert.",
+      "saved": "Administrasjonstilgang er lagret.",
+      "saveFailed": "Valget for administrasjonstilgang kunne ikke lagres.",
+      "loadError": "Administrasjonstilgang kunne ikke lastes."
     }
   },
   "rateLimiting": {
@@ -745,7 +792,10 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "saveConfiguration": "Lagre konfigurasjon",
+    "settingUpdated": "Innstilling for hastighetsbegrensning oppdatert",
+    "invalidValue": "Skriv inn et heltall større enn 0."
   },
   "wafConfig": {
     "title": "WAF Configuration",
@@ -894,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Kan nås på {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Notification Providers",

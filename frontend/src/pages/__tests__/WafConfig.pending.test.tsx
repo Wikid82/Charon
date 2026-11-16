@@ -10,6 +10,7 @@ import WafConfig from '../WafConfig'
 import type { RuleSetsResponse, SecurityRuleSet } from '../../api/security'
 
 vi.mock('../../api/security')
+vi.mock('../../hooks/useAuth', () => ({ useAuth: () => ({ user: { role: 'admin' } }) }))
 
 const ruleSet = (overrides: Partial<SecurityRuleSet> = {}): SecurityRuleSet => ({
   uuid: 'uuid-1',

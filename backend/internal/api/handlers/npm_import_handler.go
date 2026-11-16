@@ -171,6 +171,8 @@ func (h *NPMImportHandler) Upload(c *gin.Context) {
 
 // Commit finalizes the NPM import with user's conflict resolutions.
 func (h *NPMImportHandler) Commit(c *gin.Context) {
+	budget := services.NewImportNameBudget()
+	defer budget.Close()
 	var req struct {
 		SessionUUID string            `json:"session_uuid" binding:"required"`
 		Resolutions map[string]string `json:"resolutions"` // domain -> action
@@ -228,7 +230,7 @@ func (h *NPMImportHandler) Commit(c *gin.Context) {
 				host.CertificateID = existing.CertificateID
 				host.CreatedAt = existing.CreatedAt
 
-				if err := h.proxyHostSvc.Update(&host); err != nil {
+				if err := h.proxyHostSvc.UpdateImported(budget, &host); err != nil {
 					errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, err.Error()))
 				} else {
 					updated++
@@ -238,7 +240,7 @@ func (h *NPMImportHandler) Commit(c *gin.Context) {
 		}
 
 		host.UUID = uuid.NewString()
-		if err := h.proxyHostSvc.Create(&host); err != nil {
+		if err := h.proxyHostSvc.CreateImported(budget, &host); err != nil {
 			errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, err.Error()))
 		} else {
 			created++

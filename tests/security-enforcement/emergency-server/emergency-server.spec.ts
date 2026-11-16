@@ -13,13 +13,28 @@
  * Reference: docs/plans/break_glass_protocol_redesign.md
  */
 
-import { test, expect, request as playwrightRequest } from '@playwright/test';
+import { test, expect, request as playwrightRequest, type APIRequestContext } from '@playwright/test';
 import { EMERGENCY_TOKEN, EMERGENCY_SERVER } from '../../fixtures/security';
-import { TestDataManager } from '../../utils/TestDataManager';
+import {
+  captureSecurityState,
+  restoreSecurityState,
+  type SecurityStateSnapshot,
+} from '../../utils/security-helpers';
+import { deleteAccessList } from '../../utils/proxy-refusal-helpers';
+import { runCleanupSteps } from '../../utils/loopback-client-case';
+import {
+  createEnabledAllowList,
+  putManagementAccess,
+} from '../../utils/management-access-api';
 
-// CI-specific timeout multiplier: CI environments have higher I/O latency
-const CI_TIMEOUT_MULTIPLIER = process.env.CI ? 3 : 1;
-const BASE_PROPAGATION_WAIT = 3000;
+/** Charon's own access-control switch on the main app (port 8080), set through the security API. */
+const ACL_PATH = '/api/v1/security/acl';
+/** A proxy-host route the main app guards with the chosen management lists. */
+const PROXY_HOSTS_PATH = '/api/v1/proxy-hosts';
+/** RFC 5737 TEST-NET-3: the admin allow-list admits nothing the runner uses. */
+const ADMIN_WHITELIST_WITHOUT_RUNNER = '203.0.113.1/32';
+/** The chosen list admits only this block, so the runner is outside it. */
+const UNREACHABLE_NETWORK = '192.168.99.0/24';
 
 /**
  * Check if emergency server is healthy before running tests
@@ -54,6 +69,53 @@ async function ensureHealthChecked(): Promise<boolean> {
     }
   }
   return testState.emergencyServerHealthy ?? false;
+}
+
+/**
+ * Resets access control through the emergency server (port 2020). Idempotent: a reset with access control already off
+ * succeeds too, so the cleanup can call it whatever state the test left behind.
+ */
+async function resetThroughEmergencyServer(): Promise<{ status: number; ok: boolean }> {
+  const emergencyRequest = await playwrightRequest.newContext({
+    baseURL: EMERGENCY_SERVER.baseURL,
+  });
+
+  try {
+    const authHeader =
+      'Basic ' +
+      Buffer.from(`${EMERGENCY_SERVER.username}:${EMERGENCY_SERVER.password}`).toString('base64');
+
+    const response = await emergencyRequest.post('/emergency/security-reset', {
+      headers: {
+        Authorization: authHeader,
+        'X-Emergency-Token': EMERGENCY_TOKEN,
+      },
+    });
+    return { status: response.status(), ok: response.ok() };
+  } finally {
+    await emergencyRequest.dispose();
+  }
+}
+
+/**
+ * Puts the main app back as the test found it. Access control goes off first, through the emergency server: while it is
+ * on and the runner is outside the admin allow-list, the runner's own calls are refused, including the calls that clear
+ * the chosen list. Every step runs even when an earlier one fails, then the first failure is rethrown.
+ */
+async function cleanupBypassState(
+  request: APIRequestContext,
+  snapshot: SecurityStateSnapshot,
+  listUuid: string
+): Promise<void> {
+  await runCleanupSteps([
+    () => resetThroughEmergencyServer(),
+    async () => {
+      const response = await putManagementAccess(request, []);
+      expect(response.ok(), `clearing the management choice failed with ${response.status()}`).toBe(true);
+    },
+    ...(listUuid !== '' ? [() => deleteAccessList(request, listUuid)] : []),
+    () => restoreSecurityState(request, snapshot),
+  ]);
 }
 
 test.describe('Emergency Server (Tier 2 Break Glass)', () => {
@@ -153,76 +215,70 @@ test.describe('Emergency Server (Tier 2 Break Glass)', () => {
     }
   });
 
-  // SKIP: ACL enforcement happens at Caddy proxy layer, not Go backend.
-  // E2E tests hit port 8080 directly, bypassing Caddy security middleware.
-  // This test requires full Caddy+Security integration environment.
-  // See: docs/plans/e2e_failure_investigation.md
+  // A chosen management list refuses the runner only when the runner is outside the admin allow-list, and the
+  // lock-out guard refuses turning access control on in that state. The emergency token is the one bypass of that
+  // guard, so access control is turned on with it (the same route the admin whitelist spec uses). The main app then
+  // refuses the runner, and the emergency server resets access control on port 2020.
   test('Emergency server bypasses main app security', async ({ request }) => {
     console.log('🧪 Testing emergency server security bypass...');
 
-    const testData = new TestDataManager(request, 'emergency-server-bypass');
+    const snapshot = await captureSecurityState(request);
+    let listUuid = '';
 
     try {
-      // Step 1: Enable security on main app (port 8080)
-      await request.post('/api/v1/settings', {
-        data: { key: 'feature.cerberus.enabled', value: 'true' },
+      await test.step('Enable Cerberus and set the admin allow-list to exclude the runner', async () => {
+        await request.post('/api/v1/settings', {
+          data: { key: 'feature.cerberus.enabled', value: 'true' },
+        });
+
+        const response = await request.patch('/api/v1/config', {
+          data: { security: { admin_whitelist: ADMIN_WHITELIST_WITHOUT_RUNNER } },
+        });
+        expect(response.ok()).toBe(true);
       });
 
-      // Create restrictive ACL on main app
-      await testData.createAccessList({
-        name: 'test-emergency-server-acl',
-        type: 'whitelist',
-        ipRules: [{ cidr: '192.168.99.0/24', description: 'Unreachable network' }],
-        enabled: true,
+      await test.step('Choose an enabled list that admits only the unreachable network', async () => {
+        listUuid = await createEnabledAllowList(request, `Emergency server ACL ${Date.now()}`, UNREACHABLE_NETWORK);
+        const response = await putManagementAccess(request, [listUuid]);
+        expect(response.ok()).toBe(true);
       });
 
-      await request.post('/api/v1/settings', {
-        data: { key: 'security.acl.enabled', value: 'true' },
+      await test.step('Turn access control on with the emergency token', async () => {
+        const response = await request.patch(ACL_PATH, {
+          data: { enabled: true },
+          headers: { 'X-Emergency-Token': EMERGENCY_TOKEN },
+        });
+        expect(response.ok()).toBe(true);
       });
 
-      // Wait for settings to propagate
-      await new Promise(resolve => setTimeout(resolve, BASE_PROPAGATION_WAIT * CI_TIMEOUT_MULTIPLIER));
-
-      // Step 2: Verify main app blocks requests (403)
-      const mainAppResponse = await request.get('/api/v1/proxy-hosts');
-      expect(mainAppResponse.status()).toBe(403);
-      console.log('  ✓ Main app (port 8080) blocking requests with ACL');
-
-      // Step 3: Use emergency server (port 2020) to reset security
-      const emergencyRequest = await playwrightRequest.newContext({
-        baseURL: EMERGENCY_SERVER.baseURL,
+      await test.step('Main app (port 8080) refuses the runner', async () => {
+        await expect
+          .poll(async () => (await request.get(PROXY_HOSTS_PATH)).status(), {
+            message: 'main app should refuse the runner while the chosen list is in force',
+          })
+          .toBe(403);
+        console.log('  ✓ Main app (port 8080) blocking requests with ACL');
       });
 
-      const authHeader =
-        'Basic ' +
-        Buffer.from(`${EMERGENCY_SERVER.username}:${EMERGENCY_SERVER.password}`).toString(
-          'base64'
-        );
-
-      const emergencyResponse = await emergencyRequest.post('/emergency/security-reset', {
-        headers: {
-          Authorization: authHeader,
-          'X-Emergency-Token': EMERGENCY_TOKEN,
-        },
+      await test.step('Emergency server (port 2020) resets access control despite the refusal', async () => {
+        const { status, ok } = await resetThroughEmergencyServer();
+        expect(ok).toBeTruthy();
+        expect(status).toBe(200);
+        console.log('  ✓ Emergency server (port 2020) succeeded despite ACL');
       });
 
-      await emergencyRequest.dispose();
-
-      expect(emergencyResponse.ok()).toBeTruthy();
-      expect(emergencyResponse.status()).toBe(200);
-      console.log('  ✓ Emergency server (port 2020) succeeded despite ACL');
-
-      // Wait for settings to propagate
-      await new Promise(resolve => setTimeout(resolve, BASE_PROPAGATION_WAIT * CI_TIMEOUT_MULTIPLIER));
-
-      // Step 4: Verify main app now accessible
-      const allowedResponse = await request.get('/api/v1/proxy-hosts');
-      expect(allowedResponse.ok()).toBeTruthy();
-      console.log('  ✓ Main app now accessible after emergency reset');
+      await test.step('Main app is accessible again after the emergency reset', async () => {
+        await expect
+          .poll(async () => (await request.get(PROXY_HOSTS_PATH)).status(), {
+            message: 'main app should admit the runner after the emergency reset',
+          })
+          .toBe(200);
+        console.log('  ✓ Main app now accessible after emergency reset');
+      });
 
       console.log('✅ Test 3 passed: Emergency server bypasses main app security');
     } finally {
-      await testData.cleanup();
+      await cleanupBypassState(request, snapshot, listUuid);
     }
   });
 

@@ -134,6 +134,27 @@ func withAllowLocalhostForTesting() urlConnectivityOption {
 	}
 }
 
+// RecordURLRefusal counts a URL that the SSRF validation refused and returns the block reason label. It is the one place
+// that maps a refusal to its metric labels, so the test-url handler and TestURLConnectivity count refusals the same way.
+func RecordURLRefusal(validationErr error) string {
+	errMsg := validationErr.Error()
+	var blockReason string
+	switch {
+	case strings.Contains(errMsg, "private ip"):
+		blockReason = "private_ip"
+		metrics.RecordSSRFBlock("private")
+	case strings.Contains(errMsg, "cloud metadata"):
+		blockReason = "metadata_endpoint"
+		metrics.RecordSSRFBlock("metadata")
+	case strings.Contains(errMsg, "dns resolution"):
+		blockReason = "dns_failed"
+	default:
+		blockReason = "validation_failed"
+	}
+	metrics.RecordURLValidation("blocked", blockReason)
+	return blockReason
+}
+
 // testURLConnectivity is the implementation behind TestURLConnectivity.
 // It supports internal (package-only) hooks to keep unit tests deterministic
 // without weakening production defaults.
@@ -203,31 +224,17 @@ func testURLConnectivity(rawURL string, opts ...urlConnectivityOption) (reachabl
 
 	validatedURL, err := security.ValidateExternalURL(rawURL, validationOpts...)
 	if err != nil {
-		// ENHANCEMENT: Record SSRF block metrics
-		// Determine the block reason from error message
+		// Count the refusal, then audit it under the same reason.
+		blockReason := RecordURLRefusal(err)
 		errMsg := err.Error()
-		var blockReason string
-		switch {
-		case strings.Contains(errMsg, "private ip"):
-			blockReason = "private_ip"
-			metrics.RecordSSRFBlock("private", "system") // userID should come from context in production
-			// ENHANCEMENT: Audit log the SSRF block
+		switch blockReason {
+		case "private_ip", "metadata_endpoint":
 			security.LogSSRFBlock(parsed.Hostname(), nil, blockReason, "system", "")
-		case strings.Contains(errMsg, "cloud metadata"):
-			blockReason = "metadata_endpoint"
-			metrics.RecordSSRFBlock("metadata", "system")
-			// ENHANCEMENT: Audit log the SSRF block
-			security.LogSSRFBlock(parsed.Hostname(), nil, blockReason, "system", "")
-		case strings.Contains(errMsg, "dns resolution"):
-			blockReason = "dns_failed"
-			// ENHANCEMENT: Audit log the DNS failure
+		case "dns_failed":
 			security.LogURLTest(parsed.Hostname(), requestID, "system", "", "error")
 		default:
-			blockReason = "validation_failed"
-			// ENHANCEMENT: Audit log the validation failure
 			security.LogURLTest(parsed.Hostname(), requestID, "system", "", "blocked")
 		}
-		metrics.RecordURLValidation("blocked", blockReason)
 
 		// Transform error message for backward compatibility with existing tests
 		// The security package uses lowercase in error messages, but tests expect mixed case

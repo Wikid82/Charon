@@ -39,10 +39,12 @@ func (s *selfHopConfig) isSelfUpstream(dial string) bool {
 // the API reads them from a proxy-set source.
 func (s *selfHopConfig) selfHopHeaders() map[string][]string {
 	return map[string][]string{
-		selfhop.HeaderSecret: {s.secret.Reveal()},
-		selfhop.HeaderClient: {selfhop.ClientPlaceholder},
-		"X-Forwarded-Proto":  {"{http.request.scheme}"},
-		"X-Forwarded-Host":   {"{http.request.host}"},
+		selfhop.HeaderSecret:    {s.secret.Reveal()},
+		selfhop.HeaderClient:    {selfhop.ClientPlaceholder},
+		selfhop.HeaderPeer:      {selfhop.PeerPlaceholder},
+		selfhop.HeaderForwarded: {selfhop.ForwardedPlaceholder},
+		"X-Forwarded-Proto":     {"{http.request.scheme}"},
+		"X-Forwarded-Host":      {"{http.request.host}"},
 	}
 }
 

@@ -48,7 +48,8 @@
     "activeCount": "{{count}} active",
     "noHistoryAvailable": "No history available",
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "Не вдалося оновити"
   },
   "permissions": {
     "adminOnlyError": "Лише адміністратори можуть змінити це налаштування.",
@@ -176,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Немає в активній конфігурації",
+    "notInActiveConfigHint": "Ціль переадресації не дозволена, потрібна інша адреса."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -372,7 +375,17 @@
     "tooManyRequestsSeconds": "Too many attempts. Please wait {{count}} seconds and try again.",
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again."
+    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
+    "streamLimitReached": "Для вашого облікового запису відкрито забагато живих з'єднань. Закрийте інший перегляд у реальному часі та спробуйте знову.",
+    "trustedProxyInvalid": "«{{entry}}» не є IP-адресою чи діапазоном CIDR.",
+    "trustedProxyTooBroad": "«{{entry}}» охоплює занадто широкий діапазон. Діапазони IPv4 мають бути /8 або вужчі, IPv6 — /24 або вужчі.",
+    "trustedProxiesTooMany": "Список довірених проксі може містити не більше 64 записів.",
+    "managementListUnknown": "Один із вибраних списків доступу більше не існує. Перезавантажте сторінку та виберіть знову.",
+    "managementAccessWouldLockOut": "Це заблокує ваш доступ до Charon. Спочатку додайте свою адресу до списку дозволених адміністратора або виберіть список, який вас пропускає.",
+    "accessListInvalid": "Цей список доступу не може захистити власний інтерфейс Charon. Перевірте його правила та спробуйте знову.",
+    "forwardTargetRefused": "Ця ціль переадресації не дозволена.",
+    "destinationRefused": "Ця адреса призначення не дозволена.",
+    "connectionTestFailed": "Не вдалося підключитися до цілі."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -402,7 +415,8 @@
         "messagePendingApply": "База даних GeoIP знову доступна, але {{count}} список(ів) країн ({{lists}}) ще не застосовуються. Натисніть «Перезавантажити» на картці «База даних країн».",
         "docsLink": "Як надати базу даних",
         "issueHint": "Зазвичай Charon містить цю базу даних. Створіть, будь ласка, issue на GitHub, щоб ми могли це виправити.",
-        "issueLink": "Створити issue"
+        "issueLink": "Створити issue",
+        "managementScope": "Уражено також власний інтерфейс Charon: його списки доступу за країнами теж не застосовуються."
       }
     }
   },
@@ -688,6 +702,25 @@
         "proxy_apply_failed": "Charon не зміг застосувати конфігурацію проксі.",
         "generic": "Щось пішло не так. Спробуйте ще раз."
       }
+    },
+    "trustedProxies": {
+      "title": "Довірені проксі",
+      "description": "Charon використовує адресу відвідувача, передану проксі, лише якщо цей проксі вказано тут. Loopback завжди довірений.",
+      "fieldLabel": "Довірені проксі",
+      "fieldHint": "Одна IP-адреса або діапазон CIDR у рядку. Залиште порожнім, щоб довіряти лише loopback.",
+      "alwaysTrusted": "Завжди довірені: {{entries}}",
+      "apiLayerNote": "Власний порт Charon довіряє проксі, заданим у CHARON_TRUSTED_PROXIES на сервері: {{entries}}. Змініть їх там.",
+      "apiLayerNone": "немає",
+      "sourceSetting": "Використовується список, збережений тут.",
+      "sourceEnvironment": "Використовується CHARON_TRUSTED_PROXIES із середовища, доки ви не збережете список тут.",
+      "sourceDefault": "Використовується типове значення, лише loopback, доки ви не збережете список тут.",
+      "droppedEntries": "Пропущено з CHARON_TRUSTED_PROXIES, бо недійсні або занадто широкі: {{entries}}",
+      "saved": "Довірені проксі збережено.",
+      "saveFailed": "Не вдалося зберегти список довірених проксі.",
+      "reset": "Скинути до типового",
+      "resetDone": "Збережений список очищено. Тепер застосовується список із середовища або типове значення.",
+      "loadError": "Не вдалося завантажити список довірених проксі.",
+      "docsLink": "Як налаштувати довірені проксі"
     }
   },
   "accessLists": {
@@ -722,7 +755,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "Увімкненому списку дозволених потрібне принаймні одне правило. Додайте правило або вимкніть список і збережіть знову."
+      "access_list_rules_required": "Увімкненому списку дозволених потрібне принаймні одне правило. Додайте правило або вимкніть список і збережіть знову.",
+      "access_list_in_use": "Цей список доступу використовує власний інтерфейс Charon, тому його не можна видалити. Спочатку виберіть для інтерфейсу Charon інший список і спробуйте знову."
+    },
+    "managementAccess": {
+      "title": "Доступ до керування",
+      "description": "Виберіть списки доступу, які захищають власний інтерфейс Charon, тобто частину, якою ви керуєте програмою. Списки доступу на проксі-хостах тут не застосовуються.",
+      "fieldsetLabel": "Списки доступу для власного інтерфейсу Charon",
+      "noLists": "Списків доступу ще немає. Спочатку створіть один, а потім виберіть його тут.",
+      "notRestricted": "Без обмежень",
+      "notRestrictedHint": "Власний інтерфейс Charon відкритий для кожного відвідувача, який може до нього дістатися. Виберіть список, щоб обмежити доступ.",
+      "restricted": "Власним інтерфейсом Charon можуть користуватися лише відвідувачі, яким дозволяють вибрані списки.",
+      "notApplied": "Не застосовується, поки контроль доступу вимкнено або жоден вибраний список не увімкнено.",
+      "saved": "Доступ до керування збережено.",
+      "saveFailed": "Не вдалося зберегти вибір доступу до керування.",
+      "loadError": "Не вдалося завантажити доступ до керування."
     }
   },
   "rateLimiting": {
@@ -745,7 +792,10 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "saveConfiguration": "Зберегти конфігурацію",
+    "settingUpdated": "Налаштування обмеження частоти оновлено",
+    "invalidValue": "Введіть ціле число більше 0."
   },
   "wafConfig": {
     "title": "WAF Configuration",
@@ -894,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Доступно за {{ms}} мс"
   },
   "notificationProviders": {
     "title": "Notification Providers",

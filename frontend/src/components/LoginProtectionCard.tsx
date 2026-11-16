@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next'
 
 import { LOGIN_PROTECTION_DOCS_URL, TRUSTED_PROXIES_DOCS_URL } from '../constants/docs'
 import { useLoginProtectionStatus } from '../hooks/useSecurity'
+import { DocsLink } from './DocsLink'
 import { Alert } from './ui/Alert'
 import { Badge } from './ui/Badge'
 import { Card } from './ui/Card'
@@ -132,18 +133,5 @@ export function LoginProtectionCard() {
         {body}
       </Card>
     </section>
-  )
-}
-
-function DocsLink({ href, label }: { href: string; label: string }) {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="inline-block text-sm text-blue-400 hover:text-blue-300 underline"
-    >
-      {label}
-    </a>
   )
 }

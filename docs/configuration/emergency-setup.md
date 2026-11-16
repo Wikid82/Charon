@@ -132,6 +132,8 @@ environment:
 **Default:** `127.0.0.1:2020`
 **Note:** Port 2020 is the emergency server. Caddy's admin API is a unix socket inside the container and uses no TCP port.
 
+While the emergency server is turned on, its port cannot be used as a proxy target or an uptime monitor address on this machine (`localhost`, `127.0.0.1` or the machine's own address). Charon refuses those entries. Turn the emergency server off, or use another port for proxy targets and monitors.
+
 **Options:**
 
 ```yaml
@@ -152,6 +154,8 @@ environment:
 ```
 
 **⚠️ Security Warning:** Never bind to `0.0.0.0` without firewall protection. Use SSH tunneling instead.
+
+When Charon starts, it writes a warning to its log if the emergency server listens on an address other than loopback (`127.0.0.1` or `[::1]`). The emergency server serves plain HTTP, so only expose it through a VPN or a tunnel you trust. The warning is a reminder: Charon still starts.
 
 #### `CHARON_EMERGENCY_USERNAME`
 
@@ -203,6 +207,12 @@ To stop anyone from guessing your emergency token, Charon limits wrong attempts 
 - After that, each extra failed attempt needs a wait of about **one minute** before the next try. Charon answers "Too many requests" until the wait is over.
 - The main Charon port and the local-only emergency port (Tier 2) keep **separate** counters, so attempts on one never use up the other.
 - A **successful** reset does not use up any attempts. However, if your address is already waiting out a limit, you must wait for the timer to finish before trying again, even with the correct token.
+
+## Reset Reply Time
+
+A reset can take a while to finish. Charon may first wait for another change to finish applying, then applies the reset and sends the reply. The emergency server allows up to about 75 seconds for this, so you get the reply instead of a dropped connection. If you don't get a reply, wait for the page or command to finish before trying again.
+
+A reset sent through a tunnel on the same machine is judged by the visitor's address, not by `127.0.0.1`. A reset sent directly to the local port is not affected. See [Same-Machine Tunnels](trusted-proxies.md#same-machine-tunnels).
 
 ---
 

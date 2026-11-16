@@ -458,6 +458,11 @@ app.post('/charon-webhook', (req, res) => {
 
 - Check reverse proxy configuration
 - Ensure `X-Forwarded-For` or `X-Real-IP` headers are set
+- List the proxy under **Trusted proxies** on the Security page. Charon shows the visitor's address only when the proxy that sent it is trusted. See [Trusted Proxies](configuration/trusted-proxies.md)
+
+**Live views closing with "too many live connections":**
+
+- Each user can have 8 live views open, and Charon allows 64 across all users. Close another live view, then open this one again
 
 ---
 

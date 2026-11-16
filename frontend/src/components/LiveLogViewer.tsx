@@ -1,5 +1,6 @@
 import { Pause, Play, Trash2, Filter, Shield, Globe } from 'lucide-react';
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import {
   connectLiveLogs,
@@ -9,6 +10,7 @@ import {
   type SecurityLogEntry,
   type SecurityLogFilter,
 } from '../api/logs';
+import { isStreamLimitClose } from '../api/streamLimit';
 import { Button } from './ui/Button';
 
 /**
@@ -150,6 +152,9 @@ export function LiveLogViewer({
   const [isPaused, setIsPaused] = useState(false);
   const [isConnected, setIsConnected] = useState(false);
   const [connectionError, setConnectionError] = useState<string | null>(null);
+  // The server refused this stream because the user holds too many live streams. Shown instead of a retry.
+  const [streamLimited, setStreamLimited] = useState(false);
+  const { t } = useTranslation();
   const [currentMode, setCurrentMode] = useState<LogMode>(mode);
   const [textFilter, setTextFilter] = useState('');
   const [levelFilter, setLevelFilter] = useState('');
@@ -187,6 +192,7 @@ export function LiveLogViewer({
       console.log(`${currentMode} log viewer connected`);
       setIsConnected(true);
       setConnectionError(null);
+      setStreamLimited(false);
     };
 
     const handleError = (error: Event) => {
@@ -195,9 +201,12 @@ export function LiveLogViewer({
       setConnectionError('Failed to connect to log stream. Check your authentication or try refreshing.');
     };
 
-    const handleClose = () => {
+    const handleClose = (event: CloseEvent) => {
       console.log(`${currentMode} log viewer disconnected`);
       setIsConnected(false);
+      if (isStreamLimitClose(event)) {
+        setStreamLimited(true);
+      }
     };
 
     if (currentMode === 'security') {
@@ -327,9 +336,13 @@ export function LiveLogViewer({
           >
             {isConnected ? 'Connected' : 'Disconnected'}
           </span>
-          {connectionError && (
-            <div className="text-xs text-red-400 bg-red-900/20 px-2 py-1 rounded" data-testid="connection-error">
-              {connectionError}
+          {(streamLimited || connectionError) && (
+            <div
+              role="alert"
+              className="text-xs text-red-400 bg-red-900/20 px-2 py-1 rounded"
+              data-testid="connection-error"
+            >
+              {streamLimited ? t('errors.streamLimitReached') : connectionError}
             </div>
           )}
         </div>

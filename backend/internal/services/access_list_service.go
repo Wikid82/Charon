@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"net/netip"
 	"regexp"
 	"strings"
 
@@ -20,6 +19,8 @@ var (
 	ErrInvalidIPAddress      = errors.New("invalid IP address or CIDR")
 	ErrInvalidCountryCode    = errors.New("invalid country code")
 	ErrAccessListInUse       = errors.New("access list is in use by proxy hosts")
+	// ErrAccessListManagementInUse refuses deleting a list that protects Charon's own interface.
+	ErrAccessListManagementInUse = errors.New("access list is used by Charon's own interface")
 	// ErrAccessListRulesRequired rejects an enabled allow-list that would admit nobody. A block-list
 	// with no rules is allowed because it blocks nobody.
 	ErrAccessListRulesRequired = errors.New("an enabled allow-list needs at least one IP rule or the local network option")
@@ -134,13 +135,19 @@ func (s *AccessListService) List() ([]models.AccessList, error) {
 }
 
 // Update updates an existing access list with validation
-func (s *AccessListService) Update(id uint, updates *models.AccessList) error {
+// ProposedUpdate returns the list as it would be after Update with updates, without saving it. Management guards judge
+// this state before the write.
+func (s *AccessListService) ProposedUpdate(id uint, updates *models.AccessList) (*models.AccessList, error) {
 	acl, err := s.GetByID(id)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	applyAccessListUpdates(acl, updates)
+	return acl, nil
+}
 
-	// Apply updates
+// applyAccessListUpdates copies the editable fields of updates onto acl.
+func applyAccessListUpdates(acl, updates *models.AccessList) {
 	acl.Name = updates.Name
 	acl.Description = updates.Description
 	acl.Type = updates.Type
@@ -148,6 +155,14 @@ func (s *AccessListService) Update(id uint, updates *models.AccessList) error {
 	acl.CountryCodes = updates.CountryCodes
 	acl.LocalNetworkOnly = updates.LocalNetworkOnly
 	acl.Enabled = updates.Enabled
+}
+
+// Update saves the editable fields of the list with the given ID after validation.
+func (s *AccessListService) Update(id uint, updates *models.AccessList) error {
+	acl, err := s.ProposedUpdate(id, updates)
+	if err != nil {
+		return err
+	}
 
 	if err := s.validateAccessList(acl); err != nil {
 		return err
@@ -157,8 +172,18 @@ func (s *AccessListService) Update(id uint, updates *models.AccessList) error {
 	return s.db.Save(acl).Error
 }
 
-// InUse reports whether any proxy host uses the access list, so its rules are part of the proxy config.
+// InUse reports whether the access list is part of a configuration: a proxy host uses it, or it protects Charon's own
+// interface (see ManagementUses).
 func (s *AccessListService) InUse(id uint) (bool, error) {
+	proxyUse, err := s.proxyUses(id)
+	if err != nil || proxyUse {
+		return proxyUse, err
+	}
+	return s.ManagementUses(id)
+}
+
+// proxyUses reports whether any proxy host uses the access list.
+func (s *AccessListService) proxyUses(id uint) (bool, error) {
 	var count int64
 	if err := s.db.Model(&models.ProxyHost{}).Where("access_list_id = ?", id).Count(&count).Error; err != nil {
 		return false, fmt.Errorf("count proxy hosts using access list %d: %w", id, err)
@@ -166,14 +191,42 @@ func (s *AccessListService) InUse(id uint) (bool, error) {
 	return count > 0, nil
 }
 
-// Delete deletes an access list if not in use
+// ManagementUses reports whether the access list is in the management set. A missing list is not in use.
+func (s *AccessListService) ManagementUses(id uint) (bool, error) {
+	acl, err := s.GetByID(id)
+	if errors.Is(err, ErrAccessListNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	uuids, err := ManagementListUUIDs(s.db)
+	if err != nil {
+		return false, err
+	}
+	for _, uuid := range uuids {
+		if uuid == acl.UUID {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// Delete deletes an access list if no configuration uses it.
 func (s *AccessListService) Delete(id uint) error {
-	inUse, err := s.InUse(id)
+	proxyUse, err := s.proxyUses(id)
 	if err != nil {
 		return err
 	}
-	if inUse {
+	if proxyUse {
 		return ErrAccessListInUse
+	}
+	managed, err := s.ManagementUses(id)
+	if err != nil {
+		return err
+	}
+	if managed {
+		return ErrAccessListManagementInUse
 	}
 
 	result := s.db.Delete(&models.AccessList{}, id)
@@ -184,104 +237,6 @@ func (s *AccessListService) Delete(id uint) error {
 		return ErrAccessListNotFound
 	}
 	return nil
-}
-
-// TestIP reports whether the access list allows ipAddress, with a reason. It is used by the Cerberus middleware on
-// Charon's own API. It is not the proxy model; see Evaluate. Its outcomes are kept as they were: no admin exemption,
-// local network before geo, and a GeoIP service that is missing or not loaded allows.
-func (s *AccessListService) TestIP(aclID uint, ipAddress string) (allowed bool, reason string, err error) {
-	acl, err := s.GetByID(aclID)
-	if err != nil {
-		return false, "", err
-	}
-
-	if !acl.Enabled {
-		return true, "Access list is disabled - all traffic allowed", nil
-	}
-
-	// A zoned address (for example "fe80::1%eth0") is refused, as net.ParseIP refused it before.
-	addr, err := netip.ParseAddr(ipAddress)
-	if err != nil || addr.Zone() != "" {
-		return false, "", ErrInvalidIPAddress
-	}
-	addr = addr.Unmap()
-
-	// Test local network only
-	if acl.LocalNetworkOnly {
-		if !localNetworkContains(addr) {
-			return false, "Not a private network IP (RFC1918)", nil
-		}
-		return true, "Allowed by local network only rule", nil
-	}
-
-	// Handle geo-based access lists
-	if strings.HasPrefix(acl.Type, "geo_") {
-		return s.testGeoIP(acl, ipAddress)
-	}
-
-	// Test IP rules
-	if acl.IPRules != "" {
-		var rules []models.AccessListRule
-		if err := json.Unmarshal([]byte(acl.IPRules), &rules); err == nil {
-			for _, rule := range rules {
-				if addrInEntry(rule.CIDR, addr) {
-					if acl.Type == "whitelist" {
-						return true, fmt.Sprintf("Allowed by whitelist rule: %s", rule.CIDR), nil
-					}
-					if acl.Type == "blacklist" {
-						return false, fmt.Sprintf("Blocked by blacklist rule: %s", rule.CIDR), nil
-					}
-				}
-			}
-		}
-	}
-
-	// Default behavior based on type
-	if acl.Type == "whitelist" {
-		return false, "Not in whitelist", nil
-	}
-	return true, "Not in blacklist", nil
-}
-
-// testGeoIP tests an IP against geo-based access list rules.
-func (s *AccessListService) testGeoIP(acl *models.AccessList, ipAddress string) (allowed bool, reason string, err error) {
-	// Check if GeoIP service is available
-	if s.geoipSvc == nil || !s.geoipSvc.IsLoaded() {
-		// Graceful degradation: if GeoIP is not available, allow traffic with warning
-		return true, "GeoIP database not available - allowing by default", nil
-	}
-
-	// Look up the country for this IP
-	country, err := s.geoipSvc.LookupCountry(ipAddress)
-	if err != nil {
-		// Handle specific errors
-		if errors.Is(err, ErrCountryNotFound) {
-			// IP has no associated country (e.g., private IP, reserved range)
-			if acl.Type == "geo_whitelist" {
-				return false, "No country found for IP - not in geo whitelist", nil
-			}
-			// For blacklist, unknown country means not blocked
-			return true, "No country found for IP - not in geo blacklist", nil
-		}
-		// Other errors: graceful degradation
-		return true, fmt.Sprintf("GeoIP lookup error: %v - allowing by default", err), nil
-	}
-
-	inList := countryInList(acl.CountryCodes, country)
-
-	// Apply whitelist/blacklist logic
-	if acl.Type == "geo_whitelist" {
-		if inList {
-			return true, fmt.Sprintf("Allowed by geo whitelist: IP is from %s", country), nil
-		}
-		return false, fmt.Sprintf("Blocked by geo whitelist: IP is from %s (not in allowed countries)", country), nil
-	}
-
-	// geo_blacklist
-	if inList {
-		return false, fmt.Sprintf("Blocked by geo blacklist: IP is from %s", country), nil
-	}
-	return true, fmt.Sprintf("Allowed: IP is from %s (not in blocked countries)", country), nil
 }
 
 // parseCountryCodes parses a comma-separated list of country codes.

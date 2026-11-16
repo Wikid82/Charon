@@ -75,9 +75,28 @@ type ProxyHostResponse struct {
 // read. Other callers receive has_advanced_config in their place.
 var proxyHostRedactedFields = []string{"advanced_config", "advanced_config_backup"}
 
-// proxyHostFlags derives the response flags for a proxy host model.
+// proxyHostFlags derives the response flags for a proxy host model. No host is
+// marked as left out of the configuration.
 func proxyHostFlags(host models.ProxyHost) map[string]any {
-	return map[string]any{"has_advanced_config": host.AdvancedConfig != ""}
+	return proxyHostFlagsWith(nil, false)(host)
+}
+
+// proxyHostFlagsWith returns the flag derivation for lists and details. A host in
+// leftOut, which the last successful apply left out of the configuration, gets
+// active_config false. Other hosts get no such key, and clients read a missing
+// key as active.
+func proxyHostFlagsWith(leftOut map[string]struct{}, admin bool) func(models.ProxyHost) map[string]any {
+	return func(host models.ProxyHost) map[string]any {
+		flags := map[string]any{}
+		if !admin {
+			// Administrators read the stored fields as they are; the advanced config flag is for other callers.
+			flags["has_advanced_config"] = host.AdvancedConfig != ""
+		}
+		if _, out := leftOut[host.UUID]; out {
+			flags["active_config"] = false
+		}
+		return flags
+	}
 }
 
 // proxyHostResponseFlags derives the response flags for a ProxyHostResponse.
@@ -153,6 +172,7 @@ type ProxyHostHandler struct {
 	caddyManager        *caddy.Manager
 	notificationService *services.NotificationService
 	uptimeService       *services.UptimeService
+	connectionTestGate
 }
 
 // safeIntToUint safely converts int to uint, returning false if negative (gosec G115)
@@ -441,7 +461,7 @@ func (h *ProxyHostHandler) List(c *gin.Context) {
 		return
 	}
 
-	jsonListForRole(c, http.StatusOK, hosts, proxyHostRedactedFields, proxyHostFlags)
+	jsonListForRoleWithFlags(c, http.StatusOK, hosts, proxyHostRedactedFields, proxyHostFlagsWith(h.caddyManager.LeftOutHostUUIDs(), isAdmin(c)))
 }
 
 // Create creates a new proxy host.
@@ -543,7 +563,7 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 		host.Locations[i].UUID = uuid.NewString()
 	}
 
-	if err := h.service.CreateAs(&host, isAdmin(c)); err != nil {
+	if err := h.service.CreateAs(&host, isAdmin(c), requestKeys(payload)...); err != nil {
 		respondHostWriteError(c, err)
 		return
 	}
@@ -602,7 +622,7 @@ func (h *ProxyHostHandler) Get(c *gin.Context) {
 		return
 	}
 
-	jsonForRole(c, http.StatusOK, *host, proxyHostRedactedFields, proxyHostFlags)
+	jsonForRoleWithFlags(c, http.StatusOK, *host, proxyHostRedactedFields, proxyHostFlagsWith(h.caddyManager.LeftOutHostUUIDs(), isAdmin(c)))
 }
 
 // Update updates an existing proxy host.
@@ -654,6 +674,9 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 	}
 	if v, ok := payload["hsts_subdomains"].(bool); ok {
 		host.HSTSSubdomains = v
+	}
+	if v, ok := payload["security_headers_enabled"].(bool); ok {
+		host.SecurityHeadersEnabled = v
 	}
 	if v, ok := payload["block_exploits"].(bool); ok {
 		host.BlockExploits = v
@@ -872,6 +895,10 @@ func (h *ProxyHostHandler) Delete(c *gin.Context) {
 
 // TestConnection checks if the proxy host is reachable.
 func (h *ProxyHostHandler) TestConnection(c *gin.Context) {
+	if !h.allowConnectionTest(c) {
+		return
+	}
+
 	var req struct {
 		ForwardHost string `json:"forward_host" binding:"required"`
 		ForwardPort int    `json:"forward_port" binding:"required"`
@@ -884,12 +911,19 @@ func (h *ProxyHostHandler) TestConnection(c *gin.Context) {
 
 	if err := h.service.TestConnection(req.ForwardHost, req.ForwardPort); err != nil {
 		if respondForwardTargetRefused(c, err) {
+			logConnectionTest(c, "refused")
+			return
+		}
+		if errors.Is(err, services.ErrConnectionTestFailed) {
+			logConnectionTest(c, "failed")
+			c.JSON(http.StatusBadGateway, gin.H{"error": connectionTestFailedText, "error_code": connectionTestFailedCode})
 			return
 		}
 		c.JSON(http.StatusBadGateway, gin.H{"error": err.Error()})
 		return
 	}
 
+	logConnectionTest(c, "ok")
 	c.JSON(http.StatusOK, gin.H{"message": "Connection successful"})
 }
 

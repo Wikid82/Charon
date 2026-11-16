@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/metrics"
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
@@ -110,9 +111,14 @@ func (w *LogWatcher) Unsubscribe(ch <-chan models.SecurityLogEntry) {
 	}
 }
 
-// broadcast sends a log entry to all subscribers and, if registered, to the StatsIngester.
+// broadcast counts a blocked entry, then sends the entry to all subscribers and, if registered, to the StatsIngester.
 // Non-blocking: if a subscriber's channel is full, the entry is dropped for that subscriber.
 func (w *LogWatcher) broadcast(entry models.SecurityLogEntry) {
+	// Counted once per entry, before the fan-out, so a full subscriber channel does not drop the count.
+	if entry.Blocked {
+		metrics.RecordBlockedEntry(entry.Source)
+	}
+
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 
@@ -228,7 +234,8 @@ func (w *LogWatcher) ParseLogEntry(line string) *models.SecurityLogEntry {
 		Timestamp: timestamp.Format(time.RFC3339),
 		Level:     caddyLog.Level,
 		Logger:    caddyLog.Logger,
-		ClientIP:  caddyLog.Request.RemoteIP,
+		ClientIP:  visitorAddress(caddyLog.Request.ClientIP, caddyLog.Request.RemoteIP),
+		RemoteIP:  caddyLog.Request.RemoteIP,
 		Method:    caddyLog.Request.Method,
 		URI:       stripQueryToken(caddyLog.Request.URI),
 		Status:    caddyLog.Status,
@@ -397,4 +404,13 @@ func stripQueryToken(uri string) string {
 		return path
 	}
 	return path + "?" + query.Encode()
+}
+
+// visitorAddress returns the client address Caddy decided on (client_ip). Older or partial log lines carry only the
+// connection address (remote_ip), which is then the best available value.
+func visitorAddress(clientIP, remoteIP string) string {
+	if clientIP != "" {
+		return clientIP
+	}
+	return remoteIP
 }

@@ -48,7 +48,8 @@
     "activeCount": "{{count}} active",
     "noHistoryAvailable": "No history available",
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "更新に失敗しました"
   },
   "permissions": {
     "adminOnlyError": "この設定を変更できるのは管理者のみです。",
@@ -176,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "有効な構成に含まれていません",
+    "notInActiveConfigHint": "転送先が許可されていないため、別のアドレスが必要です。"
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -372,7 +375,17 @@
     "tooManyRequestsSeconds": "Too many attempts. Please wait {{count}} seconds and try again.",
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again."
+    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
+    "streamLimitReached": "このアカウントで開いているライブ接続が多すぎます。別のライブ表示を閉じてから、もう一度お試しください。",
+    "trustedProxyInvalid": "\"{{entry}}\" は IP アドレスでも CIDR 範囲でもありません。",
+    "trustedProxyTooBroad": "\"{{entry}}\" は範囲が広すぎます。IPv4 の範囲は /8 以下、IPv6 の範囲は /24 以下にしてください。",
+    "trustedProxiesTooMany": "信頼するプロキシの一覧には最大 64 件まで登録できます。",
+    "managementListUnknown": "選択したアクセスリストの一部が存在しなくなりました。ページを再読み込みして選び直してください。",
+    "managementAccessWouldLockOut": "この設定では Charon から締め出されます。先に管理者の許可リストにご自身のアドレスを追加するか、アクセスを許可するリストを選択してください。",
+    "accessListInvalid": "このアクセスリストでは Charon 自身の管理画面を保護できません。ルールを確認してから、もう一度お試しください。",
+    "forwardTargetRefused": "この転送先は許可されていません。",
+    "destinationRefused": "この宛先は許可されていません。",
+    "connectionTestFailed": "転送先に接続できませんでした。"
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -402,7 +415,8 @@
         "messagePendingApply": "GeoIP データベースが再び利用可能になりましたが、適用されていない国のリストが {{count}} 件 ({{lists}}) あります。国データベースのカードで「再読み込み」を押してください。",
         "docsLink": "データベースの用意方法",
         "issueHint": "Charon には通常このデータベースが含まれています。修正できるよう GitHub で issue を作成してください。",
-        "issueLink": "issue を作成"
+        "issueLink": "issue を作成",
+        "managementScope": "Charon 自身の管理画面も影響を受けています。その国別アクセスリストも適用されていません。"
       }
     }
   },
@@ -688,6 +702,25 @@
         "proxy_apply_failed": "Charon はプロキシ設定を適用できませんでした。",
         "generic": "問題が発生しました。もう一度お試しください。"
       }
+    },
+    "trustedProxies": {
+      "title": "信頼するプロキシ",
+      "description": "Charon は、プロキシが伝えた訪問者のアドレスを、そのプロキシがここに登録されている場合にのみ使用します。ループバックは常に信頼されます。",
+      "fieldLabel": "信頼するプロキシ",
+      "fieldHint": "1 行に 1 つの IP アドレスまたは CIDR 範囲を入力します。空欄にするとループバックのみを信頼します。",
+      "alwaysTrusted": "常に信頼: {{entries}}",
+      "apiLayerNote": "Charon 自身のポートは、サーバーの CHARON_TRUSTED_PROXIES で設定されたプロキシを信頼します: {{entries}}。変更はそちらで行ってください。",
+      "apiLayerNone": "なし",
+      "sourceSetting": "ここで保存したリストを使用しています。",
+      "sourceEnvironment": "ここでリストを保存するまでは、環境変数 CHARON_TRUSTED_PROXIES を使用しています。",
+      "sourceDefault": "ここでリストを保存するまでは、既定値（ループバックのみ）を使用しています。",
+      "droppedEntries": "CHARON_TRUSTED_PROXIES のうち、無効または範囲が広すぎるため無視された項目: {{entries}}",
+      "saved": "信頼するプロキシを保存しました。",
+      "saveFailed": "信頼するプロキシの一覧を保存できませんでした。",
+      "reset": "既定値に戻す",
+      "resetDone": "保存したリストを消去しました。環境変数の設定または既定値が適用されます。",
+      "loadError": "信頼するプロキシの一覧を読み込めませんでした。",
+      "docsLink": "信頼するプロキシの設定方法"
     }
   },
   "accessLists": {
@@ -722,7 +755,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "有効な許可リストには、少なくとも 1 つのルールが必要です。ルールを追加するか、リストを無効にしてから、もう一度保存してください。"
+      "access_list_rules_required": "有効な許可リストには、少なくとも 1 つのルールが必要です。ルールを追加するか、リストを無効にしてから、もう一度保存してください。",
+      "access_list_in_use": "このアクセスリストは Charon 自身の管理画面で使われているため、削除できません。先に Charon の管理画面用に別のリストを選択してから、もう一度お試しください。"
+    },
+    "managementAccess": {
+      "title": "管理アクセス",
+      "description": "Charon 自身の管理画面（管理に使う部分）を保護するアクセスリストを選択します。プロキシホストのアクセスリストはここには適用されません。",
+      "fieldsetLabel": "Charon 自身の管理画面のアクセスリスト",
+      "noLists": "アクセスリストがまだありません。先に作成してから、ここで選択してください。",
+      "notRestricted": "制限なし",
+      "notRestrictedHint": "Charon 自身の管理画面は、到達できるすべての訪問者に開かれています。制限するにはリストを選択してください。",
+      "restricted": "選択したリストで許可された訪問者だけが Charon 自身の管理画面を使用できます。",
+      "notApplied": "アクセス制御がオフの間、または選択したリストがどれも有効でない間は適用されません。",
+      "saved": "管理アクセスを保存しました。",
+      "saveFailed": "管理アクセスの選択を保存できませんでした。",
+      "loadError": "管理アクセスを読み込めませんでした。"
     }
   },
   "rateLimiting": {
@@ -745,7 +792,10 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "saveConfiguration": "設定を保存",
+    "settingUpdated": "レート制限の設定を更新しました",
+    "invalidValue": "0より大きい整数を入力してください。"
   },
   "wafConfig": {
     "title": "WAF Configuration",
@@ -894,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "{{ms}} ms で到達可能"
   },
   "notificationProviders": {
     "title": "Notification Providers",

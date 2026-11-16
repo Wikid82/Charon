@@ -441,8 +441,7 @@ echo ""
 # Remove test proxy host from database
 echo "Removing test proxy host from database..."
 INTEGRATION_UUID=$(curl -s -b "${TMP_COOKIE}" http://localhost:8280/api/v1/proxy-hosts | \
-    grep -o '"uuid":"[^"]*"[^}]*"domain_names":"'${TEST_DOMAIN}'"' | head -n1 | \
-    grep -o '"uuid":"[^"]*"' | sed 's/"uuid":"\([^"]*\)"/\1/')
+    jq -r --arg domain "${TEST_DOMAIN}" '.[] | select(.domain_names == $domain) | .uuid' 2>/dev/null | head -n1 || true)
 
 if [ -n "$INTEGRATION_UUID" ]; then
     curl -s -X DELETE -b "${TMP_COOKIE}" \

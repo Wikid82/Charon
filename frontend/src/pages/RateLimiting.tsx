@@ -161,7 +161,7 @@ export default function RateLimiting() {
               <div>
                 <h3 className="text-sm font-semibold text-green-300">{t('rateLimiting.currentlyActive')}</h3>
                 <p className="text-sm text-green-200/90">
-                  {t('rateLimiting.activeSummary', {
+                  {t('rateLimiting.currentConfig', {
                     requests: config.rate_limit_requests,
                     burst: config.rate_limit_burst,
                     window: config.rate_limit_window_sec
@@ -179,8 +179,8 @@ export default function RateLimiting() {
               <h2 className="text-lg font-semibold text-white">{t('rateLimiting.enableRateLimiting')}</h2>
               <p className="text-sm text-gray-400 mt-1">
                 {enabled
-                  ? t('rateLimiting.activeDescription')
-                  : t('rateLimiting.disabledDescription')}
+                  ? t('rateLimiting.enabledMessage')
+                  : t('rateLimiting.enableToConfigureMessage')}
               </p>
             </div>
             <label className="relative inline-flex items-center cursor-pointer">
@@ -237,7 +237,7 @@ export default function RateLimiting() {
                 value={fields.window}
                 placeholder={String(STANDARD_RATE_LIMIT.windowSec)}
                 onChange={(e) => updateField('window', e.target.value)}
-                helperText={t('rateLimiting.windowSecondsHelper')}
+                helperText={t('rateLimiting.windowHelper')}
                 error={fieldErrors.window}
                 errorTestId="rate-limit-window-error"
                 data-testid="rate-limit-window"
@@ -260,7 +260,7 @@ export default function RateLimiting() {
           <Card>
             <div className="text-center py-8">
               <div className="text-gray-500 mb-4 text-4xl">⏱️</div>
-              <h3 className="text-lg font-semibold text-white mb-2">{t('rateLimiting.disabledTitle')}</h3>
+              <h3 className="text-lg font-semibold text-white mb-2">{t('rateLimiting.rateLimitingDisabled')}</h3>
               <p className="text-gray-400 mb-4">
                 {t('rateLimiting.disabledMessage')}
               </p>

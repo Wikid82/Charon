@@ -48,7 +48,8 @@
     "activeCount": "{{count}} actif",
     "noHistoryAvailable": "Aucun historique disponible",
     "autoRefreshing": "Actualisation automatique toutes les {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "Échec de la mise à jour"
   },
   "permissions": {
     "adminOnlyError": "Seuls les administrateurs peuvent modifier ce paramètre.",
@@ -181,7 +182,9 @@
     "bulkApplySecurityHeaders": "Profil d'En-têtes de Sécurité",
     "bulkApplySecurityHeadersHelp": "Appliquer un profil d'en-têtes de sécurité à tous les hôtes sélectionnés",
     "noSecurityProfile": "Aucun (Supprimer le Profil)",
-    "removeSecurityHeadersWarning": "Cela supprimera le profil d'en-têtes de sécurité de tous les hôtes sélectionnés, ce qui pourrait réduire leur posture de sécurité."
+    "removeSecurityHeadersWarning": "Cela supprimera le profil d'en-têtes de sécurité de tous les hôtes sélectionnés, ce qui pourrait réduire leur posture de sécurité.",
+    "notInActiveConfig": "Absent de la configuration active",
+    "notInActiveConfigHint": "Sa cible de redirection n'est pas autorisée et nécessite une autre adresse."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -377,7 +380,17 @@
     "tooManyRequestsSeconds": "Trop de tentatives. Veuillez patienter {{count}} secondes puis réessayer.",
     "tooManyRequestsMinutes_one": "Trop de tentatives. Veuillez patienter {{count}} minute puis réessayer.",
     "tooManyRequestsMinutes_other": "Trop de tentatives. Veuillez patienter {{count}} minutes puis réessayer.",
-    "tooManyRequestsMinutes": "Trop de tentatives. Veuillez patienter {{count}} minutes puis réessayer."
+    "tooManyRequestsMinutes": "Trop de tentatives. Veuillez patienter {{count}} minutes puis réessayer.",
+    "streamLimitReached": "Trop de connexions en direct sont ouvertes pour votre compte. Fermez une autre vue en direct, puis réessayez.",
+    "trustedProxyInvalid": "« {{entry}} » n'est ni une adresse IP ni une plage CIDR.",
+    "trustedProxyTooBroad": "« {{entry}} » couvre une plage trop large. Les plages IPv4 doivent être /8 ou plus étroites, et les plages IPv6 /24 ou plus étroites.",
+    "trustedProxiesTooMany": "La liste des proxys de confiance contient au plus 64 entrées.",
+    "managementListUnknown": "L'une des listes d'accès choisies n'existe plus. Rechargez la page et choisissez à nouveau.",
+    "managementAccessWouldLockOut": "Cela vous couperait l'accès à Charon. Ajoutez d'abord votre adresse à la liste d'autorisation de l'administrateur, ou choisissez une liste qui vous autorise.",
+    "accessListInvalid": "Cette liste d'accès ne peut pas protéger l'interface propre de Charon. Vérifiez ses règles, puis réessayez.",
+    "forwardTargetRefused": "Cette cible de redirection n'est pas autorisée.",
+    "destinationRefused": "Cette destination n'est pas autorisée.",
+    "connectionTestFailed": "Impossible de se connecter à la cible."
   },
   "notifications": {
     "saveSuccess": "Modifications enregistrées avec succès",
@@ -407,7 +420,8 @@
         "messagePendingApply": "La base de données GeoIP est de nouveau disponible, mais {{count}} liste(s) de pays ({{lists}}) ne sont pas encore appliquées. Appuyez sur Recharger sur la carte Base de données des pays.",
         "docsLink": "Comment fournir la base de données",
         "issueHint": "Charon inclut normalement cette base de données. Merci d'ouvrir un ticket GitHub afin que nous puissions corriger cela.",
-        "issueLink": "Ouvrir un ticket"
+        "issueLink": "Ouvrir un ticket",
+        "managementScope": "L'interface de Charon elle-même est aussi concernée : ses listes d'accès par pays ne sont pas appliquées non plus."
       }
     }
   },
@@ -713,6 +727,25 @@
         "proxy_apply_failed": "Charon n'a pas pu appliquer la configuration du proxy.",
         "generic": "Une erreur s'est produite. Réessayez."
       }
+    },
+    "trustedProxies": {
+      "title": "Proxys de confiance",
+      "description": "Charon n'utilise l'adresse d'un visiteur transmise par un proxy que si ce proxy figure ici. La boucle locale est toujours approuvée.",
+      "fieldLabel": "Proxys de confiance",
+      "fieldHint": "Une adresse IP ou une plage CIDR par ligne. Laissez vide pour ne faire confiance qu'à la boucle locale.",
+      "alwaysTrusted": "Toujours approuvé : {{entries}}",
+      "apiLayerNote": "Le port propre de Charon fait confiance aux proxys définis par CHARON_TRUSTED_PROXIES sur le serveur : {{entries}}. Modifiez-les là-bas.",
+      "apiLayerNone": "aucun",
+      "sourceSetting": "La liste enregistrée ici est utilisée.",
+      "sourceEnvironment": "CHARON_TRUSTED_PROXIES de l'environnement est utilisé jusqu'à ce que vous enregistriez une liste ici.",
+      "sourceDefault": "La valeur par défaut, la boucle locale seule, est utilisée jusqu'à ce que vous enregistriez une liste ici.",
+      "droppedEntries": "Ignorées de CHARON_TRUSTED_PROXIES car invalides ou trop larges : {{entries}}",
+      "saved": "Proxys de confiance enregistrés.",
+      "saveFailed": "La liste des proxys de confiance n'a pas pu être enregistrée.",
+      "reset": "Rétablir la valeur par défaut",
+      "resetDone": "Liste enregistrée effacée. La liste de l'environnement ou la valeur par défaut s'applique désormais.",
+      "loadError": "La liste des proxys de confiance n'a pas pu être chargée.",
+      "docsLink": "Comment définir les proxys de confiance"
     }
   },
   "accessLists": {
@@ -747,7 +780,21 @@
     "noAccessLists": "Aucune Liste d'Accès",
     "noAccessListsDescription": "Créez votre première liste d'accès pour contrôler qui peut accéder à vos services",
     "errors": {
-      "access_list_rules_required": "Une liste d'autorisation activée nécessite au moins une règle. Ajoutez une règle ou désactivez la liste, puis enregistrez à nouveau."
+      "access_list_rules_required": "Une liste d'autorisation activée nécessite au moins une règle. Ajoutez une règle ou désactivez la liste, puis enregistrez à nouveau.",
+      "access_list_in_use": "Cette liste d'accès est utilisée par l'interface propre de Charon, elle ne peut donc pas être supprimée. Choisissez d'abord une autre liste pour l'interface de Charon, puis réessayez."
+    },
+    "managementAccess": {
+      "title": "Accès à l'administration",
+      "description": "Choisissez les listes d'accès qui protègent l'interface propre de Charon, celle que vous utilisez pour l'administrer. Les listes d'accès des hôtes proxy ne s'y appliquent pas.",
+      "fieldsetLabel": "Listes d'accès pour l'interface propre de Charon",
+      "noLists": "Aucune liste d'accès n'existe encore. Créez-en d'abord une, puis choisissez-la ici.",
+      "notRestricted": "Non restreint",
+      "notRestrictedHint": "L'interface propre de Charon est ouverte à tout visiteur qui peut l'atteindre. Choisissez une liste pour la limiter.",
+      "restricted": "Seuls les visiteurs autorisés par les listes choisies peuvent utiliser l'interface propre de Charon.",
+      "notApplied": "Non appliqué tant que le contrôle d'accès est désactivé ou qu'aucune liste choisie n'est activée.",
+      "saved": "Accès à l'administration enregistré.",
+      "saveFailed": "Le choix d'accès à l'administration n'a pas pu être enregistré.",
+      "loadError": "L'accès à l'administration n'a pas pu être chargé."
     }
   },
   "rateLimiting": {
@@ -771,7 +818,9 @@
     "enableToConfigureMessage": "Activez la limitation de débit pour configurer les limites de requêtes et protéger vos services",
     "adjustingGates": "Ajustement des portes...",
     "configurationUpdating": "Configuration de la limitation de débit en cours de mise à jour",
-    "invalidValue": "Saisissez un nombre entier supérieur à 0."
+    "invalidValue": "Saisissez un nombre entier supérieur à 0.",
+    "saveConfiguration": "Enregistrer la configuration",
+    "settingUpdated": "Paramètre de limitation de débit mis à jour"
   },
   "wafConfig": {
     "title": "Configuration WAF",
@@ -934,7 +983,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Accessible en {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Fournisseurs de Notifications",

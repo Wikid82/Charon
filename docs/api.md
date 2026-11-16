@@ -69,13 +69,19 @@ Expose internal counters for scraping.
 GET /metrics
 ```
 
-No authentication required. Primary WAF metrics:
+No authentication required. Primary security metrics:
 
 ```text
 charon_waf_requests_total
 charon_waf_blocked_total
-charon_waf_monitored_total
+charon_crowdsec_requests_total
+charon_crowdsec_blocked_total
+charon_url_validation_total
+charon_ssrf_blocks_total
+charon_url_test_duration_seconds
 ```
+
+The `*_blocked_total` counters count requests blocked on your proxied sites, read from the access log when the block can be identified there (not every block can be yet, so treat them as a lower bound). The `*_requests_total` counters count only requests to Charon's management API. `charon_waf_monitored_total` has been removed.
 
 ---
 
@@ -175,6 +181,7 @@ The WAF and rate limit switches are set through the same save:
 - **`rate_limit_enable`**: `true` turns the rate limit on and `false` turns it off. If a save sends only `rate_limit_mode`, the value `enabled` turns it on, any other non-empty value turns it off, and an empty value clears the saved choice.
 - **An unchanged value changes nothing.** A switch is written only when the value sent differs from the value already saved in the config. A read, edit one field, and save cycle therefore never turns a module on or off. To turn the WAF on when its saved mode is already `block` but the WAF is off, use `POST /security/waf/enable` or `PATCH /security/waf` instead.
 - **Turning a module on also turns on the security framework**, unless the same request also sends `"enabled": false`.
+- **Turning Cerberus on or off with the feature switch** (`PUT /feature-flags`) applies to the proxy straight away. If the proxy refuses the change, Charon restores the previous value and answers `500`. Adding or deleting a WAF exclusion works the same way.
 - **Rate limit numbers.** When the rate limit is turned on, any request count, time window or burst that is not set is filled with the standard values: 100 requests, a 60 second window and a burst of 20. Numbers sent in the same request are kept. A value of `0` counts as not set, so it is filled the same way.
 - **`waf_rules_source`** (the rule set the WAF uses) must be empty, the name of an existing rule set, or an `http://` or `https://` address. Any other name is refused with `422` and the code `waf_rules_source_unknown`. A value that is already saved is always accepted, so unrelated saves do not fail.
 - **If the proxy cannot apply the change**, Charon restores the values from before the save and answers `500` with the message `Failed to reload configuration`.
@@ -316,6 +323,31 @@ DELETE /security/rulesets/:id
 The `:id` can be the rule set's UUID or its numeric ID. A rule set that the WAF is using (the one chosen as the rule set source) cannot be deleted: the response is `409` with the code `waf_ruleset_in_use`. Choose another rule set first.
 
 Response 200: `{ "deleted": true }`
+
+---
+
+#### Trusted Proxies
+
+The proxy-layer trust list, shown on the Security page as **Trusted proxies**. Loopback is always trusted and is not stored. All paths are under `/api/v1`.
+
+| Method and path | Who | What it does |
+| --- | --- | --- |
+| `GET /security/trusted-proxies` | Management users | Returns the list in force, its source (`setting`, `environment` or `default`), the entries that were ignored, the always-trusted ranges and the warnings. Non-administrators get only `has_proxies`. |
+| `PUT /security/trusted-proxies` | Admin | Body `{"proxies": ["172.18.0.5", "172.18.0.0/16"]}`. An empty list trusts loopback only. Each entry is checked before anything is saved. |
+| `DELETE /security/trusted-proxies` | Admin | Removes the saved list, so the environment list or the loopback default applies again. |
+
+A refused entry returns `400` with `error_code` `trusted_proxy_invalid` or `trusted_proxy_too_broad`, and an `entry` field that names it. Too many entries (more than 64) returns `trusted_proxies_too_many`. A change that would lock you out of Charon's own interface returns `403` with `management_access_would_lock_out`. If the proxy cannot apply the new list, the previous list is restored and the reply is `500`.
+
+#### Management Access
+
+The access lists that protect Charon's own interface, shown on the Access Lists page as **Management access**. All paths are under `/api/v1`.
+
+| Method and path | Who | What it does |
+| --- | --- | --- |
+| `GET /security/management-access` | Management users | Returns the chosen lists (`uuid`, `name`, `type`, `enabled`) and `enforced`, which is true when access control is on and at least one chosen list is enabled. |
+| `PUT /security/management-access` | Admin | Body `{"list_uuids": ["..."]}`. An empty list means not restricted. |
+
+Errors: `400` with `management_list_unknown` (names the `uuid`) or `access_list_invalid`; `403` with `management_access_would_lock_out` when the change would lock you out. Deleting an access list that is chosen here returns `409` with `access_list_in_use`. Replacing or reloading the country database returns `409` with `management_access_would_lock_out` when the calling admin would be refused, and the old database stays in use.
 
 ---
 
@@ -1193,6 +1225,15 @@ Content-Type: application/json
 }
 ```
 
+**Response 400 (forward target not allowed):** A forward target, location target or advanced-configuration upstream that Charon does not accept returns this. The same response applies to updates.
+
+```json
+{
+  "error": "This forward target is not allowed.",
+  "error_code": "forward_target_refused"
+}
+```
+
 #### Update Proxy Host
 
 ```http
@@ -1405,6 +1446,7 @@ POST /remote-servers/:uuid/test
 {
   "reachable": true,
   "address": "registry.local:5000",
+  "latency_ms": 12,
   "timestamp": "2025-01-18T10:25:00Z"
 }
 ```
@@ -1415,14 +1457,29 @@ POST /remote-servers/:uuid/test
 {
   "reachable": false,
   "address": "offline.server:8080",
-  "error": "connection timeout",
+  "error": "Could not connect to the target.",
   "timestamp": "2025-01-18T10:25:00Z"
 }
 ```
 
-**Note:** This endpoint updates the `reachable` and `last_checked` fields on the remote server.
+**Response 400 (address not allowed):**
+
+```json
+{
+  "error": "This destination is not allowed.",
+  "error_code": "destination_refused"
+}
+```
+
+**Response 429 (too many tests):** The response includes a `Retry-After` header with the number of seconds to wait. See [Connection Test Limit](#connection-test-limit).
+
+**Note:** This endpoint updates the `reachable` and `last_checked` fields on the remote server. The error text is the same for every reason a connection fails, so it does not say which rule or port was involved.
 
 ---
+
+#### Connection Test Limit
+
+Each account can run 10 connection tests per minute. The limit is shared by the proxy host connection test (`POST /proxy-hosts/test`) and the remote server tests. A request over the limit gets `429` with a `Retry-After` header, and no connection is attempted.
 
 ### Docker Status
 
@@ -1457,6 +1514,8 @@ The probe gives up after 2 seconds. A timeout reports `available: true` with rea
 #### Stream Live Logs (WebSocket)
 
 Connect to a WebSocket stream of live security logs. This endpoint uses WebSocket protocol for real-time bidirectional communication.
+
+Each user may hold 8 live streams open at once, and Charon allows 64 across all users. The live log, Cerberus log, Hecate log and stats streams share these limits. A connection over the limit is accepted and then closed with close code `1013` (Try Again Later) and the reason `stream_limit_reached`. Clients should not reconnect automatically on that code.
 
 ```http
 GET /api/v1/logs/live

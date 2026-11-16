@@ -105,7 +105,7 @@ func TestSecurityHandler_GetWAFExclusions_InvalidJSON(t *testing.T) {
 // Tests for AddWAFExclusion handler
 func TestSecurityHandler_AddWAFExclusion_Success(t *testing.T) {
 	db := setupTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}))
+	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}, &models.Setting{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	t.Cleanup(handler.Close)
@@ -139,7 +139,7 @@ func TestSecurityHandler_AddWAFExclusion_Success(t *testing.T) {
 
 func TestSecurityHandler_AddWAFExclusion_WithTarget(t *testing.T) {
 	db := setupTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}))
+	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}, &models.Setting{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	t.Cleanup(handler.Close)
@@ -173,7 +173,7 @@ func TestSecurityHandler_AddWAFExclusion_WithTarget(t *testing.T) {
 
 func TestSecurityHandler_AddWAFExclusion_ToExistingConfig(t *testing.T) {
 	db := setupTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}))
+	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}, &models.Setting{}))
 
 	// Create config with existing exclusion
 	existingExclusions := `[{"rule_id":941100,"description":"XSS rule"}]`
@@ -217,7 +217,7 @@ func TestSecurityHandler_AddWAFExclusion_ToExistingConfig(t *testing.T) {
 
 func TestSecurityHandler_AddWAFExclusion_Duplicate(t *testing.T) {
 	db := setupTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}))
+	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}, &models.Setting{}))
 
 	// Create config with existing exclusion
 	existingExclusions := `[{"rule_id":942100,"description":"SQL Injection rule"}]`
@@ -250,7 +250,7 @@ func TestSecurityHandler_AddWAFExclusion_Duplicate(t *testing.T) {
 
 func TestSecurityHandler_AddWAFExclusion_DuplicateWithDifferentTarget(t *testing.T) {
 	db := setupTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}))
+	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}, &models.Setting{}))
 
 	// Create config with existing exclusion (no target)
 	existingExclusions := `[{"rule_id":942100}]`
@@ -384,7 +384,7 @@ func TestSecurityHandler_AddWAFExclusion_InvalidPayload(t *testing.T) {
 // Tests for DeleteWAFExclusion handler
 func TestSecurityHandler_DeleteWAFExclusion_Success(t *testing.T) {
 	db := setupTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}))
+	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}, &models.Setting{}))
 
 	// Create config with exclusions
 	exclusionsJSON := `[{"rule_id":942100},{"rule_id":941100}]`
@@ -424,7 +424,7 @@ func TestSecurityHandler_DeleteWAFExclusion_Success(t *testing.T) {
 
 func TestSecurityHandler_DeleteWAFExclusion_WithTarget(t *testing.T) {
 	db := setupTestDB(t)
-	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}))
+	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}, &models.Setting{}))
 
 	// Create config with targeted exclusion
 	exclusionsJSON := `[{"rule_id":942100,"target":"ARGS:password"},{"rule_id":942100}]`
@@ -592,7 +592,7 @@ func TestSecurityHandler_WAFExclusion_FullWorkflow(t *testing.T) {
 	})
 
 	// Migrate the required models
-	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}))
+	require.NoError(t, db.AutoMigrate(&models.SecurityConfig{}, &models.SecurityAudit{}, &models.Setting{}))
 
 	handler := NewSecurityHandler(config.SecurityConfig{}, db, nil)
 	t.Cleanup(handler.Close)

@@ -130,9 +130,9 @@ test.describe('Emergency Token Break Glass Protocol', () => {
     }
 
     // STEP 4: Delete ALL access lists to ensure clean blocking state
-    // ACL blocking only happens when activeCount == 0 (no ACLs configured)
-    // If blacklist ACLs exist from other tests, requests from IPs NOT in them will pass
-    console.log('  🗑️  Ensuring no access lists exist (required for ACL blocking)...');
+    // Charon's own API is restricted only by the lists chosen on the Management access card, not by the lists
+    // existing. Clearing the leftovers keeps the proxy-host tests starting from a known set.
+    console.log('  🗑️  Clearing leftover access lists from other tests...');
     try {
       const aclsResponse = await request.get('/api/v1/access-lists', {
         headers: { 'X-Emergency-Token': emergencyToken },
@@ -200,8 +200,8 @@ test.describe('Emergency Token Break Glass Protocol', () => {
     // ACL is guaranteed to be enabled by beforeAll hook
     console.log('🧪 Testing emergency token bypass with ACL enabled...');
 
-    // Note: Testing that ACL blocks unauthenticated requests without configured ACLs
-    // is handled by admin-ip-blocking.spec.ts. Here we focus on emergency token bypass.
+    // Note: Charon's own API is refused only when a list is chosen on the Management access card, and that is covered by
+    // the management access specs. Here we focus on the emergency token bypass.
 
     // Step 1: Verify that ACL is enabled (precondition check with retry)
     // Due to parallel test execution, ACL may have been disabled by another test

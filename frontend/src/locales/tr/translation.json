@@ -48,7 +48,8 @@
     "activeCount": "{{count}} active",
     "noHistoryAvailable": "No history available",
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "Güncelleme başarısız"
   },
   "permissions": {
     "adminOnlyError": "Bu ayarı yalnızca yöneticiler değiştirebilir.",
@@ -176,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Etkin yapılandırmada değil",
+    "notInActiveConfigHint": "Yönlendirme hedefine izin verilmiyor ve başka bir adres gerekiyor."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -372,7 +375,17 @@
     "tooManyRequestsSeconds": "Too many attempts. Please wait {{count}} seconds and try again.",
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again."
+    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
+    "streamLimitReached": "Hesabınız için açık olan canlı bağlantı sayısı çok fazla. Başka bir canlı görünümü kapatıp yeniden deneyin.",
+    "trustedProxyInvalid": "\"{{entry}}\" bir IP adresi veya CIDR aralığı değil.",
+    "trustedProxyTooBroad": "\"{{entry}}\" çok geniş bir aralığı kapsıyor. IPv4 aralıkları /8 veya daha dar, IPv6 aralıkları /24 veya daha dar olmalıdır.",
+    "trustedProxiesTooMany": "Güvenilen proxy listesi en fazla 64 girdi içerebilir.",
+    "managementListUnknown": "Seçilen erişim listelerinden biri artık yok. Sayfayı yenileyip yeniden seçin.",
+    "managementAccessWouldLockOut": "Bu, Charon'dan kilitlenmenize neden olur. Önce adresinizi yönetici izin listesine ekleyin veya size izin veren bir liste seçin.",
+    "accessListInvalid": "Bu erişim listesi Charon'un kendi arayüzünü koruyamaz. Kurallarını kontrol edip yeniden deneyin.",
+    "forwardTargetRefused": "Bu yönlendirme hedefine izin verilmiyor.",
+    "destinationRefused": "Bu hedefe izin verilmiyor.",
+    "connectionTestFailed": "Hedefe bağlanılamadı."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -402,7 +415,8 @@
         "messagePendingApply": "GeoIP veritabanı yeniden kullanılabilir, ancak {{count}} ülke listesi ({{lists}}) henüz uygulanmıyor. Ülke veritabanı kartındaki Yeniden yükle düğmesine basın.",
         "docsLink": "Veritabanı nasıl sağlanır",
         "issueHint": "Charon genellikle bu veritabanını içerir. Düzeltebilmemiz için lütfen GitHub’da bir issue açın.",
-        "issueLink": "Issue aç"
+        "issueLink": "Issue aç",
+        "managementScope": "Charon'un kendi arayüzü de etkileniyor: oradaki ülke erişim listeleri de uygulanmıyor."
       }
     }
   },
@@ -688,6 +702,25 @@
         "proxy_apply_failed": "Charon proxy yapılandırmasını uygulayamadı.",
         "generic": "Bir şeyler ters gitti. Tekrar deneyin."
       }
+    },
+    "trustedProxies": {
+      "title": "Güvenilen proxy'ler",
+      "description": "Charon, bir ziyaretçinin adresini bir proxy'den yalnızca o proxy burada listelenmişse kullanır. Loopback her zaman güvenilirdir.",
+      "fieldLabel": "Güvenilen proxy'ler",
+      "fieldHint": "Her satıra bir IP adresi veya CIDR aralığı. Yalnızca loopback'e güvenmek için boş bırakın.",
+      "alwaysTrusted": "Her zaman güvenilir: {{entries}}",
+      "apiLayerNote": "Charon'un kendi portu, sunucudaki CHARON_TRUSTED_PROXIES ile ayarlanan proxy'lere güvenir: {{entries}}. Değiştirmek için orayı kullanın.",
+      "apiLayerNone": "yok",
+      "sourceSetting": "Buraya kaydedilen liste kullanılıyor.",
+      "sourceEnvironment": "Buraya bir liste kaydedene kadar ortamdaki CHARON_TRUSTED_PROXIES kullanılıyor.",
+      "sourceDefault": "Buraya bir liste kaydedene kadar varsayılan, yalnızca loopback kullanılıyor.",
+      "droppedEntries": "CHARON_TRUSTED_PROXIES içinden geçersiz veya çok geniş oldukları için yok sayıldı: {{entries}}",
+      "saved": "Güvenilen proxy'ler kaydedildi.",
+      "saveFailed": "Güvenilen proxy listesi kaydedilemedi.",
+      "reset": "Varsayılana sıfırla",
+      "resetDone": "Kaydedilen liste temizlendi. Artık ortamdaki liste veya varsayılan geçerli.",
+      "loadError": "Güvenilen proxy listesi yüklenemedi.",
+      "docsLink": "Güvenilen proxy'ler nasıl ayarlanır"
     }
   },
   "accessLists": {
@@ -722,7 +755,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "Etkin bir izin listesinin en az bir kurala ihtiyacı var. Bir kural ekleyin ya da listeyi kapatıp yeniden kaydedin."
+      "access_list_rules_required": "Etkin bir izin listesinin en az bir kurala ihtiyacı var. Bir kural ekleyin ya da listeyi kapatıp yeniden kaydedin.",
+      "access_list_in_use": "Bu erişim listesi Charon'un kendi arayüzü tarafından kullanılıyor, bu yüzden silinemez. Önce Charon arayüzü için başka bir liste seçin, sonra tekrar deneyin."
+    },
+    "managementAccess": {
+      "title": "Yönetim erişimi",
+      "description": "Charon'un kendi arayüzünü, yani onu yönettiğiniz bölümü koruyacak erişim listelerini seçin. Proxy sunucularındaki erişim listeleri burada uygulanmaz.",
+      "fieldsetLabel": "Charon'un kendi arayüzü için erişim listeleri",
+      "noLists": "Henüz erişim listesi yok. Önce bir tane oluşturun, sonra burada seçin.",
+      "notRestricted": "Kısıtlama yok",
+      "notRestrictedHint": "Charon'un kendi arayüzü, ulaşabilen her ziyaretçiye açıktır. Sınırlamak için bir liste seçin.",
+      "restricted": "Charon'un kendi arayüzünü yalnızca seçilen listelerin izin verdiği ziyaretçiler kullanabilir.",
+      "notApplied": "Erişim denetimi kapalıyken veya seçilen hiçbir liste etkin değilken uygulanmaz.",
+      "saved": "Yönetim erişimi kaydedildi.",
+      "saveFailed": "Yönetim erişimi seçimi kaydedilemedi.",
+      "loadError": "Yönetim erişimi yüklenemedi."
     }
   },
   "rateLimiting": {
@@ -745,7 +792,10 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "saveConfiguration": "Yapılandırmayı kaydet",
+    "settingUpdated": "Hız sınırlama ayarı güncellendi",
+    "invalidValue": "0'dan büyük bir tam sayı girin."
   },
   "wafConfig": {
     "title": "WAF Configuration",
@@ -894,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "{{ms}} ms içinde erişilebilir"
   },
   "notificationProviders": {
     "title": "Notification Providers",

@@ -66,7 +66,7 @@ func TestGenerateConfig_CountryListWithDatabase_AddsGeoIP2AppAndStrictHandler(t 
 			countryAt := strings.Index(routes, geoCountryMatcher)
 			require.Positive(t, handlerAt, "the geoip2 handler is in the pipeline")
 			require.Greater(t, countryAt, handlerAt, "the geoip2 handler sits before the country subroute")
-			require.Contains(t, routes, `"enable":"strict"`)
+			require.Contains(t, routes, `"enable":"trusted_proxies"`)
 			require.NotContains(t, warnings, geoNotEnforcedWarning)
 		})
 	}
@@ -90,7 +90,7 @@ func TestGenerateConfig_CountryListWithDatabase_HandlerSitsImmediatelyBeforeSubr
 	}
 	require.NotEqual(t, -1, idx, "handler names: %v", names)
 	require.Equal(t, "subroute", handlers[idx+1]["handler"], "the country subroute follows the geoip2 handler")
-	require.Equal(t, "strict", handlers[idx]["enable"])
+	require.Equal(t, "trusted_proxies", handlers[idx]["enable"])
 }
 
 func TestGenerateConfig_NoCountryListNoGeoIP2App(t *testing.T) {

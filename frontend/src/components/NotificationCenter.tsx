@@ -30,6 +30,7 @@ const ActiveAlertItem: FC<{ alert: ActiveAlert }> = ({ alert }) => {
     count: alert.affected_lists_total ?? 0,
     lists,
   });
+  const scopeKey = alert.scope ? presentation.scopeKeys?.[alert.scope] : undefined;
   const linkKeyPrefix = `notificationCenter.alerts.${alert.key}`;
 
   return (
@@ -38,6 +39,7 @@ const ActiveAlertItem: FC<{ alert: ActiveAlert }> = ({ alert }) => {
       <div className="ml-3 w-0 flex-1">
         <p className="text-sm font-medium text-gray-900 dark:text-white">{t(presentation.titleKey)}</p>
         <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">{message}</p>
+        {scopeKey && <p className="mt-1 text-sm text-gray-700 dark:text-gray-300">{t(scopeKey)}</p>}
         <a
           href={presentation.docsUrl}
           target="_blank"

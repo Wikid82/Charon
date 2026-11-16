@@ -318,6 +318,8 @@ Access lists let you block or allow specific countries, IP addresses, or network
 
 **Country lists need a map file (the GeoIP database).** Charon includes it in the Docker image. If that file is ever missing, country lists are not enforced: an allow-list lets everyone in and a block-list blocks no one. Charon chooses this on purpose so that a missing file never locks you out of your own sites. A red alert in the notification bell tells you when this is happening. See [Country Access Lists Are Not Being Enforced](troubleshooting/geoip-database.md).
 
+Access lists on a proxy host protect that website only. Charon's own interface has a separate choice of lists, the **Management access** card on the Access Lists page. Charon refuses changes that would lock you out of its own interface, and it does not let a list you have chosen be deleted. See [Access Control Lists](features/access-control.md#charons-own-interface).
+
 Changing the country map is limited to admins. Replacing it, removing your uploaded copy, and reloading it are each recorded in the audit log, and the browser must be on Charon's own page to make these changes, so a page on another website cannot make them for you. The uploaded file is kept only in your data folder, and the copy included with Charon is never changed.
 
 ### Example 1: Block a Country
@@ -366,7 +368,7 @@ Charon slows down repeated sign-in attempts from the same client. It is on by de
 - **Emergency access:** valid break-glass requests, the emergency endpoints and the Tier-2 server are never throttled.
 - **Restarts:** counters live in memory and reset when Charon restarts.
 
-Behind a reverse proxy, list the proxy in `CHARON_TRUSTED_PROXIES` so Charon counts real visitors instead of the proxy. See [Trusted Proxies](configuration/trusted-proxies.md). Settings and troubleshooting are in [Login Protection](features/login-protection.md). Administrators can see the effective settings on the Security page.
+Behind a reverse proxy, list the proxy under **Trusted proxies** on the Security page so Charon counts real visitors instead of the proxy. See [Trusted Proxies](configuration/trusted-proxies.md). Settings and troubleshooting are in [Login Protection](features/login-protection.md). Administrators can see the effective settings on the Security page.
 
 ---
 
@@ -408,6 +410,8 @@ Behind a reverse proxy, list the proxy in `CHARON_TRUSTED_PROXIES` so Charon cou
 4. Save
 
 Now you can never accidentally block yourself.
+
+Charon also refuses changes to the access lists that protect its own interface, to the trusted proxy list and to the country database when they would lock you out. If a change is refused, the message tells you what to add to the admin whitelist.
 
 ---
 

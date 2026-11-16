@@ -24,6 +24,9 @@ export interface Notification {
 /** Severity of an active alert, using the same values as a notification. */
 export type AlertSeverity = Notification['type'];
 
+/** Which part of Charon an alert's affected lists guard. Absent for proxy hosts. */
+export type AlertScope = 'management';
+
 /**
  * A condition the server currently reports to the notification bell, mirroring one entry of
  * `GET /notifications/alerts`. Alerts are computed per request and never stored.
@@ -38,6 +41,8 @@ export interface ActiveAlert {
   affected_lists_total?: number;
   /** Whether a usable database is loaded now; selects the message variant only. */
   database_available?: boolean;
+  /** Set when the affected lists guard Charon's own interface; adds a passive note under the message. */
+  scope?: AlertScope;
 }
 
 /** Wire shape of `GET /notifications/alerts`. */

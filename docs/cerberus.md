@@ -48,6 +48,14 @@ r.Use(cerberusMiddleware.RequestLogger())
 
 This means it protects the management API but does not directly inspect traffic to proxied websites (that happens in Caddy).
 
+Access lists attached to proxy hosts do not apply on this path. The management API is checked only against the management access lists chosen on the Access Lists page, and only while access control is on. The Orthrus agent connection is exempt. See [Access Control Lists](features/access-control.md#charons-own-interface).
+
+### Visitor Address
+
+Every check above uses one visitor address. Charon takes it from the proxy's `X-Forwarded-For` note only when the proxy that sent it is on the trusted proxy list. Loopback is always trusted. Otherwise Charon uses the address of the connection. The same address drives the block decisions, CrowdSec, the WAF, the rate limit, the access lists, the country rules, the `X-Real-IP` header sent to your apps, and the security log. See [Trusted Proxies](configuration/trusted-proxies.md).
+
+Live streams are limited too. Each user may have 8 live views open at once (live logs, Cerberus logs, Hecate logs and stats), and Charon allows 64 across all users. A view over the limit is closed with a "too many live connections" message, and it does not reconnect by itself.
+
 ---
 
 ## Threat Model & Protection Coverage
@@ -130,6 +138,13 @@ type SecurityConfig struct {
 }
 ```
 
+### Switch Values
+
+The Cerberus switch (the master security switch) takes only `true` or `false`.
+
+- **When you save it,** capital letters and spaces around the word are fine. ` TRUE ` is saved as `true`. Any other value is refused with `400` and nothing is saved.
+- **When Charon reads it,** the Security page status and the presets treat any stored value other than `true` or `false` as off. That includes a blank value, a value with extra spaces, `1` and `yes`.
+
 ### Environment Variables (Fallbacks)
 
 If no database config exists, Charon reads from environment:
@@ -196,11 +211,15 @@ After upgrading, check the WAF page. With the WAF switched on and a rule set sel
 
 ```text
 charon_waf_requests_total — Requests to Charon's own management API (`/api/v1`). Traffic to your proxied sites is not counted.
-charon_waf_blocked_total — Always 0 at present. Blocks on your proxied sites are not counted here.
-charon_waf_monitored_total — Always 0 at present.
+charon_waf_blocked_total — Requests to your proxied sites that the WAF blocked, when the proxy's access log identifies the block as a WAF block. Not every block can be told apart in the log yet, so treat the count as a lower bound.
+charon_crowdsec_requests_total — Requests to Charon's own management API that CrowdSec checked. Traffic to your proxied sites is not counted.
+charon_crowdsec_blocked_total — Requests to your proxied sites that CrowdSec blocked, counted the same way as the WAF block count and with the same limit.
+charon_url_validation_total — URL checks, by result and reason (labels `result` and `reason`).
+charon_ssrf_blocks_total — Requests refused for pointing at a private or internal address, by address type (label `ip_type`).
+charon_url_test_duration_seconds — How long URL connection tests take, as a histogram.
 ```
 
-Scrape from `/metrics` endpoint (no auth required). These three series do not have labels.
+Scrape from `/metrics` endpoint (no auth required). The `*_requests_total` series count only management API requests, as above. `charon_waf_monitored_total` has been removed. It always read 0, so update any dashboard or alert that still uses it.
 
 ### Structured Logging
 
@@ -255,7 +274,7 @@ Each `AccessList` defines:
 - **Geo Blacklist:** If country matches → deny; else → allow
 - **Local Only:** If RFC1918 private IP → allow; else → deny
 
-Multiple ACLs can be assigned to a proxy host. The first denial wins.
+Multiple ACLs can be assigned to a proxy host. The first denial wins. These lists protect that proxy host's website only. Charon's own interface is protected by the management access lists chosen on the Access Lists page, which use the same list types.
 
 **Required entries:**
 
@@ -713,7 +732,7 @@ type SecurityDecision struct {
 
 - Set on the Security settings page as a list of IP addresses or ranges
 - Checked before every access list rule, for every list type (IP allow lists, IP block lists, country lists and local-network-only lists)
-- If the requesting address is on the whitelist → always allowed through, and no block list or country rule can refuse it
+- If the requesting address is on the whitelist → always allowed through, and no block list or country rule can refuse it, on a proxy host or on Charon's own interface
 - Block lists refuse only the addresses they list. A manual block decision on a whitelisted address has no effect, so remove the address from the whitelist first if you really want to block it
 - The Test IP tool on the Access Lists page gives the same answer the proxy gives
 
@@ -846,16 +865,9 @@ go test -tags=integration ./integration -run TestCorazaIntegration -v
 
 ### Recommended Dashboards
 
-**Block Rate:**
+**Blocked requests per second:**
 
 ```promql
-rate(charon_waf_blocked_total[5m]) / rate(charon_waf_requests_total[5m])
-```
-
-**Monitor vs Block Comparison:**
-
-```promql
-rate(charon_waf_monitored_total[5m])
 rate(charon_waf_blocked_total[5m])
 ```
 
@@ -868,17 +880,7 @@ alert: HighWAFBlockRate
 expr: rate(charon_waf_blocked_total[5m]) > 0.3
 for: 10m
 annotations:
-  summary: "WAF blocking >30% of requests"
-```
-
-**No WAF evaluation (misconfiguration):**
-
-```yaml
-alert: WAFNotEvaluating
-expr: rate(charon_waf_requests_total[10m]) == 0
-for: 15m
-annotations:
-  summary: "WAF received zero requests, check middleware config"
+  summary: "WAF blocking more than 0.3 requests per second"
 ```
 
 ---

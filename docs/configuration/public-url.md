@@ -19,6 +19,8 @@ Set it when **Charon sits behind another proxy**, such as nginx, Traefik, Caddy,
 
 You can skip it if you open Charon directly, for example at `http://192.168.1.10:8080`, with no other proxy in front.
 
+If you would rather not set the address, you can instead list your proxy in `CHARON_TRUSTED_PROXIES`. Charon then accepts the address the proxy passes along. See [Trusted Proxies](trusted-proxies.md).
+
 ## How to Set It
 
 1. Sign in as an administrator.
@@ -69,3 +71,4 @@ If the error continues after a restore that reported it finishes at the next sta
 
 - [Trusted Proxies](trusted-proxies.md) — tell Charon which proxies to trust so it sees your visitors' real addresses.
 - [Troubleshooting proxy headers](../troubleshooting/proxy-headers.md)
+- [WebSocket troubleshooting](../troubleshooting/websocket.md)

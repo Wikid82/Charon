@@ -29,6 +29,8 @@ import (
 type ProxyHostServiceInterface interface {
 	Create(host *models.ProxyHost) error
 	Update(host *models.ProxyHost) error
+	CreateImported(budget *services.ImportNameBudget, host *models.ProxyHost) error
+	UpdateImported(budget *services.ImportNameBudget, host *models.ProxyHost) error
 	List() ([]models.ProxyHost, error)
 }
 
@@ -758,6 +760,8 @@ func safeJoin(baseDir, userPath string) (string, error) {
 
 // Commit finalizes the import with user's conflict resolutions.
 func (h *ImportHandler) Commit(c *gin.Context) {
+	budget := services.NewImportNameBudget()
+	defer budget.Close()
 	if !requireAdmin(c) {
 		return
 	}
@@ -868,7 +872,7 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 				host.CertificateID = existing.CertificateID // Preserve certificate association
 				host.CreatedAt = existing.CreatedAt
 
-				if err := h.proxyHostSvc.Update(&host); err != nil {
+				if err := h.proxyHostSvc.UpdateImported(budget, &host); err != nil {
 					errMsg := fmt.Sprintf("%s: %s", host.DomainNames, err.Error())
 					errors = append(errors, errMsg)
 					middleware.GetRequestLogger(c).WithField("host", util.SanitizeForLog(host.DomainNames)).WithField("error", util.SanitizeForLog(errMsg)).Error("Import Commit Error (update)")
@@ -883,7 +887,7 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 
 		// Create new host
 		host.UUID = uuid.NewString()
-		if err := h.proxyHostSvc.Create(&host); err != nil {
+		if err := h.proxyHostSvc.CreateImported(budget, &host); err != nil {
 			errMsg := fmt.Sprintf("%s: %s", host.DomainNames, err.Error())
 			errors = append(errors, errMsg)
 			middleware.GetRequestLogger(c).WithField("host", util.SanitizeForLog(host.DomainNames)).WithField("error", util.SanitizeForLog(errMsg)).Error("Import Commit Error")

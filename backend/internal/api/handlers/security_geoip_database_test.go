@@ -65,7 +65,8 @@ func newGeoIPDBFixture(t *testing.T, opts geoipDBOptions) *geoipDBFixture {
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	t.Cleanup(func() { _ = sqlDB.Close() })
-	require.NoError(t, db.AutoMigrate(&models.SecurityAudit{}, &models.AccessList{}))
+	// Settings hold the management access choice, which every database change reads before it installs a file.
+	require.NoError(t, db.AutoMigrate(&models.SecurityAudit{}, &models.AccessList{}, &models.Setting{}))
 
 	f := &geoipDBFixture{
 		t:           t,
@@ -435,7 +436,13 @@ func TestReplaceGeoIPDatabase_BusyWhileAnotherChangeRuns(t *testing.T) {
 
 	first := make(chan *httptest.ResponseRecorder, 1)
 	go func() { first <- f.replace(validUpload(t, 1_700_000_000)) }()
-	<-started
+	select {
+	case <-started:
+	case w := <-first:
+		t.Fatalf("first change finished before its apply ran: %d %s", w.Code, w.Body.String())
+	case <-time.After(10 * time.Second):
+		t.Fatal("first change never reached its apply")
+	}
 
 	second := f.replace(validUpload(t, 1_750_000_000))
 	assert.Equal(t, http.StatusConflict, second.Code)

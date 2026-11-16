@@ -35,6 +35,7 @@ only. If a standard user tries one anyway, Charon simply refuses it.
 Here is what a standard user can and cannot do:
 
 - **Can:** add, edit and delete proxy hosts and redirection hosts.
+- **Can:** run **Test Connection** on a proxy host to check its forward target.
 - **Cannot:** choose a DNS provider or turn on the DNS challenge for a host. Those
   fields are greyed out with a short note. A standard user can still save a host
   as long as those two settings stay as they are.
@@ -48,13 +49,23 @@ Here is what a standard user can and cannot do:
   details such as the last error message and zone filter. Charon hides these on
   the page and leaves them out of the information it sends to a standard user's
   browser. Charon still shows whether a notification address is set.
+- **Cannot see these hidden security details:** the admin allow-list, the rate
+  limit bypass list, the CrowdSec API address, the mail server details (host, port,
+  username, sender address and encryption), and the text inside each WAF rule set.
+  Charon shows each of these as hidden instead of its value. Standard users still
+  see the names of the WAF rule sets.
 
 Some limits apply to every account, administrators included:
 
 - Charon will not list the containers on a remote server that has been switched
   off. Turn the server back on first.
-- Charon will not send a proxy target to its own internal admin port. Point the
-  target at your app's address instead.
+- Charon will not send a proxy target to its own internal ports, to link-local
+  addresses, or to cloud instance service addresses. Point the target at your
+  app's address instead. The full list is in
+  [Forward Targets](orthrus.md#forward-targets).
+- Connection tests are limited to 10 per minute for each account. Every account
+  gets the same failure message for an address that cannot be reached. See
+  [Diagnosing a Failed Connection Test](../guides/remote-docker-setup.md#diagnosing-a-failed-connection-test).
 
 A few areas are admin-only even to look at, because they show sensitive detail:
 the CrowdSec control panel, the audit log, the remote agent management page, and

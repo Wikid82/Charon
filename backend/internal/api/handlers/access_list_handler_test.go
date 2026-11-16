@@ -18,7 +18,7 @@ func setupAccessListTestRouter(t *testing.T) (*gin.Engine, *gorm.DB) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	assert.NoError(t, err)
 
-	err = db.AutoMigrate(&models.AccessList{}, &models.ProxyHost{})
+	err = db.AutoMigrate(&models.Setting{}, &models.AccessList{}, &models.ProxyHost{})
 	assert.NoError(t, err)
 
 	router := gin.New()

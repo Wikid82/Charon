@@ -303,6 +303,25 @@ If you're accessing WebSocket from a script or tool:
 const ws = new WebSocket('wss://charon.example.com/api/v1/logs/live?token=YOUR_TOKEN');
 ```
 
+### 9. Live Views Refuse to Connect Behind a Proxy (403)
+
+**Symptom:** The live logs or live stats view never starts, or shows a 403 error. Your other pages work.
+
+**Cause:** Your proxy rewrites the web address (the `Host` header), for example nginx with `proxy_set_header Host $proxy_host`. Charon sees an address that doesn't match the page you are on, and refuses the connection. This happens when no Application URL is set and your proxy is not listed in `CHARON_TRUSTED_PROXIES`.
+
+**Solution:** Use one of these:
+
+1. Set the **Application URL** to the address you type in your browser. See [Application URL](../configuration/public-url.md).
+2. Or add your proxy's address to `CHARON_TRUSTED_PROXIES`, then restart Charon. See [Trusted Proxies](../configuration/trusted-proxies.md).
+
+### 10. "Too Many Live Connections" Message
+
+**Symptom:** A live view stops and shows "Too many live connections are open for your account." It does not reconnect by itself.
+
+**Cause:** Charon allows 8 live views per user, and 64 across all users. Each open live log, Cerberus log, Hecate log or stats view uses one slot. A new view is refused once your slots are full.
+
+**Solution:** Close another live view (in another tab or window), then open this one again. Other users are not affected.
+
 ## Monitoring WebSocket Connections
 
 ### Using the System Settings UI

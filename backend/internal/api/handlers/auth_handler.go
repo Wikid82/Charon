@@ -31,31 +31,12 @@ func NewAuthHandlerWithDB(authService *services.AuthService, db *gorm.DB, truste
 	return &AuthHandler{authService: authService, db: db, trustedProxies: security.NewTrustedProxyMatcher(trustedProxies)}
 }
 
-// isTrustedPeer reports whether the request's actual TCP peer (its raw
-// RemoteAddr — never a header) is in the configured trusted-proxy set. Only
-// a trusted peer's X-Forwarded-Proto/X-Forwarded-Host are honored by
-// requestScheme/isLocalRequest below. An empty matcher => always false
-// (trust nobody), matching Gin's SetTrustedProxies(nil) default.
-func isTrustedPeer(c *gin.Context, trustedProxies security.TrustedProxyMatcher) bool {
-	if trustedProxies.Len() == 0 || c.Request == nil {
-		return false
-	}
-	return trustedProxies.ContainsIP(normalizeHost(c.Request.RemoteAddr))
-}
-
-// requestScheme resolves the scheme the client used. A request carrying a verified
-// origin record from Charon's own proxy uses the scheme recorded there; otherwise
-// forwarded headers count only from a configured trusted peer.
+// requestScheme resolves the scheme the client used. A verified origin record
+// from Charon's own proxy, or X-Forwarded-Proto from a trusted peer, supplies it
+// (see middleware.ForwardedRequest); otherwise the request's own scheme is used.
 func requestScheme(c *gin.Context, trustedProxies security.TrustedProxyMatcher) string {
-	if origin, ok := middleware.RequestOriginFrom(c); ok && origin.Scheme != "" {
-		return origin.Scheme
-	}
-	if isTrustedPeer(c, trustedProxies) {
-		if proto := c.GetHeader("X-Forwarded-Proto"); proto != "" {
-			// Honor first entry in a comma-separated header
-			parts := strings.Split(proto, ",")
-			return strings.ToLower(strings.TrimSpace(parts[0]))
-		}
+	if scheme, _ := middleware.ForwardedRequest(c, trustedProxies); scheme != "" {
+		return scheme
 	}
 	if c.Request != nil && c.Request.TLS != nil {
 		return "https"
@@ -129,15 +110,14 @@ func isLocalRequest(c *gin.Context, trustedProxies security.TrustedProxyMatcher)
 		return isLocalOrPrivateHost(origin.Addr)
 	}
 
-	if isTrustedPeer(c, trustedProxies) {
+	if middleware.TrustedPeer(c, trustedProxies) {
 		candidates := []string{normalizeHost(c.Request.Host)}
 		if c.Request.URL != nil {
 			candidates = append(candidates, normalizeHost(c.Request.URL.Host))
 		}
-		if forwardedHost := c.GetHeader("X-Forwarded-Host"); forwardedHost != "" {
-			for _, part := range strings.Split(forwardedHost, ",") {
-				candidates = append(candidates, normalizeHost(part))
-			}
+		_, forwardedHosts := middleware.ForwardedRequest(c, trustedProxies)
+		for _, forwardedHost := range forwardedHosts {
+			candidates = append(candidates, normalizeHost(forwardedHost))
 		}
 		for _, host := range candidates {
 			if host != "" && isLocalOrPrivateHost(host) {

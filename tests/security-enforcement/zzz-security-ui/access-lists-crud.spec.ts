@@ -395,7 +395,8 @@ test.describe('Access Lists - CRUD Operations', () => {
 
         const formTitle = page.getByRole('heading', { name: /create.*access.*list/i });
         await expect(formTitle).not.toBeVisible({ timeout: 10000 });
-        await expect(page.getByText(aclName)).toBeVisible({ timeout: 5000 });
+        // The management access card on this page also names the list, so the check reads the table only.
+        await expect(page.getByRole('table').getByText(aclName, { exact: true })).toBeVisible({ timeout: 5000 });
       });
     });
 

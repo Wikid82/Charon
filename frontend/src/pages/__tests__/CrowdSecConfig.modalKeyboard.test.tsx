@@ -113,6 +113,71 @@ describe('CrowdSecConfig modal keyboard and backdrop behaviour', () => {
       await waitFor(() => expect(crowdsecApi.banIP).toHaveBeenCalledWith('203.0.113.9', '24h', ''))
     })
 
+    it('submits once on plain Enter in the IP field', async () => {
+      await renderPage()
+      const dialog = await openBanDialog()
+      await userEvent.type(within(dialog).getByLabelText('IP Address'), '203.0.113.10{Enter}')
+
+      await waitFor(() => expect(crowdsecApi.banIP).toHaveBeenCalledTimes(1))
+      expect(crowdsecApi.banIP).toHaveBeenCalledWith('203.0.113.10', '24h', '')
+    })
+
+    it('submits once on Ctrl+Enter in the IP field', async () => {
+      await renderPage()
+      const dialog = await openBanDialog()
+      await userEvent.type(within(dialog).getByLabelText('IP Address'), '203.0.113.11')
+
+      await userEvent.keyboard('{Control>}{Enter}{/Control}')
+
+      await waitFor(() => expect(crowdsecApi.banIP).toHaveBeenCalledTimes(1))
+      expect(crowdsecApi.banIP).toHaveBeenCalledWith('203.0.113.11', '24h', '')
+    })
+
+    it('does not submit on Ctrl+Enter when the IP field is empty', async () => {
+      await renderPage()
+      const dialog = await openBanDialog()
+      within(dialog).getByLabelText('IP Address').focus()
+
+      await userEvent.keyboard('{Control>}{Enter}{/Control}')
+
+      expect(crowdsecApi.banIP).not.toHaveBeenCalled()
+      expect(screen.getByRole('dialog', { name: BAN_DIALOG })).toBeInTheDocument()
+    })
+
+    it('does not submit on a whitespace-only IP with Ctrl+Enter', async () => {
+      await renderPage()
+      const dialog = await openBanDialog()
+      await userEvent.type(within(dialog).getByLabelText('IP Address'), '   ')
+
+      await userEvent.keyboard('{Control>}{Enter}{/Control}')
+
+      expect(crowdsecApi.banIP).not.toHaveBeenCalled()
+    })
+
+    it('submits once on Ctrl+Enter from the duration select', async () => {
+      await renderPage()
+      const dialog = await openBanDialog()
+      await userEvent.type(within(dialog).getByLabelText('IP Address'), '203.0.113.12')
+      within(dialog).getByLabelText('Duration').focus()
+
+      await userEvent.keyboard('{Control>}{Enter}{/Control}')
+
+      await waitFor(() => expect(crowdsecApi.banIP).toHaveBeenCalledTimes(1))
+      expect(crowdsecApi.banIP).toHaveBeenCalledWith('203.0.113.12', '24h', '')
+    })
+
+    it('does not start a second ban while the first is still in flight', async () => {
+      vi.mocked(crowdsecApi.banIP).mockReturnValue(new Promise<void>(() => {}))
+      await renderPage()
+      const dialog = await openBanDialog()
+      await userEvent.type(within(dialog).getByLabelText('IP Address'), '203.0.113.13')
+
+      await userEvent.keyboard('{Control>}{Enter}{/Control}')
+      await userEvent.keyboard('{Control>}{Enter}{/Control}')
+
+      await waitFor(() => expect(crowdsecApi.banIP).toHaveBeenCalledTimes(1))
+    })
+
     it('closes from the backdrop close control', async () => {
       await renderPage()
       const dialog = await openBanDialog()

@@ -11,10 +11,11 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/util"
@@ -90,10 +91,12 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 	clientIP := util.CanonicalizeIPForSecurity(c.ClientIP())
 	startTime := time.Now()
 
+	extendEmergencyReplyDeadline(c)
+
 	// Check if request has been pre-validated by EmergencyBypass middleware
 	if middleware.IsEmergencyBypass(c) {
 		// Request already validated by middleware - proceed directly to reset
-		log.WithFields(log.Fields{
+		logger.Log().WithFields(logrus.Fields{
 			"ip":     util.SanitizeForLog(clientIP),
 			"action": "emergency_reset_via_middleware",
 		}).Debug("Emergency reset validated by middleware")
@@ -107,7 +110,7 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 	// middleware before any token is evaluated.
 	if !h.isManagementClient(clientIP) {
 		h.logEnhancedAudit(clientIP, "emergency_reset_forbidden_source", "Request source outside management network", false, time.Since(startTime))
-		log.WithFields(log.Fields{
+		logger.Log().WithFields(logrus.Fields{
 			"ip":     util.SanitizeForLog(clientIP),
 			"action": "emergency_reset_forbidden_source",
 		}).Warn("Emergency reset rejected: source outside management network")
@@ -121,7 +124,7 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 
 	// Fallback: Legacy direct token validation (deprecated - use middleware)
 	// This path is kept for backward compatibility but will be removed in future versions
-	log.WithFields(log.Fields{
+	logger.Log().WithFields(logrus.Fields{
 		"ip":     util.SanitizeForLog(clientIP),
 		"action": "emergency_reset_legacy_path",
 	}).Debug("Emergency reset using legacy direct validation")
@@ -130,7 +133,7 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 	configuredToken := os.Getenv(EmergencyTokenEnvVar)
 	if configuredToken == "" {
 		h.logEnhancedAudit(clientIP, "emergency_reset_not_configured", "Emergency token not configured", false, time.Since(startTime))
-		log.WithFields(log.Fields{
+		logger.Log().WithFields(logrus.Fields{
 			"ip":     util.SanitizeForLog(clientIP),
 			"action": "emergency_reset_not_configured",
 		}).Warn("Emergency reset attempted but token not configured")
@@ -145,7 +148,7 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 	// Validate token length
 	if len(configuredToken) < MinTokenLength {
 		h.logEnhancedAudit(clientIP, "emergency_reset_invalid_config", "Configured token too short", false, time.Since(startTime))
-		log.WithFields(log.Fields{
+		logger.Log().WithFields(logrus.Fields{
 			"ip":     util.SanitizeForLog(clientIP),
 			"action": "emergency_reset_invalid_config",
 		}).Error("Emergency token configured but too short")
@@ -161,7 +164,7 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 	providedToken := c.GetHeader(EmergencyTokenHeader)
 	if providedToken == "" {
 		h.logEnhancedAudit(clientIP, "emergency_reset_missing_token", "No token provided in header", false, time.Since(startTime))
-		log.WithFields(log.Fields{
+		logger.Log().WithFields(logrus.Fields{
 			"ip":     util.SanitizeForLog(clientIP),
 			"action": "emergency_reset_missing_token",
 		}).Warn("Emergency reset attempted without token")
@@ -177,7 +180,7 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 	_, err := h.tokenService.Validate(providedToken)
 	if err != nil {
 		h.logEnhancedAudit(clientIP, "emergency_reset_invalid_token", fmt.Sprintf("Token validation failed: %v", err), false, time.Since(startTime))
-		log.WithFields(log.Fields{
+		logger.Log().WithFields(logrus.Fields{
 			"ip":     util.SanitizeForLog(clientIP),
 			"action": "emergency_reset_invalid_token",
 			"error":  util.SanitizeForLog(err.Error()),
@@ -197,6 +200,15 @@ func (h *EmergencyHandler) SecurityReset(c *gin.Context) {
 // errResetInterrupted is the reset result seen by StopAfterReset when the writes panic before they return.
 var errResetInterrupted = errors.New("emergency reset did not complete")
 
+// extendEmergencyReplyDeadline gives this request a write deadline of EmergencyResetReplyBudget, so the reply survives a
+// slow apply even when the listening server has a shorter write timeout (GH #1757). Writers that cannot take a deadline
+// (test recorders) keep their existing behaviour.
+func extendEmergencyReplyDeadline(c *gin.Context) {
+	if err := http.NewResponseController(c.Writer).SetWriteDeadline(time.Now().Add(EmergencyResetReplyBudget)); err != nil {
+		logger.Log().WithError(err).Debug("Emergency reset could not extend the reply deadline")
+	}
+}
+
 // performSecurityReset executes the actual security module disable operation. With the CrowdSec lifecycle wired, the
 // writes run through ResetCrowdSecState and the engine stop is registered before that call, so it is released on
 // every path, including a panic in the writes. The stop runs after the reply.
@@ -210,7 +222,7 @@ func (h *EmergencyHandler) performSecurityReset(c *gin.Context, clientIP string,
 
 	resetErr := errResetInterrupted
 	if h.crowdsec == nil {
-		log.WithFields(log.Fields{
+		logger.Log().WithFields(logrus.Fields{
 			"ip":     util.SanitizeForLog(clientIP),
 			"action": "emergency_reset_without_lifecycle",
 		}).Warn("emergency reset ran without the CrowdSec lifecycle; the engine was not stopped")
@@ -222,7 +234,7 @@ func (h *EmergencyHandler) performSecurityReset(c *gin.Context, clientIP string,
 
 	if resetErr != nil {
 		h.logEnhancedAudit(clientIP, "emergency_reset_failed", fmt.Sprintf("Failed to disable modules: %v", resetErr), false, time.Since(startTime))
-		log.WithFields(log.Fields{
+		logger.Log().WithFields(logrus.Fields{
 			"ip":     util.SanitizeForLog(clientIP),
 			"action": "emergency_reset_failed",
 			"error":  util.SanitizeForLog(resetErr.Error()),
@@ -239,7 +251,7 @@ func (h *EmergencyHandler) performSecurityReset(c *gin.Context, clientIP string,
 
 	// Log successful reset
 	h.logEnhancedAudit(clientIP, "emergency_reset_success", fmt.Sprintf("Disabled modules: %v", disabledModules), true, time.Since(startTime))
-	log.WithFields(log.Fields{
+	logger.Log().WithFields(logrus.Fields{
 		"ip":               util.SanitizeForLog(clientIP),
 		"action":           "emergency_reset_success",
 		"disabled_modules": disabledModules,
@@ -310,12 +322,12 @@ func (h *EmergencyHandler) disableAllSecurityModules() ([]string, error) {
 		securityConfig.CrowdSecMode = "disabled"
 
 		if err := h.db.Save(&securityConfig).Error; err != nil {
-			log.WithError(err).Warn("Failed to update SecurityConfig record during emergency reset")
+			logger.Log().WithError(err).Warn("Failed to update SecurityConfig record during emergency reset")
 		}
 	}
 
 	if err := h.db.Where("action = ?", "block").Delete(&models.SecurityDecision{}).Error; err != nil {
-		log.WithError(err).Warn("Failed to clear block security decisions during emergency reset")
+		logger.Log().WithError(err).Warn("Failed to clear block security decisions during emergency reset")
 	}
 
 	return disabledModules, nil
@@ -374,7 +386,7 @@ func (h *EmergencyHandler) logAudit(actor, action, details string) {
 	}
 
 	if err := h.securityService.LogAudit(audit); err != nil {
-		log.WithError(err).Error("Failed to log emergency audit event")
+		logger.Log().WithError(err).Error("Failed to log emergency audit event")
 	}
 }
 
@@ -402,7 +414,7 @@ func (h *EmergencyHandler) logEnhancedAudit(actor, action, details string, succe
 	}
 
 	if err := h.securityService.LogAudit(audit); err != nil {
-		log.WithError(err).Error("Failed to log emergency audit event")
+		logger.Log().WithError(err).Error("Failed to log emergency audit event")
 	}
 }
 
@@ -415,7 +427,7 @@ func (h *EmergencyHandler) syncSecurityState(ctx context.Context) {
 	}
 
 	if err := applyProxyConfigDetached(ctx, h.caddyManager, proxyApplyTimeout); err != nil {
-		log.WithError(err).Warn("Failed to reload Caddy config after emergency reset")
+		logger.Log().WithError(err).Warn("Failed to reload Caddy config after emergency reset")
 	}
 }
 
@@ -456,7 +468,7 @@ func (h *EmergencyHandler) GenerateToken(c *gin.Context) {
 		UserID:         userIDPtr,
 	})
 	if err != nil {
-		log.WithError(err).Error("Failed to generate emergency token")
+		logger.Log().WithError(err).Error("Failed to generate emergency token")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate token"})
 		return
 	}
@@ -478,7 +490,7 @@ func (h *EmergencyHandler) GetTokenStatus(c *gin.Context) {
 
 	status, err := h.tokenService.GetStatus()
 	if err != nil {
-		log.WithError(err).Error("Failed to get token status")
+		logger.Log().WithError(err).Error("Failed to get token status")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to get token status"})
 		return
 	}
@@ -495,7 +507,7 @@ func (h *EmergencyHandler) RevokeToken(c *gin.Context) {
 	}
 
 	if err := h.tokenService.Revoke(); err != nil {
-		log.WithError(err).Error("Failed to revoke emergency token")
+		logger.Log().WithError(err).Error("Failed to revoke emergency token")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
@@ -538,7 +550,7 @@ func (h *EmergencyHandler) UpdateTokenExpiration(c *gin.Context) {
 	// Update expiration
 	expiresAt, err := h.tokenService.UpdateExpiration(req.ExpirationDays)
 	if err != nil {
-		log.WithError(err).Error("Failed to update token expiration")
+		logger.Log().WithError(err).Error("Failed to update token expiration")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}

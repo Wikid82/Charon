@@ -660,3 +660,29 @@ func TestStripQueryToken(t *testing.T) {
 		assert.Equal(t, want, stripQueryToken(in), in)
 	}
 }
+
+// TestParseLogEntry_ClientAddressPrefersVisitor: the entry reports the visitor Caddy decided on, and keeps the
+// connection address for the viewer's search. Without a visitor the connection address is the client address.
+func TestParseLogEntry_ClientAddressPrefersVisitor(t *testing.T) {
+	t.Parallel()
+
+	watcher := NewLogWatcher("/tmp/test.log")
+
+	withVisitor := `{"level":"info","ts":1702406400.123,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"10.0.0.5","client_ip":"198.51.100.7","method":"GET","uri":"/","host":"example.com","headers":{}},"status":200,"duration":0.001,"size":1}`
+	entry := watcher.ParseLogEntry(withVisitor)
+	require.NotNil(t, entry)
+	assert.Equal(t, "198.51.100.7", entry.ClientIP)
+	assert.Equal(t, "10.0.0.5", entry.RemoteIP)
+
+	withoutVisitor := `{"level":"info","ts":1702406400.123,"logger":"http.log.access","msg":"handled request","request":{"remote_ip":"10.0.0.5","method":"GET","uri":"/","host":"example.com","headers":{}},"status":200,"duration":0.001,"size":1}`
+	entry = watcher.ParseLogEntry(withoutVisitor)
+	require.NotNil(t, entry)
+	assert.Equal(t, "10.0.0.5", entry.ClientIP)
+	assert.Equal(t, "10.0.0.5", entry.RemoteIP)
+}
+
+func TestVisitorAddress(t *testing.T) {
+	t.Parallel()
+	assert.Equal(t, "198.51.100.7", visitorAddress("198.51.100.7", "10.0.0.5"))
+	assert.Equal(t, "10.0.0.5", visitorAddress("", "10.0.0.5"))
+}

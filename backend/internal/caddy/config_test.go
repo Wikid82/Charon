@@ -401,7 +401,7 @@ func TestBuildRateLimitHandler_ValidConfig(t *testing.T) {
 	require.True(t, ok, "static zone should be a map")
 
 	// Verify caddy-ratelimit specific fields
-	require.Equal(t, "{http.request.remote.host}", staticZone["key"])
+	require.Equal(t, "{http.vars.client_ip}", staticZone["key"])
 	require.Equal(t, "60s", staticZone["window"])
 	require.Equal(t, 100, staticZone["max_events"])
 	// Note: caddy-ratelimit doesn't support burst parameter (uses sliding window)
@@ -426,7 +426,7 @@ func TestBuildRateLimitHandler_JSONFormat(t *testing.T) {
 	require.Contains(t, s, `"handler":"rate_limit"`)
 	require.Contains(t, s, `"rate_limits"`)
 	require.Contains(t, s, `"static"`)
-	require.Contains(t, s, `"key":"{http.request.remote.host}"`)
+	require.Contains(t, s, `"key":"{http.vars.client_ip}"`)
 	require.Contains(t, s, `"window":"10s"`)
 	require.Contains(t, s, `"max_events":30`)
 	// Note: burst field not included (not supported by caddy-ratelimit)
@@ -696,7 +696,7 @@ func TestBuildSecurityHeadersHandler_CompleteProfile(t *testing.T) {
 	require.Equal(t, []string{"same-origin-allow-popups"}, headers["Cross-Origin-Opener-Policy"])
 	require.Equal(t, []string{"cross-origin"}, headers["Cross-Origin-Resource-Policy"])
 	require.Equal(t, []string{"require-corp"}, headers["Cross-Origin-Embedder-Policy"])
-	require.Equal(t, []string{"1; mode=block"}, headers["X-XSS-Protection"])
+	require.Equal(t, []string{"0"}, headers["X-XSS-Protection"])
 	require.Equal(t, []string{"no-store"}, headers["Cache-Control"])
 
 	// Verify Permissions-Policy
@@ -949,7 +949,7 @@ func TestBuildRateLimitHandler_BypassList(t *testing.T) {
 	// Verify subroute contains bypass IPs
 	require.Contains(t, s, "10.0.0.0/8")
 	require.Contains(t, s, "192.168.1.0/24")
-	require.Contains(t, s, "remote_ip")
+	require.Contains(t, s, "client_ip")
 	require.Contains(t, s, "rate_limit")
 }
 

@@ -1,146 +1,170 @@
-# QA Report: Forward Target Checks (Round 2)
+# QA Report: Destination Rules for Monitors, Connection Tests and Forward Targets
 
-- Branch: `fix/orthrus-listener-targets` (4 commits on `origin/development`: `7f7f0a93d`, `164170a34`,
-  `b2cddbf49`, `3100cb08f`)
-- Scope: backend (forward target policy service, config generator filter and rollback guard, agent server hook,
-  proxy host and agent handlers, route wiring), removal of the agent-name forward target form from the config
-  generator, one section in `docs/features/orthrus.md`, and one Playwright spec fix from round 1.
-- Images under test: `charon:local` from `docker-rebuild-e2e`, agent image `wikid82/orthrus:pr-1957` (no agent
-  changes on this branch).
-- Toolchain: Go 1.27.4.
-- Date: 2026-11-14
-
-## Round 1 outcome
-
-Round 1 was blocked on one high finding: a forward target form that the new check skipped by design still reached
-an internal listener at config generation. The developer removed that form: writes that use it are refused for
-every role (host, location, import, Test Connection), stored rows that use it are left out at apply, and the
-generator no longer resolves it. The developer also addressed the medium and low round 1 items (host-side
-addresses, refusal when a name cannot be resolved, and a rollback guard). Round 2 re-tested each item.
+- Branch: `fix/probe-destination-policy` (15 commits on `origin/development`, head `dda299d95`)
+- Scope: one destination policy for Charon's own outbound checks (uptime TCP and HTTP monitors, the per-host TCP
+  check, the proxy host connection test and both remote server tests), checked on the address being connected to;
+  the same address rules for forward targets, location targets and advanced-configuration upstreams for every role;
+  the ports Charon keeps for itself on this machine; one fixed refusal text per surface; a per-user limit on
+  connection tests; stored monitors and hosts that the rules now refuse, with a passive note in the host list; one
+  name lookup budget per import; bracketed upstream addresses for IPv6 forward targets; monitor creation input
+  errors; remote server test latency; matching UI, locales and docs.
+- Image under test: a throwaway image built from the working tree (`pr34qa-charon:qa`), run with the CI E2E settings
+  (`CHARON_ENV=test`, security tests enabled, bundled CrowdSec disabled, a named data volume, emergency server on).
+  All containers, networks, volumes and the image were throwaway (`pr34qa-*`) and were removed afterwards. The live
+  containers were not touched.
+- Toolchain: Go 1.27, CodeQL CLI 2.27.2, golangci-lint 2.14.0, Caddy 2.11.9 (in the image).
+- Date: 2026-11-15. Two QA rounds; this report covers the whole branch as of round 2.
 
 ## Verdict
 
-**Approved.** Every gate passes. The round 1 blocking case is closed and was re-tested in a container for both
-roles. The remaining findings are low or informational residuals that do not block this PR; they are listed below
-with remediation for follow-up tracking.
+**Approved.** Every Definition of Done gate passes, and every container check matches the plan. The round 1
+findings are fixed and verified in the container (see "Round 1 findings"). Two low items and one nit remain. None of
+them blocks the PR.
 
-## Gates run (all foreground)
+## Remaining findings
+
+| Id | Severity | Finding | Remediation |
+| --- | --- | --- | --- |
+| R1 | Low | When an import's name budget runs out, the hosts after that point skip the name check. A name on a reserved port is then accepted at save time. A single save refuses that case. The configuration generator still checks such a name on a reserved port when it applies the configuration, and leaves the host out when the name cannot be resolved or names this machine, so the host is never routed | Optional: keep the "lookup did not finish" verdict for names on reserved ports (refuse) instead of dropping it, in `ImportNameBudget.preflight` (`backend/internal/services/import_name_budget.go`). Add a unit test |
+| R2 | Low | Import commit errors return the service error text, for example `forward target uses a port reserved by this proxy`. Proxy host saves and tests return one fixed text for every cause. Imports are administrator-only | Optional: map the destination refusals to the fixed forward target text in the three import commit paths |
+| R3 | Nit | Some test titles and comments name the refused address class with a word the public wording rules avoid (the label of the link-local target constant in `authorization-rbac.spec.ts`, the refused-target comments and titles in `proxy-hosts.spec.ts` and `create-monitor.spec.ts`) | Rename to "link-local address" or "cloud instance service address" |
+
+## Round 1 findings (all fixed, verified in round 2)
+
+| Id | Finding | Verified |
+| --- | --- | --- |
+| M1 | Administrators did not receive `active_config:false` | Four hosts were stored with refused targets (literal, reserved port, a location on a legacy-form address, an advanced configuration dialing a unix socket), then an apply ran. List and get, as administrator and as standard user, carry `active_config:false` on all four. The healthy host omits the key. Administrators still get every stored field and no `has_advanced_config`, as before. Standard users get the redacted view. The new real-backend E2E test passes |
+| M2 | The per-import name budget was missing | A 50-host Caddyfile import with an unreachable resolver finished in 30.0 s with all 50 hosts created. One Warn was logged, `unchecked_hosts:37`, with no host, name or address |
+| L1 | HTTP monitors to a name that resolves to loopback reported refused | `http://<name>:8080/...`, with the name mapped to `127.0.0.1`, reports up (HTTP 200); `http://127.0.0.2:8080/...` reports up. The same name on 2019 or 8085 is refused on create. A stored monitor on that name and port 2019 reports `Destination is not allowed for checks` when it runs |
+| O1 | IPv6 forward targets produced an invalid upstream address | `fd12:3456::1`, `::1` and a location on `fd12:3456::9` save and apply. The running configuration has `[fd12:3456::1]:8080`, `[::1]:8080` and `[fd12:3456::9]:9000`. An advanced configuration with `[fd12:3456::2]:8080` and `tcp6/[fd12:3456::3]:80` applies. `[fd00:ec2::254]:80` in an advanced configuration and `::1` on 2019 are refused. Monitor sync handles the IPv6 hosts |
+| CodeQL | One new result and three stale entries | Folded into the branch. The gate passes |
+| Nits | Misplaced and duplicated doc comments | Fixed |
+
+## Gates run (all foreground or block-waited)
 
 | Gate | Result |
 | --- | --- |
-| `docker-rebuild-e2e` | Pass, container healthy |
-| `bash scripts/local-patch-report.sh` | Pass. Backend 318/324 changed lines (98.1%), frontend and agent 0 changed lines. QA added tests for three gap ranges (see "Changes made by QA"); the 6 remaining lines are defensive error branches (see below) |
-| `./scripts/scan-gorm-security.sh --check` | Pass, 0 critical/high/medium |
-| `scripts/go-test-coverage.sh` | 93.8% statements / 92.8% lines (gate 87%). The second run had one failure in an unrelated startup test under load; QA fixed the cause (see "Changes made by QA") and the package passes |
-| Playwright firefox: `core/proxy-hosts*`, `proxy-host-drag-drop`, `core/proxy-host-docker-source`, `orthrus-*.spec.ts` | Pass, 121 passed, 13 skipped (existing state-dependent skips) |
-| Playwright `security-enforcement/authorization-rbac` (`--project=security-tests`) | Pass, 116 passed |
-| UI and specs using the removed form | None. No frontend code, Playwright spec or user doc builds or documents an agent-name forward target |
-| CodeQL Go (`codeql-go-scan.sh`, CLI 2.27.2) | Pass. 4 existing results, none in files this branch changes |
-| Trivy | Skipped: no dependency or image input changes |
-| `lefthook run pre-commit --all-files` | Pass (all hooks; existing lint warnings only, 0 errors) |
-| `make lint-backend` (full golangci-lint with gosec, run last) | Pass, 0 issues |
+| E2E image | Throwaway image built from the working tree (it contains the round 2 code) and run as its own container with the CI E2E settings. Playwright ran with `CI=true` (one worker, two retries) against it via `PLAYWRIGHT_BASE_URL` and `PLAYWRIGHT_CONTAINER_NAME` |
+| Playwright `--project=firefox`: `core/proxy-hosts` (with the new real-backend test), `core/remote-server-test-connection`, `monitoring/create-monitor`, `monitoring/uptime-monitoring`, `core/caddy-import/caddy-import-firefox`, `tasks/import-caddyfile` | 108 passed, no retries (round 1 also passed `orthrus-external-proxy`, `orthrus-proxy-paths` and `security/self-proxy-requests`) |
+| Playwright `--project=security-tests`: `security-enforcement/authorization-rbac` | 138 passed |
+| Connection test limit headroom | The limit is 10 per minute per user, shared by the three test endpoints, and is checked after the role check (a 403 does not use it). In security shard 2 only `authorization-rbac` calls the test endpoints (administrator 5 calls, standard user 3). In the non-security firefox shards, `core/proxy-hosts` (2 calls) and `core/remote-server-test-connection` (3) run as the shared administrator, 5 in total even in one shard. No spec reaches 429 |
+| GORM security check (`--check` mode) | Pass: 0 critical, 0 high, 0 medium |
+| `bash scripts/local-patch-report.sh` | Pass. Overall 97.0% (929/958), backend 97.0% (909/937), frontend 95.2% (20/21). The uncovered lines are error branches (response build failures, store and close errors) |
+| `CHARON_TEST_TIMEOUT=60m scripts/go-test-coverage.sh` | Pass, all packages, race detector on, no data race. Statements 93.8%, lines 92.8% (gate 87%). `services` 92.0%, `handlers` 92.9%, `network` 98.5%, `caddy` 98.0%, `security` 97.1%. `TestCheckHost_Debouncing` is not flaky: in round 1 it ran 3 of 3 times at about 2 s each, and it passes in both full runs. Its package stubs every name lookup |
+| `scripts/frontend-test-coverage.sh` | Pass: 378 files, 4697 tests. Lines 92.88%, statements 92.03%, branches 86.81% |
+| `npm run type-check`, `npm run lint` | Pass |
+| `lefthook run pre-commit --all-files` | Pass: all 20 hooks, including semgrep |
+| CodeQL Go and JS (the pre-commit CodeQL scripts and the findings gate) | Pass. Go: 4 results, all on file. JS: 0 results |
+| Trivy (image, HIGH and CRITICAL) | No result in Charon's own binary. 3 HIGH results in bundled third-party binaries (Caddy: go-jose v3; CrowdSec and cscli: pgproto3 v2), already on file in `.grype.yaml`. This branch changes no dependency |
+| `make lint-backend` (run last) | Pass: 0 issues. `agent/` is unchanged, so `make lint-agent` was not needed |
 
-Gotify token review: not applicable, no notification code or artifacts in scope.
+## Container checks (throwaway resources, real HTTP)
 
-## Container gate
+Names were mapped through `/etc/hosts` in the container (`--add-host`, then rewritten as root inside the throwaway
+container for the connection-time checks). Rows for stored-state checks were written straight into the throwaway
+database. Round 1 ran the full matrix. Round 2 ran the fixed items above plus spot checks of the refusals, the limit
+and the logs.
 
-Throwaway stack only: network `pr-fwd2-net`, `pr-fwd2-charon` (`charon:local`), a connected agent
-`pr-fwd2-orthrus`, and a test backend `pr-fwd2-web`. The agent's external proxy was on port 2375; the session
-loopback port was ephemeral. The stack was removed after the gate.
+### Refused, as administrator and as standard user
 
-| Check | Result |
-| --- | --- |
-| Round 1 blocking case: agent-name target on ports 80, 2375, the loopback port and 1, plus a leading-space variant, standard user and admin | 400 `forward_target_refused` for every case; nothing created, nothing served |
-| Round 1 spellings on the external port and the loopback port, both roles (loopback names and literals, legacy and mapped forms, container IP/name/hostname with case and trailing-dot variants, `http://`/`https://` forms) | 400 `forward_target_refused` (104/104) |
-| Host-side cases: attached network gateway address and `host.docker.internal` (any case, trailing dot) on listener ports | 400 `forward_target_refused` |
-| Unresolvable name on a listener port | 400 `forward_target_refused`; the same name on another port is accepted |
-| Location target, update of an existing host, Test Connection, JSON import (admin; standard users get 403) | Refused with the same error for every target above; the stored host is unchanged; Test Connection to other targets still dials |
-| Normal hosts: loopback on another port, another container or remote IP on a listener port number, gateway on another port | 201 |
-| Stored rows inserted directly into the database (agent-name form, loopback, gateway, unresolvable name, refused location) | Each left out at apply with a neutral warning naming the host. The unmatched host name falls through to the default page; other hosts keep serving |
-| External proxy port changed to the port of an existing host | That host is left out on the re-apply; it returns when the port moves away |
-| Agent reconnect | Re-apply runs without errors; skipped hosts stay skipped, other hosts keep serving |
-| Self-proxy: host whose upstream is Charon's own API | Hop headers and the recovery route are still generated; the recovery path reaches the API with the real client address. Normal proxy hosts are unchanged |
-| Rollback | Covered by unit tests (refused snapshot is not reinstated; a failed check keeps it out; an accepted snapshot is reinstated). Not forced in the container |
+Each case was tried as proxy host create, location target and update; most were also run as a connection test.
+Every one returned 400 with the same body `{"error":"This forward target is not allowed.","error_code":"forward_target_refused"}`:
 
-## Review of the generator changes
+- addresses: `169.254.169.254`, a name mapped to it, a name mapped to it and to `127.0.0.1`, `fd00:ec2::254`,
+  `fd20:ce::254`, `168.63.129.16`, `100.100.100.200`, `0.0.0.0`, `224.0.0.1`, `ff02::1`, `240.0.0.1`,
+  `169.254.1.1`, `fe80::1`, `fe80::1%eth0` (connection test), `::ffff:169.254.169.254`, `0xa9.0xfe.0xa9.0xfe`;
+- port 2019 on this machine in every loopback, legacy, name, interface and gateway form tried: `127.0.0.1`,
+  `localhost`, `LOCALHOST`, `localhost.`, `0x7f.1`, `127.1`, `::1`, `0.0.0.0`, the container host name, the container
+  address, `host.containers.internal`;
+- the other reserved ports: `127.0.0.1:8085`, `127.0.0.1:2020` with the emergency server on, and `127.0.0.1` on a
+  stored agent port.
 
-The generator diff removes the agent-name resolution step and the per-host "remote upstream" flag that only those
-rows used. With those rows now refused at write and dropped at apply, no generated route can carry an upstream
-that was resolved from that form, so the flag had no remaining input. Normal proxy hosts, location routes, the
-self-upstream hop headers, the recovery route and the emergency path generate the same output as before; the
-existing recovery-route and self-upstream unit tests pass, and the container check above confirms it. QA fixed one
-broken comment and one stale field comment left by the removal.
+Monitor create and the remote server tests (custom and stored) gave the same
+`{"error":"This destination is not allowed.","error_code":"destination_refused"}` for every cause. With the emergency
+server off, `127.0.0.1:2020` was accepted as a forward target and as a monitor; 8085 and 2019 stayed refused.
+Standard users get 403 on the remote server tests.
 
-## Findings
+### Allowed
 
-### R1: Low. Other Docker host addresses can reach a published external proxy port
+- Forward targets, for both roles (create, location, update): `127.0.0.1:8080`, `192.168.1.50`, `100.64.1.1`,
+  `198.18.0.5`, `host.containers.internal:8080` (mapped to `169.254.1.2`), `host.docker.internal:8080`, a name mapped
+  to a private address, the container's own address on 8080, and the IPv6 literals and unique-local addresses
+  listed under O1.
+- Monitors: the same classes, plus `[fd12:3456::1]:8080`, `tcp://192.168.1.1:5432`, and names that resolve to
+  loopback (L1).
 
-The check now covers the gateway and first address of each network Charon is attached to, and the Docker host
-gateway name. If an admin publishes an agent's external proxy port on the Docker host, any other address of that
-host (another bridge gateway, the LAN address) also reaches it, and those addresses cannot be discovered from
-inside the container. In the gate, the default bridge gateway address on the external port saved with 201. The
-port was not published, so nothing was reachable.
+### Connection-time check
 
-Remediation: add a sentence to the agent docs that a published external proxy port should be bound to a specific
-address, and track a dial-time guard (see R2) that would close this for every address.
+A name allowed at save time was then remapped:
 
-### R2: Low. Name resolution timing (carried from round 1)
+- To `0.0.0.0` only (which connects locally if not refused) or to `169.254.169.254` only: TCP and HTTP monitors
+  reported `Destination is not allowed for checks`. While the save-time verdict was still cached (up to 30 s), the
+  proxy host test answered 502 `connection_test_failed` and the remote server test `reachable:false`. After that,
+  both answered 400.
+- To a refused and an allowed address, in either order: the TCP monitor connected to the allowed address and
+  reported up. The HTTP client and the save-time checks refuse a name with any refused address.
 
-Names that fail to resolve on a listener port are now refused. A name whose records change after the check can
-still reach a listener later, because the proxy resolves names again on each connection. This requires control of
-a DNS name and access to create hosts.
+An HTTP monitor to a host answering 302 to a refused address recorded `HTTP 302` and did not follow the redirect.
 
-Remediation: track a dial-time guard as a follow-up hardening item.
+### Stored monitors and hosts
 
-### R3: Low. A failed apply keeps the running config (carried from round 1)
+- Monitors rewritten to refused destinations were kept, and each check reported down with the fixed text. About 30 s
+  after start (the bootstrap delay), one Warn per literal or this-machine monitor was logged with the monitor id,
+  name and type and no address.
+- Hosts with refused stored targets were left out with a Warn that names only the host UUID. Their domains were
+  absent from the running configuration, and the rest of the configuration applied and served. Both roles see
+  `active_config:false` (M1).
+- A stored host whose name maps to a refused address stays in the configuration. This is the documented limit of
+  this PR: names are checked when saved.
 
-The rollback guard works as designed. Separately, when an apply fails (for example, Caddy rejects the new config),
-Caddy keeps its running config, which can still include a host that the guard now refuses, until the next
-successful apply. The short window after an agent connects, before the background re-apply finishes, is
-unchanged.
+### Advanced configuration (administrator)
 
-Remediation: track with R2. Consider retrying the apply after a failure that follows a listener change.
+Refused with the fixed body:
 
-### R4: Info. Agent-name check matches the exact prefix only
+- networks and forms: `unix//...`, `unixgram//...`, `fd/3`, `udp/...`, a placeholder dial, and a dial that does not
+  parse;
+- reserved ports: `127.0.0.1:2000-2100` (a range over a reserved port), `tcp/127.0.0.1:2019`, `127.0.0.1:8085`;
+- refused addresses: `tcp4/169.254.169.254:80`, a name mapped to a refused address, a `subroute` to a refused address,
+  and IPv6 instance service addresses in bracketed form;
+- `dynamic_upstreams` and a transport `resolver`.
 
-The write check refuses the agent-name form by exact prefix. Upper-case or URL-wrapped variants are not caught by
-that check, but nothing resolves them any more: the config validation rejects them and the write is rolled back
-(500, nothing stored). No exposure.
+Subroutes to private, unique-local and bracketed IPv6 upstreams were accepted and applied. A top-level
+`reverse_proxy` in an advanced configuration fails the configuration check whatever its dial. This is known and
+already scheduled for a public issue.
 
-Remediation: optional. Refusing forward hosts that contain a colon after the optional scheme (see R5) would
-return a 400 for these too.
+### Name lookups and the write lock
 
-### R5: Low (out of scope, existing behaviour). Some malformed forward hosts return 500
+With an unreachable resolver, a proxy host save with two names that could not be resolved took 2.08 s (the lookups
+run in parallel) and was accepted. A proxy host save with a literal target and a monitor create sent during it
+finished in 0.07 s and 0.01 s, so the lookups run before the write lock. A name that cannot be resolved is refused on
+a reserved port in a single save. Imports share one 30 s budget (M2, R1).
 
-A forward host that carries a colon without a numeric port passes the form check and fails later at config
-validation with a 500. The write is rolled back and the running config is unchanged. This predates the branch.
+### Connection test limit
 
-Remediation: validate the optional port in the forward host form check and return 400. Track as a separate issue.
+Ten tests were allowed; the eleventh answered `429` with `Retry-After: 6`. Five proxy host tests plus five remote
+server tests used up the same allowance. A standard user was unaffected while the administrator was limited, and
+in round 2 the standard user's own eleventh test was limited.
 
-### R6: Info. Admin-only paths not covered by the guard
+### Logs
 
-Uptime monitor targets (carried from round 1) and upstreams in a host's advanced config are not checked. Both are
-admin-only (standard users get 403), and admins already manage the agent listeners. An advanced config upstream is
-currently rejected by config validation for an unrelated reason, so it is not usable today either.
+After the checks, the container log, the log files, and `GET /logs/charon.log` read as a standard user contained none
+of the addresses, names or ports used in connection tests. With debug off, connection tests write nothing. The debug
+line carries only the caller id and the outcome.
 
-Remediation: track with R2 so a future dial-time guard covers every path.
+### Regression review
 
-## Changes made by QA (uncommitted)
+- The removed admin-port helper and its error are covered by the reserved-port rule: every form of port 2019 above is
+  refused, for every role, with the same text.
+- Monitor creation: bare `host:port` and `tcp://host:port` both create TCP monitors. Invalid input returns 400 with a
+  message instead of 500.
+- Remote server test latency is the measured dial time (0 ms on loopback, below one millisecond).
+- Proxy host responses for administrators keep the same fields and JSON types as before, plus `active_config` when a
+  host is left out.
 
-- `backend/internal/caddy/forward_targets_test.go`: a rollback whose target check fails does not reinstate the
-  snapshot (covers the new error branch in `manager.go`).
-- `backend/internal/services/forward_target_policy_test.go`: the default name resolver answers an address literal
-  (covers the resolver variable without a network lookup).
-- `backend/internal/api/routes/routes.go` and `reapply_proxy_config_test.go`: the agent-connect hook closure moved
-  into a small named function with a test, so the wiring is covered.
-- `backend/internal/caddy/self_upstream.go`, `backend/internal/caddy/manager.go`: fixed a broken sentence and a
-  stale field comment left by the removal.
-- `backend/cmd/api/main_test.go`: the in-process and subprocess startup tests waited at most 10 seconds for the
-  server before sending SIGTERM. Under `-race` on a loaded machine startup can take longer, and a signal sent
-  before the handler is installed kills the test binary. The wait is now 60 seconds, with a comment. Unrelated to
-  this branch.
-- `docs/reports/qa_report.md`: this report.
+## Out-of-scope findings (not filed by QA)
 
-Remaining uncovered changed lines: JSON encode/decode error branches in the snapshot check (4 lines, not reachable
-with a generated config) and an address conversion branch in the policy file (2 lines, not reachable for a parsed
-IP).
+| Id | Severity | Finding | Where | Suggested approach |
+| --- | --- | --- | --- | --- |
+| O2 | Medium, non-security, pre-existing | A proxy host with two or more locations fails the configuration check (`duplicate host with paths`) and the save returns 500 | `backend/internal/caddy/validator.go:93-119`: each location route of the same host counts as a duplicate. The existing tests use one location only | Refuse only identical path sets for one host; add validator and generator tests with two locations. Needs a public issue |
+
+No security-sensitive out-of-scope finding was found.

@@ -36,6 +36,8 @@ type generateConfigOptions struct {
 	// geoIPPath is the configured GeoIP database file, and geoIPAvailable says whether the proxy may use it now.
 	geoIPPath      string
 	geoIPAvailable bool
+	// trustedProxies is the operator-configured proxy-layer trust list; nil keeps the legacy static ranges.
+	trustedProxies []string
 }
 
 // resolveGenerateConfigOptions applies opts in order and returns the
@@ -105,5 +107,14 @@ func WithGeoIPDatabase(path string, available bool) GenerateConfigOption {
 	return func(o *generateConfigOptions) {
 		o.geoIPPath = path
 		o.geoIPAvailable = available
+	}
+}
+
+// WithTrustedProxies sets the proxy-layer trust list (the ranges the server trusts for forwarded client addresses).
+// Pass the ranges from security.EffectiveTrustedProxies. Without this option the generated config keeps the legacy
+// private ranges.
+func WithTrustedProxies(ranges []string) GenerateConfigOption {
+	return func(o *generateConfigOptions) {
+		o.trustedProxies = append([]string(nil), ranges...)
 	}
 }

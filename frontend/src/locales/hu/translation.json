@@ -48,7 +48,8 @@
     "activeCount": "{{count}} active",
     "noHistoryAvailable": "No history available",
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "A frissítés sikertelen"
   },
   "permissions": {
     "adminOnlyError": "Csak adminisztrátorok módosíthatják ezt a beállítást.",
@@ -176,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Nincs az aktív konfigurációban",
+    "notInActiveConfigHint": "Átirányítási célja nem engedélyezett, és másik címre van szüksége."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -372,7 +375,17 @@
     "tooManyRequestsSeconds": "Too many attempts. Please wait {{count}} seconds and try again.",
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again."
+    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
+    "streamLimitReached": "Túl sok élő kapcsolat van nyitva a fiókjában. Zárjon be egy másik élő nézetet, majd próbálja újra.",
+    "trustedProxyInvalid": "A(z) \"{{entry}}\" nem IP-cím és nem CIDR-tartomány.",
+    "trustedProxyTooBroad": "A(z) \"{{entry}}\" túl széles tartományt fed le. Az IPv4-tartományok legfeljebb /8-asak, az IPv6-tartományok legfeljebb /24-esek lehetnek.",
+    "trustedProxiesTooMany": "A megbízható proxyk listája legfeljebb 64 bejegyzést tartalmazhat.",
+    "managementListUnknown": "A kiválasztott hozzáférési listák egyike már nem létezik. Töltse be újra az oldalt, és válasszon újra.",
+    "managementAccessWouldLockOut": "Ezzel kizárná magát a Charonból. Először adja hozzá címét az adminisztrátori engedélyezési listához, vagy válasszon olyan listát, amely engedélyezi.",
+    "accessListInvalid": "Ez a hozzáférési lista nem védheti a Charon saját felületét. Ellenőrizze a szabályait, majd próbálja újra.",
+    "forwardTargetRefused": "Ez az átirányítási cél nem engedélyezett.",
+    "destinationRefused": "Ez a célhely nem engedélyezett.",
+    "connectionTestFailed": "Nem sikerült csatlakozni a célhoz."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -402,7 +415,8 @@
         "messagePendingApply": "A GeoIP-adatbázis újra elérhető, de {{count}} országlista ({{lists}}) még nem érvényesül. Nyomja meg az Újratöltés gombot az Országadatbázis kártyán.",
         "docsLink": "Hogyan biztosítsa az adatbázist",
         "issueHint": "A Charon általában tartalmazza ezt az adatbázist. Kérjük, nyisson GitHub-hibajelentést (issue), hogy javíthassuk.",
-        "issueLink": "Issue megnyitása"
+        "issueLink": "Issue megnyitása",
+        "managementScope": "A Charon saját felülete is érintett: a saját országlistái szintén nem érvényesülnek."
       }
     }
   },
@@ -688,6 +702,25 @@
         "proxy_apply_failed": "A Charon nem tudta alkalmazni a proxy-konfigurációt.",
         "generic": "Valami hiba történt. Próbálja újra."
       }
+    },
+    "trustedProxies": {
+      "title": "Megbízható proxyk",
+      "description": "A Charon csak akkor használja a látogató címét a proxyból, ha az a proxy itt szerepel. A loopback mindig megbízható.",
+      "fieldLabel": "Megbízható proxyk",
+      "fieldHint": "Egy IP-cím vagy CIDR-tartomány soronként. Üresen hagyva csak a loopbacket bízza meg.",
+      "alwaysTrusted": "Mindig megbízható: {{entries}}",
+      "apiLayerNote": "A Charon saját portja a szerveren a CHARON_TRUSTED_PROXIES értékével beállított proxykat bízza meg: {{entries}}. Ezeket ott módosítsa.",
+      "apiLayerNone": "nincs",
+      "sourceSetting": "Az itt mentett lista van használatban.",
+      "sourceEnvironment": "A környezeti CHARON_TRUSTED_PROXIES van használatban, amíg itt nem ment listát.",
+      "sourceDefault": "Az alapértelmezés, csak a loopback van használatban, amíg itt nem ment listát.",
+      "droppedEntries": "A CHARON_TRUSTED_PROXIES értékéből figyelmen kívül hagyva, mert érvénytelenek vagy túl szélesek: {{entries}}",
+      "saved": "A megbízható proxyk mentve.",
+      "saveFailed": "A megbízható proxyk listáját nem sikerült menteni.",
+      "reset": "Visszaállítás alapértelmezettre",
+      "resetDone": "A mentett lista törölve. Most a környezeti lista vagy az alapértelmezés érvényes.",
+      "loadError": "A megbízható proxyk listáját nem sikerült betölteni.",
+      "docsLink": "Megbízható proxyk beállítása"
     }
   },
   "accessLists": {
@@ -722,7 +755,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "Egy engedélyezett engedélyezési listához legalább egy szabály szükséges. Adjon hozzá szabályt, vagy kapcsolja ki a listát, majd mentse újra."
+      "access_list_rules_required": "Egy engedélyezett engedélyezési listához legalább egy szabály szükséges. Adjon hozzá szabályt, vagy kapcsolja ki a listát, majd mentse újra.",
+      "access_list_in_use": "Ezt a hozzáférési listát a Charon saját felülete használja, ezért nem törölhető. Előbb válasszon másik listát a Charon felületéhez, majd próbálja újra."
+    },
+    "managementAccess": {
+      "title": "Felügyeleti hozzáférés",
+      "description": "Válassza ki azokat a hozzáférési listákat, amelyek a Charon saját felületét védik, vagyis azt a részt, amelyen kezeli. A proxy-gazdagépekre vonatkozó listák itt nem érvényesek.",
+      "fieldsetLabel": "A Charon saját felületének hozzáférési listái",
+      "noLists": "Még nincs hozzáférési lista. Először hozzon létre egyet, majd válassza ki itt.",
+      "notRestricted": "Nincs korlátozás",
+      "notRestrictedHint": "A Charon saját felülete minden látogató számára nyitott, aki eléri. Válasszon listát a korlátozáshoz.",
+      "restricted": "A Charon saját felületét csak a kiválasztott listák által engedélyezett látogatók használhatják.",
+      "notApplied": "Nem érvényes, amíg a hozzáférés-szabályozás ki van kapcsolva, vagy egyik kiválasztott lista sincs engedélyezve.",
+      "saved": "A felügyeleti hozzáférés mentve.",
+      "saveFailed": "A felügyeleti hozzáférés beállítását nem sikerült menteni.",
+      "loadError": "A felügyeleti hozzáférést nem sikerült betölteni."
     }
   },
   "rateLimiting": {
@@ -745,7 +792,10 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "saveConfiguration": "Konfiguráció mentése",
+    "settingUpdated": "A sebességkorlátozás beállítása frissítve",
+    "invalidValue": "Adjon meg 0-nál nagyobb egész számot."
   },
   "wafConfig": {
     "title": "WAF Configuration",
@@ -894,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Elérhető {{ms}} ms-on belül"
   },
   "notificationProviders": {
     "title": "Notification Providers",

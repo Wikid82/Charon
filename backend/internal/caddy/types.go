@@ -114,8 +114,12 @@ type Server struct {
 	AutoHTTPS      *AutoHTTPSConfig `json:"automatic_https,omitempty"`
 	Logs           *ServerLogs      `json:"logs,omitempty"`
 	TrustedProxies *TrustedProxies  `json:"trusted_proxies,omitempty"`
-	KeepaliveIdle  *string          `json:"keepalive_idle,omitempty"`
-	KeepaliveCount *int             `json:"keepalive_count,omitempty"`
+	// TrustedProxiesStrict makes the client address the rightmost untrusted forwarded entry (Caddy strict walk).
+	TrustedProxiesStrict int `json:"trusted_proxies_strict,omitempty"`
+	// ClientIPHeaders names the request headers that carry the client address when the peer is trusted.
+	ClientIPHeaders []string `json:"client_ip_headers,omitempty"`
+	KeepaliveIdle   *string  `json:"keepalive_idle,omitempty"`
+	KeepaliveCount  *int     `json:"keepalive_count,omitempty"`
 }
 
 // TrustedProxies defines the module for configuring trusted proxy IP ranges.
@@ -176,8 +180,8 @@ func ReverseProxyHandler(dial, application string, enableStandardHeaders bool) H
 	// X-Forwarded-For is NOT explicitly set - Caddy handles it natively via reverse_proxy directive
 	// to prevent duplication (Caddy appends to existing header automatically)
 	if enableStandardHeaders {
-		// X-Real-IP: Single IP of the immediate client (most apps check this first)
-		setHeaders["X-Real-IP"] = []string{"{http.request.remote.host}"}
+		// X-Real-IP: Single IP of the visitor Caddy decided on (trusted proxies honoured) (most apps check this first)
+		setHeaders["X-Real-IP"] = []string{"{http.vars.client_ip}"}
 		// X-Forwarded-Proto: Original protocol (http/https) - critical for HTTPS enforcement
 		setHeaders["X-Forwarded-Proto"] = []string{"{http.request.scheme}"}
 		// X-Forwarded-Host: Original Host header - needed for virtual host routing
@@ -209,14 +213,14 @@ func ReverseProxyHandler(dial, application string, enableStandardHeaders bool) H
 		// Note: X-Real-IP and X-Forwarded-Host already set above if enableStandardHeaders=true
 		// If enableStandardHeaders=false, maintain backward compatibility by setting them here
 		if !enableStandardHeaders {
-			setHeaders["X-Real-IP"] = []string{"{http.request.remote.host}"}
+			setHeaders["X-Real-IP"] = []string{"{http.vars.client_ip}"}
 			setHeaders["X-Forwarded-Host"] = []string{"{http.request.host}"}
 		}
 	case "jellyfin", "emby", "homeassistant", "nextcloud", "vaultwarden":
 		// Note: X-Real-IP and X-Forwarded-Host already set above if enableStandardHeaders=true
 		// If enableStandardHeaders=false, maintain backward compatibility by setting them here
 		if !enableStandardHeaders {
-			setHeaders["X-Real-IP"] = []string{"{http.request.remote.host}"}
+			setHeaders["X-Real-IP"] = []string{"{http.vars.client_ip}"}
 			setHeaders["X-Forwarded-Host"] = []string{"{http.request.host}"}
 		}
 	}

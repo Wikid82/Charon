@@ -48,7 +48,8 @@
     "activeCount": "{{count}} active",
     "noHistoryAvailable": "No history available",
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "فشل التحديث"
   },
   "permissions": {
     "adminOnlyError": "يمكن للمسؤولين فقط تغيير هذا الإعداد.",
@@ -176,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "ليس ضمن الإعداد النشط",
+    "notInActiveConfigHint": "هدف التوجيه الخاص به غير مسموح به ويحتاج إلى عنوان آخر."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -372,7 +375,17 @@
     "tooManyRequestsSeconds": "Too many attempts. Please wait {{count}} seconds and try again.",
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again."
+    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
+    "streamLimitReached": "عدد الاتصالات المباشرة المفتوحة لحسابك كبير جدًا. أغلق عرضًا مباشرًا آخر ثم حاول مرة أخرى.",
+    "trustedProxyInvalid": "\"{{entry}}\" ليس عنوان IP أو نطاق CIDR.",
+    "trustedProxyTooBroad": "\"{{entry}}\" يغطي نطاقًا واسعًا جدًا. يجب أن تكون نطاقات IPv4 بحجم /8 أو أضيق، ونطاقات IPv6 بحجم /24 أو أضيق.",
+    "trustedProxiesTooMany": "تحتوي قائمة الوكلاء الموثوقين على 64 مدخلًا كحد أقصى.",
+    "managementListUnknown": "لم تعد إحدى قوائم الوصول المختارة موجودة. أعد تحميل الصفحة واختر من جديد.",
+    "managementAccessWouldLockOut": "سيؤدي هذا إلى منعك من الوصول إلى Charon. أضف عنوانك إلى قائمة السماح للمسؤول أولًا، أو اختر قائمة تسمح لك.",
+    "accessListInvalid": "لا يمكن لقائمة الوصول هذه حماية الواجهة الخاصة بـ Charon. تحقق من قواعدها ثم حاول مرة أخرى.",
+    "forwardTargetRefused": "هذا الهدف للتوجيه غير مسموح به.",
+    "destinationRefused": "هذه الوجهة غير مسموح بها.",
+    "connectionTestFailed": "تعذر الاتصال بالهدف."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -402,7 +415,8 @@
         "messagePendingApply": "قاعدة بيانات GeoIP متاحة مرة أخرى، لكن {{count}} قائمة دول ({{lists}}) لم تُطبَّق بعد. اضغط «إعادة التحميل» في بطاقة قاعدة بيانات الدول.",
         "docsLink": "كيفية توفير قاعدة البيانات",
         "issueHint": "يتضمن Charon عادةً قاعدة البيانات هذه. يرجى فتح issue على GitHub حتى نتمكن من إصلاح ذلك.",
-        "issueLink": "فتح issue"
+        "issueLink": "فتح issue",
+        "managementScope": "تتأثر واجهة Charon نفسها أيضًا: قوائم الوصول حسب الدولة الخاصة بها لا تُطبَّق كذلك."
       }
     }
   },
@@ -688,6 +702,25 @@
         "proxy_apply_failed": "تعذّر على Charon تطبيق إعدادات الوكيل.",
         "generic": "حدث خطأ ما. حاول مرة أخرى."
       }
+    },
+    "trustedProxies": {
+      "title": "الوكلاء الموثوقون",
+      "description": "يستخدم Charon عنوان الزائر القادم عبر وكيل فقط إذا كان ذلك الوكيل مدرجًا هنا. الحلقة المحلية موثوقة دائمًا.",
+      "fieldLabel": "الوكلاء الموثوقون",
+      "fieldHint": "عنوان IP أو نطاق CIDR واحد في كل سطر. اتركه فارغًا لتصديق الحلقة المحلية فقط.",
+      "alwaysTrusted": "موثوق دائمًا: {{entries}}",
+      "apiLayerNote": "منفذ Charon الخاص به يثق بالوكلاء المحددين في CHARON_TRUSTED_PROXIES على الخادم: {{entries}}. غيّرها هناك.",
+      "apiLayerNone": "لا شيء",
+      "sourceSetting": "يُستخدم القائمة المحفوظة هنا.",
+      "sourceEnvironment": "يُستخدم CHARON_TRUSTED_PROXIES من بيئة التشغيل إلى أن تحفظ قائمة هنا.",
+      "sourceDefault": "يُستخدم الإعداد الافتراضي، الحلقة المحلية فقط، إلى أن تحفظ قائمة هنا.",
+      "droppedEntries": "تم تجاهلها من CHARON_TRUSTED_PROXIES لأنها غير صالحة أو واسعة جدًا: {{entries}}",
+      "saved": "تم حفظ الوكلاء الموثوقين.",
+      "saveFailed": "تعذّر حفظ قائمة الوكلاء الموثوقين.",
+      "reset": "إعادة التعيين إلى الافتراضي",
+      "resetDone": "تم مسح القائمة المحفوظة. تُطبَّق الآن قائمة البيئة أو الإعداد الافتراضي.",
+      "loadError": "تعذّر تحميل قائمة الوكلاء الموثوقين.",
+      "docsLink": "كيفية ضبط الوكلاء الموثوقين"
     }
   },
   "accessLists": {
@@ -722,7 +755,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "تحتاج قائمة السماح المفعّلة إلى قاعدة واحدة على الأقل. أضف قاعدة، أو أوقف تشغيل القائمة، ثم احفظ مرة أخرى."
+      "access_list_rules_required": "تحتاج قائمة السماح المفعّلة إلى قاعدة واحدة على الأقل. أضف قاعدة، أو أوقف تشغيل القائمة، ثم احفظ مرة أخرى.",
+      "access_list_in_use": "قائمة الوصول هذه مستخدمة من واجهة Charon نفسها، لذلك لا يمكن حذفها. اختر قائمة أخرى لواجهة Charon أولاً، ثم حاول مرة أخرى."
+    },
+    "managementAccess": {
+      "title": "وصول الإدارة",
+      "description": "اختر قوائم الوصول التي تحمي الواجهة الخاصة بـ Charon، وهي الجزء الذي تستخدمه لإدارته. لا تُطبَّق قوائم الوصول الخاصة بالمضيفين الوكيلين هنا.",
+      "fieldsetLabel": "قوائم الوصول للواجهة الخاصة بـ Charon",
+      "noLists": "لا توجد قوائم وصول بعد. أنشئ قائمة أولًا ثم اخترها هنا.",
+      "notRestricted": "غير مقيّد",
+      "notRestrictedHint": "واجهة Charon الخاصة مفتوحة لأي زائر يمكنه الوصول إليها. اختر قائمة لتقييدها.",
+      "restricted": "لا يستطيع استخدام الواجهة الخاصة بـ Charon إلا الزوار المسموح لهم بموجب القوائم المختارة.",
+      "notApplied": "غير مطبّق طالما التحكم في الوصول متوقف أو لا توجد قائمة مختارة مفعّلة.",
+      "saved": "تم حفظ وصول الإدارة.",
+      "saveFailed": "تعذّر حفظ اختيار وصول الإدارة.",
+      "loadError": "تعذّر تحميل وصول الإدارة."
     }
   },
   "rateLimiting": {
@@ -745,7 +792,10 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "saveConfiguration": "حفظ الإعدادات",
+    "settingUpdated": "تم تحديث إعداد تحديد المعدل",
+    "invalidValue": "أدخل عددًا صحيحًا أكبر من 0."
   },
   "wafConfig": {
     "title": "WAF Configuration",
@@ -894,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "قابل للوصول خلال {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Notification Providers",

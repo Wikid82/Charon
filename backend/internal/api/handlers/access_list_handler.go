@@ -17,8 +17,17 @@ import (
 
 // AccessListHandler handles access list API requests.
 type AccessListHandler struct {
+	db           *gorm.DB
 	service      *services.AccessListService
 	caddyManager CaddyConfigManager
+	// aclMode is the static access-control mode, read by the management lock-out guard.
+	aclMode string
+}
+
+// WithACLMode sets the static access-control mode the management lock-out guard reads when no runtime switch is stored.
+func (h *AccessListHandler) WithACLMode(mode string) *AccessListHandler {
+	h.aclMode = mode
+	return h
 }
 
 // NewAccessListHandler creates a new AccessListHandler without proxy apply, for callers that only manage lists.
@@ -30,6 +39,7 @@ func NewAccessListHandler(db *gorm.DB) *AccessListHandler {
 // list that hosts use.
 func NewAccessListHandlerWithDeps(db *gorm.DB, caddyManager CaddyConfigManager) *AccessListHandler {
 	return &AccessListHandler{
+		db:           db,
 		service:      services.NewAccessListService(db),
 		caddyManager: nilIfTypedNil(caddyManager),
 	}
@@ -152,6 +162,12 @@ func (h *AccessListHandler) Update(c *gin.Context) {
 		return
 	}
 
+	// The edit is judged before it is saved: a change to a list that protects Charon's own interface must not lock the
+	// calling administrator out.
+	if !h.guardListEdit(c, acl.ID, &updates) {
+		return
+	}
+
 	err = h.service.Update(acl.ID, &updates)
 	if err != nil {
 		if err == services.ErrAccessListNotFound {
@@ -198,6 +214,10 @@ func (h *AccessListHandler) Delete(c *gin.Context) {
 	if err := h.service.Delete(acl.ID); err != nil {
 		if err == services.ErrAccessListNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "access list not found"})
+			return
+		}
+		if err == services.ErrAccessListManagementInUse {
+			c.JSON(http.StatusConflict, gin.H{"error": "access list is used by Charon's own interface", "error_code": "access_list_in_use"})
 			return
 		}
 		if err == services.ErrAccessListInUse {
@@ -332,4 +352,21 @@ func accessListDecisionText(reason string) string {
 func (h *AccessListHandler) GetTemplates(c *gin.Context) {
 	templates := h.service.GetTemplates()
 	c.JSON(http.StatusOK, templates)
+}
+
+// guardListEdit judges an edit to the list with id before it is saved. It returns false when the edit was refused
+// and the response written.
+func (h *AccessListHandler) guardListEdit(c *gin.Context, id uint, updates *models.AccessList) bool {
+	proposed, err := h.service.ProposedUpdate(id, updates)
+	if err != nil {
+		return true // the save reports the same error with its own answer
+	}
+	guard := newManagementGuard(h.db, h.aclMode)
+	st, err := guard.current(callerAddress(c))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to check management access"})
+		return false
+	}
+	st.override = proposed
+	return !guard.refuses(c, st)
 }

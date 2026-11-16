@@ -15,6 +15,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/network"
+	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
 )
 
@@ -533,7 +534,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		}
 		if len(decisionIPs) > 0 {
 			// Build a subroute that answers 403 for these remote IPs, except admin whitelist addresses.
-			decisionSet := denyMatcherSet(map[string]any{"remote_ip": map[string]any{"ranges": decisionIPs}}, nil, adminRanges)
+			decisionSet := denyMatcherSet(map[string]any{"client_ip": map[string]any{"ranges": decisionIPs}}, nil, adminRanges)
 			decHandler := Handler{
 				"handler": "subroute",
 				"routes": []map[string]any{
@@ -596,7 +597,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 				if isCountryList(host.AccessList) {
 					// The geoip2 handler sits directly before the country subroute and reads the database the app opens.
 					config.Apps.GeoIP2 = geoIP2AppFor(resolvedOpts.geoIPPath, storageDir)
-					securityHandlers = append(securityHandlers, geoIP2Handler())
+					securityHandlers = append(securityHandlers, geoIP2Handlers()...)
 				}
 				aclHandler, err := buildACLHandler(host.AccessList, adminWhitelist)
 				if err != nil && errors.Is(err, errAllowListFailClosed) {
@@ -638,7 +639,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 
 		// Handle custom locations first (more specific routes)
 		for _, loc := range host.Locations {
-			dial := fmt.Sprintf("%s:%d", loc.ForwardHost, loc.ForwardPort)
+			dial := forwardDial(loc.ForwardHost, loc.ForwardPort)
 			// For each location, we want the same security pre-handlers before proxy
 			locHandlers := append(append([]Handler{}, prefixHandlers...), handlers...)
 			// Determine if standard headers should be enabled (default true if nil)
@@ -659,7 +660,7 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		}
 
 		// Main proxy handler
-		dial := fmt.Sprintf("%s:%d", host.ForwardHost, host.ForwardPort)
+		dial := forwardDial(host.ForwardHost, host.ForwardPort)
 		// Insert user advanced config (if present) as headers or handlers before the reverse proxy
 		// so user-specified headers/handlers are applied prior to proxying.
 		if host.AdvancedConfig != "" {
@@ -799,26 +800,15 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 		autoHTTPS.Skip = append(autoHTTPS.Skip, ipSubjects...)
 	}
 
-	// Configure trusted proxies for proper client IP detection from X-Forwarded-For headers
-	// This is required for CrowdSec bouncer to correctly identify and block real client IPs
-	// when running behind Docker networks, reverse proxies, or CDNs
-	// Reference: https://caddyserver.com/docs/json/apps/http/servers/#trusted_proxies
-	trustedProxies := &TrustedProxies{
-		Source: "static",
-		Ranges: []string{
-			"127.0.0.1/32",   // Localhost
-			"::1/128",        // IPv6 localhost
-			"172.16.0.0/12",  // Docker bridge networks (172.16-31.x.x)
-			"10.0.0.0/8",     // Private network
-			"192.168.0.0/16", // Private network
-		},
-	}
+	trustedProxies := trustedProxiesFor(resolvedOpts.trustedProxies)
 
 	config.Apps.HTTP.Servers["charon_server"] = &Server{
-		Listen:         []string{":80", ":443"},
-		Routes:         routes,
-		AutoHTTPS:      autoHTTPS,
-		TrustedProxies: trustedProxies,
+		Listen:               []string{":80", ":443"},
+		Routes:               routes,
+		AutoHTTPS:            autoHTTPS,
+		TrustedProxies:       trustedProxies,
+		TrustedProxiesStrict: 1,
+		ClientIPHeaders:      []string{"X-Forwarded-For"},
 		Logs: &ServerLogs{
 			DefaultLoggerName: "access_log",
 		},
@@ -947,6 +937,11 @@ func NormalizeAdvancedConfig(parsed any) any {
 // geoAccessDeniedBody is the response body for a request refused by a country list.
 const geoAccessDeniedBody = "Access denied: Geographic restriction"
 
+// clientIPPlaceholder expands to the visitor address Caddy decided on (the client_ip request variable). Every proxy check
+// and forwarded client-address header uses it, so one address decides everywhere. The selfhop package carries the same
+// placeholder for the self-proxy hop.
+const clientIPPlaceholder = "{http.vars.client_ip}"
+
 // geoIP2LockFileName is the lock file the caddy-geoip2 module uses, kept in Charon's Caddy data directory.
 const geoIP2LockFileName = "geoip2.lock"
 
@@ -965,10 +960,20 @@ func geoIP2AppFor(path, storageDir string) *GeoIP2App {
 	}
 }
 
-// geoIP2Handler returns the caddy-geoip2 handler. It reads the visitor address from the connection only: the trusted
-// proxy setting would let a forwarded header decide the country until the trust model is narrowed.
-func geoIP2Handler() Handler {
-	return Handler{"handler": "geoip2", "enable": "strict"}
+// geoIP2Handlers returns the country-lookup handlers for the visitor address. The request's X-Forwarded-For is first set
+// to the client address, so the caddy-geoip2 module (trusted_proxies mode) reads the visitor either from the connection
+// (untrusted peer) or as the first entry (trusted peer), and both equal client_ip. Its own handling of forwarded
+// headers is therefore never used on a raw header.
+func geoIP2Handlers() []Handler {
+	return []Handler{
+		{
+			"handler": "headers",
+			"request": map[string]any{
+				"set": map[string][]string{"X-Forwarded-For": {clientIPPlaceholder}},
+			},
+		},
+		{"handler": "geoip2", "enable": "trusted_proxies"},
+	}
 }
 
 // denyRoute returns a subroute with one terminal route that answers 403 with body when the matcher set matches.
@@ -993,7 +998,7 @@ func denyRoute(set map[string]any, body string) Handler {
 // buildACLHandler creates access control handlers based on the AccessList configuration
 func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, error) {
 	// For geo-blocking, we use CEL (Common Expression Language) matcher with caddy-geoip2 placeholders
-	// For IP-based ACLs, we use Caddy's native remote_ip matcher
+	// For IP-based ACLs, we use Caddy's native client_ip matcher, which judges the visitor address
 	// Admin whitelist addresses are excluded from every deny route through denyMatcherSet.
 	adminRanges := network.SplitAddressList(adminWhitelist)
 
@@ -1017,11 +1022,11 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 		return denyRoute(denyMatcherSet(map[string]any{"expression": expression}, nil, adminRanges), geoAccessDeniedBody), nil
 	}
 
-	// IP/CIDR-based ACLs using Caddy's native remote_ip matcher
+	// IP/CIDR-based ACLs using Caddy's native client_ip matcher
 	if acl.LocalNetworkOnly {
 		// Allow only RFC1918 private networks, and admin whitelist addresses
 		localSet := denyMatcherSet(nil, []map[string]any{
-			{"remote_ip": map[string]any{"ranges": network.LocalNetworkCIDRs()}},
+			{"client_ip": map[string]any{"ranges": network.LocalNetworkCIDRs()}},
 		}, adminRanges)
 		return denyRoute(localSet, "Access denied: Not a local network IP"), nil
 	}
@@ -1060,7 +1065,7 @@ func buildACLHandler(acl *models.AccessList, adminWhitelist string) (Handler, er
 
 	if acl.Type == "blacklist" {
 		// Block these IPs (allow everything else). Admin whitelist addresses are never refused.
-		return denyRoute(denyMatcherSet(map[string]any{"remote_ip": map[string]any{"ranges": cidrs}}, nil, adminRanges), "Access denied: IP blacklisted"), nil
+		return denyRoute(denyMatcherSet(map[string]any{"client_ip": map[string]any{"ranges": cidrs}}, nil, adminRanges), "Access denied: IP blacklisted"), nil
 	}
 
 	return nil, nil
@@ -1087,7 +1092,7 @@ func whitelistDenyHandler(allowed []string) Handler {
 	}
 	if len(allowed) > 0 {
 		route["match"] = []map[string]any{
-			{"not": []map[string]any{{"remote_ip": map[string]any{"ranges": allowed}}}},
+			{"not": []map[string]any{{"client_ip": map[string]any{"ranges": allowed}}}},
 		}
 	}
 	return Handler{"handler": "subroute", "routes": []map[string]any{route}}
@@ -1102,7 +1107,7 @@ func denyMatcherSet(positive map[string]any, negated []map[string]any, adminRang
 	set := make(map[string]any, len(positive)+1)
 	var not []map[string]any
 	if len(adminRanges) > 0 {
-		not = append(not, map[string]any{"remote_ip": map[string]any{"ranges": adminRanges}})
+		not = append(not, map[string]any{"client_ip": map[string]any{"ranges": adminRanges}})
 	}
 	for key, value := range positive {
 		if key == "not" {
@@ -1517,7 +1522,7 @@ func buildRateLimitHandler(_ *models.ProxyHost, secCfg *models.SecurityConfig) H
 	rateLimitHandler := Handler{"handler": "rate_limit"}
 	rateLimitHandler["rate_limits"] = map[string]any{
 		"static": map[string]any{
-			"key":        "{http.request.remote.host}",
+			"key":        "{http.vars.client_ip}",
 			"window":     fmt.Sprintf("%ds", secCfg.RateLimitWindowSec),
 			"max_events": secCfg.RateLimitRequests,
 		},
@@ -1542,7 +1547,7 @@ func buildRateLimitHandler(_ *models.ProxyHost, secCfg *models.SecurityConfig) H
 				// Route 1: Match bypass IPs - terminal with no handlers (skip rate limiting)
 				"match": []map[string]any{
 					{
-						"remote_ip": map[string]any{
+						"client_ip": map[string]any{
 							"ranges": bypassCIDRs,
 						},
 					},
@@ -1706,7 +1711,8 @@ func buildSecurityHeaderHandlers(host *models.ProxyHost) []Handler {
 
 	// X-XSS-Protection
 	if cfg.XSSProtection {
-		responseHeaders["X-XSS-Protection"] = []string{"1; mode=block"}
+		// 0 disables the legacy browser XSS filter, which current guidance recommends.
+		responseHeaders["X-XSS-Protection"] = []string{"0"}
 	}
 
 	// Cache-Control
@@ -1864,4 +1870,15 @@ func dedupeDomains(domains []string) []string {
 		}
 	}
 	return result
+}
+
+// trustedProxiesFor returns the server's trusted-proxy block. configured is the trust list in force, loopback included
+// (see security.EffectiveTrustedProxies). Nil means no list was supplied, so only loopback is trusted. Caddy reads a
+// forwarded client address only from these peers.
+// Reference: https://caddyserver.com/docs/json/apps/http/servers/#trusted_proxies
+func trustedProxiesFor(configured []string) *TrustedProxies {
+	if configured == nil {
+		configured = security.AlwaysTrustedProxies()
+	}
+	return &TrustedProxies{Source: "static", Ranges: configured}
 }

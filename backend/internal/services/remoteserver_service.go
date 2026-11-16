@@ -1,11 +1,16 @@
 package services
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net"
+	"strconv"
+	"time"
 
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
@@ -93,4 +98,26 @@ func (s *RemoteServerService) List(enabledOnly bool) ([]models.RemoteServer, err
 		return nil, err
 	}
 	return servers, nil
+}
+
+// remoteServerTestTimeout bounds the TCP dial of a remote server connection test.
+const remoteServerTestTimeout = 5 * time.Second
+
+// TestDial checks the destination and dials host:port once. It returns the time
+// the connection took. A destination the probe policy refuses returns
+// ErrDestinationRefused; a dial that does not connect, including one refused at
+// connect time, returns ErrConnectionTestFailed.
+func (s *RemoteServerService) TestDial(ctx context.Context, host string, port int) (time.Duration, error) {
+	if err := CheckProbeTarget(ctx, s.db, host, port); err != nil {
+		return 0, err
+	}
+	start := time.Now()
+	conn, err := NewProbeDialer(s.db, remoteServerTestTimeout).DialContext(ctx, "tcp", net.JoinHostPort(host, strconv.Itoa(port)))
+	if err != nil {
+		return 0, ErrConnectionTestFailed
+	}
+	if closeErr := conn.Close(); closeErr != nil {
+		logger.Log().WithError(closeErr).Warn("failed to close remote server test connection")
+	}
+	return time.Since(start), nil
 }

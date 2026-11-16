@@ -48,7 +48,8 @@
     "activeCount": "{{count}} active",
     "noHistoryAvailable": "No history available",
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "No s'ha pogut actualitzar"
   },
   "permissions": {
     "adminOnlyError": "Només els administradors poden canviar aquesta configuració.",
@@ -176,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "No és a la configuració activa",
+    "notInActiveConfigHint": "El seu destí de reenviament no està permès i necessita una altra adreça."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -372,7 +375,17 @@
     "tooManyRequestsSeconds": "Too many attempts. Please wait {{count}} seconds and try again.",
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again."
+    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
+    "streamLimitReached": "Hi ha massa connexions en directe obertes per al vostre compte. Tanqueu una altra vista en directe i torneu-ho a provar.",
+    "trustedProxyInvalid": "\"{{entry}}\" no és una adreça IP ni un rang CIDR.",
+    "trustedProxyTooBroad": "\"{{entry}}\" cobreix un rang massa ampli. Els rangs IPv4 han de ser /8 o més estrets, i els IPv6 /24 o més estrets.",
+    "trustedProxiesTooMany": "La llista de proxies de confiança admet com a màxim 64 entrades.",
+    "managementListUnknown": "Una de les llistes d'accés triades ja no existeix. Torneu a carregar la pàgina i trieu de nou.",
+    "managementAccessWouldLockOut": "Això us bloquejaria l'accés a Charon. Afegiu primer la vostra adreça a la llista d'admin permesos, o trieu una llista que us permeti l'accés.",
+    "accessListInvalid": "Aquesta llista d'accés no pot protegir la interfície pròpia de Charon. Revegeu-ne les regles i torneu-ho a provar.",
+    "forwardTargetRefused": "Aquest destí de reenviament no està permès.",
+    "destinationRefused": "Aquesta destinació no està permesa.",
+    "connectionTestFailed": "No s'ha pogut connectar amb el destí."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -402,7 +415,8 @@
         "messagePendingApply": "La base de dades GeoIP torna a estar disponible, però {{count}} llista(es) de països ({{lists}}) encara no s'apliquen. Premeu Torna a carregar a la targeta Base de dades de països.",
         "docsLink": "Com proporcionar la base de dades",
         "issueHint": "Charon normalment inclou aquesta base de dades. Obre un issue a GitHub perquè el puguem corregir.",
-        "issueLink": "Obre un issue"
+        "issueLink": "Obre un issue",
+        "managementScope": "La interfície pròpia de Charon també es veu afectada: les seves llistes d'accés per país tampoc s'apliquen."
       }
     }
   },
@@ -688,6 +702,25 @@
         "proxy_apply_failed": "Charon no ha pogut aplicar la configuració del proxy.",
         "generic": "Alguna cosa ha fallat. Torneu-ho a provar."
       }
+    },
+    "trustedProxies": {
+      "title": "Proxies de confiança",
+      "description": "Charon només fa servir l'adreça d'un visitant des d'un proxy si aquest proxy hi és inclòs. El loopback sempre és de confiança.",
+      "fieldLabel": "Proxies de confiança",
+      "fieldHint": "Una adreça IP o un rang CIDR per línia. Deixeu-ho buit per confiar només en el loopback.",
+      "alwaysTrusted": "Sempre de confiança: {{entries}}",
+      "apiLayerNote": "El port propi de Charon confia en els proxies definits per CHARON_TRUSTED_PROXIES al servidor: {{entries}}. Canvieu-los allà.",
+      "apiLayerNone": "cap",
+      "sourceSetting": "S'utilitza la llista desada aquí.",
+      "sourceEnvironment": "S'utilitza CHARON_TRUSTED_PROXIES de l'entorn fins que deseu una llista aquí.",
+      "sourceDefault": "S'utilitza el valor per defecte, només el loopback, fins que deseu una llista aquí.",
+      "droppedEntries": "Ignorades de CHARON_TRUSTED_PROXIES perquè no són vàlides o són massa amplies: {{entries}}",
+      "saved": "Proxies de confiança desats.",
+      "saveFailed": "No s'ha pogut desar la llista de proxies de confiança.",
+      "reset": "Restableix al valor per defecte",
+      "resetDone": "S'ha esborrat la llista desada. Ara s'aplica la de l'entorn o el valor per defecte.",
+      "loadError": "No s'ha pogut carregar la llista de proxies de confiança.",
+      "docsLink": "Com definir els proxies de confiança"
     }
   },
   "accessLists": {
@@ -722,7 +755,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "Una llista de permesos activada necessita almenys una regla. Afegeix una regla o desactiva la llista i torna a desar."
+      "access_list_rules_required": "Una llista de permesos activada necessita almenys una regla. Afegeix una regla o desactiva la llista i torna a desar.",
+      "access_list_in_use": "Aquesta llista d'accés l'utilitza la pròpia interfície de Charon, així que no es pot eliminar. Primer tria una altra llista per a la interfície de Charon i torna-ho a provar."
+    },
+    "managementAccess": {
+      "title": "Accés de gestió",
+      "description": "Trieu les llistes d'accés que protegeixen la interfície pròpia de Charon, la part que feu servir per gestionar-lo. Les llistes d'accés dels hosts proxy no s'hi apliquen.",
+      "fieldsetLabel": "Llistes d'accés per a la interfície pròpia de Charon",
+      "noLists": "Encara no hi ha llistes d'accés. Creeu-ne una primer i després trieu-la aquí.",
+      "notRestricted": "Sense restricció",
+      "notRestrictedHint": "La interfície pròpia de Charon és oberta a qualsevol visitant que hi pugui arribar. Trieu una llista per limitar-la.",
+      "restricted": "Només els visitants permesos per les llistes triades poden fer servir la interfície pròpia de Charon.",
+      "notApplied": "No s'aplica mentre el control d'accés estigui desactivat o cap llista triada no estigui activada.",
+      "saved": "Accés de gestió desat.",
+      "saveFailed": "No s'ha pogut desar la tria d'accés de gestió.",
+      "loadError": "No s'ha pogut carregar l'accés de gestió."
     }
   },
   "rateLimiting": {
@@ -745,7 +792,10 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "saveConfiguration": "Desa la configuració",
+    "settingUpdated": "Configuració del límit de peticions actualitzada",
+    "invalidValue": "Introdueix un nombre enter superior a 0."
   },
   "wafConfig": {
     "title": "WAF Configuration",
@@ -894,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Accessible en {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Notification Providers",

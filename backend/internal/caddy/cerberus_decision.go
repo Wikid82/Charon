@@ -23,14 +23,9 @@ func CerberusEnabledForProxy(db *gorm.DB, static config.SecurityConfig, row *mod
 		return cerbEnabled
 	}
 
-	// A stored feature key decides even when its value is blank or garbage (both Off). Only an absent key falls
-	// through to the legacy key, unlike the status endpoint, which skips blank values.
-	for _, key := range []string{models.CerberusFeatureSettingKey, models.CerberusLegacySettingKey} {
-		var s models.Setting
-		err := db.Where("key = ?", key).First(&s).Error
-		if sw := models.CerberusSwitchFromSetting(s.Value, err == nil); sw != models.CerberusSwitchAbsent {
-			return sw == models.CerberusSwitchOn
-		}
+	// A stored switch decides, whatever its value. A failed read falls through to the row and the static configuration.
+	if sw, err := models.ResolveCerberusSwitchKeys(db); err == nil && sw != models.CerberusSwitchAbsent {
+		return sw == models.CerberusSwitchOn
 	}
 	return cerbEnabled
 }

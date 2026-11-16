@@ -51,10 +51,10 @@ func TestSecurityHeaders(t *testing.T) {
 			},
 		},
 		{
-			name:          "sets X-XSS-Protection",
+			name:          "sets X-XSS-Protection to 0",
 			isDevelopment: false,
 			checkHeaders: func(t *testing.T, resp *httptest.ResponseRecorder) {
-				assert.Equal(t, "1; mode=block", resp.Header().Get("X-XSS-Protection"))
+				assert.Equal(t, "0", resp.Header().Get("X-XSS-Protection"))
 			},
 		},
 		{

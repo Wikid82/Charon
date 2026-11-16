@@ -157,7 +157,7 @@ func TestCoverageBoost_SecurityService_AdditionalPaths(t *testing.T) {
 			Name:         "default",
 			CrowdSecMode: "local",
 		}
-		err := svc.Upsert(cfg)
+		err := UpsertSecurityConfig(db, cfg)
 		require.NoError(t, err)
 	})
 
@@ -240,7 +240,7 @@ func TestCoverageBoost_AccessListService_Paths(t *testing.T) {
 	})
 	require.NoError(t, err)
 
-	err = db.AutoMigrate(&models.AccessList{})
+	err = db.AutoMigrate(&models.Setting{}, &models.AccessList{})
 	require.NoError(t, err)
 
 	svc := NewAccessListService(db)

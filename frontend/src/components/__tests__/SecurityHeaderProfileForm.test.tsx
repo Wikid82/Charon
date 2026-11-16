@@ -368,6 +368,14 @@ describe('SecurityHeaderProfileForm', () => {
     expect(embedderPolicy).toHaveValue('require-corp');
   });
 
+  it('should describe the X-XSS-Protection value that is sent', () => {
+    render(<SecurityHeaderProfileForm {...defaultProps} />, { wrapper: createWrapper() });
+
+    expect(
+      screen.getByText('Sends X-XSS-Protection: 0 so older browsers turn off their built-in filter')
+    ).toBeInTheDocument();
+  });
+
   it('should handle additional options', () => {
     // xss_protection defaults to true
     // cache_control_no_store defaults to false

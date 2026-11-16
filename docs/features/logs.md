@@ -58,6 +58,10 @@ The log viewer displays connection status in the header:
 - **Reconnecting**: Yellow indicator, automatic retry in progress
 - **Disconnected**: Red indicator, manual reconnect available
 
+### Connection Limit
+
+Each user can have 8 live views open at once (access logs, security logs and stats together), and Charon allows 64 across all users. A view over the limit shows "Too many live connections are open for your account." Close another live view, then open this one again. It does not reconnect by itself.
+
 ### Troubleshooting Connection Issues
 
 If the WebSocket disconnects frequently:
@@ -66,6 +70,12 @@ If the WebSocket disconnects frequently:
 2. Verify no proxy is blocking WebSocket upgrades
 3. Ensure the Charon container has sufficient resources
 4. Check for network timeouts on long-idle connections
+
+If the live view shows 403 behind a proxy, see [WebSocket troubleshooting](../troubleshooting/websocket.md).
+
+### The Address in Each Entry
+
+The address shown for a visitor is the visitor's address as seen through your trusted proxies. Without a trusted proxy, it is the address of the connection itself. See [Trusted Proxies](../configuration/trusted-proxies.md).
 
 ## Browsing Saved Log Files
 

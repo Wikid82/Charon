@@ -79,15 +79,13 @@ func TestStartCrowdSec_EngineExitsDuringLAPIWait(t *testing.T) {
 	eng := &exitScriptEngine{running: []bool{false}}
 	applier := &recordingApplier{}
 	h := newResetLifecycleHandler(t, eng, &lifecycleLAPIFake{readyAt: 0}, applier)
-	before, err := h.snapshotCrowdsecStart()
-	require.NoError(t, err)
+	before := crowdsecStartStateOf(t, h.DB)
 
-	_, err = h.StartCrowdSec(context.Background())
+	_, err := h.StartCrowdSec(context.Background())
 
 	require.ErrorIs(t, err, errCrowdsecEngineExited)
 	require.Equal(t, 2, eng.statusCallsAfterStart(), "the exit needs two consecutive not-running polls")
-	after, err := h.snapshotCrowdsecStart()
-	require.NoError(t, err)
+	after := crowdsecStartStateOf(t, h.DB)
 	require.Equal(t, before, after, "a Start whose engine exited must revert to its exact snapshot")
 	requireCrowdSecOff(t, h.DB)
 	require.Equal(t, 0, applier.count(), "a failed start must not apply the proxy")
@@ -99,14 +97,12 @@ func TestStartCrowdSec_EngineExitWhileEnabledRevertsToEnabledSnapshot(t *testing
 	eng := &exitScriptEngine{running: []bool{false}}
 	applier := &recordingApplier{}
 	h := newResetLifecycleHandlerSeeded(t, eng, &lifecycleLAPIFake{readyAt: 0}, applier, true)
-	before, err := h.snapshotCrowdsecStart()
-	require.NoError(t, err)
+	before := crowdsecStartStateOf(t, h.DB)
 
-	_, err = h.StartCrowdSec(context.Background())
+	_, err := h.StartCrowdSec(context.Background())
 
 	require.ErrorIs(t, err, errCrowdsecEngineExited)
-	after, err := h.snapshotCrowdsecStart()
-	require.NoError(t, err)
+	after := crowdsecStartStateOf(t, h.DB)
 	require.Equal(t, before, after, "a Start whose engine exited must revert to the enabled snapshot")
 	require.Equal(t, "true", lifecycleSettingValue(t, h.DB))
 	var cfg models.SecurityConfig

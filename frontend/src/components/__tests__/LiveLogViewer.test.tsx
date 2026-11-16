@@ -19,7 +19,7 @@ describe('LiveLogViewer', () => {
   let mockCloseConnection: ReturnType<typeof vi.fn>;
   let mockOnMessage: ((log: logsApi.LiveLogEntry) => void) | null;
   let mockOnSecurityMessage: ((log: logsApi.SecurityLogEntry) => void) | null;
-  let mockOnClose: (() => void) | null;
+  let mockOnClose: ((event: CloseEvent) => void) | null;
 
   beforeEach(() => {
     mockCloseConnection = vi.fn();
@@ -336,10 +336,22 @@ describe('LiveLogViewer', () => {
     expect(await screen.findByText('Connected')).toBeTruthy();
 
     act(() => {
-      mockOnClose?.();
+      mockOnClose?.(new CloseEvent('close', { code: 1000 }));
     });
 
     expect(await screen.findByText('Disconnected')).toBeTruthy();
+  });
+
+  it('shows the stream limit message and does not reconnect when the server refuses the stream (1013)', async () => {
+    render(<LiveLogViewer />);
+    expect(await screen.findByText('Connected')).toBeTruthy();
+
+    act(() => {
+      mockOnClose?.(new CloseEvent('close', { code: 1013, reason: 'stream_limit_reached' }));
+    });
+
+    expect(await screen.findByRole('alert')).toHaveTextContent(/too many live connections/i);
+    expect(logsApi.connectSecurityLogs).toHaveBeenCalledTimes(1);
   });
 
   // ============================================================

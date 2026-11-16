@@ -237,6 +237,8 @@ func TestCerberus_Middleware_ACLEnabled_Blocked(t *testing.T) {
 		IPRules: `[{"cidr":"192.168.0.0/16","description":"Block 192.168.x.x"}]`,
 		Enabled: true,
 	})
+	// Chosen as a management list, so it protects Charon's own interface.
+	db.Create(&models.Setting{Key: "security.acl.management_lists", Value: `["test-blacklist"]`, Category: "security", Type: "json"})
 
 	cfg := config.SecurityConfig{
 		CerberusEnabled: true,

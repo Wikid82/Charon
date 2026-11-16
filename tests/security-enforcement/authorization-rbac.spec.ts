@@ -5,9 +5,19 @@
 import { test, expect, request as playwrightRequest, type APIRequestContext, type APIResponse } from '@playwright/test';
 import { STORAGE_STATE, TEST_PASSWORD as SETUP_ADMIN_PASSWORD } from '../constants';
 import { TestDataManager } from '../utils/TestDataManager';
-import { TEST_PASSWORD } from '../fixtures/auth-fixtures';
+import { TEST_PASSWORD, loginUser, type TestUser } from '../fixtures/auth-fixtures';
 import { waitForLoadingComplete, waitForModal } from '../utils/wait-helpers';
 import { deleteAccessList } from '../utils/proxy-refusal-helpers';
+import { setSecurityModuleEnabled } from '../utils/security-helpers';
+import {
+  RUNNER_WHITELIST,
+  createRuleSet,
+  deleteRuleSetByName,
+  getSecurityStatus,
+  restoreSecurityState,
+  saveConfig,
+  snapshotSecurityState,
+} from '../utils/security-settings-api';
 
 const BASE_URL = process.env.PLAYWRIGHT_BASE_URL || 'http://localhost:8080';
 
@@ -697,6 +707,7 @@ test.describe('Standard user management permissions (PR 32)', () => {
   let testData: TestDataManager;
   let adminApi: APIRequestContext;
   let userApi: APIRequestContext;
+  let standardUser: TestUser;
   /** Provider reference: the API resolves a UUID for the DNS provider fields and routes. */
   let dnsProviderRef: string;
   let domainCounter = 0;
@@ -765,6 +776,7 @@ test.describe('Standard user management permissions (PR 32)', () => {
     });
     expect(admin.token, 'role=admin fixture token').toBeTruthy();
     expect(standard.token, 'role=user fixture token').toBeTruthy();
+    standardUser = { id: standard.id, email: standard.email, token: standard.token, role: 'user' };
 
     adminApi = await playwrightRequest.newContext({
       baseURL: BASE_URL,
@@ -970,6 +982,127 @@ test.describe('Standard user management permissions (PR 32)', () => {
     });
   });
 
+  test.describe('Admin-only security lists and settings', () => {
+    test('standard user reads of the security config omit the admin allow-list and rate limit bypass list', async () => {
+      const response = await userApi.get('/api/v1/security/config');
+      expect(response.status()).toBe(200);
+      const config = (await response.json()) as JsonObject;
+
+      expect(config).not.toHaveProperty('admin_whitelist');
+      expect(config).not.toHaveProperty('rate_limit_bypass_list');
+    });
+
+    test('standard user rule set list omits rule set contents', async () => {
+      // Created as admin first: the list must hold a rule set with content, or the checks below would pass on an empty list.
+      const name = `rbac-hidden-content-${Date.now()}`;
+      await createRuleSet(adminApi, name);
+
+      try {
+        const response = await userApi.get('/api/v1/security/rulesets');
+        expect(response.status()).toBe(200);
+        const body = (await response.json()) as { rulesets: JsonObject[] };
+
+        const ruleSet = body.rulesets.find((entry) => entry.name === name);
+        expect(ruleSet, 'admin-created rule set is listed for the standard user').toBeDefined();
+        expect(ruleSet).not.toHaveProperty('content');
+        expect(ruleSet).not.toHaveProperty('source_url');
+        expect(ruleSet?.has_content).toBe(true);
+        expect(ruleSet?.content_line_count).toBeGreaterThan(0);
+      } finally {
+        await deleteRuleSetByName(adminApi, name);
+      }
+    });
+
+    test('standard user settings map omits admin-only keys and mail server details', async () => {
+      const hiddenKeys = [
+        'security.admin_whitelist',
+        'smtp_host',
+        'smtp_port',
+        'smtp_username',
+        'smtp_from_address',
+        'smtp_encryption',
+      ];
+
+      const adminResponse = await adminApi.get('/api/v1/settings');
+      expect(adminResponse.status()).toBe(200);
+      const adminSettings = (await adminResponse.json()) as JsonObject;
+      // Precondition: the admin sees a stored allow-list, so the standard user's flag for it must be a real check.
+      expect(adminSettings, 'admin sees a stored allow-list').toHaveProperty(['security.admin_whitelist']);
+
+      const response = await userApi.get('/api/v1/settings');
+      expect(response.status()).toBe(200);
+      const settings = (await response.json()) as JsonObject;
+
+      for (const key of hiddenKeys) {
+        const hasValueKey = `${key}.has_value`;
+        expect(Object.keys(settings), key).not.toContain(key);
+
+        // A stored key is replaced by a has_value flag that says whether it holds a value; an absent key gets no flag.
+        if (key in adminSettings) {
+          expect(settings[hasValueKey], hasValueKey).toBe(String(adminSettings[key]).trim() !== '');
+        } else {
+          expect(Object.keys(settings), hasValueKey).not.toContain(hasValueKey);
+        }
+      }
+    });
+
+    test('standard user sees the hidden note in place of the allow-list and rule set content', async ({ page }) => {
+      // The Security page renders the allow-list card only while Cerberus is on, and the card's input is hidden for a
+      // standard user only when the stored config has an allow-list. Cerberus defaults to off and specs earlier in the
+      // shard leave it off, so this test turns it on for its own run and restores it afterwards. A rule set created as
+      // admin gives the standard user a row whose edit form shows the hidden content note.
+      const ruleSetName = `rbac-hidden-waf-${Date.now()}`;
+      const before = await snapshotSecurityState(adminApi);
+
+      try {
+        await test.step('Enable Cerberus and store an allow-list and a rule set as admin', async () => {
+          await setSecurityModuleEnabled(adminApi, 'cerberus', true);
+          await expect
+            .poll(async () => (await getSecurityStatus(adminApi)).cerberus.enabled, {
+              message: 'Cerberus is reported enabled before the Security page is opened',
+            })
+            .toBe(true);
+          await saveConfig(adminApi, { name: 'default', admin_whitelist: RUNNER_WHITELIST });
+          await createRuleSet(adminApi, ruleSetName);
+        });
+
+        await test.step('Sign in as the standard user', async () => {
+          await loginUser(page, standardUser);
+        });
+
+        await test.step('Security page shows the note as the read-only allow-list placeholder', async () => {
+          // The card's state comes from the config response, so wait for that response before asserting on the input.
+          const configLoaded = page.waitForResponse(
+            (response) => response.url().endsWith('/api/v1/security/config') && response.request().method() === 'GET',
+          );
+          await page.goto('/security');
+          await configLoaded;
+          await waitForLoadingComplete(page);
+
+          const allowList = page.getByPlaceholder('Hidden for your role.', { exact: true });
+          await expect(allowList).toBeVisible();
+          await expect(allowList).toHaveAttribute('readonly');
+          await expect(allowList.locator('xpath=..').getByRole('button', { name: 'Save', exact: true })).toBeDisabled();
+        });
+
+        await test.step('WAF rule set edit form shows the note instead of rule set content', async () => {
+          await page.goto('/security/waf');
+          await waitForLoadingComplete(page);
+
+          await page
+            .getByRole('row')
+            .filter({ hasText: ruleSetName })
+            .getByRole('button', { name: 'Edit', exact: true })
+            .click();
+          await expect(page.getByText('Hidden for your role.', { exact: true })).toBeVisible();
+        });
+      } finally {
+        // Restores the stored config row and removes the rule set the test added.
+        await restoreSecurityState(adminApi, before);
+      }
+    });
+  });
+
   test.describe('Uptime monitor permissions', () => {
     test('standard user cannot create, update, check, sync or delete uptime monitors (403)', async () => {
       const created = await adminApi.post('/api/v1/uptime/monitors', {
@@ -1048,13 +1181,115 @@ test.describe('Standard user management permissions (PR 32)', () => {
             data: hostPayload({ domain_names: domain, forward_host: forwardHost, forward_port: CADDY_ADMIN_PORT }),
           });
           expect(response.status()).toBe(400);
-          expect((await errorBody(response)).error).toMatch(/admin API/i);
+          // One fixed text for every refusal reason, so the reply does not name the reserved admin listener.
+          expect(await errorBody(response)).toEqual({ error: 'This forward target is not allowed.', error_code: 'forward_target_refused' });
 
           const hosts = await listBy(adminApi, '/api/v1/proxy-hosts');
           expect(hosts.some((host) => host.domain_names === domain)).toBe(false);
         });
       }
     }
+  });
+
+  test.describe('Destination refusals (fixed text, same answer for every reason)', () => {
+    const FORWARD_TARGET_CODE = 'forward_target_refused';
+    const FORWARD_TARGET_TEXT = 'This forward target is not allowed.';
+    const DESTINATION_TEXT = 'This destination is not allowed.';
+    const CONNECTION_FAILED_TEXT = 'Could not connect to the target.';
+    /** Link-local address: refused by address whatever the port. */
+    const LINK_LOCAL_TARGET = { label: 'link-local address', forward_host: '169.254.169.254', forward_port: 80 };
+    /** Loopback on the Caddy admin port, which Charon reserves: refused by port. Its body must match the address refusal. */
+    const RESERVED_PORT_TARGET = { label: 'reserved Charon port', forward_host: '127.0.0.1', forward_port: CADDY_ADMIN_PORT };
+    const REFUSED_TARGETS = [LINK_LOCAL_TARGET, RESERVED_PORT_TARGET];
+    /** RFC 1918 target: an allowed LAN-style destination that must keep saving. */
+    const LAN_TARGET = { forward_host: '192.168.1.50', forward_port: 8080 };
+
+    for (const role of roles) {
+      for (const target of REFUSED_TARGETS) {
+        test(`${role.label} cannot create a proxy host to a ${target.label} (400, fixed text, nothing stored)`, async () => {
+          const domain = uniqueDomain();
+          const response = await role.api().post('/api/v1/proxy-hosts', {
+            data: hostPayload({ domain_names: domain, forward_host: target.forward_host, forward_port: target.forward_port }),
+          });
+          expect(response.status()).toBe(400);
+          expect(await errorBody(response)).toEqual({ error: FORWARD_TARGET_TEXT, error_code: FORWARD_TARGET_CODE });
+
+          const hosts = await listBy(adminApi, '/api/v1/proxy-hosts');
+          expect(hosts.some((host) => host.domain_names === domain)).toBe(false);
+        });
+
+        test(`${role.label} cannot move an existing host to a ${target.label} (400, forward target unchanged)`, async () => {
+          const created = await role.api().post('/api/v1/proxy-hosts', { data: hostPayload(LAN_TARGET) });
+          expect(created.status()).toBe(201);
+          const uuid = String(((await created.json()) as JsonObject).uuid);
+          createdHostUuids.push(uuid);
+          const before = await getHost(role.api(), uuid);
+
+          const response = await role.api().put(`/api/v1/proxy-hosts/${uuid}`, {
+            data: { ...before, forward_host: target.forward_host, forward_port: target.forward_port },
+          });
+          expect(response.status()).toBe(400);
+          expect(await errorBody(response)).toEqual({ error: FORWARD_TARGET_TEXT, error_code: FORWARD_TARGET_CODE });
+
+          const after = await getHost(adminApi, uuid);
+          expect(after.forward_host).toBe(LAN_TARGET.forward_host);
+          expect(after.forward_port).toBe(LAN_TARGET.forward_port);
+        });
+
+        test(`${role.label} connection test to a ${target.label} is refused with the same fixed text`, async () => {
+          const response = await role.api().post('/api/v1/proxy-hosts/test', {
+            data: { forward_host: target.forward_host, forward_port: target.forward_port },
+          });
+          expect(response.status()).toBe(400);
+          expect(await errorBody(response)).toEqual({ error: FORWARD_TARGET_TEXT, error_code: FORWARD_TARGET_CODE });
+        });
+      }
+
+      test(`${role.label} can still save a proxy host to a LAN-style target (201)`, async () => {
+        const response = await role.api().post('/api/v1/proxy-hosts', { data: hostPayload(LAN_TARGET) });
+        expect(response.status()).toBe(201);
+        const host = (await response.json()) as JsonObject;
+        createdHostUuids.push(String(host.uuid));
+        expect(host.forward_host).toBe(LAN_TARGET.forward_host);
+      });
+    }
+
+    test('standard user connection test to a reachable loopback target still runs (200)', async () => {
+      // The application listens on loopback port 8080 inside the test container, so the dial succeeds.
+      const response = await userApi.post('/api/v1/proxy-hosts/test', {
+        data: { forward_host: '127.0.0.1', forward_port: 8080 },
+      });
+      expect(response.status()).toBe(200);
+    });
+
+    test.describe('Remote server custom test results (administrator)', () => {
+      test('refused destination gets 400 destination_refused with the fixed text', async () => {
+        const response = await adminApi.post('/api/v1/remote-servers/test', {
+          data: { host: LINK_LOCAL_TARGET.forward_host, port: LINK_LOCAL_TARGET.forward_port },
+        });
+        expect(response.status()).toBe(400);
+        expect(await errorBody(response)).toEqual({ error: DESTINATION_TEXT, error_code: 'destination_refused' });
+      });
+
+      test('unreachable target gets 200 with reachable:false and the fixed connection text', async () => {
+        // Port 1 on loopback is closed, so the dial is refused quickly and the outcome is a plain failure.
+        const response = await adminApi.post('/api/v1/remote-servers/test', { data: { host: '127.0.0.1', port: 1 } });
+        expect(response.status()).toBe(200);
+        const body = (await response.json()) as JsonObject;
+        expect(body.reachable).toBe(false);
+        expect(body.error).toBe(CONNECTION_FAILED_TEXT);
+        expect(body).not.toHaveProperty('latency_ms');
+      });
+
+      test('reachable target gets 200 with reachable:true and a measured latency', async () => {
+        const response = await adminApi.post('/api/v1/remote-servers/test', { data: { host: '127.0.0.1', port: 8080 } });
+        expect(response.status()).toBe(200);
+        const body = (await response.json()) as JsonObject;
+        expect(body.reachable).toBe(true);
+        expect(typeof body.latency_ms).toBe('number');
+        expect(body.latency_ms as number).toBeGreaterThanOrEqual(0);
+      });
+    });
   });
 
   test.describe('Container list for a disabled remote server', () => {

@@ -48,7 +48,8 @@
     "activeCount": "{{count}} active",
     "noHistoryAvailable": "No history available",
     "autoRefreshing": "Auto-refreshing every {{seconds}}s",
-    "score": "Score"
+    "score": "Score",
+    "failedToUpdate": "Bijwerken mislukt"
   },
   "permissions": {
     "adminOnlyError": "Alleen beheerders kunnen deze instelling wijzigen.",
@@ -176,7 +177,9 @@
     "bulkApplySecurityHeaders": "Security Header Profile",
     "bulkApplySecurityHeadersHelp": "Apply a security header profile to all selected hosts",
     "noSecurityProfile": "None (Remove Profile)",
-    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture."
+    "removeSecurityHeadersWarning": "This will remove the security header profile from all selected hosts, potentially reducing their security posture.",
+    "notInActiveConfig": "Niet in de actieve configuratie",
+    "notInActiveConfigHint": "Het doorstuurdoel is niet toegestaan en heeft een ander adres nodig."
   },
   "redirectionHosts": {
     "title": "Redirection Hosts",
@@ -372,7 +375,17 @@
     "tooManyRequestsSeconds": "Too many attempts. Please wait {{count}} seconds and try again.",
     "tooManyRequestsMinutes_one": "Too many attempts. Please wait {{count}} minute and try again.",
     "tooManyRequestsMinutes_other": "Too many attempts. Please wait {{count}} minutes and try again.",
-    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again."
+    "tooManyRequestsMinutes": "Too many attempts. Please wait {{count}} minutes and try again.",
+    "streamLimitReached": "Er zijn te veel live-verbindingen open voor uw account. Sluit een andere live-weergave en probeer het opnieuw.",
+    "trustedProxyInvalid": "\"{{entry}}\" is geen IP-adres of CIDR-bereik.",
+    "trustedProxyTooBroad": "\"{{entry}}\" dekt een te ruim bereik. IPv4-bereiken moeten /8 of kleiner zijn en IPv6-bereiken /24 of kleiner.",
+    "trustedProxiesTooMany": "De lijst met vertrouwde proxy's bevat maximaal 64 items.",
+    "managementListUnknown": "Een van de gekozen toegangslijsten bestaat niet meer. Laad de pagina opnieuw en kies opnieuw.",
+    "managementAccessWouldLockOut": "Hiermee wordt u buitengesloten van Charon. Voeg eerst uw adres toe aan de beheerders-toestemmingslijst, of kies een lijst die u toelaat.",
+    "accessListInvalid": "Deze toegangslijst kan de eigen interface van Charon niet beschermen. Controleer de regels en probeer het opnieuw.",
+    "forwardTargetRefused": "Dit doorstuurdoel is niet toegestaan.",
+    "destinationRefused": "Deze bestemming is niet toegestaan.",
+    "connectionTestFailed": "Kon geen verbinding maken met het doel."
   },
   "notifications": {
     "saveSuccess": "Changes saved successfully",
@@ -402,7 +415,8 @@
         "messagePendingApply": "De GeoIP-database is weer beschikbaar, maar {{count}} landenlijst(en) ({{lists}}) worden nog niet afgedwongen. Druk op Opnieuw laden op de kaart Landendatabase.",
         "docsLink": "Hoe je de database aanlevert",
         "issueHint": "Charon bevat deze database normaal gesproken. Open een GitHub-issue zodat we dit kunnen oplossen.",
-        "issueLink": "Een issue openen"
+        "issueLink": "Een issue openen",
+        "managementScope": "Ook de eigen interface van Charon is getroffen: de landenlijsten daarvan worden evenmin toegepast."
       }
     }
   },
@@ -688,6 +702,25 @@
         "proxy_apply_failed": "Charon kon de proxyconfiguratie niet toepassen.",
         "generic": "Er ging iets mis. Probeer het opnieuw."
       }
+    },
+    "trustedProxies": {
+      "title": "Vertrouwde proxy's",
+      "description": "Charon gebruikt het adres van een bezoeker via een proxy alleen als die proxy hier staat. Loopback is altijd vertrouwd.",
+      "fieldLabel": "Vertrouwde proxy's",
+      "fieldHint": "Eén IP-adres of CIDR-bereik per regel. Laat leeg om alleen loopback te vertrouwen.",
+      "alwaysTrusted": "Altijd vertrouwd: {{entries}}",
+      "apiLayerNote": "De eigen poort van Charon vertrouwt de proxy's die in CHARON_TRUSTED_PROXIES op de server zijn ingesteld: {{entries}}. Wijzig ze daar.",
+      "apiLayerNone": "geen",
+      "sourceSetting": "De hier opgeslagen lijst wordt gebruikt.",
+      "sourceEnvironment": "De CHARON_TRUSTED_PROXIES uit de omgeving wordt gebruikt totdat u hier een lijst opslaat.",
+      "sourceDefault": "De standaard, alleen loopback, wordt gebruikt totdat u hier een lijst opslaat.",
+      "droppedEntries": "Genegeerd uit CHARON_TRUSTED_PROXIES omdat ze ongeldig of te ruim zijn: {{entries}}",
+      "saved": "Vertrouwde proxy's opgeslagen.",
+      "saveFailed": "De lijst met vertrouwde proxy's kon niet worden opgeslagen.",
+      "reset": "Herstellen naar standaard",
+      "resetDone": "Opgeslagen lijst gewist. De lijst uit de omgeving of de standaard geldt nu.",
+      "loadError": "De lijst met vertrouwde proxy's kon niet worden geladen.",
+      "docsLink": "Vertrouwde proxy's instellen"
     }
   },
   "accessLists": {
@@ -722,7 +755,21 @@
     "noAccessLists": "No Access Lists",
     "noAccessListsDescription": "Create your first access list to control who can access your services",
     "errors": {
-      "access_list_rules_required": "Een ingeschakelde toestemmingslijst heeft minstens één regel nodig. Voeg een regel toe of schakel de lijst uit en sla opnieuw op."
+      "access_list_rules_required": "Een ingeschakelde toestemmingslijst heeft minstens één regel nodig. Voeg een regel toe of schakel de lijst uit en sla opnieuw op.",
+      "access_list_in_use": "Deze toegangslijst wordt gebruikt door de eigen interface van Charon, dus hij kan niet worden verwijderd. Kies eerst een andere lijst voor de interface van Charon en probeer het opnieuw."
+    },
+    "managementAccess": {
+      "title": "Beheertoegang",
+      "description": "Kies de toegangslijsten die de eigen interface van Charon beschermen, het deel waarmee u het beheert. Toegangslijsten op proxyhosts gelden hier niet.",
+      "fieldsetLabel": "Toegangslijsten voor de eigen interface van Charon",
+      "noLists": "Er zijn nog geen toegangslijsten. Maak eerst er een aan en kies die dan hier.",
+      "notRestricted": "Niet beperkt",
+      "notRestrictedHint": "De eigen interface van Charon staat open voor elke bezoeker die er bij kan. Kies een lijst om het te beperken.",
+      "restricted": "Alleen bezoekers die door de gekozen lijsten zijn toegestaan, kunnen de eigen interface van Charon gebruiken.",
+      "notApplied": "Wordt niet toegepast zolang toegangscontrole uit staat of geen gekozen lijst is ingeschakeld.",
+      "saved": "Beheertoegang opgeslagen.",
+      "saveFailed": "De keuze voor beheertoegang kon niet worden opgeslagen.",
+      "loadError": "Beheertoegang kon niet worden geladen."
     }
   },
   "rateLimiting": {
@@ -745,7 +792,10 @@
     "rateLimitingDisabled": "Rate Limiting Disabled",
     "enableToConfigureMessage": "Enable rate limiting to configure request limits and protect your services",
     "adjustingGates": "Adjusting the gates...",
-    "configurationUpdating": "Rate limiting configuration updating"
+    "configurationUpdating": "Rate limiting configuration updating",
+    "saveConfiguration": "Configuratie opslaan",
+    "settingUpdated": "Instelling voor snelheidslimiet bijgewerkt",
+    "invalidValue": "Voer een geheel getal groter dan 0 in."
   },
   "wafConfig": {
     "title": "WAF Configuration",
@@ -894,7 +944,8 @@
     "connectionTypeNetbird": "NetBird",
     "connectionTypeZeroTier": "ZeroTier",
     "orthrusAgentUUID": "Orthrus Agent UUID",
-    "enabled": "Enabled"
+    "enabled": "Enabled",
+    "testLatency": "Bereikbaar in {{ms}} ms"
   },
   "notificationProviders": {
     "title": "Notification Providers",
