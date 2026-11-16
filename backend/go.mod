@@ -17,7 +17,7 @@ require (
 	github.com/minio/minio-go/v7 v7.4.1
 	github.com/moby/moby/client v0.6.3
 	github.com/oschwald/geoip2-golang/v2 v2.5.0
-	github.com/oschwald/maxminddb-golang/v2 v2.9.0
+	github.com/oschwald/maxminddb-golang/v2 v2.9.1
 	github.com/pkg/sftp v1.13.12
 	github.com/prometheus/client_golang v1.25.0
 	github.com/robfig/cron/v3 v3.0.1
