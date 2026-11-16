@@ -17,7 +17,9 @@
   ],
   "skipInstalls": false,
   "timezone": "America/New_York",
-  "dependencyDashboard": true,
+  "dependencyDashboard": {
+    "enabled": true
+  },
   "dependencyDashboardApproval": true,
   "prConcurrentLimit": 10,
   "prHourlyLimit": 0,
