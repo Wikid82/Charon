@@ -4,7 +4,7 @@ go 1.27.4
 
 require (
 	filippo.io/age v1.3.2
-	github.com/Wikid82/Hermes v0.3.7
+	github.com/Wikid82/Hermes v0.3.9
 	github.com/coder/websocket v1.8.15
 	github.com/distribution/reference v0.6.0
 	github.com/gin-contrib/gzip v1.2.10
