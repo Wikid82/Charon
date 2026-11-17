@@ -93,7 +93,7 @@ ARG NPM_VERSION=12.2.2
 ARG CADDY_VERSION=2.11.9
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
-ARG CADDY_SECURITY_VERSION=1.6.2
+ARG CADDY_SECURITY_VERSION=1.7.0
 # renovate: datasource=go depName=github.com/corazawaf/coraza-caddy/v2
 ARG CORAZA_CADDY_VERSION=2.6.2
 # coraza WAF override: coraza-caddy v2.6.1 requires coraza v3.7.0, which carries a CVE
