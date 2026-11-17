@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-66f7e58dee5020e1
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:f2226d32c370679de33e9a0ea6172e5ba25859f6f5b346719896bdd974497195
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-c62f18665cd67ce1
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:24224cf39ff2ec2f6dd6ba46f3bb505181ff449784b10f4db55af4d066b5ed59
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -31,7 +31,7 @@ ARG CROWDSEC_BUILDER_SRC=toolchain-prebuilt
 
 # ---- Pinned Toolchain Versions ----
 # renovate: datasource=docker depName=golang versioning=docker
-ARG GOLANG_IMAGE=golang:1.27.4-alpine@sha256:0a5f7fe796599ff487605987432e7619ae45beeb2fba4c2ce0b907879932aebf
+ARG GOLANG_IMAGE=golang:1.27.4-alpine@sha256:70bd7ddea8b6cbe5d6943cde279d6b67feb10cc924fb9100d1d8757c1575b280
 
 # renovate: datasource=docker depName=alpine versioning=docker
 ARG ALPINE_IMAGE=alpine:3.24.4@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
@@ -93,7 +93,7 @@ ARG NPM_VERSION=12.2.2
 ARG CADDY_VERSION=2.11.9
 ARG CADDY_PATCH_SCENARIO=B
 # renovate: datasource=go depName=github.com/greenpau/caddy-security
-ARG CADDY_SECURITY_VERSION=1.6.2
+ARG CADDY_SECURITY_VERSION=1.7.0
 # renovate: datasource=go depName=github.com/corazawaf/coraza-caddy/v2
 ARG CORAZA_CADDY_VERSION=2.6.2
 # coraza WAF override: coraza-caddy v2.6.1 requires coraza v3.7.0, which carries a CVE
