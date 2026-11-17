@@ -626,6 +626,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         _retry go get github.com/hslatman/ipstore@v0.5.0; \
         # renovate: datasource=go depName=github.com/go-chi/chi/v5
         _retry go get github.com/go-chi/chi/v5@v5.5.0; \
+        # GO-2026-6909: add crewjam/saml to build to path vul once one is available.
+        # renovate: datasource=go depName=github.com/crewjam/saml
+        _retry go get github.com/crewjam/saml@v0.6.3; \
         _retry go get golang.org/x/crypto@v${XCRYPTO_VERSION}; \
         _retry go get golang.org/x/net@v${XNET_VERSION}; \
         # klauspost/compress DoS/resource-exhaustion fix. Affects /usr/bin/caddy
