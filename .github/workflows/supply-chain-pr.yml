@@ -22,7 +22,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  SYFT_VERSION: 'v1.57.1'
+  SYFT_VERSION: 'v1.57.2'
 
 # The scan job runs on PR code with read scopes only. Comment and SARIF writes live in
 # the publish-results job, which consumes the scan artifact and never checks out PR code.

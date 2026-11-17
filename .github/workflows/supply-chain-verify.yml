@@ -15,7 +15,7 @@ on:
       - prereleased
 
 env:
-  SYFT_VERSION: 'v1.57.1'
+  SYFT_VERSION: 'v1.57.2'
 
 permissions:
   contents: read
