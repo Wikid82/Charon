@@ -161,7 +161,7 @@ func TestRefuseForwardTarget_LiteralPolicyForEveryClass(t *testing.T) {
 		"fd00:ec2::254":            true,
 		"100.100.100.200":          true,
 		"168.63.129.16":            true,
-		"0.0.0.0":                  true,
+		"0.0.0.0":                  false, // loopback-equivalent on an ordinary port (see forwardLiteralBlocked)
 		"10.20.30.40":              false,
 		"192.168.1.10":             false,
 		"100.64.0.5":               false,
