@@ -662,6 +662,32 @@ not suppress any other high/critical finding, only this exact chain.
 
 ---
 
+### [HIGH] GHSA-fc5q-39xc-vjpf · picomatch ReDoS via repeated extglobs (frontend dev tooling)
+
+| Field | Value |
+| --- | --- |
+| **ID** | GHSA-fc5q-39xc-vjpf |
+| **Severity** | High |
+| **Status** | Accepted Risk (no fixed version exists) |
+
+**What**
+`picomatch` ReDoS through single-branch repeated extglobs. Every published version
+(`<= 4.0.7`, the latest) is affected and `first_patched_version` is null.
+
+**Who**
+
+- Discovered by: `npm audit` / `audit-ci` (local `scripts/dep_update.sh` runs and CI)
+- Affects: `frontend/` devDependencies only (`tinyglobby`/`fdir` via vite, vitest, eslint,
+  typescript-eslint, knip) — never shipped to users; glob patterns come from our own config,
+  not untrusted input
+
+**When**
+
+- Target fix: remove the `GHSA-fc5q-39xc-vjpf` entry from `frontend/audit-ci.json` (and the
+  root `audit-ci.json`) once `picomatch` ships a patched release
+
+---
+
 ## Patched Vulnerabilities
 
 ### ✅ [HIGH] CVE-2026-84304 / GHSA-vp52-pcj8-j9qc · gRPC-Go HTTP/2 DATA-Frame Heap Exhaustion (bundled Caddy)

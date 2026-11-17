@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-c62f18665cd67ce1
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:be6efba5fb5c17d403856f8f4fcd8a826284198cdfdf1201518be7edc47402bd
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-dd136b38eca8bef6
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:9bc65a7332e03c3a9d0fa7bf96eb6f0e5adc9a0f894f80045f2f8b25083b53d9
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -626,6 +626,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         _retry go get github.com/hslatman/ipstore@v0.5.0; \
         # renovate: datasource=go depName=github.com/go-chi/chi/v5
         _retry go get github.com/go-chi/chi/v5@v5.5.0; \
+        # GO-2026-6909: add crewjam/saml to build to path vul once one is available.
+        # renovate: datasource=go depName=github.com/crewjam/saml
+        _retry go get github.com/crewjam/saml@v0.6.3; \
         _retry go get golang.org/x/crypto@v${XCRYPTO_VERSION}; \
         _retry go get golang.org/x/net@v${XNET_VERSION}; \
         # klauspost/compress DoS/resource-exhaustion fix. Affects /usr/bin/caddy
