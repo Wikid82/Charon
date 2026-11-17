@@ -627,3 +627,57 @@ func requireForwardRefused(t *testing.T, err error) {
 	assert.True(t, errors.Is(err, ErrOrthrusListenerTarget) || errors.Is(err, ErrForwardTargetAddress),
 		"unexpected refusal %v", err)
 }
+
+// The IPv4 unspecified literal reaches this machine's loopback listeners on Linux,
+// so an ordinary port on 0.0.0.0 is accepted as a loopback target. The reserved
+// port rule still applies to it, and the other blocked ranges stay refused.
+func TestForwardTarget_UnspecifiedIPv4OnOrdinaryPortIsAccepted(t *testing.T) {
+	db := setupListenerPolicyDB(t)
+	seedAgentPort(t, db, "a", 2375)
+	useListenerSource(t, fakeListenerSource{})
+	noLookup(t)
+
+	for _, host := range []string{"0.0.0.0", "0", "0x0", "0.0", "::ffff:0.0.0.0"} {
+		t.Run(host, func(t *testing.T) {
+			refused, err := NewListenerTargetGuard(db).RefusesForwardTarget(host, 8080)
+			require.NoError(t, err)
+			assert.False(t, refused, "config generation keeps the host")
+
+			require.NoError(t, refuseForwardTarget(db, host, 8080, verdictsFor(t)), "save accepts the host")
+		})
+	}
+}
+
+func TestForwardTarget_UnspecifiedIPv4OnReservedPortIsRefused(t *testing.T) {
+	db := setupListenerPolicyDB(t)
+	seedAgentPort(t, db, "a", 2375)
+	useListenerSource(t, fakeListenerSource{})
+	noLookup(t)
+
+	for _, host := range []string{"0.0.0.0", "0", "0x0"} {
+		t.Run(host, func(t *testing.T) {
+			refused, err := NewListenerTargetGuard(db).RefusesForwardTarget(host, 2375)
+			require.NoError(t, err)
+			assert.True(t, refused, "config generation drops the host")
+
+			require.ErrorIs(t, refuseForwardTarget(db, host, 2375, verdictsFor(t)), ErrOrthrusListenerTarget)
+		})
+	}
+}
+
+func TestForwardTarget_BlockedRangesStayRefusedOnOrdinaryPort(t *testing.T) {
+	db := setupListenerPolicyDB(t)
+	useListenerSource(t, fakeListenerSource{})
+	noLookup(t)
+
+	// The unspecified IPv6 address is not part of the exception: it stays refused.
+	for _, host := range []string{"169.254.169.254", "169.254.1.1", "fe80::1", "::"} {
+		t.Run(host, func(t *testing.T) {
+			refused, err := NewListenerTargetGuard(db).RefusesForwardTarget(host, 8080)
+			require.NoError(t, err)
+			assert.True(t, refused, "config generation drops the host")
+
+			requireForwardRefused(t, refuseForwardTarget(db, host, 8080, verdictsFor(t)))
+		})
+	}
+}

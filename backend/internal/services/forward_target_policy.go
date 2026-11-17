@@ -15,6 +15,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/Wikid82/charon/backend/internal/orthrus"
 )
 
@@ -295,7 +296,7 @@ func refuseForwardTarget(tx *gorm.DB, forwardHost string, port int, v forwardVer
 	}
 	literal := parseIPOrLegacy(host)
 	if literal != nil {
-		if v.policy.Blocked(literal) {
+		if forwardLiteralBlocked(v.policy, literal) {
 			return ErrForwardTargetAddress
 		}
 	} else if nv, ok := v.names[host]; ok && nv.err == nil {
@@ -351,7 +352,21 @@ func addrIP(a netip.Addr) net.IP {
 func literalRefusedByPolicy(forwardHost string) bool {
 	host := normalizeForwardName(forwardTargetHost(forwardHost))
 	ip := parseIPOrLegacy(host)
-	return ip != nil && probePolicy().Blocked(ip)
+	return ip != nil && forwardLiteralBlocked(probePolicy(), ip)
+}
+
+// forwardLiteralBlocked reports whether a forward target literal is refused by
+// the policy. The IPv4 unspecified address 0.0.0.0 (also in its legacy spellings)
+// is judged as 127.0.0.1. On Linux a connection to it reaches this machine's
+// loopback listeners, so it is accepted wherever loopback is. The policy itself
+// is unchanged, so probes and dials still refuse 0.0.0.0. The IPv6 unspecified
+// address `::` is not covered: the reported case is IPv4, and `::` stays refused.
+// Only the forward-target paths use this helper.
+func forwardLiteralBlocked(policy network.AddressPolicy, ip net.IP) bool {
+	if ip.Equal(net.IPv4zero) {
+		ip = net.IPv4(127, 0, 0, 1)
+	}
+	return policy.Blocked(ip)
 }
 
 // parseIPOrLegacy returns the address a host names when it is an IP literal in
