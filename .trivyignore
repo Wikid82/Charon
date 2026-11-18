@@ -358,3 +358,20 @@ CVE-2026-119373
 CVE-2026-119374
 CVE-2026-119379
 CVE-2026-119586
+
+# --- 2026-11-18 OpenSSL Alpine batch: CVE-2026-95692, CVE-2026-88823, CVE-2026-107496,
+# CVE-2026-95691 — Packages: libcrypto3 and libssl3 3.5.9-r0 in Alpine base image
+# Severity: HIGH (Grype/NVD); no fixed version available (fix state unknown).
+# CVE-2026-95692: AES-GCM-SIV too-short IV heap OOB read via EVP_CipherInit_ex(). Charon does not use AES-GCM-SIV.
+# CVE-2026-88823: AES-GCM-SIV zero-length AAD update resets prior AAD. Charon does not use AES-GCM-SIV.
+# CVE-2026-107496: CMS_encrypt() infinite loop on EC cert with group order 1 (DoS). Charon does not use CMS.
+# CVE-2026-95691: OpenSSL QUIC client use-after-free. Charon's HTTP/3 uses quic-go; no OpenSSL QUIC client runs.
+# libcrypto3/libssl3 are present only as Alpine system libraries behind busybox ssl_client (TLS helper
+# for busybox wget); no runtime path exercises the affected code.
+# See also: .grype.yaml for full justification
+# Review by: 2027-02-16
+# exp: 2027-02-16
+CVE-2026-95692
+CVE-2026-88823
+CVE-2026-107496
+CVE-2026-95691

@@ -306,6 +306,53 @@ Dockerfile.
 
 ---
 
+### [HIGH] CVE-2026-95692 / CVE-2026-88823 / CVE-2026-107496 / CVE-2026-95691 · OpenSSL Vulnerabilities in Alpine Base Image
+
+| Field | Value |
+| --- | --- |
+| **ID** | CVE-2026-95692, CVE-2026-88823, CVE-2026-107496, CVE-2026-95691 (each affects `libcrypto3` and `libssl3`) |
+| **Severity** | High (NVD / Grype) |
+| **Status** | Awaiting Upstream |
+
+**What**
+Four OpenSSL vulnerabilities in the Alpine base image system packages `libcrypto3` and `libssl3`
+at version 3.5.9-r0: an AES-GCM-SIV IV-length out-of-bounds read (CVE-2026-95692), an AES-GCM-SIV
+AAD handling flaw (CVE-2026-88823), an infinite loop in `CMS_encrypt()` on a crafted EC
+certificate (CVE-2026-107496), and a use-after-free in the OpenSSL QUIC client (CVE-2026-95691).
+This is a pre-existing issue in the Alpine base image and was not introduced by Charon.
+
+**Who**
+
+- Discovered by: Automated supply-chain scan (Grype) on a pull request
+- Reported: 2026-11-18
+- Affects: Container runtime environment; does not affect Charon application code directly
+
+**Where**
+
+- Component: Alpine base image (`libcrypto3`, `libssl3`)
+- Versions affected: `libcrypto3`/`libssl3` 3.5.9-r0 (Alpine v3.24 branch)
+
+**When**
+
+- Discovered: 2026-11-18
+- Disclosed (if public): Public (OpenSSL advisories; see NVD entries above)
+- Target fix: When Alpine publishes a patched OpenSSL APK with a fixed version
+
+**How**
+None of these code paths run in Charon. Charon's Go backend uses Go's native `crypto/tls` and
+standard-library cryptography rather than OpenSSL, and AES-GCM-SIV and CMS are not used
+anywhere in Charon. Caddy's HTTP/3 stack uses `github.com/quic-go/quic-go` (pure Go), so the
+OpenSSL QUIC client is never used. The `libcrypto3`/`libssl3` packages are present in the image
+only as dependencies of Alpine's `busybox ssl_client` TLS helper, which handles fixed,
+non-attacker-controlled URLs only.
+
+**Planned Remediation**
+Monitor <https://security.alpinelinux.org/> for a patched Alpine APK. The Dockerfile now declares
+an `OPENSSL_VERSION` floor that Renovate tracks, so a patched release produces an update PR.
+Review date: 2027-02-16.
+
+---
+
 ### [MEDIUM] CVE-2026-33997 · Docker Off-by-One Plugin Privilege Validation
 
 | Field | Value |

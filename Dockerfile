@@ -997,8 +997,9 @@ WORKDIR /app
 #
 # libxml2 carries open CVEs with no upstream fix as of 2.13.9-r2. It is declared as a
 # minimum-version floor (`>=`) so builds always pull the newest Alpine package, and the
-# floor itself is bumped by Renovate (apk) the moment a patched release is published.
-# renovate: datasource=apk depName=libxml2 versioning=loose
+# floor itself is bumped by Renovate (repology, Alpine v3.24 repo) the moment a patched
+# release is published. The `alpine_3_24` repo in depName must follow the ALPINE_IMAGE branch.
+# renovate: datasource=repology depName=alpine_3_24/libxml2 versioning=loose
 ARG LIBXML2_VERSION=2.13.9-r2
 #
 # zlib: exact-version pin is declared globally (ZLIB_VERSION, top of file) and shared with
@@ -1007,9 +1008,17 @@ ARG ZLIB_VERSION
 #
 # ca-certificates is a minimum-version floor so the image always carries a Mozilla bundle that
 # distrusts the compromised eMudhra intermediates' roots (Oct 2026) even when the base image
-# layer is stale; Renovate (apk) raises the floor as newer bundles ship.
-# renovate: datasource=apk depName=ca-certificates versioning=loose
+# layer is stale; Renovate (repology, Alpine v3.24 repo) raises the floor as newer bundles ship.
+# renovate: datasource=repology depName=alpine_3_24/ca-certificates versioning=loose
 ARG CA_CERTIFICATES_VERSION=20261020-r0
+#
+# OpenSSL (libcrypto3/libssl3) is a minimum-version floor. Grype flags four HIGH OpenSSL CVEs
+# against 3.5.9-r0 with no fixed version yet; they are accepted in .grype.yaml and .trivyignore
+# (2026-11-18 batch). The floor guarantees the image never installs an older OpenSSL build, and
+# Renovate (repology, Alpine v3.24 repo, tracked via libcrypto3) raises it once a patched release
+# is published. libcrypto3 and libssl3 are built from the same Alpine `openssl` aport.
+# renovate: datasource=repology depName=alpine_3_24/libcrypto3 versioning=loose
+ARG OPENSSL_VERSION=3.5.9-r0
 # hadolint ignore=DL3018
 
 ARG SQLITE_VERSION
@@ -1017,7 +1026,8 @@ ARG SQLITE_VERSION
 RUN apk add --no-cache \
     bash "ca-certificates>=${CA_CERTIFICATES_VERSION}" "ca-certificates-bundle>=${CA_CERTIFICATES_VERSION}" sqlite-libs sqlite tzdata gettext libcap libcap-utils \
     c-ares busybox-extras "libxml2>=${LIBXML2_VERSION}" "zlib=${ZLIB_VERSION}" \
-    && apk upgrade --no-cache libcrypto3 libssl3 musl musl-utils \
+    && apk add --no-cache "libcrypto3>=${OPENSSL_VERSION}" "libssl3>=${OPENSSL_VERSION}" \
+    && apk upgrade --no-cache musl musl-utils \
     # CVE-2026-34743: xz-libs DoS via buffer overflow in index decoding (fixed in 5.8.3-r0)
     xz-libs
 
