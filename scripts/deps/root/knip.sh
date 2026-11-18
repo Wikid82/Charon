@@ -4,6 +4,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 
 NPM_MODULES=(
+        "$REPO_ROOT"
         "$REPO_ROOT/frontend"
     )
 
