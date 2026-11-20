@@ -1000,7 +1000,7 @@ WORKDIR /app
 # floor itself is bumped by Renovate (repology, Alpine v3.24 repo) the moment a patched
 # release is published. The `alpine_3_24` repo in depName must follow the ALPINE_IMAGE branch.
 # renovate: datasource=repology depName=alpine_3_24/libxml2 versioning=loose
-ARG LIBXML2_VERSION=2.13.9-r2
+ARG LIBXML2_VERSION=2.13.9-r3
 #
 # zlib: exact-version pin is declared globally (ZLIB_VERSION, top of file) and shared with
 # the toolchain-runtime stage.
