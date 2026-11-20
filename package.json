@@ -38,7 +38,7 @@
     "eslint-plugin-playwright": "^2.12.2",
     "knip": "^6.46.1",
     "lefthook": "^2.2.2",
-    "markdownlint-cli2": "^0.24.1",
+    "markdownlint-cli2": "^0.24.2",
     "playwright": "^1.65.1",
     "prettier": "^3.10.1",
     "prettier-plugin-tailwindcss": "^0.8.1",
