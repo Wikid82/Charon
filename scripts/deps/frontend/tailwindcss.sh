@@ -16,5 +16,5 @@ for MODULE in "${NPM_MODULES[@]}"; do
     # Keep the existing package-lock.json: regenerating it from scratch drops the
     # optional @tailwindcss/oxide-wasm32-wasi entry, which breaks `npm ci` in Docker.
     rm -rf node_modules
-    npm install tailwindcss @tailwindcss/postcss @tailwindcss/vite --save-dev
+    npm install tailwindcss tailwind-merge
 done
