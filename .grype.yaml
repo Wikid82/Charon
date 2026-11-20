@@ -5,6 +5,13 @@
 
 ignore:
 
+  - vulnerability: CVE-2026-88822
+    package:
+      name: OpenSSL
+      type: apk
+    reason: |
+      HIGH — Use of Uninitialized Variable
+    expiry: "2026-12-20"
   # SQLite 3.53.4-r0 (Alpine `sqlite` CLI + `sqlite-libs`): CVE-2026-119373, CVE-2026-119374,
   # CVE-2026-119379, CVE-2026-119586
   # Severity: HIGH
