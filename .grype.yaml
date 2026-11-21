@@ -85,8 +85,6 @@ ignore:
       HIGH — OpenSSL 3.5.9-r0 (Alpine), no fixed version available yet. Accepted pending upstream fix.
     expiry: "2026-12-21"
 
-    expiry: "2026-12-21"
-
   - vulnerability: CVE-2026-88822
     package:
       name: OpenSSL
