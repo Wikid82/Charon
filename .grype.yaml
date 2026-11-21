@@ -7,50 +7,84 @@ ignore:
 
   - vulnerability: CVE-2026-107493
     package:
-      name: libssl3, libcrypto3
+      name: libssl3
       type: apk
+    reason: |
+      HIGH — OpenSSL 3.5.9-r0 (Alpine), no fixed version available yet. Accepted pending upstream fix.
     expiry: "2026-12-21"
 
-  - vulnerability: CVE-2026-84786
+  - vulnerability: CVE-2026-107493
     package:
-      name: libssl3, libcrypto3
+      name: libcrypto3
       type: apk
-    expiry: "2026-12-21"
-
-  - vulnerability: CVE-2026-121482
-    package:
-      name: libssl3, libcrypto3
-      type: apk
-    expiry: "2026-12-21"
-
-  - vulnerability: CVE-2026-107494
-    package:
-      name: libssl3, libcrypto3
-      type: apk
-    expiry: "2026-12-21"
-
-  - vulnerability: CVE-2026-84786
-    package:
-      name: libssl3, libcrypto3
-      type: apk
-    expiry: "2026-12-21"
-
-  - vulnerability: CVE-2026-121482
-    package:
-      name: libssl3, libcrypto3
-      type: apk
+    reason: |
+      HIGH — OpenSSL 3.5.9-r0 (Alpine), no fixed version available yet. Accepted pending upstream fix.
     expiry: "2026-12-21"
 
   - vulnerability: CVE-2026-107494
     package:
-      name: libssl3, libcrypto3
+      name: libssl3
       type: apk
+    reason: |
+      HIGH — OpenSSL 3.5.9-r0 (Alpine), no fixed version available yet. Accepted pending upstream fix.
+    expiry: "2026-12-21"
+
+  - vulnerability: CVE-2026-107494
+    package:
+      name: libcrypto3
+      type: apk
+    reason: |
+      HIGH — OpenSSL 3.5.9-r0 (Alpine), no fixed version available yet. Accepted pending upstream fix.
+    expiry: "2026-12-21"
+
+  - vulnerability: CVE-2026-121482
+    package:
+      name: libssl3
+      type: apk
+    reason: |
+      HIGH — OpenSSL 3.5.9-r0 (Alpine), no fixed version available yet. Accepted pending upstream fix.
+    expiry: "2026-12-21"
+
+  - vulnerability: CVE-2026-121482
+    package:
+      name: libcrypto3
+      type: apk
+    reason: |
+      HIGH — OpenSSL 3.5.9-r0 (Alpine), no fixed version available yet. Accepted pending upstream fix.
     expiry: "2026-12-21"
 
   - vulnerability: CVE-2026-124709
     package:
-      name: libssl3, libcrypto3
+      name: libssl3
       type: apk
+    reason: |
+      HIGH — OpenSSL 3.5.9-r0 (Alpine), no fixed version available yet. Accepted pending upstream fix.
+    expiry: "2026-12-21"
+
+  - vulnerability: CVE-2026-124709
+    package:
+      name: libcrypto3
+      type: apk
+    reason: |
+      HIGH — OpenSSL 3.5.9-r0 (Alpine), no fixed version available yet. Accepted pending upstream fix.
+    expiry: "2026-12-21"
+
+  - vulnerability: CVE-2026-84786
+    package:
+      name: libssl3
+      type: apk
+    reason: |
+      HIGH — OpenSSL 3.5.9-r0 (Alpine), no fixed version available yet. Accepted pending upstream fix.
+    expiry: "2026-12-21"
+
+  - vulnerability: CVE-2026-84786
+    package:
+      name: libcrypto3
+      type: apk
+    reason: |
+      HIGH — OpenSSL 3.5.9-r0 (Alpine), no fixed version available yet. Accepted pending upstream fix.
+    expiry: "2026-12-21"
+
     expiry: "2026-12-21"
 
   - vulnerability: CVE-2026-88822
