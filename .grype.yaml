@@ -5,6 +5,54 @@
 
 ignore:
 
+  - vulnerability: CVE-2026-107493
+    package:
+      name: libssl3, libcrypto3
+      type: apk
+    expiry: "2026-12-21"
+
+  - vulnerability: CVE-2026-84786
+    package:
+      name: libssl3, libcrypto3
+      type: apk
+    expiry: "2026-12-21"
+
+  - vulnerability: CVE-2026-121482
+    package:
+      name: libssl3, libcrypto3
+      type: apk
+    expiry: "2026-12-21"
+
+  - vulnerability: CVE-2026-107494
+    package:
+      name: libssl3, libcrypto3
+      type: apk
+    expiry: "2026-12-21"
+
+  - vulnerability: CVE-2026-84786
+    package:
+      name: libssl3, libcrypto3
+      type: apk
+    expiry: "2026-12-21"
+
+  - vulnerability: CVE-2026-121482
+    package:
+      name: libssl3, libcrypto3
+      type: apk
+    expiry: "2026-12-21"
+
+  - vulnerability: CVE-2026-107494
+    package:
+      name: libssl3, libcrypto3
+      type: apk
+    expiry: "2026-12-21"
+
+  - vulnerability: CVE-2026-124709
+    package:
+      name: libssl3, libcrypto3
+      type: apk
+    expiry: "2026-12-21"
+
   - vulnerability: CVE-2026-88822
     package:
       name: OpenSSL
@@ -12,6 +60,7 @@ ignore:
     reason: |
       HIGH — Use of Uninitialized Variable
     expiry: "2026-12-20"
+
   # SQLite 3.53.4-r0 (Alpine `sqlite` CLI + `sqlite-libs`): CVE-2026-119373, CVE-2026-119374,
   # CVE-2026-119379, CVE-2026-119586
   # Severity: HIGH
