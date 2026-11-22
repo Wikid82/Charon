@@ -56,13 +56,13 @@ Starts the Charon development Docker Compose environment in detached mode. This 
 ### Basic Usage
 
 ```bash
-.github/skills/docker-start-dev-scripts/run.sh
+.claude/skills/docker-start-dev-scripts/run.sh
 ```
 
 ### Via Skill Runner
 
 ```bash
-.github/skills/scripts/skill-runner.sh docker-start-dev
+.claude/skills/scripts/skill-runner.sh docker-start-dev
 ```
 
 ### Via VS Code Task
@@ -123,7 +123,7 @@ Docker Compose respects `depends_on` directives:
 
 ```bash
 # Start all development services
-.github/skills/docker-start-dev-scripts/run.sh
+.claude/skills/docker-start-dev-scripts/run.sh
 
 # Verify services are running
 docker compose -f .docker/compose/docker-compose.dev.yml ps
@@ -133,7 +133,7 @@ docker compose -f .docker/compose/docker-compose.dev.yml ps
 
 ```bash
 # Start services in detached mode
-.github/skills/docker-start-dev-scripts/run.sh
+.claude/skills/docker-start-dev-scripts/run.sh
 
 # Follow logs from all services
 docker compose -f .docker/compose/docker-compose.dev.yml logs -f
@@ -143,7 +143,7 @@ docker compose -f .docker/compose/docker-compose.dev.yml logs -f
 
 ```bash
 # Start development environment
-.github/skills/docker-start-dev-scripts/run.sh
+.claude/skills/docker-start-dev-scripts/run.sh
 
 # Wait for services to be healthy
 sleep 10

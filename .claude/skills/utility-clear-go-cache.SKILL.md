@@ -56,13 +56,13 @@ Clears all Go-related caches including build cache, test cache, module cache, an
 ### Basic Usage
 
 ```bash
-.github/skills/utility-clear-go-cache-scripts/run.sh
+.claude/skills/utility-clear-go-cache-scripts/run.sh
 ```
 
 ### Via Skill Runner
 
 ```bash
-.github/skills/scripts/skill-runner.sh utility-clear-go-cache
+.claude/skills/scripts/skill-runner.sh utility-clear-go-cache
 ```
 
 ### Via VS Code Task
@@ -106,7 +106,7 @@ Next steps:
 
 ```bash
 # Clear caches when experiencing build errors
-.github/skills/utility-clear-go-cache-scripts/run.sh
+.claude/skills/utility-clear-go-cache-scripts/run.sh
 
 # Restart VS Code's Go language server
 # Command Palette: "Go: Restart Language Server"
@@ -116,7 +116,7 @@ Next steps:
 
 ```bash
 # Clear caches before major Go version upgrade
-.github/skills/utility-clear-go-cache-scripts/run.sh
+.claude/skills/utility-clear-go-cache-scripts/run.sh
 
 # Verify installation
 go version

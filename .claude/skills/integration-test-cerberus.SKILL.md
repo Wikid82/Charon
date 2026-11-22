@@ -69,20 +69,20 @@ Run Cerberus integration tests:
 
 ```bash
 cd /path/to/charon
-.github/skills/scripts/skill-runner.sh integration-test-cerberus
+.claude/skills/scripts/skill-runner.sh integration-test-cerberus
 ```
 
 ### Verbose Mode
 
 ```bash
-VERBOSE=1 .github/skills/scripts/skill-runner.sh integration-test-cerberus
+VERBOSE=1 .claude/skills/scripts/skill-runner.sh integration-test-cerberus
 ```
 
 ### CI/CD Integration
 
 ```yaml
 - name: Run Cerberus Integration
-  run: .github/skills/scripts/skill-runner.sh integration-test-cerberus
+  run: .claude/skills/scripts/skill-runner.sh integration-test-cerberus
   timeout-minutes: 10
 ```
 

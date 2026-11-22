@@ -63,19 +63,19 @@ Performs comprehensive SQLite database integrity checks and recovery operations 
 ### Basic Usage (Interactive)
 
 ```bash
-.github/skills/utility-db-recovery-scripts/run.sh
+.claude/skills/utility-db-recovery-scripts/run.sh
 ```
 
 ### Force Mode (Non-Interactive)
 
 ```bash
-.github/skills/utility-db-recovery-scripts/run.sh --force
+.claude/skills/utility-db-recovery-scripts/run.sh --force
 ```
 
 ### Via Skill Runner
 
 ```bash
-.github/skills/scripts/skill-runner.sh utility-db-recovery [--force]
+.claude/skills/scripts/skill-runner.sh utility-db-recovery [--force]
 ```
 
 ### Via VS Code Task
@@ -224,14 +224,14 @@ The skill ensures Write-Ahead Logging (WAL) is enabled:
 
 ```bash
 # Run integrity check (creates backup even if healthy)
-.github/skills/utility-db-recovery-scripts/run.sh
+.claude/skills/utility-db-recovery-scripts/run.sh
 ```
 
 ### Example 2: Force Recovery Without Prompts
 
 ```bash
 # Useful for automation/scripts
-.github/skills/utility-db-recovery-scripts/run.sh --force
+.claude/skills/utility-db-recovery-scripts/run.sh --force
 ```
 
 ### Example 3: Docker Container Recovery
@@ -239,7 +239,7 @@ The skill ensures Write-Ahead Logging (WAL) is enabled:
 ```bash
 # Run inside Docker container
 docker exec -it charon-app bash
-/app/.github/skills/utility-db-recovery-scripts/run.sh --force
+/app/.claude/skills/utility-db-recovery-scripts/run.sh --force
 ```
 
 ## Error Handling

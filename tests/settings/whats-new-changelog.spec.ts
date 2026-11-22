@@ -40,7 +40,7 @@
  *      `git checkout -- backend/internal/changelog/data/changelog.json`,
  *      immediately after the image build captures it).
  *   2. Rebuild the E2E image so `go:embed` picks up the fixture
- *      (`.github/skills/scripts/skill-runner.sh docker-rebuild-e2e`, or the
+ *      (`.claude/skills/scripts/skill-runner.sh docker-rebuild-e2e`, or the
  *      equivalent `docker build` step in CI before
  *      `docker-compose.playwright-ci.yml`/`docker-compose.playwright-local.yml`
  *      brings the container up).
@@ -61,7 +61,7 @@
  * matter whether more fixture entries exist beyond it.
  *
  * Bonus wrinkle worth knowing: the E2E Docker image is built with
- * `VERSION=dev` (passed explicitly by `.github/skills/docker-rebuild-e2e-scripts/run.sh`
+ * `VERSION=dev` (passed explicitly by `.claude/skills/docker-rebuild-e2e-scripts/run.sh`
  * and `e2e-tests-split.yml`). The `beforeAll` guard below skips this file on
  * versioned registry images. Per the design doc's new-user-seeding rule
  * ("skip seeding if `version.Version == 'dev'`"), every user created via

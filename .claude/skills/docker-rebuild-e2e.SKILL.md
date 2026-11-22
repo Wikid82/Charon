@@ -92,7 +92,7 @@ Rebuilds the Charon Docker image and restarts the Playwright E2E testing environ
 Rebuild image and restart E2E container:
 
 ```bash
-.github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+.claude/skills/scripts/skill-runner.sh docker-rebuild-e2e
 ```
 
 ### Force Rebuild (No Cache)
@@ -100,7 +100,7 @@ Rebuild image and restart E2E container:
 Rebuild from scratch without Docker cache:
 
 ```bash
-.github/skills/scripts/skill-runner.sh docker-rebuild-e2e --no-cache
+.claude/skills/scripts/skill-runner.sh docker-rebuild-e2e --no-cache
 ```
 
 ### Clean Rebuild
@@ -108,7 +108,7 @@ Rebuild from scratch without Docker cache:
 Remove test volumes and rebuild with fresh state:
 
 ```bash
-.github/skills/scripts/skill-runner.sh docker-rebuild-e2e --clean
+.claude/skills/scripts/skill-runner.sh docker-rebuild-e2e --clean
 ```
 
 ### With Security Testing Services
@@ -116,7 +116,7 @@ Remove test volumes and rebuild with fresh state:
 Enable CrowdSec for security testing:
 
 ```bash
-.github/skills/scripts/skill-runner.sh docker-rebuild-e2e --profile=security-tests
+.claude/skills/scripts/skill-runner.sh docker-rebuild-e2e --profile=security-tests
 ```
 
 ### With Notification Testing Services
@@ -124,13 +124,13 @@ Enable CrowdSec for security testing:
 Enable MailHog for email testing:
 
 ```bash
-.github/skills/scripts/skill-runner.sh docker-rebuild-e2e --profile=notification-tests
+.claude/skills/scripts/skill-runner.sh docker-rebuild-e2e --profile=notification-tests
 ```
 
 ### Full Clean Rebuild with All Services
 
 ```bash
-.github/skills/scripts/skill-runner.sh docker-rebuild-e2e --no-cache --clean --profile=security-tests
+.claude/skills/scripts/skill-runner.sh docker-rebuild-e2e --no-cache --clean --profile=security-tests
 ```
 
 ## Parameters
@@ -193,30 +193,30 @@ again also restarts the containers, so the new value takes effect.
 
 ```bash
 # Rebuild and restart after making backend changes
-.github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+.claude/skills/scripts/skill-runner.sh docker-rebuild-e2e
 
 # Run E2E tests
-.github/skills/scripts/skill-runner.sh test-e2e-playwright
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright
 ```
 
 ### Example 2: Debug Failing Tests with Clean State
 
 ```bash
 # Complete clean rebuild
-.github/skills/scripts/skill-runner.sh docker-rebuild-e2e --clean --no-cache
+.claude/skills/scripts/skill-runner.sh docker-rebuild-e2e --clean --no-cache
 
 # Run specific test in debug mode
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-debug --grep="failing-test"
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright-debug --grep="failing-test"
 ```
 
 ### Example 3: Test Security Features
 
 ```bash
 # Start with CrowdSec enabled
-.github/skills/scripts/skill-runner.sh docker-rebuild-e2e --profile=security-tests
+.claude/skills/scripts/skill-runner.sh docker-rebuild-e2e --profile=security-tests
 
 # Run security-related E2E tests
-.github/skills/scripts/skill-runner.sh test-e2e-playwright --grep="security"
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright --grep="security"
 ```
 
 ## Health Check Verification

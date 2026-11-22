@@ -7,7 +7,7 @@ specification. Ensures required fields are present, formats are correct,
 and custom metadata follows project conventions.
 
 Usage:
-    python3 validate-skills.py [path/to/.github/skills/]
+    python3 validate-skills.py [path/to/.claude/skills/]
     python3 validate-skills.py --single path/to/skill.SKILL.md
 
 Exit Codes:
@@ -370,8 +370,8 @@ def main():
     parser.add_argument(
         "path",
         nargs="?",
-        default=".github/skills",
-        help="Path to .github/skills directory or single .SKILL.md file (default: .github/skills)"
+        default=".claude/skills",
+        help="Path to .claude/skills directory or single .SKILL.md file (default: .claude/skills)"
     )
     parser.add_argument(
         "--strict",

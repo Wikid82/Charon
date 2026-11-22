@@ -176,19 +176,19 @@ type ProxyHostResponse struct {
 
 ```bash
 # Report mode - Show all issues, always exits 0
-.github/skills/scripts/skill-runner.sh security-scan-gorm
+.claude/skills/scripts/skill-runner.sh security-scan-gorm
 
 # Report mode with file output
-.github/skills/scripts/skill-runner.sh security-scan-gorm --report docs/reports/gorm-scan.txt
+.claude/skills/scripts/skill-runner.sh security-scan-gorm --report docs/reports/gorm-scan.txt
 
 # Check mode - Exit 1 if issues found (for CI/pre-commit)
-.github/skills/scripts/skill-runner.sh security-scan-gorm --check
+.claude/skills/scripts/skill-runner.sh security-scan-gorm --check
 
 # Check mode with file output (for CI artifacts)
-.github/skills/scripts/skill-runner.sh security-scan-gorm --check docs/reports/gorm-scan-ci.txt
+.claude/skills/scripts/skill-runner.sh security-scan-gorm --check docs/reports/gorm-scan-ci.txt
 
 # Enforce mode - Same as check (future: stricter rules)
-.github/skills/scripts/skill-runner.sh security-scan-gorm --enforce
+.claude/skills/scripts/skill-runner.sh security-scan-gorm --enforce
 ```
 
 ### Via Pre-commit Hook (Manual Stage)
@@ -413,10 +413,10 @@ The scanner uses three heuristics to identify GORM models (prevents false positi
 
 ```bash
 # Before committing changes to GORM models
-.github/skills/scripts/skill-runner.sh security-scan-gorm
+.claude/skills/scripts/skill-runner.sh security-scan-gorm
 
 # Save report for later review
-.github/skills/scripts/skill-runner.sh security-scan-gorm --report docs/reports/gorm-scan-$(date +%Y%m%d).txt
+.claude/skills/scripts/skill-runner.sh security-scan-gorm --report docs/reports/gorm-scan-$(date +%Y%m%d).txt
 
 # If issues found, fix them
 # Re-run to verify fixes
@@ -427,7 +427,7 @@ The scanner uses three heuristics to identify GORM models (prevents false positi
 ```yaml
 # GitHub Actions workflow
 - name: GORM Security Scanner
-  run: .github/skills/scripts/skill-runner.sh security-scan-gorm --check docs/reports/gorm-scan-ci.txt
+  run: .claude/skills/scripts/skill-runner.sh security-scan-gorm --check docs/reports/gorm-scan-ci.txt
   continue-on-error: false
 
 - name: Upload GORM Scan Report
@@ -654,7 +654,7 @@ AI agents can read saved reports instead of parsing terminal output:
 
 ```bash
 # Generate report
-.github/skills/scripts/skill-runner.sh security-scan-gorm --report docs/reports/gorm-scan.txt
+.claude/skills/scripts/skill-runner.sh security-scan-gorm --report docs/reports/gorm-scan.txt
 
 # Agent reads report
 # File contains structured findings with severity, location, and fixes

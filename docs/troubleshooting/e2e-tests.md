@@ -18,7 +18,7 @@ Common issues and solutions for Playwright E2E tests.
 
 **If you still experience timeouts**:
 
-1. Rebuild the E2E container: `.github/skills/scripts/skill-runner.sh docker-rebuild-e2e`
+1. Rebuild the E2E container: `.claude/skills/scripts/skill-runner.sh docker-rebuild-e2e`
 2. Check Docker logs for health check failures
 3. Verify emergency token is set in `.env` file
 

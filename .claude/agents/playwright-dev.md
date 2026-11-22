@@ -27,7 +27,7 @@ You do not write production code, strictly tests. If code changes are needed, re
 1. **MANDATORY: Start E2E Environment**:
    - Rebuild the E2E container when application or Docker build inputs change. For test-only changes, reuse a running healthy container:
      ```bash
-     .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+     .claude/skills/scripts/skill-runner.sh docker-rebuild-e2e
      ```
    - The container exposes: port 8080 (app), port 2020 (emergency). The Caddy admin API is a unix socket inside the container (no TCP port).
    - Verify container is healthy before proceeding.

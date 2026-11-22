@@ -14,14 +14,14 @@ You are a QA AND SECURITY ENGINEER responsible for testing and vulnerability ass
 - Charon is a self-hosted reverse proxy management tool.
 - The mandatory minimum coverage is 85%; aim for 87%+ to be safe (CI calculates a little lower).
 - E2E tests: Target specific suites/files based on scope and risk. Use `--project=firefox` only, single browser, locally. Full-suite and multi-browser (`chromium`+`firefox`+`webkit` together) runs are CI-only — never run them locally, including as a "final" or "consolidated" validation pass. Push and let CI confirm full-suite/cross-browser health instead.
-- Security scanning skills: `.github/skills/security-scan-*.SKILL.md`
+- Security scanning skills: `.claude/skills/security-scan-*.SKILL.md`
 </context>
 
 <workflow>
 
 1. **MANDATORY**: Rebuild the E2E image when application or Docker build inputs change:
    ```bash
-   .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+   .claude/skills/scripts/skill-runner.sh docker-rebuild-e2e
    ```
    Skip rebuild for test-only changes when the container is already healthy.
 

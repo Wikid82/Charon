@@ -73,7 +73,7 @@ Run CrowdSec bouncer integration tests:
 
 ```bash
 cd /path/to/charon
-.github/skills/scripts/skill-runner.sh integration-test-crowdsec
+.claude/skills/scripts/skill-runner.sh integration-test-crowdsec
 ```
 
 ### Verbose Mode
@@ -81,7 +81,7 @@ cd /path/to/charon
 Run with detailed API interactions:
 
 ```bash
-VERBOSE=1 .github/skills/scripts/skill-runner.sh integration-test-crowdsec
+VERBOSE=1 .claude/skills/scripts/skill-runner.sh integration-test-crowdsec
 ```
 
 ### CI/CD Integration
@@ -90,7 +90,7 @@ For use in GitHub Actions workflows:
 
 ```yaml
 - name: Test CrowdSec Integration
-  run: .github/skills/scripts/skill-runner.sh integration-test-crowdsec
+  run: .claude/skills/scripts/skill-runner.sh integration-test-crowdsec
   timeout-minutes: 7
 ```
 
@@ -154,28 +154,28 @@ This skill validates:
 ### Example 1: Basic Execution
 
 ```bash
-.github/skills/scripts/skill-runner.sh integration-test-crowdsec
+.claude/skills/scripts/skill-runner.sh integration-test-crowdsec
 ```
 
 ### Example 2: Custom API Key
 
 ```bash
 CROWDSEC_API_KEY=my-bouncer-key \
-  .github/skills/scripts/skill-runner.sh integration-test-crowdsec
+  .claude/skills/scripts/skill-runner.sh integration-test-crowdsec
 ```
 
 ### Example 3: Custom LAPI URL
 
 ```bash
 CROWDSEC_LAPI_URL=http://crowdsec-lapi:8080 \
-  .github/skills/scripts/skill-runner.sh integration-test-crowdsec
+  .claude/skills/scripts/skill-runner.sh integration-test-crowdsec
 ```
 
 ### Example 4: Fast Sync Interval
 
 ```bash
 BOUNCER_SYNC_INTERVAL=30 VERBOSE=1 \
-  .github/skills/scripts/skill-runner.sh integration-test-crowdsec
+  .claude/skills/scripts/skill-runner.sh integration-test-crowdsec
 ```
 
 ## Error Handling

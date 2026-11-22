@@ -79,7 +79,7 @@
         {
             "label": "Test: Backend Unit Tests",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh test-backend-unit",
+            "command": ".claude/skills/scripts/skill-runner.sh test-backend-unit",
             "group": "test",
             "problemMatcher": []
         },
@@ -100,21 +100,21 @@
         {
             "label": "Test: Backend with Coverage",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh test-backend-coverage",
+            "command": ".claude/skills/scripts/skill-runner.sh test-backend-coverage",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Test: Frontend",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh test-frontend-unit",
+            "command": ".claude/skills/scripts/skill-runner.sh test-frontend-unit",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Test: Frontend Unit (Vitest)",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh test-frontend-unit",
+            "command": ".claude/skills/scripts/skill-runner.sh test-frontend-unit",
             "group": "test",
             "problemMatcher": []
         },
@@ -149,7 +149,7 @@
         {
             "label": "Test: Frontend Coverage (Vitest)",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh test-frontend-coverage",
+            "command": ".claude/skills/scripts/skill-runner.sh test-frontend-coverage",
             "group": "test",
             "problemMatcher": []
         },
@@ -482,7 +482,7 @@
         {
             "label": "Security: Trivy Scan",
             "type": "shell",
-            "command": "TRIVY_DOCKER_RM=false .github/skills/scripts/skill-runner.sh security-scan-trivy",
+            "command": "TRIVY_DOCKER_RM=false .claude/skills/scripts/skill-runner.sh security-scan-trivy",
             "group": "test",
             "problemMatcher": []
         },
@@ -517,7 +517,7 @@
         {
             "label": "Security: Scan Docker Image (Local)",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh security-scan-docker-image",
+            "command": ".claude/skills/scripts/skill-runner.sh security-scan-docker-image",
             "group": "test",
             "problemMatcher": [],
             "presentation": {
@@ -566,28 +566,28 @@
         {
             "label": "Security: CodeQL Scan (Skill)",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh security-scan-codeql",
+            "command": ".claude/skills/scripts/skill-runner.sh security-scan-codeql",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Security: Go Vulnerability Check",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh security-scan-go-vuln",
+            "command": ".claude/skills/scripts/skill-runner.sh security-scan-go-vuln",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Docker: Start Dev Environment",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh docker-start-dev",
+            "command": ".claude/skills/scripts/skill-runner.sh docker-start-dev",
             "group": "none",
             "problemMatcher": []
         },
         {
             "label": "Docker: Stop Dev Environment",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh docker-stop-dev",
+            "command": ".claude/skills/scripts/skill-runner.sh docker-stop-dev",
             "group": "none",
             "problemMatcher": []
         },
@@ -616,119 +616,119 @@
         {
             "label": "Docker: Prune Unused Resources",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh docker-prune",
+            "command": ".claude/skills/scripts/skill-runner.sh docker-prune",
             "group": "none",
             "problemMatcher": []
         },
         {
             "label": "Integration: Run All",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh integration-test-all",
+            "command": ".claude/skills/scripts/skill-runner.sh integration-test-all",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Integration: Cerberus",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh integration-test-cerberus",
+            "command": ".claude/skills/scripts/skill-runner.sh integration-test-cerberus",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Integration: Cerberus Security Stack",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh integration-test-cerberus",
+            "command": ".claude/skills/scripts/skill-runner.sh integration-test-cerberus",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Integration: Coraza WAF",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh integration-test-coraza",
+            "command": ".claude/skills/scripts/skill-runner.sh integration-test-coraza",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Integration: WAF (Legacy)",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh integration-test-waf",
+            "command": ".claude/skills/scripts/skill-runner.sh integration-test-waf",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Integration: CrowdSec",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh integration-test-crowdsec",
+            "command": ".claude/skills/scripts/skill-runner.sh integration-test-crowdsec",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Integration: CrowdSec Decisions",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh integration-test-crowdsec-decisions",
+            "command": ".claude/skills/scripts/skill-runner.sh integration-test-crowdsec-decisions",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Integration: CrowdSec Startup",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh integration-test-crowdsec-startup",
+            "command": ".claude/skills/scripts/skill-runner.sh integration-test-crowdsec-startup",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Integration: Rate Limit",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh integration-test-rate-limit",
+            "command": ".claude/skills/scripts/skill-runner.sh integration-test-rate-limit",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Integration: Rate Limiting",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh integration-test-rate-limit",
+            "command": ".claude/skills/scripts/skill-runner.sh integration-test-rate-limit",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Utility: Clear Go Cache",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh utility-clear-go-cache",
+            "command": ".claude/skills/scripts/skill-runner.sh utility-clear-go-cache",
             "group": "none",
             "problemMatcher": []
         },
         {
             "label": "Utility: Bump Beta Version",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh utility-bump-beta",
+            "command": ".claude/skills/scripts/skill-runner.sh utility-bump-beta",
             "group": "none",
             "problemMatcher": []
         },
         {
             "label": "Utility: Database Recovery",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh utility-db-recovery",
+            "command": ".claude/skills/scripts/skill-runner.sh utility-db-recovery",
             "group": "none",
             "problemMatcher": []
         },
         {
             "label": "Security: Verify SBOM",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh security-verify-sbom ${input:dockerImage}",
+            "command": ".claude/skills/scripts/skill-runner.sh security-verify-sbom ${input:dockerImage}",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Security: Sign with Cosign",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh security-sign-cosign docker charon:local",
+            "command": ".claude/skills/scripts/skill-runner.sh security-sign-cosign docker charon:local",
             "group": "test",
             "problemMatcher": []
         },
         {
             "label": "Security: Generate SLSA Provenance",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh security-slsa-provenance generate ./backend/main",
+            "command": ".claude/skills/scripts/skill-runner.sh security-slsa-provenance generate ./backend/main",
             "group": "test",
             "problemMatcher": []
         },
@@ -755,7 +755,7 @@
         {
             "label": "Test: E2E Playwright (Skill)",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh test-e2e-playwright",
+            "command": ".claude/skills/scripts/skill-runner.sh test-e2e-playwright",
             "group": "test",
             "problemMatcher": [],
             "presentation": {
@@ -995,7 +995,7 @@
         {
             "label": "Test: E2E Playwright with Coverage",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage",
+            "command": ".claude/skills/scripts/skill-runner.sh test-e2e-playwright-coverage",
             "group": "test",
             "problemMatcher": [],
             "presentation": {
@@ -1020,7 +1020,7 @@
         {
             "label": "Docker: Rebuild E2E Environment",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh docker-rebuild-e2e",
+            "command": ".claude/skills/scripts/skill-runner.sh docker-rebuild-e2e",
             "group": "build",
             "problemMatcher": [],
             "presentation": {
@@ -1032,7 +1032,7 @@
         {
             "label": "Docker: Rebuild E2E Environment (Clean)",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh docker-rebuild-e2e --clean --no-cache",
+            "command": ".claude/skills/scripts/skill-runner.sh docker-rebuild-e2e --clean --no-cache",
             "group": "build",
             "problemMatcher": [],
             "presentation": {
@@ -1044,7 +1044,7 @@
         {
             "label": "Test: E2E Playwright (Debug Mode)",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh test-e2e-playwright-debug",
+            "command": ".claude/skills/scripts/skill-runner.sh test-e2e-playwright-debug",
             "group": "test",
             "problemMatcher": [],
             "presentation": {
@@ -1056,7 +1056,7 @@
         {
             "label": "Test: E2E Playwright (Debug with Inspector)",
             "type": "shell",
-            "command": ".github/skills/scripts/skill-runner.sh test-e2e-playwright-debug --inspector",
+            "command": ".claude/skills/scripts/skill-runner.sh test-e2e-playwright-debug --inspector",
             "group": "test",
             "problemMatcher": [],
             "presentation": {

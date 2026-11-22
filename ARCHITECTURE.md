@@ -1725,7 +1725,7 @@ deliberate, not an inconsistency to "fix" into one uniform pipeline:
    fires on every successful `Docker Build, Publish & Test` run on `main`
    and opens an automated PR (labeled `auto-propagate`) into `development`.
    - Diffs that touch a path listed under `sensitive_paths` in
-     `.github/propagate-config.yml` (e.g. `docs/plans/`, `.github/skills/`)
+     `.github/propagate-config.yml` (e.g. `docs/plans/`, `.claude/skills/`)
      still get a PR, but it stays in draft with a warning in the PR body
      naming the matched files, and does not get auto-merge — a human must
      review and merge it.
@@ -1819,7 +1819,7 @@ deliberate, not an inconsistency to "fix" into one uniform pipeline:
 npx playwright test --project=chromium
 
 # Run with coverage (Vite dev server)
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
 
 # Debug mode
 npx playwright test --debug

@@ -56,13 +56,13 @@ Stops and removes all containers defined in the Charon development Docker Compos
 ### Basic Usage
 
 ```bash
-.github/skills/docker-stop-dev-scripts/run.sh
+.claude/skills/docker-stop-dev-scripts/run.sh
 ```
 
 ### Via Skill Runner
 
 ```bash
-.github/skills/scripts/skill-runner.sh docker-stop-dev
+.claude/skills/scripts/skill-runner.sh docker-stop-dev
 ```
 
 ### Via VS Code Task
@@ -129,7 +129,7 @@ Docker Compose stops services in reverse dependency order:
 
 ```bash
 # Stop all development services
-.github/skills/docker-stop-dev-scripts/run.sh
+.claude/skills/docker-stop-dev-scripts/run.sh
 
 # Verify services are stopped
 docker compose -f .docker/compose/docker-compose.dev.yml ps
@@ -146,7 +146,7 @@ docker compose -f .docker/compose/docker-compose.dev.yml down -v
 
 ```bash
 # Stop development environment
-.github/skills/docker-stop-dev-scripts/run.sh
+.claude/skills/docker-stop-dev-scripts/run.sh
 
 # Verify no containers running
 docker ps --filter "name=charon-dev"
@@ -247,7 +247,7 @@ For complete environment reset:
 
 ```bash
 # Stop and remove containers, networks
-.github/skills/docker-stop-dev-scripts/run.sh
+.claude/skills/docker-stop-dev-scripts/run.sh
 
 # Remove volumes (WARNING: deletes data)
 docker volume rm $(docker volume ls -q --filter "name=charon")
@@ -256,7 +256,7 @@ docker volume rm $(docker volume ls -q --filter "name=charon")
 docker rmi $(docker images -q "*charon*")
 
 # Clean up dangling resources
-.github/skills/docker-prune-scripts/run.sh
+.claude/skills/docker-prune-scripts/run.sh
 ```
 
 ## Troubleshooting

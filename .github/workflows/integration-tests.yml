@@ -524,22 +524,22 @@ jobs:
         env:
           CHARON_SETUP_TOKEN: ${{ steps.setup-code.outputs.setup_token }}
         run: |
-          chmod +x .github/skills/scripts/skill-runner.sh
-          .github/skills/scripts/skill-runner.sh integration-test-crowdsec 2>&1 | tee crowdsec-test-output.txt
+          chmod +x .claude/skills/scripts/skill-runner.sh
+          .claude/skills/scripts/skill-runner.sh integration-test-crowdsec 2>&1 | tee crowdsec-test-output.txt
           exit "${PIPESTATUS[0]}"
 
       - name: Run CrowdSec Startup and LAPI Tests
         id: lapi-test
         run: |
-          chmod +x .github/skills/scripts/skill-runner.sh
-          .github/skills/scripts/skill-runner.sh integration-test-crowdsec-startup 2>&1 | tee lapi-test-output.txt
+          chmod +x .claude/skills/scripts/skill-runner.sh
+          .claude/skills/scripts/skill-runner.sh integration-test-crowdsec-startup 2>&1 | tee lapi-test-output.txt
           exit "${PIPESTATUS[0]}"
 
       - name: Run CrowdSec Data Persistence Test
         id: persistence-test
         run: |
-          chmod +x .github/skills/scripts/skill-runner.sh
-          .github/skills/scripts/skill-runner.sh integration-test-crowdsec-data-persistence 2>&1 | tee persistence-test-output.txt
+          chmod +x .claude/skills/scripts/skill-runner.sh
+          .claude/skills/scripts/skill-runner.sh integration-test-crowdsec-data-persistence 2>&1 | tee persistence-test-output.txt
           exit "${PIPESTATUS[0]}"
 
       - name: Dump Debug Info on Failure

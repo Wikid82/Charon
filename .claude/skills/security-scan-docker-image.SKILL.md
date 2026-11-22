@@ -166,7 +166,7 @@ Build and scan the default `charon:local` image:
 
 ```bash
 cd /path/to/charon
-.github/skills/scripts/skill-runner.sh security-scan-docker-image
+.claude/skills/scripts/skill-runner.sh security-scan-docker-image
 ```
 
 ### Custom Image Tag
@@ -174,7 +174,7 @@ cd /path/to/charon
 Build and scan a custom-tagged image:
 
 ```bash
-.github/skills/scripts/skill-runner.sh security-scan-docker-image charon:test
+.claude/skills/scripts/skill-runner.sh security-scan-docker-image charon:test
 ```
 
 ### No-Cache Build
@@ -182,7 +182,7 @@ Build and scan a custom-tagged image:
 Force a clean build without Docker cache:
 
 ```bash
-.github/skills/scripts/skill-runner.sh security-scan-docker-image charon:local no-cache
+.claude/skills/scripts/skill-runner.sh security-scan-docker-image charon:local no-cache
 ```
 
 ### Environment Variable Overrides
@@ -192,11 +192,11 @@ Override default versions or behavior:
 ```bash
 # Use specific tool versions
 SYFT_VERSION=v1.17.0 GRYPE_VERSION=v0.107.0 \
-  .github/skills/scripts/skill-runner.sh security-scan-docker-image
+  .claude/skills/scripts/skill-runner.sh security-scan-docker-image
 
 # Change failure threshold
 FAIL_ON_SEVERITY="Critical" \
-  .github/skills/scripts/skill-runner.sh security-scan-docker-image
+  .claude/skills/scripts/skill-runner.sh security-scan-docker-image
 ```
 
 ## Parameters
@@ -255,7 +255,7 @@ FAIL_ON_SEVERITY="Critical" \
 ### Example 1: Standard Local Scan
 
 ```bash
-$ .github/skills/scripts/skill-runner.sh security-scan-docker-image
+$ .claude/skills/scripts/skill-runner.sh security-scan-docker-image
 [INFO] Building Docker image: charon:local...
 [BUILD] Step 1/25 : FROM node:24.13.0-alpine AS frontend-builder
 [BUILD] ...
@@ -292,7 +292,7 @@ Exit code: 1
 ### Example 2: Clean Build After Code Changes
 
 ```bash
-$ .github/skills/scripts/skill-runner.sh security-scan-docker-image charon:test no-cache
+$ .claude/skills/scripts/skill-runner.sh security-scan-docker-image charon:test no-cache
 [INFO] Building Docker image: charon:test (no cache)...
 [BUILD] Building without cache to ensure fresh dependencies...
 [BUILD] Successfully built and tagged charon:test
@@ -317,7 +317,7 @@ Exit code: 0
 ```yaml
 # .github/workflows/local-verify.yml (example)
 - name: Scan Docker Image Locally
-  run: .github/skills/scripts/skill-runner.sh security-scan-docker-image
+  run: .claude/skills/scripts/skill-runner.sh security-scan-docker-image
   continue-on-error: false
 
 - name: Upload SBOM Artifact
@@ -333,7 +333,7 @@ Exit code: 0
 # .git/hooks/pre-push
 #!/bin/bash
 echo "Running local Docker image security scan..."
-if ! .github/skills/scripts/skill-runner.sh security-scan-docker-image; then
+if ! .claude/skills/scripts/skill-runner.sh security-scan-docker-image; then
     echo "❌ Security scan failed - please fix vulnerabilities before pushing"
     exit 1
 fi
@@ -511,16 +511,16 @@ This skill **exactly replicates** the supply-chain-pr.yml workflow:
 
 ```bash
 # 1. Filesystem scan (fast)
-.github/skills/scripts/skill-runner.sh security-scan-trivy
+.claude/skills/scripts/skill-runner.sh security-scan-trivy
 
 # 2. Image scan (comprehensive) - THIS SKILL
-.github/skills/scripts/skill-runner.sh security-scan-docker-image
+.claude/skills/scripts/skill-runner.sh security-scan-docker-image
 
 # 3. Code analysis
-.github/skills/scripts/skill-runner.sh security-scan-codeql
+.claude/skills/scripts/skill-runner.sh security-scan-codeql
 
 # 4. Go vulnerabilities
-.github/skills/scripts/skill-runner.sh security-scan-go-vuln
+.claude/skills/scripts/skill-runner.sh security-scan-go-vuln
 ```
 
 ## Performance Considerations

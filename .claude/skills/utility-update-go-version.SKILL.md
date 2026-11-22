@@ -9,7 +9,7 @@ When Renovate bot updates the Go version in `go.work`, this skill automatically 
 ## Usage
 
 ```bash
-.github/skills/scripts/skill-runner.sh utility-update-go-version
+.claude/skills/scripts/skill-runner.sh utility-update-go-version
 ```
 
 ## What It Does

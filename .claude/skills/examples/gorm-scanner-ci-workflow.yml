@@ -31,7 +31,7 @@ jobs:
         id: gorm-scan
         run: |
           # Generate report file for artifact upload
-          .github/skills/scripts/skill-runner.sh security-scan-gorm \
+          .claude/skills/scripts/skill-runner.sh security-scan-gorm \
             --check \
             docs/reports/gorm-scan-ci-${{ github.run_id }}.txt
         continue-on-error: true

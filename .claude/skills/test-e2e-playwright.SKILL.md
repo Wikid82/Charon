@@ -93,10 +93,10 @@ Before running tests, ensure the Docker E2E environment is running. Rebuild when
 
 ```bash
 # Start/rebuild E2E Docker container (required when app/runtime inputs change)
-.github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+.claude/skills/scripts/skill-runner.sh docker-rebuild-e2e
 
 # Or for a complete clean rebuild:
-.github/skills/scripts/skill-runner.sh docker-rebuild-e2e --clean --no-cache
+.claude/skills/scripts/skill-runner.sh docker-rebuild-e2e --clean --no-cache
 ```
 
 ## Usage
@@ -106,7 +106,7 @@ Before running tests, ensure the Docker E2E environment is running. Rebuild when
 Run E2E tests with default settings (Firefox, headless):
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-e2e-playwright
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright
 ```
 
 ### Browser Selection
@@ -115,16 +115,16 @@ Run tests in a specific browser:
 
 ```bash
 # Firefox (default)
-.github/skills/scripts/skill-runner.sh test-e2e-playwright --project=firefox
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright --project=firefox
 
 # Firefox
-.github/skills/scripts/skill-runner.sh test-e2e-playwright --project=firefox
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright --project=firefox
 
 # WebKit (Safari)
-.github/skills/scripts/skill-runner.sh test-e2e-playwright --project=webkit
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright --project=webkit
 
 # All browsers
-.github/skills/scripts/skill-runner.sh test-e2e-playwright --project=all
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright --project=all
 ```
 
 ### Headed Mode (Debugging)
@@ -132,7 +132,7 @@ Run tests in a specific browser:
 Run tests with a visible browser window:
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-e2e-playwright --headed
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright --headed
 ```
 
 ### Filter Tests
@@ -141,16 +141,16 @@ Run only tests matching a pattern:
 
 ```bash
 # Run tests with "login" in the title
-.github/skills/scripts/skill-runner.sh test-e2e-playwright --grep="login"
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright --grep="login"
 
 # Run tests with "DNS" in the title
-.github/skills/scripts/skill-runner.sh test-e2e-playwright --grep="DNS"
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright --grep="DNS"
 ```
 
 ### Combined Options
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-e2e-playwright --project=firefox --headed --grep="dashboard"
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright --project=firefox --headed --grep="dashboard"
 ```
 
 ### CI/CD Integration
@@ -159,7 +159,7 @@ For use in GitHub Actions or other CI/CD pipelines:
 
 ```yaml
 - name: Run E2E Tests
-  run: .github/skills/scripts/skill-runner.sh test-e2e-playwright
+  run: .claude/skills/scripts/skill-runner.sh test-e2e-playwright
   env:
     PLAYWRIGHT_BASE_URL: http://localhost:8080
     CI: true
@@ -226,19 +226,19 @@ Open `playwright-report/index.html` directly in a browser.
 ### Example 1: Quick Smoke Test
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-e2e-playwright --grep="smoke"
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright --grep="smoke"
 ```
 
 ### Example 2: Debug Failing Test
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-e2e-playwright --headed --grep="failing-test-name"
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright --headed --grep="failing-test-name"
 ```
 
 ### Example 3: Cross-Browser Validation
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-e2e-playwright --project=all
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright --project=all
 ```
 
 ## Test Structure
@@ -263,7 +263,7 @@ tests/
 **Solution**: Ensure the application is running at the configured base URL. Rebuild if needed:
 
 ```bash
-.github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+.claude/skills/scripts/skill-runner.sh docker-rebuild-e2e
 ```
 
 #### Error: page.goto: net::ERR_CONNECTION_REFUSED
@@ -271,7 +271,7 @@ tests/
 **Solution**: Start the Charon application before running tests:
 
 ```bash
-.github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+.claude/skills/scripts/skill-runner.sh docker-rebuild-e2e
 ```
 
 #### Error: browserType.launch: Executable doesn't exist
@@ -284,10 +284,10 @@ tests/
 
 ```bash
 # Rebuild with clean state
-.github/skills/scripts/skill-runner.sh docker-rebuild-e2e --clean
+.claude/skills/scripts/skill-runner.sh docker-rebuild-e2e --clean
 
 # Or debug the test to see what's happening
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-debug --grep="failing test"
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright-debug --grep="failing test"
 ```
 
 #### Error: Authentication state is stale
@@ -296,7 +296,7 @@ tests/
 
 ```bash
 rm -rf playwright/.auth/user.json
-.github/skills/scripts/skill-runner.sh test-e2e-playwright
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright
 ```
 
 ## Troubleshooting Workflow
@@ -319,13 +319,13 @@ When E2E tests fail, follow this workflow:
 3. **Rebuild with clean state if needed**:
 
    ```bash
-   .github/skills/scripts/skill-runner.sh docker-rebuild-e2e --clean
+   .claude/skills/scripts/skill-runner.sh docker-rebuild-e2e --clean
    ```
 
 4. **Debug specific failing test**:
 
    ```bash
-   .github/skills/scripts/skill-runner.sh test-e2e-playwright-debug --grep="test name"
+   .claude/skills/scripts/skill-runner.sh test-e2e-playwright-debug --grep="test name"
    ```
 
 5. **View the HTML report for details**:

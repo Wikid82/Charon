@@ -72,7 +72,7 @@ Run CrowdSec startup tests:
 
 ```bash
 cd /path/to/charon
-.github/skills/scripts/skill-runner.sh integration-test-crowdsec-startup
+.claude/skills/scripts/skill-runner.sh integration-test-crowdsec-startup
 ```
 
 ### Verbose Mode
@@ -80,7 +80,7 @@ cd /path/to/charon
 Run with detailed startup logging:
 
 ```bash
-VERBOSE=1 .github/skills/scripts/skill-runner.sh integration-test-crowdsec-startup
+VERBOSE=1 .claude/skills/scripts/skill-runner.sh integration-test-crowdsec-startup
 ```
 
 ### Custom Timeout
@@ -88,7 +88,7 @@ VERBOSE=1 .github/skills/scripts/skill-runner.sh integration-test-crowdsec-start
 Run with extended startup timeout:
 
 ```bash
-STARTUP_TIMEOUT=120 .github/skills/scripts/skill-runner.sh integration-test-crowdsec-startup
+STARTUP_TIMEOUT=120 .claude/skills/scripts/skill-runner.sh integration-test-crowdsec-startup
 ```
 
 ### CI/CD Integration
@@ -97,7 +97,7 @@ For use in GitHub Actions workflows:
 
 ```yaml
 - name: Test CrowdSec Startup
-  run: .github/skills/scripts/skill-runner.sh integration-test-crowdsec-startup
+  run: .claude/skills/scripts/skill-runner.sh integration-test-crowdsec-startup
   timeout-minutes: 5
 ```
 
@@ -184,28 +184,28 @@ This skill validates:
 ### Example 1: Basic Execution
 
 ```bash
-.github/skills/scripts/skill-runner.sh integration-test-crowdsec-startup
+.claude/skills/scripts/skill-runner.sh integration-test-crowdsec-startup
 ```
 
 ### Example 2: Extended Timeout
 
 ```bash
 STARTUP_TIMEOUT=180 VERBOSE=1 \
-  .github/skills/scripts/skill-runner.sh integration-test-crowdsec-startup
+  .claude/skills/scripts/skill-runner.sh integration-test-crowdsec-startup
 ```
 
 ### Example 3: Test Specific Version
 
 ```bash
 CROWDSEC_VERSION=v1.5.0 \
-  .github/skills/scripts/skill-runner.sh integration-test-crowdsec-startup
+  .claude/skills/scripts/skill-runner.sh integration-test-crowdsec-startup
 ```
 
 ### Example 4: Keep Containers for Debugging
 
 ```bash
 SKIP_CLEANUP=true \
-  .github/skills/scripts/skill-runner.sh integration-test-crowdsec-startup
+  .claude/skills/scripts/skill-runner.sh integration-test-crowdsec-startup
 ```
 
 ## Startup Sequence Verified

@@ -63,7 +63,7 @@ Tests the generic WAF integration behavior using the legacy WAF script. This tes
 
 Run the WAF integration tests:
 
-.github/skills/scripts/skill-runner.sh integration-test-waf
+.claude/skills/scripts/skill-runner.sh integration-test-waf
 
 ## Parameters
 

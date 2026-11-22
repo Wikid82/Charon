@@ -1021,7 +1021,7 @@ Closes #123
 cd /projects/Charon npx playwright test --project=firefox
 
 # Run with coverage (Vite dev server)
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
 
 # Debug mode
 npx playwright test --debug

@@ -113,7 +113,7 @@ In GitHub Actions or environments with OIDC:
 
 ```bash
 # Keyless signing (uses GitHub OIDC token)
-COSIGN_EXPERIMENTAL=1 .github/skills/scripts/skill-runner.sh \
+COSIGN_EXPERIMENTAL=1 .claude/skills/scripts/skill-runner.sh \
   security-sign-cosign docker ghcr.io/user/charon:latest
 ```
 
@@ -129,7 +129,7 @@ For local development with generated keys:
 # Sign with local key
 COSIGN_EXPERIMENTAL=0 COSIGN_PRIVATE_KEY="$(cat cosign.key)" \
   COSIGN_PASSWORD="your-password" \
-  .github/skills/scripts/skill-runner.sh \
+  .claude/skills/scripts/skill-runner.sh \
   security-sign-cosign docker charon:local
 ```
 
@@ -137,7 +137,7 @@ COSIGN_EXPERIMENTAL=0 COSIGN_PRIVATE_KEY="$(cat cosign.key)" \
 
 ```bash
 # Sign a file (creates .sig and .pem files)
-.github/skills/scripts/skill-runner.sh \
+.claude/skills/scripts/skill-runner.sh \
   security-sign-cosign file ./dist/charon-linux-amd64
 ```
 
@@ -233,7 +233,7 @@ $ docker build -t charon:test .
 $ COSIGN_EXPERIMENTAL=0 \
   COSIGN_PRIVATE_KEY="$(cat ~/.cosign/cosign.key)" \
   COSIGN_PASSWORD="my-secure-password" \
-  .github/skills/scripts/skill-runner.sh security-sign-cosign docker charon:test
+  .claude/skills/scripts/skill-runner.sh security-sign-cosign docker charon:test
 
 [INFO] Signing Docker image: charon:test
 [COSIGN] Using key-based signing (COSIGN_EXPERIMENTAL=0)
@@ -247,7 +247,7 @@ $ COSIGN_EXPERIMENTAL=0 \
 ### Example 2: Sign Release Binary (Keyless)
 
 ```bash
-$ .github/skills/scripts/skill-runner.sh \
+$ .claude/skills/scripts/skill-runner.sh \
   security-sign-cosign file ./dist/charon-linux-amd64
 
 [INFO] Signing file: ./dist/charon-linux-amd64
@@ -289,7 +289,7 @@ $ .github/skills/scripts/skill-runner.sh \
 for artifact in ./dist/charon-*; do
   if [[ -f "$artifact" && ! "$artifact" == *.sig && ! "$artifact" == *.pem ]]; then
     echo "Signing: $(basename $artifact)"
-    .github/skills/scripts/skill-runner.sh security-sign-cosign file "$artifact"
+    .claude/skills/scripts/skill-runner.sh security-sign-cosign file "$artifact"
   fi
 done
 ```

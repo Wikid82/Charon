@@ -84,7 +84,7 @@ Run with default settings (85% minimum coverage):
 
 ```bash
 cd /path/to/charon
-.github/skills/scripts/skill-runner.sh test-frontend-coverage
+.claude/skills/scripts/skill-runner.sh test-frontend-coverage
 ```
 
 ### Custom Coverage Threshold
@@ -93,7 +93,7 @@ Set a custom minimum coverage percentage:
 
 ```bash
 export CHARON_MIN_COVERAGE=90
-.github/skills/scripts/skill-runner.sh test-frontend-coverage
+.claude/skills/scripts/skill-runner.sh test-frontend-coverage
 ```
 
 ### CI/CD Integration
@@ -102,7 +102,7 @@ For use in GitHub Actions or other CI/CD pipelines:
 
 ```yaml
 - name: Run Frontend Tests with Coverage
-  run: .github/skills/scripts/skill-runner.sh test-frontend-coverage
+  run: .claude/skills/scripts/skill-runner.sh test-frontend-coverage
   env:
     CHARON_MIN_COVERAGE: 85
 ```
@@ -150,20 +150,20 @@ Frontend coverage requirement met
 ### Example 1: Basic Execution
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-frontend-coverage
+.claude/skills/scripts/skill-runner.sh test-frontend-coverage
 ```
 
 ### Example 2: Higher Coverage Threshold
 
 ```bash
 export CHARON_MIN_COVERAGE=90
-.github/skills/scripts/skill-runner.sh test-frontend-coverage
+.claude/skills/scripts/skill-runner.sh test-frontend-coverage
 ```
 
 ### Example 3: View HTML Coverage Report
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-frontend-coverage
+.claude/skills/scripts/skill-runner.sh test-frontend-coverage
 open frontend/coverage/index.html  # macOS
 xdg-open frontend/coverage/index.html  # Linux
 ```

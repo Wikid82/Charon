@@ -83,7 +83,7 @@ Scan all languages with summary output:
 
 ```bash
 cd /path/to/charon
-.github/skills/scripts/skill-runner.sh security-scan-codeql
+.claude/skills/scripts/skill-runner.sh security-scan-codeql
 ```
 
 ### Scan Specific Language
@@ -91,13 +91,13 @@ cd /path/to/charon
 Scan only Go code:
 
 ```bash
-.github/skills/scripts/skill-runner.sh security-scan-codeql go
+.claude/skills/scripts/skill-runner.sh security-scan-codeql go
 ```
 
 Scan only JavaScript/TypeScript code:
 
 ```bash
-.github/skills/scripts/skill-runner.sh security-scan-codeql javascript
+.claude/skills/scripts/skill-runner.sh security-scan-codeql javascript
 ```
 
 ### Full SARIF Output
@@ -105,7 +105,7 @@ Scan only JavaScript/TypeScript code:
 Get detailed SARIF output for integration with tools:
 
 ```bash
-.github/skills/scripts/skill-runner.sh security-scan-codeql all sarif
+.claude/skills/scripts/skill-runner.sh security-scan-codeql all sarif
 ```
 
 ### Text Output
@@ -113,7 +113,7 @@ Get detailed SARIF output for integration with tools:
 Get text-formatted detailed findings:
 
 ```bash
-.github/skills/scripts/skill-runner.sh security-scan-codeql all text
+.claude/skills/scripts/skill-runner.sh security-scan-codeql all text
 ```
 
 ## Parameters
@@ -178,7 +178,7 @@ This skill uses the **security-and-quality** suite to match CI:
 
 ```bash
 # Scan all languages, show summary
-.github/skills/scripts/skill-runner.sh security-scan-codeql
+.claude/skills/scripts/skill-runner.sh security-scan-codeql
 ```
 
 Output:
@@ -199,7 +199,7 @@ Output:
 
 ```bash
 # Detailed text output for Go findings
-.github/skills/scripts/skill-runner.sh security-scan-codeql go text
+.claude/skills/scripts/skill-runner.sh security-scan-codeql go text
 ```
 
 ### Example 3: CI/CD Pipeline Integration
@@ -207,7 +207,7 @@ Output:
 ```yaml
 # GitHub Actions example (already integrated in codeql.yml)
 - name: Run CodeQL Security Scan
-  run: .github/skills/scripts/skill-runner.sh security-scan-codeql all summary
+  run: .claude/skills/scripts/skill-runner.sh security-scan-codeql all summary
   continue-on-error: false
 ```
 

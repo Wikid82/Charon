@@ -60,7 +60,7 @@ temporary named volume and proves that:
 ## Usage
 
 ```bash
-.github/skills/scripts/skill-runner.sh integration-test-crowdsec-data-persistence
+.claude/skills/scripts/skill-runner.sh integration-test-crowdsec-data-persistence
 ```
 
 Requires network access to the CrowdSec hub. Uses no published ports and removes its container

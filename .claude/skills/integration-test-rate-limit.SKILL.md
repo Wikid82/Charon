@@ -68,20 +68,20 @@ Run rate limit integration tests:
 
 ```bash
 cd /path/to/charon
-.github/skills/scripts/skill-runner.sh integration-test-rate-limit
+.claude/skills/scripts/skill-runner.sh integration-test-rate-limit
 ```
 
 ### Verbose Mode
 
 ```bash
-VERBOSE=1 .github/skills/scripts/skill-runner.sh integration-test-rate-limit
+VERBOSE=1 .claude/skills/scripts/skill-runner.sh integration-test-rate-limit
 ```
 
 ### CI/CD Integration
 
 ```yaml
 - name: Run Rate Limit Integration
-  run: .github/skills/scripts/skill-runner.sh integration-test-rate-limit
+  run: .claude/skills/scripts/skill-runner.sh integration-test-rate-limit
   timeout-minutes: 7
 ```
 

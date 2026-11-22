@@ -73,7 +73,7 @@ Run all backend unit tests:
 
 ```bash
 cd /path/to/charon
-.github/skills/scripts/skill-runner.sh test-backend-unit
+.claude/skills/scripts/skill-runner.sh test-backend-unit
 ```
 
 ### Test Specific Package
@@ -81,7 +81,7 @@ cd /path/to/charon
 Test only a specific package or module:
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-backend-unit -- ./internal/handlers/...
+.claude/skills/scripts/skill-runner.sh test-backend-unit -- ./internal/handlers/...
 ```
 
 ### Verbose Output
@@ -89,7 +89,7 @@ Test only a specific package or module:
 Enable verbose test output for debugging:
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-backend-unit -- -v
+.claude/skills/scripts/skill-runner.sh test-backend-unit -- -v
 ```
 
 ### CI/CD Integration
@@ -98,7 +98,7 @@ For use in GitHub Actions or other CI/CD pipelines:
 
 ```yaml
 - name: Run Backend Unit Tests
-  run: .github/skills/scripts/skill-runner.sh test-backend-unit
+  run: .claude/skills/scripts/skill-runner.sh test-backend-unit
 ```
 
 ## Parameters
@@ -139,31 +139,31 @@ ok      github.com/Wikid82/charon/backend/internal/services    0.742s
 ### Example 1: Basic Execution
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-backend-unit
+.claude/skills/scripts/skill-runner.sh test-backend-unit
 ```
 
 ### Example 2: Test Specific Package
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-backend-unit -- ./internal/handlers
+.claude/skills/scripts/skill-runner.sh test-backend-unit -- ./internal/handlers
 ```
 
 ### Example 3: Verbose Output
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-backend-unit -- -v
+.claude/skills/scripts/skill-runner.sh test-backend-unit -- -v
 ```
 
 ### Example 4: Run with Race Detection
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-backend-unit -- -race
+.claude/skills/scripts/skill-runner.sh test-backend-unit -- -race
 ```
 
 ### Example 5: Short Mode (Skip Long Tests)
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-backend-unit -- -short
+.claude/skills/scripts/skill-runner.sh test-backend-unit -- -short
 ```
 
 ## Error Handling

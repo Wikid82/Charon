@@ -113,7 +113,7 @@ Run with default settings (generate SBOM + scan vulnerabilities):
 
 ```bash
 cd /path/to/charon
-.github/skills/scripts/skill-runner.sh security-verify-sbom ghcr.io/user/charon:latest
+.claude/skills/scripts/skill-runner.sh security-verify-sbom ghcr.io/user/charon:latest
 ```
 
 ### Verify Docker Image with Baseline Comparison
@@ -121,7 +121,7 @@ cd /path/to/charon
 Compare current SBOM against a known baseline:
 
 ```bash
-.github/skills/scripts/skill-runner.sh security-verify-sbom \
+.claude/skills/scripts/skill-runner.sh security-verify-sbom \
   charon:local sbom-baseline.json
 ```
 
@@ -130,7 +130,7 @@ Compare current SBOM against a known baseline:
 Verify SBOM structure only, without network access:
 
 ```bash
-VULN_SCAN_ENABLED=false .github/skills/scripts/skill-runner.sh \
+VULN_SCAN_ENABLED=false .claude/skills/scripts/skill-runner.sh \
   security-verify-sbom charon:local
 ```
 
@@ -139,7 +139,7 @@ VULN_SCAN_ENABLED=false .github/skills/scripts/skill-runner.sh \
 Generate SBOM in CycloneDX format:
 
 ```bash
-SBOM_FORMAT=cyclonedx-json .github/skills/scripts/skill-runner.sh \
+SBOM_FORMAT=cyclonedx-json .claude/skills/scripts/skill-runner.sh \
   security-verify-sbom charon:local
 ```
 
@@ -174,7 +174,7 @@ SBOM_FORMAT=cyclonedx-json .github/skills/scripts/skill-runner.sh \
 ### Example 1: Verify Local Docker Image
 
 ```bash
-$ .github/skills/scripts/skill-runner.sh security-verify-sbom charon:test
+$ .claude/skills/scripts/skill-runner.sh security-verify-sbom charon:test
 [INFO] Generating SBOM for charon:test...
 [SBOM] Generated SBOM contains 247 packages
 [INFO] Scanning for vulnerabilities...
@@ -188,7 +188,7 @@ $ .github/skills/scripts/skill-runner.sh security-verify-sbom charon:test
 ### Example 2: With Baseline Comparison
 
 ```bash
-$ .github/skills/scripts/skill-runner.sh security-verify-sbom \
+$ .claude/skills/scripts/skill-runner.sh security-verify-sbom \
   charon:latest sbom-baseline.json
 [INFO] Generating SBOM for charon:latest...
 [SBOM] Generated SBOM contains 247 packages
@@ -207,7 +207,7 @@ $ .github/skills/scripts/skill-runner.sh security-verify-sbom \
 ### Example 3: Air-Gapped Mode
 
 ```bash
-$ VULN_SCAN_ENABLED=false .github/skills/scripts/skill-runner.sh \
+$ VULN_SCAN_ENABLED=false .claude/skills/scripts/skill-runner.sh \
   security-verify-sbom charon:local
 [INFO] Generating SBOM for charon:local...
 [SBOM] Generated SBOM contains 247 packages
@@ -221,7 +221,7 @@ $ VULN_SCAN_ENABLED=false .github/skills/scripts/skill-runner.sh \
 # GitHub Actions example
 - name: Verify SBOM
   run: |
-    .github/skills/scripts/skill-runner.sh \
+    .claude/skills/scripts/skill-runner.sh \
       security-verify-sbom ghcr.io/${{ github.repository }}:${{ github.sha }}
   continue-on-error: false
 ```

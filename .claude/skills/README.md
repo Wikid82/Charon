@@ -6,13 +6,13 @@ This directory contains [Agent Skills](https://agentskills.io) following the age
 
 Agent Skills are self-documenting, AI-discoverable task definitions that combine YAML frontmatter (metadata) with Markdown documentation. Each skill represents a specific task or workflow that can be executed by both humans and AI assistants.
 
-**Location**: `.github/skills/` is the [VS Code Copilot standard location](https://code.visualstudio.com/docs/copilot/customization/agent-skills) for Agent Skills
+**Location**: `.claude/skills/` is the [VS Code Copilot standard location](https://code.visualstudio.com/docs/copilot/customization/agent-skills) for Agent Skills
 **Format**: Skills follow the [agentskills.io specification](https://agentskills.io/specification) for structure and metadata
 
 ## Directory Structure
 
 ```text
-.github/skills/
+.claude/skills/
 ├── README.md                           # This file
 ├── scripts/                            # Shared infrastructure scripts
 │   ├── skill-runner.sh                # Universal skill executor
@@ -90,10 +90,10 @@ Use the universal skill runner to execute any skill:
 
 ```bash
 # From project root
-.github/skills/scripts/skill-runner.sh <skill-name> [args...]
+.claude/skills/scripts/skill-runner.sh <skill-name> [args...]
 
 # Example: Run backend coverage tests
-.github/skills/scripts/skill-runner.sh test-backend-coverage
+.claude/skills/scripts/skill-runner.sh test-backend-coverage
 ```
 
 ### From VS Code Tasks
@@ -110,7 +110,7 @@ Reference skills in GitHub Actions:
 
 ```yaml
 - name: Run Backend Tests with Coverage
-  run: .github/skills/scripts/skill-runner.sh test-backend-coverage
+  run: .claude/skills/scripts/skill-runner.sh test-backend-coverage
 ```
 
 ## Validation
@@ -118,13 +118,13 @@ Reference skills in GitHub Actions:
 ### Validate a Single Skill
 
 ```bash
-python3 .github/skills/scripts/validate-skills.py --single .github/skills/test-backend-coverage/SKILL.md
+python3 .claude/skills/scripts/validate-skills.py --single .claude/skills/test-backend-coverage/SKILL.md
 ```
 
 ### Validate All Skills
 
 ```bash
-python3 .github/skills/scripts/validate-skills.py
+python3 .claude/skills/scripts/validate-skills.py
 ```
 
 ### Validation Checks
@@ -142,7 +142,7 @@ The validator ensures:
 ### 1. Create Skill Directory Structure
 
 ```bash
-mkdir -p .github/skills/{skill-name}/scripts
+mkdir -p .claude/skills/{skill-name}/scripts
 ```
 
 ### 2. Create SKILL.md
@@ -190,7 +190,7 @@ Brief description of what this skill does.
 ## Usage
 
 ```bash
-.github/skills/scripts/skill-runner.sh skill-name
+.claude/skills/scripts/skill-runner.sh skill-name
 ```
 
 ## Examples
@@ -242,19 +242,19 @@ log_success "Skill completed successfully"
 ### 4. Set Permissions
 
 ```bash
-chmod +x .github/skills/{skill-name}/scripts/run.sh
+chmod +x .claude/skills/{skill-name}/scripts/run.sh
 ```
 
 ### 5. Validate
 
 ```bash
-python3 .github/skills/scripts/validate-skills.py --single .github/skills/{skill-name}/SKILL.md
+python3 .claude/skills/scripts/validate-skills.py --single .claude/skills/{skill-name}/SKILL.md
 ```
 
 ### 6. Test
 
 ```bash
-.github/skills/scripts/skill-runner.sh {skill-name}
+.claude/skills/scripts/skill-runner.sh {skill-name}
 ```
 
 ## Naming Conventions
@@ -342,7 +342,7 @@ get_project_root ["marker_file"]             # Find project root directory
 Error: Skill not found: skill-name
 ```
 
-**Solution**: Verify the skill directory exists in `.github/skills/` and contains a `SKILL.md` file
+**Solution**: Verify the skill directory exists in `.claude/skills/` and contains a `SKILL.md` file
 
 ### Skill script not executable
 
@@ -350,7 +350,7 @@ Error: Skill not found: skill-name
 Error: Skill execution script is not executable
 ```
 
-**Solution**: Run `chmod +x .github/skills/{skill-name}/scripts/run.sh`
+**Solution**: Run `chmod +x .claude/skills/{skill-name}/scripts/run.sh`
 
 ### Validation errors
 
@@ -378,7 +378,7 @@ Skills are integrated in `.vscode/tasks.json`:
 {
     "label": "Test: Backend with Coverage",
     "type": "shell",
-    "command": ".github/skills/scripts/skill-runner.sh test-backend-coverage",
+    "command": ".claude/skills/scripts/skill-runner.sh test-backend-coverage",
     "group": "test"
 }
 ```
@@ -389,7 +389,7 @@ Skills are referenced in `.github/workflows/`:
 
 ```yaml
 - name: Run Backend Tests with Coverage
-  run: .github/skills/scripts/skill-runner.sh test-backend-coverage
+  run: .claude/skills/scripts/skill-runner.sh test-backend-coverage
 ```
 
 ### Pre-commit Hooks
@@ -402,7 +402,7 @@ repos:
     hooks:
       - id: backend-coverage
         name: Backend Coverage Check
-        entry: .github/skills/scripts/skill-runner.sh test-backend-coverage
+        entry: .claude/skills/scripts/skill-runner.sh test-backend-coverage
         language: system
 ```
 

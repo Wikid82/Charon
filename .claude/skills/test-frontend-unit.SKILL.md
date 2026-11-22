@@ -72,7 +72,7 @@ Run all frontend unit tests:
 
 ```bash
 cd /path/to/charon
-.github/skills/scripts/skill-runner.sh test-frontend-unit
+.claude/skills/scripts/skill-runner.sh test-frontend-unit
 ```
 
 ### Watch Mode
@@ -80,7 +80,7 @@ cd /path/to/charon
 Run tests in watch mode for continuous testing:
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-frontend-unit -- --watch
+.claude/skills/scripts/skill-runner.sh test-frontend-unit -- --watch
 ```
 
 ### Filter Tests
@@ -88,7 +88,7 @@ Run tests in watch mode for continuous testing:
 Run tests matching a specific pattern:
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-frontend-unit -- --grep "Button"
+.claude/skills/scripts/skill-runner.sh test-frontend-unit -- --grep "Button"
 ```
 
 ### CI/CD Integration
@@ -97,7 +97,7 @@ For use in GitHub Actions or other CI/CD pipelines:
 
 ```yaml
 - name: Run Frontend Unit Tests
-  run: .github/skills/scripts/skill-runner.sh test-frontend-unit
+  run: .claude/skills/scripts/skill-runner.sh test-frontend-unit
 ```
 
 ## Parameters
@@ -139,31 +139,31 @@ Test Files  3 passed (3)
 ### Example 1: Basic Execution
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-frontend-unit
+.claude/skills/scripts/skill-runner.sh test-frontend-unit
 ```
 
 ### Example 2: Watch Mode for TDD
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-frontend-unit -- --watch
+.claude/skills/scripts/skill-runner.sh test-frontend-unit -- --watch
 ```
 
 ### Example 3: Test Specific File
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-frontend-unit -- Button.test.tsx
+.claude/skills/scripts/skill-runner.sh test-frontend-unit -- Button.test.tsx
 ```
 
 ### Example 4: UI Mode (Interactive)
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-frontend-unit -- --ui
+.claude/skills/scripts/skill-runner.sh test-frontend-unit -- --ui
 ```
 
 ### Example 5: Reporter Configuration
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-frontend-unit -- --reporter=verbose
+.claude/skills/scripts/skill-runner.sh test-frontend-unit -- --reporter=verbose
 ```
 
 ## Error Handling

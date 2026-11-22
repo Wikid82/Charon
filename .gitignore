@@ -235,26 +235,26 @@ backend/internal/api/handlers/import_handler.go.bak
 # scripts MUST be committed for CI/CD workflows to function.
 
 # Runtime temporary files
-.github/skills/.cache/
-.github/skills/temp/
-.github/skills/tmp/
-.github/skills/**/*.tmp
+.claude/skills/.cache/
+.claude/skills/temp/
+.claude/skills/tmp/
+.claude/skills/**/*.tmp
 
 # Execution logs
-.github/skills/logs/
-.github/skills/**/*.log
-.github/skills/**/nohup.out
+.claude/skills/logs/
+.claude/skills/**/*.log
+.claude/skills/**/nohup.out
 
 # Test/coverage artifacts
-.github/skills/coverage/
-.github/skills/**/*.cover
-.github/skills/**/*.html
-.github/skills/**/test-output*.txt
-.github/skills/**/*.db
+.claude/skills/coverage/
+.claude/skills/**/*.cover
+.claude/skills/**/*.html
+.claude/skills/**/test-output*.txt
+.claude/skills/**/*.db
 
 # OS and editor files
-.github/skills/**/.DS_Store
-.github/skills/**/Thumbs.db
+.claude/skills/**/.DS_Store
+.claude/skills/**/Thumbs.db
 
 # -----------------------------------------------------------------------------
 # Import Directory (user uploads)

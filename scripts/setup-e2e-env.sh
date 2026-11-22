@@ -15,7 +15,7 @@
 #
 # Rebuild note:
 #   For CI-aligned E2E container rebuilds, prefer:
-#   .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+#   .claude/skills/scripts/skill-runner.sh docker-rebuild-e2e
 
 set -euo pipefail
 
