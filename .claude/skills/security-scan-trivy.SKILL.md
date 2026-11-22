@@ -80,7 +80,7 @@ Run with default settings (all scanners, table format):
 
 ```bash
 cd /path/to/charon
-.github/skills/scripts/skill-runner.sh security-scan-trivy
+.claude/skills/scripts/skill-runner.sh security-scan-trivy
 ```
 
 ### Custom Scanners
@@ -88,13 +88,13 @@ cd /path/to/charon
 Scan only for vulnerabilities:
 
 ```bash
-.github/skills/scripts/skill-runner.sh security-scan-trivy vuln
+.claude/skills/scripts/skill-runner.sh security-scan-trivy vuln
 ```
 
 Scan for secrets and misconfigurations:
 
 ```bash
-.github/skills/scripts/skill-runner.sh security-scan-trivy secret,misconfig
+.claude/skills/scripts/skill-runner.sh security-scan-trivy secret,misconfig
 ```
 
 ### Custom Severity
@@ -102,7 +102,7 @@ Scan for secrets and misconfigurations:
 Scan only for critical and high severity issues:
 
 ```bash
-TRIVY_SEVERITY=CRITICAL,HIGH .github/skills/scripts/skill-runner.sh security-scan-trivy
+TRIVY_SEVERITY=CRITICAL,HIGH .claude/skills/scripts/skill-runner.sh security-scan-trivy
 ```
 
 ### JSON Output
@@ -110,7 +110,7 @@ TRIVY_SEVERITY=CRITICAL,HIGH .github/skills/scripts/skill-runner.sh security-sca
 Get results in JSON format for parsing:
 
 ```bash
-.github/skills/scripts/skill-runner.sh security-scan-trivy vuln,secret,misconfig json
+.claude/skills/scripts/skill-runner.sh security-scan-trivy vuln,secret,misconfig json
 ```
 
 ## Parameters
@@ -169,7 +169,7 @@ Checks configuration files:
 
 ```bash
 # Scan all vulnerability types, display as table
-.github/skills/scripts/skill-runner.sh security-scan-trivy
+.claude/skills/scripts/skill-runner.sh security-scan-trivy
 ```
 
 Output:
@@ -184,14 +184,14 @@ Total: 0 (CRITICAL: 0, HIGH: 0, MEDIUM: 0)
 
 ```bash
 # Scan for vulnerabilities only, output as JSON
-.github/skills/scripts/skill-runner.sh security-scan-trivy vuln json > trivy-results.json
+.claude/skills/scripts/skill-runner.sh security-scan-trivy vuln json > trivy-results.json
 ```
 
 ### Example 3: Critical Issues Only
 
 ```bash
 # Scan for critical severity issues only
-TRIVY_SEVERITY=CRITICAL .github/skills/scripts/skill-runner.sh security-scan-trivy
+TRIVY_SEVERITY=CRITICAL .claude/skills/scripts/skill-runner.sh security-scan-trivy
 ```
 
 ### Example 4: CI/CD Pipeline Integration
@@ -199,7 +199,7 @@ TRIVY_SEVERITY=CRITICAL .github/skills/scripts/skill-runner.sh security-scan-tri
 ```yaml
 # GitHub Actions example
 - name: Run Trivy Security Scan
-  run: .github/skills/scripts/skill-runner.sh security-scan-trivy
+  run: .claude/skills/scripts/skill-runner.sh security-scan-trivy
   continue-on-error: false
 ```
 

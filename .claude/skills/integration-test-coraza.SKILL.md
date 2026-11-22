@@ -72,7 +72,7 @@ Run Coraza WAF integration tests:
 
 ```bash
 cd /path/to/charon
-.github/skills/scripts/skill-runner.sh integration-test-coraza
+.claude/skills/scripts/skill-runner.sh integration-test-coraza
 ```
 
 ### Verbose Mode
@@ -80,7 +80,7 @@ cd /path/to/charon
 Run with detailed attack payloads and responses:
 
 ```bash
-VERBOSE=1 .github/skills/scripts/skill-runner.sh integration-test-coraza
+VERBOSE=1 .claude/skills/scripts/skill-runner.sh integration-test-coraza
 ```
 
 ### CI/CD Integration
@@ -89,7 +89,7 @@ For use in GitHub Actions workflows:
 
 ```yaml
 - name: Test Coraza WAF Integration
-  run: .github/skills/scripts/skill-runner.sh integration-test-coraza
+  run: .claude/skills/scripts/skill-runner.sh integration-test-coraza
   timeout-minutes: 5
 ```
 
@@ -158,20 +158,20 @@ This skill validates protection against:
 ### Example 1: Basic Execution
 
 ```bash
-.github/skills/scripts/skill-runner.sh integration-test-coraza
+.claude/skills/scripts/skill-runner.sh integration-test-coraza
 ```
 
 ### Example 2: Verbose with Custom Host
 
 ```bash
 TEST_HOST=production.example.com VERBOSE=1 \
-  .github/skills/scripts/skill-runner.sh integration-test-coraza
+  .claude/skills/scripts/skill-runner.sh integration-test-coraza
 ```
 
 ### Example 3: Disable WAF for Comparison
 
 ```bash
-WAF_ENABLED=false .github/skills/scripts/skill-runner.sh integration-test-coraza
+WAF_ENABLED=false .claude/skills/scripts/skill-runner.sh integration-test-coraza
 ```
 
 ## Error Handling

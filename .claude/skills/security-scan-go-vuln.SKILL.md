@@ -77,7 +77,7 @@ Run with default settings (text output, source mode):
 
 ```bash
 cd /path/to/charon
-.github/skills/scripts/skill-runner.sh security-scan-go-vuln
+.claude/skills/scripts/skill-runner.sh security-scan-go-vuln
 ```
 
 ### JSON Output
@@ -85,7 +85,7 @@ cd /path/to/charon
 Get results in JSON format for parsing:
 
 ```bash
-.github/skills/scripts/skill-runner.sh security-scan-go-vuln json
+.claude/skills/scripts/skill-runner.sh security-scan-go-vuln json
 ```
 
 ### SARIF Output
@@ -93,13 +93,13 @@ Get results in JSON format for parsing:
 Get results in SARIF format for GitHub Code Scanning:
 
 ```bash
-.github/skills/scripts/skill-runner.sh security-scan-go-vuln sarif
+.claude/skills/scripts/skill-runner.sh security-scan-go-vuln sarif
 ```
 
 ### Custom Format via Environment
 
 ```bash
-GOVULNCHECK_FORMAT=json .github/skills/scripts/skill-runner.sh security-scan-go-vuln
+GOVULNCHECK_FORMAT=json .claude/skills/scripts/skill-runner.sh security-scan-go-vuln
 ```
 
 ## Parameters
@@ -159,7 +159,7 @@ Vulnerability #2: GO-2023-5678
 ```bash
 # Scan backend Go code for vulnerabilities
 cd backend
-.github/skills/scripts/skill-runner.sh security-scan-go-vuln
+.claude/skills/scripts/skill-runner.sh security-scan-go-vuln
 ```
 
 Output:
@@ -173,7 +173,7 @@ No vulnerabilities found.
 
 ```bash
 # Get JSON output for automated processing
-.github/skills/scripts/skill-runner.sh security-scan-go-vuln json > vuln-report.json
+.claude/skills/scripts/skill-runner.sh security-scan-go-vuln json > vuln-report.json
 ```
 
 ### Example 3: CI/CD Pipeline Integration
@@ -181,13 +181,13 @@ No vulnerabilities found.
 ```yaml
 # GitHub Actions example
 - name: Check Go Vulnerabilities
-  run: .github/skills/scripts/skill-runner.sh security-scan-go-vuln
+  run: .claude/skills/scripts/skill-runner.sh security-scan-go-vuln
   working-directory: backend
 
 - name: Upload SARIF Report
   if: always()
   run: |
-    .github/skills/scripts/skill-runner.sh security-scan-go-vuln sarif > results.sarif
+    .claude/skills/scripts/skill-runner.sh security-scan-go-vuln sarif > results.sarif
     # Upload to GitHub Code Scanning
 ```
 
@@ -195,7 +195,7 @@ No vulnerabilities found.
 
 ```bash
 # Scan a compiled binary
-.github/skills/scripts/skill-runner.sh security-scan-go-vuln text binary
+.claude/skills/scripts/skill-runner.sh security-scan-go-vuln text binary
 ```
 
 ## Error Handling
@@ -269,7 +269,7 @@ For SARIF output integration with GitHub Code Scanning:
 
 ```bash
 # Generate SARIF report
-.github/skills/scripts/skill-runner.sh security-scan-go-vuln sarif > govulncheck.sarif
+.claude/skills/scripts/skill-runner.sh security-scan-go-vuln sarif > govulncheck.sarif
 
 # Upload to GitHub (requires GitHub CLI)
 gh api /repos/:owner/:repo/code-scanning/sarifs \

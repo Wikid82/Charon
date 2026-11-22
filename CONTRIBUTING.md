@@ -95,7 +95,7 @@ When the project's Go version is updated (usually by Renovate):
 
    ```bash
    # Run the Go update skill (downloads and installs the new version)
-   .github/skills/scripts/skill-runner.sh utility-update-go-version
+   .claude/skills/scripts/skill-runner.sh utility-update-go-version
    ```
 
 3. **Rebuild your development tools**
@@ -880,11 +880,11 @@ Before creating, define:
 
 ```bash
 # Create skill directory
-mkdir -p .github/skills/{skill-name}-scripts
+mkdir -p .claude/skills/{skill-name}-scripts
 
 # Skill files will be:
-# .github/skills/{skill-name}.SKILL.md         # Documentation
-# .github/skills/{skill-name}-scripts/run.sh    # Execution script
+# .claude/skills/{skill-name}.SKILL.md         # Documentation
+# .claude/skills/{skill-name}-scripts/run.sh    # Execution script
 ```
 
 #### 3. Write the SKILL.md File
@@ -934,7 +934,7 @@ Brief description of what this skill does.
 ## Usage
 
 ```bash
-.github/skills/scripts/skill-runner.sh skill-name
+.claude/skills/scripts/skill-runner.sh skill-name
 ```
 
 ## Examples
@@ -965,7 +965,7 @@ command example
 
 #### 4. Create the Execution Script
 
-Create `.github/skills/{skill-name}-scripts/run.sh`:
+Create `.claude/skills/{skill-name}-scripts/run.sh`:
 
 ```bash
 #!/usr/bin/env bash
@@ -1000,7 +1000,7 @@ log_success "Skill completed successfully"
 Make it executable:
 
 ```bash
-chmod +x .github/skills/{skill-name}-scripts/run.sh
+chmod +x .claude/skills/{skill-name}-scripts/run.sh
 ```
 
 #### 5. Validate the Skill
@@ -1009,10 +1009,10 @@ Run the validation tool:
 
 ```bash
 # Validate single skill
-python3 .github/skills/scripts/validate-skills.py --single .github/skills/{skill-name}.SKILL.md
+python3 .claude/skills/scripts/validate-skills.py --single .claude/skills/{skill-name}.SKILL.md
 
 # Validate all skills
-python3 .github/skills/scripts/validate-skills.py
+python3 .claude/skills/scripts/validate-skills.py
 ```
 
 Fix any validation errors before proceeding.
@@ -1023,7 +1023,7 @@ Test execution:
 
 ```bash
 # Direct execution
-.github/skills/scripts/skill-runner.sh {skill-name}
+.claude/skills/scripts/skill-runner.sh {skill-name}
 
 # Verify output
 # Check exit codes
@@ -1038,14 +1038,14 @@ If the skill should be available in VS Code's task menu, add to `.vscode/tasks.j
 {
     "label": "Category: Skill Name",
     "type": "shell",
-    "command": ".github/skills/scripts/skill-runner.sh skill-name",
+    "command": ".claude/skills/scripts/skill-runner.sh skill-name",
     "group": "test"
 }
 ```
 
 #### 8. Update Documentation
 
-Add your skill to `.github/skills/README.md`:
+Add your skill to `.claude/skills/README.md`:
 
 ```markdown
 | [skill-name](./skill-name.SKILL.md) | category | Description | ✅ Active |
@@ -1118,9 +1118,9 @@ Charon provides helper scripts for common operations:
 
 ### Resources
 
-- **[Agent Skills README](.github/skills/README.md)** — Complete skills documentation
+- **[Agent Skills README](.claude/skills/README.md)** — Complete skills documentation
 - **[agentskills.io Specification](https://agentskills.io/specification)** — Standard format
-- **[Existing Skills](.github/skills/)** — Reference implementations
+- **[Existing Skills](.claude/skills/)** — Reference implementations
 - **[Migration Guide](docs/AGENT_SKILLS_MIGRATION.md)** — Background and benefits
 
 ## Pull Request Process

@@ -67,7 +67,7 @@ threshold results.
 When a rebuild is required (or the container is not running), use:
 
 ```bash
-.github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+.claude/skills/scripts/skill-runner.sh docker-rebuild-e2e
 ```
 
 This step:
@@ -132,7 +132,7 @@ PLAYWRIGHT_BASE_URL=http://localhost:8080 npx playwright test --project=chromium
 
 ```bash
 # Recommended: Uses skill that starts Vite and runs against localhost:5173
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
 ```
 
 The coverage skill:
@@ -149,7 +149,7 @@ The coverage skill:
 PLAYWRIGHT_BASE_URL=http://localhost:8080 npx playwright test --coverage
 
 # ✅ CORRECT: Use the coverage skill
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
 ```
 
 ### Verifying Coverage Locally Before CI
@@ -159,7 +159,7 @@ Before pushing code, verify E2E coverage:
 1. Run the coverage skill:
 
    ```bash
-   .github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
+   .claude/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
    ```
 
 2. Check coverage output:

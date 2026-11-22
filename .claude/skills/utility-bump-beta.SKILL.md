@@ -56,13 +56,13 @@ Automates beta version bumping across all project files. This skill intelligentl
 ### Basic Usage
 
 ```bash
-.github/skills/utility-bump-beta-scripts/run.sh
+.claude/skills/utility-bump-beta-scripts/run.sh
 ```
 
 ### Via Skill Runner
 
 ```bash
-.github/skills/scripts/skill-runner.sh utility-bump-beta
+.claude/skills/scripts/skill-runner.sh utility-bump-beta
 ```
 
 ### Via VS Code Task
@@ -141,7 +141,7 @@ All files are updated with consistent version strings using `sed` regex replacem
 
 ```bash
 # Bump version for next beta iteration
-.github/skills/utility-bump-beta-scripts/run.sh
+.claude/skills/utility-bump-beta-scripts/run.sh
 
 # Confirm when prompted to commit and tag
 # Then push to remote
@@ -152,7 +152,7 @@ git push origin feature/beta-release --tags
 
 ```bash
 # Make version changes but skip git operations
-.github/skills/utility-bump-beta-scripts/run.sh
+.claude/skills/utility-bump-beta-scripts/run.sh
 # Answer 'n' when prompted about committing
 ```
 

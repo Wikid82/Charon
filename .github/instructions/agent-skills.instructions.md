@@ -1,6 +1,6 @@
 ---
 description: 'Guidelines for creating high-quality Agent Skills for GitHub Copilot'
-applyTo: '**/.github/skills/**/SKILL.md, **/.claude/skills/**/SKILL.md'
+applyTo: '**/.claude/skills/**/SKILL.md, **/.claude/skills/**/SKILL.md'
 ---
 
 # Agent Skills File Guidelines
@@ -24,9 +24,9 @@ Skills are stored in specific locations:
 
 | Location | Scope | Recommendation |
 | ---------- | ------- | ---------------- |
-| `.github/skills/<skill-name>/` | Project/repository | Recommended for project skills |
+| `.claude/skills/<skill-name>/` | Project/repository | Recommended for project skills |
 | `.claude/skills/<skill-name>/` | Project/repository | Legacy, for backward compatibility |
-| `~/.github/skills/<skill-name>/` | Personal (user-wide) | Recommended for personal skills |
+| `~/.claude/skills/<skill-name>/` | Personal (user-wide) | Recommended for personal skills |
 | `~/.claude/skills/<skill-name>/` | Personal (user-wide) | Legacy, for backward compatibility |
 
 Each skill **must** have its own subdirectory containing at minimum a `SKILL.md` file.
@@ -106,7 +106,7 @@ Skills can include additional files that Copilot accesses on-demand:
 ### Directory Structure Example
 
 ```text
-.github/skills/my-skill/
+.claude/skills/my-skill/
 ├── SKILL.md              # Required: Main instructions
 ├── LICENSE.txt           # Recommended: License terms (Apache 2.0 typical)
 ├── scripts/              # Optional: Executable automation

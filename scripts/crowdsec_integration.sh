@@ -6,10 +6,10 @@ set -euo pipefail
 export CHARON_SETUP_TOKEN="${CHARON_SETUP_TOKEN:-$(openssl rand -hex 32)}"
 
 # ⚠️  DEPRECATED: This script is deprecated and will be removed in v2.0.0
-#    Please use: .github/skills/scripts/skill-runner.sh integration-test-crowdsec
+#    Please use: .claude/skills/scripts/skill-runner.sh integration-test-crowdsec
 #    For more info: docs/AGENT_SKILLS_MIGRATION.md
 echo "⚠️  WARNING: This script is deprecated and will be removed in v2.0.0" >&2
-echo "    Please use: .github/skills/scripts/skill-runner.sh integration-test-crowdsec" >&2
+echo "    Please use: .claude/skills/scripts/skill-runner.sh integration-test-crowdsec" >&2
 echo "    For more info: docs/AGENT_SKILLS_MIGRATION.md" >&2
 echo "" >&2
 sleep 1

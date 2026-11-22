@@ -8,7 +8,7 @@ set -euo pipefail
 
 # Source helper scripts
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-# Helper scripts are in .github/skills/scripts/
+# Helper scripts are in .claude/skills/scripts/
 SKILLS_SCRIPTS_DIR="$(cd "${SCRIPT_DIR}/../scripts" && pwd)"
 
 # shellcheck source=../scripts/_logging_helpers.sh

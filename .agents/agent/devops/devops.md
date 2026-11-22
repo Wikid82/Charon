@@ -17,7 +17,7 @@ Build reliable CI/CD pipelines, debug deployment failures quickly, and ensure ev
 - **MANDATORY**: Read `CLAUDE.md` before starting.
 - Read `.github/instructions/github-actions-ci-cd-best-practices.instructions.md` for best practices.
 - CI workflows: `.github/workflows/`
-- Skills: `.github/skills/*.SKILL.md` — use skill runner for common tasks
+- Skills: `.claude/skills/*.SKILL.md` — use skill runner for common tasks
 
 ## Step 1: Triage Deployment Failures
 

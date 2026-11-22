@@ -39,9 +39,9 @@ Task: "Security: Full Supply Chain Audit"
 
 ```bash
 # From project root
-.github/skills/scripts/skill-runner.sh security-verify-sbom [image]
-.github/skills/scripts/skill-runner.sh security-sign-cosign [type] [target]
-.github/skills/scripts/skill-runner.sh security-slsa-provenance [action] [target]
+.claude/skills/scripts/skill-runner.sh security-verify-sbom [image]
+.claude/skills/scripts/skill-runner.sh security-sign-cosign [type] [target]
+.claude/skills/scripts/skill-runner.sh security-slsa-provenance [action] [target]
 ```
 
 ---
@@ -56,13 +56,13 @@ Task: "Security: Full Supply Chain Audit"
 
 ```bash
 # Verify container image SBOM
-.github/skills/scripts/skill-runner.sh security-verify-sbom docker charon:local
+.claude/skills/scripts/skill-runner.sh security-verify-sbom docker charon:local
 
 # Verify directory SBOM
-.github/skills/scripts/skill-runner.sh security-verify-sbom dir ./backend
+.claude/skills/scripts/skill-runner.sh security-verify-sbom dir ./backend
 
 # Verify file SBOM
-.github/skills/scripts/skill-runner.sh security-verify-sbom file ./backend/main
+.claude/skills/scripts/skill-runner.sh security-verify-sbom file ./backend/main
 ```
 
 **What it does:**
@@ -93,13 +93,13 @@ Task: "Security: Full Supply Chain Audit"
 
 ```bash
 # Sign Docker image
-.github/skills/scripts/skill-runner.sh security-sign-cosign docker charon:local
+.claude/skills/scripts/skill-runner.sh security-sign-cosign docker charon:local
 
 # Sign binary file
-.github/skills/scripts/skill-runner.sh security-sign-cosign file ./backend/main
+.claude/skills/scripts/skill-runner.sh security-sign-cosign file ./backend/main
 
 # Sign OCI artifact
-.github/skills/scripts/skill-runner.sh security-sign-cosign oci ghcr.io/wikid82/charon:latest
+.claude/skills/scripts/skill-runner.sh security-sign-cosign oci ghcr.io/wikid82/charon:latest
 ```
 
 **What it does:**
@@ -130,13 +130,13 @@ Task: "Security: Full Supply Chain Audit"
 
 ```bash
 # Generate provenance for binary
-.github/skills/scripts/skill-runner.sh security-slsa-provenance generate ./backend/main
+.claude/skills/scripts/skill-runner.sh security-slsa-provenance generate ./backend/main
 
 # Verify provenance
-.github/skills/scripts/skill-runner.sh security-slsa-provenance verify ./backend/main provenance.json
+.claude/skills/scripts/skill-runner.sh security-slsa-provenance verify ./backend/main provenance.json
 
 # Validate provenance format
-.github/skills/scripts/skill-runner.sh security-slsa-provenance validate provenance.json
+.claude/skills/scripts/skill-runner.sh security-slsa-provenance validate provenance.json
 ```
 
 **What it does:**
@@ -179,7 +179,7 @@ make build-all
 make test-all
 
 # 3. Verify SBOM (check for new vulnerabilities)
-.github/skills/scripts/skill-runner.sh security-verify-sbom docker charon:local
+.claude/skills/scripts/skill-runner.sh security-verify-sbom docker charon:local
 ```
 
 **Review output:**
@@ -196,10 +196,10 @@ Before committing:
 docker build -t charon:dev .
 
 # 2. Generate and verify SBOM
-.github/skills/scripts/skill-runner.sh security-verify-sbom docker charon:dev
+.claude/skills/scripts/skill-runner.sh security-verify-sbom docker charon:dev
 
 # 3. Sign image (optional, for testing)
-.github/skills/scripts/skill-runner.sh security-sign-cosign docker charon:dev
+.claude/skills/scripts/skill-runner.sh security-sign-cosign docker charon:dev
 ```
 
 #### 3. Pre-Commit Checks
@@ -217,7 +217,7 @@ echo "🔍 Running supply chain checks..."
 make build-all
 
 # Verify SBOM
-.github/skills/scripts/skill-runner.sh security-verify-sbom dir ./backend
+.claude/skills/scripts/skill-runner.sh security-verify-sbom dir ./backend
 
 # Check for critical vulnerabilities
 if grep -i "critical" sbom-scan-output.txt; then
@@ -260,7 +260,7 @@ git checkout pr-123
 make build-all
 
 # 3. Verify SBOM
-.github/skills/scripts/skill-runner.sh security-verify-sbom docker charon:local
+.claude/skills/scripts/skill-runner.sh security-verify-sbom docker charon:local
 
 # 4. Check for regressions
 # - New vulnerabilities introduced?
@@ -283,17 +283,17 @@ make build-all
 
 ```bash
 # Test SBOM generation
-.github/skills/scripts/skill-runner.sh security-verify-sbom dir ./backend
+.claude/skills/scripts/skill-runner.sh security-verify-sbom dir ./backend
 test -f sbom.spdx.json || echo "❌ SBOM not generated"
 
 # Test signing (requires Cosign)
 docker build -t charon:test .
-.github/skills/scripts/skill-runner.sh security-sign-cosign docker charon:test
+.claude/skills/scripts/skill-runner.sh security-sign-cosign docker charon:test
 echo $? # Should be 0 for success
 
 # Test provenance generation
 go build -o main ./backend/cmd/charon
-.github/skills/scripts/skill-runner.sh security-slsa-provenance generate ./main
+.claude/skills/scripts/skill-runner.sh security-slsa-provenance generate ./main
 test -f provenance.json || echo "❌ Provenance not generated"
 ```
 
@@ -310,10 +310,10 @@ echo "🔧 Building test image..."
 docker build -t charon:integration-test .
 
 echo "🔍 Verifying SBOM..."
-.github/skills/scripts/skill-runner.sh security-verify-sbom docker charon:integration-test
+.claude/skills/scripts/skill-runner.sh security-verify-sbom docker charon:integration-test
 
 echo "✍️ Signing image..."
-.github/skills/scripts/skill-runner.sh security-sign-cosign docker charon:integration-test
+.claude/skills/scripts/skill-runner.sh security-sign-cosign docker charon:integration-test
 
 echo "🔐 Verifying signature..."
 cosign verify \
@@ -322,7 +322,7 @@ cosign verify \
   charon:integration-test || echo "⚠️ Verification expected to fail for local image"
 
 echo "📄 Generating provenance..."
-.github/skills/scripts/skill-runner.sh security-slsa-provenance generate ./backend/main
+.claude/skills/scripts/skill-runner.sh security-slsa-provenance generate ./backend/main
 
 echo "✅ All supply chain tests passed!"
 ```
@@ -387,19 +387,19 @@ docker build -t charon:v1.0.0 .
 
 ```bash
 # Generate SBOM for image
-.github/skills/scripts/skill-runner.sh security-verify-sbom docker charon:v1.0.0
+.claude/skills/scripts/skill-runner.sh security-verify-sbom docker charon:v1.0.0
 mv sbom.spdx.json sbom-v1.0.0.spdx.json
 
 # Generate SBOM for binary
-.github/skills/scripts/skill-runner.sh security-verify-sbom file ./backend/charon-linux-amd64
+.claude/skills/scripts/skill-runner.sh security-verify-sbom file ./backend/charon-linux-amd64
 mv sbom.spdx.json sbom-binary-v1.0.0.spdx.json
 
 # Generate provenance for binary
-.github/skills/scripts/skill-runner.sh security-slsa-provenance generate ./backend/charon-linux-amd64
+.claude/skills/scripts/skill-runner.sh security-slsa-provenance generate ./backend/charon-linux-amd64
 mv provenance.json provenance-v1.0.0.json
 
 # Sign binary
-.github/skills/scripts/skill-runner.sh security-sign-cosign file ./backend/charon-linux-amd64
+.claude/skills/scripts/skill-runner.sh security-sign-cosign file ./backend/charon-linux-amd64
 ```
 
 #### 4. Push and Sign Image
@@ -414,8 +414,8 @@ docker push ghcr.io/wikid82/charon:v1.0.0
 docker push ghcr.io/wikid82/charon:latest
 
 # Sign images
-.github/skills/scripts/skill-runner.sh security-sign-cosign oci ghcr.io/wikid82/charon:v1.0.0
-.github/skills/scripts/skill-runner.sh security-sign-cosign oci ghcr.io/wikid82/charon:latest
+.claude/skills/scripts/skill-runner.sh security-sign-cosign oci ghcr.io/wikid82/charon:v1.0.0
+.claude/skills/scripts/skill-runner.sh security-sign-cosign oci ghcr.io/wikid82/charon:latest
 ```
 
 #### 5. Verify Release Artifacts
@@ -604,7 +604,7 @@ Enable verbose logging:
 ```bash
 # For skill scripts
 export SKILL_DEBUG=1
-.github/skills/scripts/skill-runner.sh security-verify-sbom docker charon:local
+.claude/skills/scripts/skill-runner.sh security-verify-sbom docker charon:local
 
 # For Syft
 export SYFT_LOG_LEVEL=debug

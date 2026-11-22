@@ -24,7 +24,7 @@
 #   3. Installs a `codeql` shim on PATH (via `gh codeql install-stub`) that
 #      forwards to `gh codeql`, so every existing script that calls a bare
 #      `codeql` command (codeql-go-scan.sh, codeql-js-scan.sh,
-#      tools/codeql_scan.sh, .github/skills/security-scan-codeql-scripts,
+#      tools/codeql_scan.sh, .claude/skills/security-scan-codeql-scripts,
 #      VS Code tasks) works unmodified.
 #
 # Safe to re-run; every step is idempotent.

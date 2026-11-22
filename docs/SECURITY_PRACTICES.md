@@ -475,7 +475,7 @@ return c.JSON(401, gin.H{"error": "invalid API key: abc123"})
 
 ```bash
 # Run CodeQL security scan
-.github/skills/scripts/skill-runner.sh security-codeql-scan
+.claude/skills/scripts/skill-runner.sh security-codeql-scan
 
 # Expected: 0 CWE-312/315/359 findings
 ```
@@ -493,7 +493,7 @@ go test ./backend/internal/api/handlers -run TestSaveKeyToFile_SecurePermissions
 
 ```bash
 # Run Playwright E2E tests
-.github/skills/scripts/skill-runner.sh test-e2e-playwright
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright
 
 # Check for exposed secrets in test logs
 grep -i "api[_-]key\|token\|password" playwright-report/index.html

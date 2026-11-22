@@ -55,13 +55,13 @@ Removes unused Docker resources to free up disk space and clean up the Docker en
 ### Basic Usage
 
 ```bash
-.github/skills/docker-prune-scripts/run.sh
+.claude/skills/docker-prune-scripts/run.sh
 ```
 
 ### Via Skill Runner
 
 ```bash
-.github/skills/scripts/skill-runner.sh docker-prune
+.claude/skills/scripts/skill-runner.sh docker-prune
 ```
 
 ### Via VS Code Task
@@ -135,7 +135,7 @@ This command **DOES NOT** remove:
 
 ```bash
 # Clean up Docker environment
-.github/skills/docker-prune-scripts/run.sh
+.claude/skills/docker-prune-scripts/run.sh
 ```
 
 ### Example 2: Check Disk Usage Before/After
@@ -145,7 +145,7 @@ This command **DOES NOT** remove:
 docker system df
 
 # Run cleanup
-.github/skills/docker-prune-scripts/run.sh
+.claude/skills/docker-prune-scripts/run.sh
 
 # Verify freed space
 docker system df
@@ -155,7 +155,7 @@ docker system df
 
 ```bash
 # Standard prune
-.github/skills/docker-prune-scripts/run.sh
+.claude/skills/docker-prune-scripts/run.sh
 
 # Additionally prune volumes (WARNING: data loss)
 docker volume prune -f

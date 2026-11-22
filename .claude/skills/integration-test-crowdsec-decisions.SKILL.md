@@ -76,7 +76,7 @@ Run CrowdSec decision API tests:
 
 ```bash
 cd /path/to/charon
-.github/skills/scripts/skill-runner.sh integration-test-crowdsec-decisions
+.claude/skills/scripts/skill-runner.sh integration-test-crowdsec-decisions
 ```
 
 ### Verbose Mode
@@ -84,7 +84,7 @@ cd /path/to/charon
 Run with detailed API request/response logging:
 
 ```bash
-VERBOSE=1 .github/skills/scripts/skill-runner.sh integration-test-crowdsec-decisions
+VERBOSE=1 .claude/skills/scripts/skill-runner.sh integration-test-crowdsec-decisions
 ```
 
 ### CI/CD Integration
@@ -93,7 +93,7 @@ For use in GitHub Actions workflows:
 
 ```yaml
 - name: Test CrowdSec Decision API
-  run: .github/skills/scripts/skill-runner.sh integration-test-crowdsec-decisions
+  run: .claude/skills/scripts/skill-runner.sh integration-test-crowdsec-decisions
   timeout-minutes: 5
 ```
 
@@ -177,28 +177,28 @@ This skill validates:
 ### Example 1: Basic Execution
 
 ```bash
-.github/skills/scripts/skill-runner.sh integration-test-crowdsec-decisions
+.claude/skills/scripts/skill-runner.sh integration-test-crowdsec-decisions
 ```
 
 ### Example 2: Test Specific IP
 
 ```bash
 TEST_IP=10.0.0.1 \
-  .github/skills/scripts/skill-runner.sh integration-test-crowdsec-decisions
+  .claude/skills/scripts/skill-runner.sh integration-test-crowdsec-decisions
 ```
 
 ### Example 3: Custom LAPI URL
 
 ```bash
 CROWDSEC_LAPI_URL=https://crowdsec-lapi.example.com \
-  .github/skills/scripts/skill-runner.sh integration-test-crowdsec-decisions
+  .claude/skills/scripts/skill-runner.sh integration-test-crowdsec-decisions
 ```
 
 ### Example 4: Verbose with API Key
 
 ```bash
 CROWDSEC_API_KEY=my-api-key VERBOSE=1 \
-  .github/skills/scripts/skill-runner.sh integration-test-crowdsec-decisions
+  .claude/skills/scripts/skill-runner.sh integration-test-crowdsec-decisions
 ```
 
 ## API Endpoints Tested

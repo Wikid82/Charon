@@ -79,20 +79,20 @@ Runs the security header profile integration tests against a real Caddy. An upst
 
 ```bash
 cd /path/to/charon
-.github/skills/scripts/skill-runner.sh integration-test-security-headers
+.claude/skills/scripts/skill-runner.sh integration-test-security-headers
 ```
 
 Test a specific image without touching `charon:local`:
 
 ```bash
-CHARON_IMAGE=charon:my-build SH_PREFIX=sh-test .github/skills/scripts/skill-runner.sh integration-test-security-headers
+CHARON_IMAGE=charon:my-build SH_PREFIX=sh-test .claude/skills/scripts/skill-runner.sh integration-test-security-headers
 ```
 
 ### CI/CD Integration
 
 ```yaml
 - name: Run Security Headers Integration
-  run: .github/skills/scripts/skill-runner.sh integration-test-security-headers
+  run: .claude/skills/scripts/skill-runner.sh integration-test-security-headers
   timeout-minutes: 7
 ```
 

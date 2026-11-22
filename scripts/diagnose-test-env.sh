@@ -23,7 +23,7 @@ if docker ps --format '{{.Names}}' | grep -q "charon-e2e"; then
 else
   echo -e "   ${RED}✗${NC} charon-e2e container is NOT running"
   echo ""
-  echo "   Run: .github/skills/scripts/skill-runner.sh docker-rebuild-e2e"
+  echo "   Run: .claude/skills/scripts/skill-runner.sh docker-rebuild-e2e"
   exit 1
 fi
 

@@ -48,7 +48,7 @@ The repository root should contain ONLY:
 ### Scripts
 
 - **Location**: `scripts/` for general scripts
-- **Location**: `.github/skills/scripts/` for agent skill scripts
+- **Location**: `.claude/skills/scripts/` for agent skill scripts
 
 ## Before Creating New Files
 

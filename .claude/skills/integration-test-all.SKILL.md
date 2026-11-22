@@ -77,7 +77,7 @@ Run all integration tests:
 
 ```bash
 cd /path/to/charon
-.github/skills/scripts/skill-runner.sh integration-test-all
+.claude/skills/scripts/skill-runner.sh integration-test-all
 ```
 
 ### Verbose Mode
@@ -85,7 +85,7 @@ cd /path/to/charon
 Run with detailed output:
 
 ```bash
-VERBOSE=1 .github/skills/scripts/skill-runner.sh integration-test-all
+VERBOSE=1 .claude/skills/scripts/skill-runner.sh integration-test-all
 ```
 
 ### CI/CD Integration
@@ -94,7 +94,7 @@ For use in GitHub Actions workflows:
 
 ```yaml
 - name: Run All Integration Tests
-  run: .github/skills/scripts/skill-runner.sh integration-test-all
+  run: .claude/skills/scripts/skill-runner.sh integration-test-all
   timeout-minutes: 20
 ```
 
@@ -146,26 +146,26 @@ All integration tests passed!
 ### Example 1: Basic Execution
 
 ```bash
-.github/skills/scripts/skill-runner.sh integration-test-all
+.claude/skills/scripts/skill-runner.sh integration-test-all
 ```
 
 ### Example 2: Verbose with Custom Timeout
 
 ```bash
-VERBOSE=1 TEST_TIMEOUT=600 .github/skills/scripts/skill-runner.sh integration-test-all
+VERBOSE=1 TEST_TIMEOUT=600 .claude/skills/scripts/skill-runner.sh integration-test-all
 ```
 
 ### Example 3: Skip Cleanup for Debugging
 
 ```bash
-SKIP_CLEANUP=true .github/skills/scripts/skill-runner.sh integration-test-all
+SKIP_CLEANUP=true .claude/skills/scripts/skill-runner.sh integration-test-all
 ```
 
 ### Example 4: CI/CD Pipeline
 
 ```bash
 # Run with specific Docker configuration
-DOCKER_BUILDKIT=1 .github/skills/scripts/skill-runner.sh integration-test-all
+DOCKER_BUILDKIT=1 .claude/skills/scripts/skill-runner.sh integration-test-all
 ```
 
 ## Test Coverage

@@ -116,19 +116,19 @@ Runs Playwright E2E tests in headed/debug mode for troubleshooting. This skill p
 Run all tests in headed mode with slow motion:
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-debug
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright-debug
 ```
 
 ### Debug Specific Test File
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-debug --file=login.spec.ts
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright-debug --file=login.spec.ts
 ```
 
 ### Debug Test by Name Pattern
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-debug --grep="should login with valid credentials"
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright-debug --grep="should login with valid credentials"
 ```
 
 ### With Playwright Inspector
@@ -136,7 +136,7 @@ Run all tests in headed mode with slow motion:
 Open the Playwright Inspector for step-by-step debugging:
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-debug --inspector
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright-debug --inspector
 ```
 
 ### Custom Slow Motion
@@ -145,22 +145,22 @@ Adjust the delay between actions (in milliseconds):
 
 ```bash
 # Slower for detailed observation
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-debug --slowmo=1000
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright-debug --slowmo=1000
 
 # Faster but still visible
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-debug --slowmo=200
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright-debug --slowmo=200
 ```
 
 ### Different Browser
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-debug --project=firefox
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright-debug --project=firefox
 ```
 
 ### Combined Options
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-debug \
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright-debug \
     --file=dashboard.spec.ts \
     --grep="navigation" \
     --slowmo=750 \
@@ -198,7 +198,7 @@ The Inspector provides:
 
 ```bash
 # Enable Inspector
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-debug --inspector
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright-debug --inspector
 ```
 
 In the Inspector:
@@ -225,7 +225,7 @@ test('debug this test', async ({ page }) => {
 Enable detailed Playwright API logging:
 
 ```bash
-DEBUG=pw:api .github/skills/scripts/skill-runner.sh test-e2e-playwright-debug
+DEBUG=pw:api .claude/skills/scripts/skill-runner.sh test-e2e-playwright-debug
 ```
 
 ### Screenshot on Failure
@@ -265,10 +265,10 @@ Traces include:
 
 ```bash
 # Rebuild environment with clean state
-.github/skills/scripts/skill-runner.sh docker-rebuild-e2e --clean
+.claude/skills/scripts/skill-runner.sh docker-rebuild-e2e --clean
 
 # Debug login tests
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-debug \
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright-debug \
     --file=login.spec.ts \
     --slowmo=800
 ```
@@ -277,7 +277,7 @@ Traces include:
 
 ```bash
 # Run with Inspector to step through
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-debug \
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright-debug \
     --grep="flaky test name" \
     --inspector
 
@@ -289,7 +289,7 @@ npx playwright show-trace test-results/*/trace.zip
 
 ```bash
 # Run in headed mode while developing
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-debug \
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright-debug \
     --file=new-feature.spec.ts \
     --slowmo=500
 ```
@@ -298,7 +298,7 @@ npx playwright show-trace test-results/*/trace.zip
 
 ```bash
 # Debug in Firefox
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-debug \
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright-debug \
     --project=firefox \
     --grep="cross-browser issue"
 ```

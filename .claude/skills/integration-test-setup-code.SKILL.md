@@ -44,7 +44,7 @@ Each run generates its own token and unique container and volume names, and remo
 ## Usage
 
 ```bash
-.github/skills/scripts/skill-runner.sh integration-test-setup-code
+.claude/skills/scripts/skill-runner.sh integration-test-setup-code
 ```
 
 Or directly:

@@ -100,7 +100,7 @@ Run with default settings (85% minimum coverage):
 
 ```bash
 cd /path/to/charon
-.github/skills/scripts/skill-runner.sh test-backend-coverage
+.claude/skills/scripts/skill-runner.sh test-backend-coverage
 ```
 
 ### Custom Coverage Threshold
@@ -109,7 +109,7 @@ Set a custom minimum coverage percentage:
 
 ```bash
 export CHARON_MIN_COVERAGE=90
-.github/skills/scripts/skill-runner.sh test-backend-coverage
+.claude/skills/scripts/skill-runner.sh test-backend-coverage
 ```
 
 ### CI/CD Integration
@@ -118,7 +118,7 @@ For use in GitHub Actions or other CI/CD pipelines:
 
 ```yaml
 - name: Run Backend Tests with Coverage
-  run: .github/skills/scripts/skill-runner.sh test-backend-coverage
+  run: .claude/skills/scripts/skill-runner.sh test-backend-coverage
   env:
     CHARON_MIN_COVERAGE: 85
 ```
@@ -172,14 +172,14 @@ Coverage requirement met
 ### Example 1: Basic Execution
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-backend-coverage
+.claude/skills/scripts/skill-runner.sh test-backend-coverage
 ```
 
 ### Example 2: Higher Coverage Threshold
 
 ```bash
 export CHARON_MIN_COVERAGE=90
-.github/skills/scripts/skill-runner.sh test-backend-coverage
+.claude/skills/scripts/skill-runner.sh test-backend-coverage
 ```
 
 ## Excluded Packages

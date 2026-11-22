@@ -94,7 +94,7 @@ Runs Playwright end-to-end tests with code coverage collection using `@bgotink/p
 Run E2E tests with coverage collection:
 
 ```bash
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
 ```
 
 ### Browser Selection
@@ -103,10 +103,10 @@ Run tests in a specific browser:
 
 ```bash
 # Firefox (default)
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage --project=firefox
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright-coverage --project=firefox
 
 # Firefox
-.github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage --project=firefox
+.claude/skills/scripts/skill-runner.sh test-e2e-playwright-coverage --project=firefox
 ```
 
 ### CI/CD Integration
@@ -115,7 +115,7 @@ For use in GitHub Actions or other CI/CD pipelines:
 
 ```yaml
 - name: Run E2E Tests with Coverage
-  run: .github/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
+  run: .claude/skills/scripts/skill-runner.sh test-e2e-playwright-coverage
   env:
     PLAYWRIGHT_BASE_URL: http://localhost:8080
     CI: true

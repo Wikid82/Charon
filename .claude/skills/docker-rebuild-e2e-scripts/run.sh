@@ -385,10 +385,10 @@ show_summary() {
     fi
     echo ""
     echo "  Run E2E tests:"
-    echo "    .github/skills/scripts/skill-runner.sh test-e2e-playwright"
+    echo "    .claude/skills/scripts/skill-runner.sh test-e2e-playwright"
     echo ""
     echo "  Run in debug mode:"
-    echo "    .github/skills/scripts/skill-runner.sh test-e2e-playwright-debug"
+    echo "    .claude/skills/scripts/skill-runner.sh test-e2e-playwright-debug"
     echo ""
     echo "  View logs:"
     echo "    docker logs ${CONTAINER_NAME} -f"

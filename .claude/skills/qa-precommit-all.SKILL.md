@@ -100,7 +100,7 @@ lefthook run pre-commit --hooks=trailing-whitespace
 Skip certain hooks during execution:
 
 ```bash
-SKIP=prettier,eslint .github/skills/scripts/skill-runner.sh qa-precommit-all
+SKIP=prettier,eslint .claude/skills/scripts/skill-runner.sh qa-precommit-all
 ```
 
 ## Parameters
@@ -169,7 +169,7 @@ The following hooks are configured in `.pre-commit-config.yaml`:
 ```bash
 # Run all hooks on all files
 source .venv/bin/activate
-.github/skills/scripts/skill-runner.sh qa-precommit-all
+.claude/skills/scripts/skill-runner.sh qa-precommit-all
 ```
 
 Output:
@@ -192,14 +192,14 @@ markdownlint.................................................Passed
 
 ```bash
 # Run only on staged files (faster for pre-commit)
-.github/skills/scripts/skill-runner.sh qa-precommit-all staged
+.claude/skills/scripts/skill-runner.sh qa-precommit-all staged
 ```
 
 ### Example 3: Skip Slow Hooks
 
 ```bash
 # Skip time-consuming hooks for quick validation
-SKIP=golangci-lint,mypy .github/skills/scripts/skill-runner.sh qa-precommit-all
+SKIP=golangci-lint,mypy .claude/skills/scripts/skill-runner.sh qa-precommit-all
 ```
 
 ### Example 4: CI/CD Pipeline Integration
@@ -215,7 +215,7 @@ SKIP=golangci-lint,mypy .github/skills/scripts/skill-runner.sh qa-precommit-all
   run: pip install pre-commit
 
 - name: Run QA Pre-commit Checks
-  run: .github/skills/scripts/skill-runner.sh qa-precommit-all
+  run: .claude/skills/scripts/skill-runner.sh qa-precommit-all
 ```
 
 ### Example 5: Auto-fix Mode
@@ -223,8 +223,8 @@ SKIP=golangci-lint,mypy .github/skills/scripts/skill-runner.sh qa-precommit-all
 ```bash
 # Some hooks can auto-fix issues
 # Run twice: first to fix, second to validate
-.github/skills/scripts/skill-runner.sh qa-precommit-all || \
-.github/skills/scripts/skill-runner.sh qa-precommit-all
+.claude/skills/scripts/skill-runner.sh qa-precommit-all || \
+.claude/skills/scripts/skill-runner.sh qa-precommit-all
 ```
 
 ## Error Handling

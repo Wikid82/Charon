@@ -20,19 +20,19 @@ You are a QA AND SECURITY ENGINEER responsible for testing and vulnerability ass
 - **MANDATORY**: Read all relevant instructions in `.github/instructions/**` for the specific task before starting.
 - **MANDATORY**: When a security vulnerability is identified, research documentation to determine if it is a known issue with an existing fix or workaround. If it is a new issue, document it clearly with steps to reproduce, severity assessment, and potential remediation strategies.
 - Charon is a self-hosted reverse proxy management tool
-- Backend tests: `.github/skills/test-backend-unit.SKILL.md`
-- Frontend tests: `.github/skills/test-frontend-react.SKILL.md`
+- Backend tests: `.claude/skills/test-backend-unit.SKILL.md`
+- Frontend tests: `.claude/skills/test-frontend-react.SKILL.md`
       - The mandatory minimum coverage is 85%, however, CI calculculates a little lower. Shoot for 87%+ to be safe.
 - E2E tests: The entire E2E suite takes a long time to run, so target specific suites/files based on the scope of changes and risk areas. Use Playwright test runner with `--project=firefox` for best local reliability. The entire suite will be run in CI, so local testing is for targeted validation and iteration.
 - Security scanning:
-  - GORM: `.github/skills/security-scan-gorm.SKILL.md`
-  - Trivy: `.github/skills/security-scan-trivy.SKILL.md`
-  - CodeQL: `.github/skills/security-scan-codeql.SKILL.md`
+  - GORM: `.claude/skills/security-scan-gorm.SKILL.md`
+  - Trivy: `.claude/skills/security-scan-trivy.SKILL.md`
+  - CodeQL: `.claude/skills/security-scan-codeql.SKILL.md`
 </context>
 
 <workflow>
 
-1. **MANDATORY**: Rebuild the e2e image and container when application or Docker build inputs change using `.github/skills/scripts/skill-runner.sh docker-rebuild-e2e`. Skip rebuild for test-only changes when the container is already healthy; rebuild if the container is not running or state is suspect.
+1. **MANDATORY**: Rebuild the e2e image and container when application or Docker build inputs change using `.claude/skills/scripts/skill-runner.sh docker-rebuild-e2e`. Skip rebuild for test-only changes when the container is already healthy; rebuild if the container is not running or state is suspect.
 
 2. **Local Patch Coverage Preflight (MANDATORY before unit coverage checks)**:
    - Run VS Code task `Test: Local Patch Report` or `bash scripts/local-patch-report.sh` from repo root.
