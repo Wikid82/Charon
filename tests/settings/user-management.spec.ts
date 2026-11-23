@@ -1551,7 +1551,7 @@ test.describe('Standard user management controls', () => {
     await test.step('Open the Add Proxy Host form', async () => {
       await page.goto('/proxy-hosts');
       await waitForLoadingComplete(page);
-      await page.getByRole('button', { name: 'Add Proxy Host' }).click();
+      await page.getByRole('button', { name: 'Add Proxy Host' }).first().click();
     });
 
     const dialog = page.getByRole('dialog');
