@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -23,12 +22,8 @@ type jsonImportSession struct {
 	NPMExport    *NPMExport
 }
 
-// jsonImportSessions stores parsed exports keyed by session UUID.
-// TODO: Implement session expiration to prevent memory leaks (e.g., TTL-based cleanup).
-var (
-	jsonImportSessions   = make(map[string]jsonImportSession)
-	jsonImportSessionsMu sync.RWMutex
-)
+// jsonImportSessions holds parsed exports keyed by session UUID until they are committed, cancelled or expire.
+var jsonImportSessions = newImportSessionStore[jsonImportSession](importSessionTTL, maxImportSessions)
 
 // CharonExport represents the top-level structure of a Charon export file.
 type CharonExport struct {
@@ -98,9 +93,10 @@ func NewJSONImportHandler(db *gorm.DB) *JSONImportHandler {
 
 // RegisterRoutes registers JSON import routes.
 func (h *JSONImportHandler) RegisterRoutes(router *gin.RouterGroup) {
-	router.POST("/import/json/upload", h.Upload)
-	router.POST("/import/json/commit", h.Commit)
-	router.POST("/import/json/cancel", h.Cancel)
+	body := limitRequestBody(maxJSONImportBodyBytes)
+	router.POST("/import/json/upload", body, h.Upload)
+	router.POST("/import/json/commit", body, h.Commit)
+	router.POST("/import/json/cancel", body, h.Cancel)
 }
 
 // Upload parses a JSON export (Charon or NPM format) and returns a preview.
@@ -110,6 +106,9 @@ func (h *JSONImportHandler) Upload(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
+		if respondIfBodyTooLarge(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -155,12 +154,10 @@ func (h *JSONImportHandler) handleCharonUpload(c *gin.Context, export CharonExpo
 	sid := uuid.NewString()
 
 	// Store the parsed export in session storage for later commit
-	jsonImportSessionsMu.Lock()
-	jsonImportSessions[sid] = jsonImportSession{
+	jsonImportSessions.Put(sid, jsonImportSession{
 		SourceType:   "charon",
 		CharonExport: &export,
-	}
-	jsonImportSessionsMu.Unlock()
+	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"session":          gin.H{"id": sid, "state": "transient", "source_type": "charon"},
@@ -196,12 +193,10 @@ func (h *JSONImportHandler) handleNPMUpload(c *gin.Context, export NPMExport) {
 	sid := uuid.NewString()
 
 	// Store the parsed export in session storage for later commit
-	jsonImportSessionsMu.Lock()
-	jsonImportSessions[sid] = jsonImportSession{
+	jsonImportSessions.Put(sid, jsonImportSession{
 		SourceType: "npm",
 		NPMExport:  &export,
-	}
-	jsonImportSessionsMu.Unlock()
+	})
 
 	c.JSON(http.StatusOK, gin.H{
 		"session":          gin.H{"id": sid, "state": "transient", "source_type": "npm"},
@@ -224,14 +219,15 @@ func (h *JSONImportHandler) Commit(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
+		if respondIfBodyTooLarge(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
 
 	// Retrieve the stored session
-	jsonImportSessionsMu.RLock()
-	session, ok := jsonImportSessions[req.SessionUUID]
-	jsonImportSessionsMu.RUnlock()
+	session, ok := jsonImportSessions.Get(req.SessionUUID)
 
 	if !ok {
 		c.JSON(http.StatusNotFound, gin.H{"error": "session not found or expired"})
@@ -259,6 +255,9 @@ func (h *JSONImportHandler) Cancel(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
+		if respondIfBodyTooLarge(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -269,9 +268,7 @@ func (h *JSONImportHandler) Cancel(c *gin.Context) {
 	}
 
 	// Clean up session if it exists
-	jsonImportSessionsMu.Lock()
-	delete(jsonImportSessions, req.SessionUUID)
-	jsonImportSessionsMu.Unlock()
+	jsonImportSessions.Delete(req.SessionUUID)
 
 	c.JSON(http.StatusOK, gin.H{"status": "cancelled"})
 }
@@ -334,9 +331,7 @@ func (h *JSONImportHandler) commitCharonImport(c *gin.Context, export CharonExpo
 	}
 
 	// Clean up session after successful commit
-	jsonImportSessionsMu.Lock()
-	delete(jsonImportSessions, sessionUUID)
-	jsonImportSessionsMu.Unlock()
+	jsonImportSessions.Delete(sessionUUID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"created": created,
@@ -405,9 +400,7 @@ func (h *JSONImportHandler) commitNPMImport(c *gin.Context, export NPMExport, re
 	}
 
 	// Clean up session after successful commit
-	jsonImportSessionsMu.Lock()
-	delete(jsonImportSessions, sessionUUID)
-	jsonImportSessionsMu.Unlock()
+	jsonImportSessions.Delete(sessionUUID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"created": created,

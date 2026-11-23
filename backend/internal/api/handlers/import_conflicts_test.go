@@ -163,9 +163,7 @@ func TestJSONAndNPMImport_ListFailureFailsClosed(t *testing.T) {
 		jsonSID := "sid-charon"
 		var export CharonExport
 		require.NoError(t, json.Unmarshal(charonContent, &export))
-		jsonImportSessionsMu.Lock()
-		jsonImportSessions[jsonSID] = jsonImportSession{SourceType: "charon", CharonExport: &export}
-		jsonImportSessionsMu.Unlock()
+		jsonImportSessions.Put(jsonSID, jsonImportSession{SourceType: "charon", CharonExport: &export})
 		assertGenericListFailure(t, postImportJSON(router, "/api/v1/import/json/commit", map[string]any{"session_uuid": jsonSID, "resolutions": map[string]string{}}))
 	})
 	t.Run("json commit npm", func(t *testing.T) {
@@ -176,9 +174,7 @@ func TestJSONAndNPMImport_ListFailureFailsClosed(t *testing.T) {
 		jsonSID := "sid-npm"
 		var export NPMExport
 		require.NoError(t, json.Unmarshal(npmContent, &export))
-		jsonImportSessionsMu.Lock()
-		jsonImportSessions[jsonSID] = jsonImportSession{SourceType: "npm", NPMExport: &export}
-		jsonImportSessionsMu.Unlock()
+		jsonImportSessions.Put(jsonSID, jsonImportSession{SourceType: "npm", NPMExport: &export})
 		assertGenericListFailure(t, postImportJSON(router, "/api/v1/import/json/commit", map[string]any{"session_uuid": jsonSID, "resolutions": map[string]string{}}))
 	})
 	t.Run("npm commit", func(t *testing.T) {
@@ -187,9 +183,7 @@ func TestJSONAndNPMImport_ListFailureFailsClosed(t *testing.T) {
 		NewNPMImportHandler(db).RegisterRoutes(router.Group("/api/v1"))
 		var export NPMExport
 		require.NoError(t, json.Unmarshal(npmContent, &export))
-		npmImportSessionsMu.Lock()
-		npmImportSessions["sid-npm-commit"] = export
-		npmImportSessionsMu.Unlock()
+		npmImportSessions.Put("sid-npm-commit", export)
 		assertGenericListFailure(t, postImportJSON(router, "/api/v1/import/npm/commit", map[string]any{"session_uuid": "sid-npm-commit", "resolutions": map[string]string{}}))
 	})
 }
@@ -252,6 +246,7 @@ func TestImportHandler_ListFailureFailsClosed(t *testing.T) {
 		require.NoError(t, os.MkdirAll(uploads, 0o750))
 		sid := "list-fail-commit"
 		require.NoError(t, os.WriteFile(filepath.Join(uploads, sid+".caddyfile"), []byte("a.example.com { reverse_proxy localhost:8080 }"), 0o600))
+		seedUploadSession(t, h, sid, filepath.Join(uploads, sid+".caddyfile"))
 		r := adminRouter(func(r *gin.Engine) { r.POST("/commit", h.Commit) })
 		assertGenericListFailure(t, postImportJSON(r, "/commit", map[string]any{"session_uuid": sid, "resolutions": map[string]string{}}))
 	})
