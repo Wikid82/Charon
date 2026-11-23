@@ -39,10 +39,11 @@ func NewRedirectionHostHandler(db *gorm.DB, caddyManager *caddy.Manager) *Redire
 
 // RegisterRoutes registers redirection host routes on the given router group.
 func (h *RedirectionHostHandler) RegisterRoutes(router *gin.RouterGroup) {
+	body := limitRequestBody(maxHostRequestBodyBytes)
 	router.GET("/redirection-hosts", h.List)
-	router.POST("/redirection-hosts", h.Create)
+	router.POST("/redirection-hosts", body, h.Create)
 	router.GET("/redirection-hosts/:uuid", h.Get)
-	router.PUT("/redirection-hosts/:uuid", h.Update)
+	router.PUT("/redirection-hosts/:uuid", body, h.Update)
 	router.DELETE("/redirection-hosts/:uuid", h.Delete)
 }
 
@@ -179,6 +180,9 @@ var booleanFieldsDefaultingTrueOnCreate = []string{"preserve_path", "ssl_forced"
 func (h *RedirectionHostHandler) Create(c *gin.Context) {
 	var payload map[string]any
 	if err := c.ShouldBindJSON(&payload); err != nil {
+		if respondIfBodyTooLarge(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -262,6 +266,9 @@ func (h *RedirectionHostHandler) Update(c *gin.Context) {
 
 	var payload map[string]any
 	if err := c.ShouldBindJSON(&payload); err != nil {
+		if respondIfBodyTooLarge(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

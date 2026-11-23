@@ -654,8 +654,8 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management.POST("/settings/smtp/test-email", middleware.RequireRole(models.RoleAdmin), settingsHandler.SendTestEmail)
 
 		// URL Validation
-		management.POST("/settings/validate-url", middleware.RequireRole(models.RoleAdmin), settingsHandler.ValidatePublicURL)
-		management.POST("/settings/test-url", middleware.RequireRole(models.RoleAdmin), settingsHandler.TestPublicURL)
+		management.POST("/settings/validate-url", middleware.RequireRole(models.RoleAdmin), handlers.LimitSmallJSONBody(), settingsHandler.ValidatePublicURL)
+		management.POST("/settings/test-url", middleware.RequireRole(models.RoleAdmin), handlers.LimitSmallJSONBody(), settingsHandler.TestPublicURL)
 
 		// Feature flags (DB-backed with env fallback)
 		featureFlagsHandler := handlers.NewFeatureFlagsHandler(db, caddyManager, cerb)

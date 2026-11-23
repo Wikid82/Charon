@@ -204,7 +204,29 @@ func (s *ProxyHostService) checkHostWrite(tx *gorm.DB, host *models.ProxyHost, e
 	if err != nil {
 		return err
 	}
+	if err := checkAdvancedConfigSize(host, excludeID, stored); err != nil {
+		return err
+	}
 	return ensureAdminOnlyFieldsUnchanged(admin, stored, proxyAdminFieldsOf(host))
+}
+
+// MaxAdvancedConfigBytes is the size limit of a host advanced configuration after normalisation.
+const MaxAdvancedConfigBytes = 256 << 10
+
+// ErrAdvancedConfigTooLarge reports an advanced configuration above MaxAdvancedConfigBytes.
+var ErrAdvancedConfigTooLarge = errors.New("advanced config too large")
+
+// checkAdvancedConfigSize refuses an advanced configuration above the limit. A new host is always checked. A stored
+// host is checked only when its configuration changes, so a configuration stored before the limit keeps working through
+// unrelated edits. stored is the row as it was read in the same transaction (zero for a new host).
+func checkAdvancedConfigSize(host *models.ProxyHost, excludeID uint, stored hostAdminFields) error {
+	if len(host.AdvancedConfig) <= MaxAdvancedConfigBytes {
+		return nil
+	}
+	if excludeID != 0 && canonicalAdvancedConfig(host.AdvancedConfig) == stored.advancedConfig {
+		return nil
+	}
+	return ErrAdvancedConfigTooLarge
 }
 
 // refuseListenerHostTargets rejects a host whose own forward target or any location

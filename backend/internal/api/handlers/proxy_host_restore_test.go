@@ -81,6 +81,7 @@ func newHostRestoreFixture(t *testing.T, db *gorm.DB, role string, applier *refu
 		c.Next()
 	})
 	h.RegisterRoutes(r.Group("/api/v1"))
+	NewRedirectionHostHandler(db, nil).RegisterRoutes(r.Group("/api/v1"))
 	return hostRestoreFixture{router: r, db: db, handler: h}
 }
 

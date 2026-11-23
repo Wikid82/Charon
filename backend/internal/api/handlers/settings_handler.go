@@ -1006,6 +1006,9 @@ func (h *SettingsHandler) ValidatePublicURL(c *gin.Context) {
 
 	var req ValidateURLRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		if respondIfBodyTooLarge(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -1049,6 +1052,9 @@ func (h *SettingsHandler) TestPublicURL(c *gin.Context) {
 
 	var req TestURLRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
+		if respondIfBodyTooLarge(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}

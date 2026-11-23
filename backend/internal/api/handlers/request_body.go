@@ -52,6 +52,11 @@ func bindSmallJSON(c *gin.Context, obj any, onInvalid func()) bool {
 	return false
 }
 
+// LimitSmallJSONBody caps the request body of a small JSON route at maxSmallJSONBodyBytes. Routes outside this package use it.
+func LimitSmallJSONBody() gin.HandlerFunc {
+	return limitRequestBody(maxSmallJSONBodyBytes)
+}
+
 // respondIfBodyTooLarge answers 413 request_too_large when err is a request body passing its limit, and reports
 // whether it did. The request body must already be wrapped in http.MaxBytesReader.
 func respondIfBodyTooLarge(c *gin.Context, err error) bool {

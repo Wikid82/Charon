@@ -63,6 +63,12 @@ func respondForwardTargetRefused(c *gin.Context, err error) bool {
 	return true
 }
 
+// Advanced configuration size refusal (400, see services.MaxAdvancedConfigBytes).
+const (
+	codeAdvancedConfigTooLarge = "advanced_config_too_large"
+	msgAdvancedConfigTooLarge  = "The advanced configuration is too large (limit 256 KiB)."
+)
+
 // respondHostWriteError writes the response for a rejected proxy or redirection
 // host write: 403 for an admin-only field, otherwise 400 with the validation message.
 func respondHostWriteError(c *gin.Context, err error) {
@@ -70,6 +76,10 @@ func respondHostWriteError(c *gin.Context, err error) {
 		return
 	}
 	if respondForwardTargetRefused(c, err) {
+		return
+	}
+	if errors.Is(err, services.ErrAdvancedConfigTooLarge) {
+		respondCoded(c, http.StatusBadRequest, codeAdvancedConfigTooLarge, msgAdvancedConfigTooLarge, nil)
 		return
 	}
 	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

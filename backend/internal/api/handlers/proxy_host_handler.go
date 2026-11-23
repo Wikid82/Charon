@@ -442,15 +442,16 @@ func (h *ProxyHostHandler) SetCertificateService(certService services.Certificat
 
 // RegisterRoutes registers proxy host routes.
 func (h *ProxyHostHandler) RegisterRoutes(router *gin.RouterGroup) {
+	body := limitRequestBody(maxHostRequestBodyBytes)
 	router.GET("/proxy-hosts", h.List)
-	router.POST("/proxy-hosts", h.Create)
+	router.POST("/proxy-hosts", body, h.Create)
 	router.GET("/proxy-hosts/:uuid", h.Get)
-	router.PUT("/proxy-hosts/:uuid", h.Update)
+	router.PUT("/proxy-hosts/:uuid", body, h.Update)
 	router.DELETE("/proxy-hosts/:uuid", h.Delete)
-	router.POST("/proxy-hosts/test", h.TestConnection)
-	router.PUT("/proxy-hosts/bulk-update-acl", h.BulkUpdateACL)
-	router.PUT("/proxy-hosts/bulk-update-group", h.BulkUpdateGroup)
-	router.PUT("/proxy-hosts/bulk-update-security-headers", h.BulkUpdateSecurityHeaders)
+	router.POST("/proxy-hosts/test", body, h.TestConnection)
+	router.PUT("/proxy-hosts/bulk-update-acl", body, h.BulkUpdateACL)
+	router.PUT("/proxy-hosts/bulk-update-group", body, h.BulkUpdateGroup)
+	router.PUT("/proxy-hosts/bulk-update-security-headers", body, h.BulkUpdateSecurityHeaders)
 }
 
 // leftOutHosts returns the host UUIDs the last apply left out, or nil when no manager is wired.
@@ -476,6 +477,9 @@ func (h *ProxyHostHandler) List(c *gin.Context) {
 func (h *ProxyHostHandler) Create(c *gin.Context) {
 	var payload map[string]any
 	if err := c.ShouldBindJSON(&payload); err != nil {
+		if respondIfBodyTooLarge(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -646,6 +650,9 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 	// Perform a partial update: only mutate fields present in payload
 	var payload map[string]any
 	if err := c.ShouldBindJSON(&payload); err != nil {
+		if respondIfBodyTooLarge(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -927,6 +934,9 @@ func (h *ProxyHostHandler) TestConnection(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
+		if respondIfBodyTooLarge(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -957,6 +967,9 @@ func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 	}
 
 	if err := c.ShouldBindJSON(&req); err != nil {
+		if respondIfBodyTooLarge(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -1019,6 +1032,9 @@ func (h *ProxyHostHandler) BulkUpdateGroup(c *gin.Context) {
 		ProxyGroupID *string  `json:"proxy_group_id"` // nil means remove group assignment
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
+		if respondIfBodyTooLarge(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
@@ -1090,6 +1106,9 @@ func (h *ProxyHostHandler) BulkUpdateSecurityHeaders(c *gin.Context) {
 	var req BulkUpdateSecurityHeadersRequest
 
 	if err := c.ShouldBindJSON(&req); err != nil {
+		if respondIfBodyTooLarge(c, err) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
