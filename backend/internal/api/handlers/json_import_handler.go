@@ -314,7 +314,7 @@ func (h *JSONImportHandler) commitCharonImport(c *gin.Context, export CharonExpo
 				host.CreatedAt = existing.CreatedAt
 
 				if err := h.proxyHostSvc.UpdateImported(budget, &host); err != nil {
-					errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, err.Error()))
+					errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, importErrorText(err)))
 				} else {
 					updated++
 				}
@@ -324,7 +324,7 @@ func (h *JSONImportHandler) commitCharonImport(c *gin.Context, export CharonExpo
 
 		host.UUID = uuid.NewString()
 		if err := h.proxyHostSvc.CreateImported(budget, &host); err != nil {
-			errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, err.Error()))
+			errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, importErrorText(err)))
 		} else {
 			created++
 		}
@@ -383,7 +383,7 @@ func (h *JSONImportHandler) commitNPMImport(c *gin.Context, export NPMExport, re
 				host.CreatedAt = existing.CreatedAt
 
 				if err := h.proxyHostSvc.UpdateImported(budget, &host); err != nil {
-					errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, err.Error()))
+					errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, importErrorText(err)))
 				} else {
 					updated++
 				}
@@ -393,7 +393,7 @@ func (h *JSONImportHandler) commitNPMImport(c *gin.Context, export NPMExport, re
 
 		host.UUID = uuid.NewString()
 		if err := h.proxyHostSvc.CreateImported(budget, &host); err != nil {
-			errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, err.Error()))
+			errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, importErrorText(err)))
 		} else {
 			created++
 		}

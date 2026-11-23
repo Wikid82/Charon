@@ -50,10 +50,24 @@ const forwardTargetRefusedCode = "forward_target_refused"
 // reserved ports or address policy.
 const forwardTargetRefusedText = "This forward target is not allowed."
 
+// isForwardTargetRefused reports whether err is a refused forward target of any cause.
+func isForwardTargetRefused(err error) bool {
+	return errors.Is(err, services.ErrOrthrusListenerTarget) || errors.Is(err, services.ErrAgentForwardTarget) || errors.Is(err, services.ErrForwardTargetAddress)
+}
+
+// importErrorText is the text an import result shows for a failed host: the one forward target message for a refused
+// forward target (the same text the host form shows), otherwise the error text.
+func importErrorText(err error) string {
+	if isForwardTargetRefused(err) {
+		return forwardTargetRefusedText
+	}
+	return err.Error()
+}
+
 // respondForwardTargetRefused writes the 400 for a refused forward target and reports
 // whether err was that refusal. Every cause gets the same text.
 func respondForwardTargetRefused(c *gin.Context, err error) bool {
-	if !errors.Is(err, services.ErrOrthrusListenerTarget) && !errors.Is(err, services.ErrAgentForwardTarget) && !errors.Is(err, services.ErrForwardTargetAddress) {
+	if !isForwardTargetRefused(err) {
 		return false
 	}
 	c.JSON(http.StatusBadRequest, gin.H{

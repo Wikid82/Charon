@@ -229,7 +229,7 @@ func (h *NPMImportHandler) Commit(c *gin.Context) {
 				host.CreatedAt = existing.CreatedAt
 
 				if err := h.proxyHostSvc.UpdateImported(budget, &host); err != nil {
-					errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, err.Error()))
+					errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, importErrorText(err)))
 				} else {
 					updated++
 				}
@@ -239,7 +239,7 @@ func (h *NPMImportHandler) Commit(c *gin.Context) {
 
 		host.UUID = uuid.NewString()
 		if err := h.proxyHostSvc.CreateImported(budget, &host); err != nil {
-			errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, err.Error()))
+			errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, importErrorText(err)))
 		} else {
 			created++
 		}

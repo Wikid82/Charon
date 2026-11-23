@@ -935,7 +935,7 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 				host.CreatedAt = existing.CreatedAt
 
 				if err := h.proxyHostSvc.UpdateImported(budget, &host); err != nil {
-					errMsg := fmt.Sprintf("%s: %s", host.DomainNames, err.Error())
+					errMsg := fmt.Sprintf("%s: %s", host.DomainNames, importErrorText(err))
 					errors = append(errors, errMsg)
 					middleware.GetRequestLogger(c).WithField("host", util.SanitizeForLog(host.DomainNames)).WithField("error", util.SanitizeForLog(errMsg)).Error("Import Commit Error (update)")
 				} else {
@@ -950,7 +950,7 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 		// Create new host
 		host.UUID = uuid.NewString()
 		if err := h.proxyHostSvc.CreateImported(budget, &host); err != nil {
-			errMsg := fmt.Sprintf("%s: %s", host.DomainNames, err.Error())
+			errMsg := fmt.Sprintf("%s: %s", host.DomainNames, importErrorText(err))
 			errors = append(errors, errMsg)
 			middleware.GetRequestLogger(c).WithField("host", util.SanitizeForLog(host.DomainNames)).WithField("error", util.SanitizeForLog(errMsg)).Error("Import Commit Error")
 		} else {
