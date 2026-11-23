@@ -1413,7 +1413,7 @@ test.describe('Proxy Hosts - save limits', () => {
     }
   });
 
-  test.fixme('keeps the previous host when a change is refused', async ({ page }) => {
+  test('keeps the previous host when a change is refused', async ({ page }) => {
     const domain = uniqueDomain();
     const otherDomain = uniqueDomain();
     let uuid = '';
@@ -1441,7 +1441,7 @@ test.describe('Proxy Hosts - save limits', () => {
     });
   });
 
-  test.fixme('refuses an advanced configuration over 256 KiB', async ({ page }) => {
+  test('refuses an advanced configuration over 256 KiB', async ({ page }) => {
     const domain = uniqueDomain();
     const oversized = JSON.stringify([{ handler: 'static_response', body: 'a'.repeat(256 * 1024) }]);
 
@@ -1453,7 +1453,7 @@ test.describe('Proxy Hosts - save limits', () => {
     expect(await response.json()).toHaveProperty('error_code', 'advanced_config_too_large');
   });
 
-  test.fixme('refuses an oversized request', async ({ page }) => {
+  test('refuses an oversized request', async ({ page }) => {
     const domain = uniqueDomain();
     const uuid = await createHostViaAPI(page, domain);
     const oversizedBody = JSON.stringify({ domain_names: domain, name: 'a'.repeat(ONE_MIB + 1) });
@@ -1465,5 +1465,31 @@ test.describe('Proxy Hosts - save limits', () => {
 
     expect(response.status()).toBe(413);
     expect(await response.json()).toHaveProperty('error_code', 'request_too_large');
+  });
+});
+
+test.describe('Proxy Hosts - request checks', () => {
+  test.beforeEach(async ({ page, adminUser }) => {
+    await loginUser(page, adminUser);
+  });
+
+  test('answers a non-numeric forward port with a plain message naming the field', async ({ page }) => {
+    const domain = `request-checks-${Date.now()}.example.test`;
+    let responseText = '';
+
+    await test.step('Create a host with a forward port that is not a number', async () => {
+      const response = await page.request.post('/api/v1/proxy-hosts', {
+        data: { domain_names: domain, forward_host: '192.168.1.80', forward_port: 'abc', forward_scheme: 'http', enabled: true },
+      });
+      expect(response.status()).toBe(400);
+      expect(await response.json()).toHaveProperty('error_code', 'invalid_request');
+      responseText = await response.text();
+    });
+
+    await test.step('The message names the field and leaks no Go internals', async () => {
+      expect(responseText).toContain('Check: forward_port');
+      expect(responseText).not.toContain('Key:');
+      expect(responseText).not.toContain('struct');
+    });
   });
 });

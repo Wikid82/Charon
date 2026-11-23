@@ -694,7 +694,7 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
 });
 
 test.describe('Caddy Import - upload size limit', () => {
-  test.fixme('refuses a Caddyfile upload over 4 MiB', async ({ page }) => {
+  test('refuses a Caddyfile upload over 4 MiB', async ({ page }) => {
     const FOUR_MIB = 4 << 20;
     await page.goto('/tasks/import/caddyfile');
 
