@@ -257,11 +257,11 @@ describe('ProxyHostForm - role-aware fields', () => {
       expect(syncSpy).not.toHaveBeenCalled()
     })
 
-    it('shows the uptime option to an administrator and requests a monitor sync when it is checked', async () => {
+    it('shows the uptime option to an administrator and requests a monitor sync when it is checked by default', async () => {
       roleState.role = 'admin'
       renderForm(<ProxyHostForm host={adminHost} onSubmit={onSubmit} onCancel={onCancel} />)
 
-      await userEvent.click(screen.getByLabelText(UPTIME_LABEL))
+      expect(screen.getByLabelText(UPTIME_LABEL)).toBeChecked()
       await userEvent.click(screen.getByTestId('proxy-host-save'))
 
       await waitFor(() => expect(syncSpy).toHaveBeenCalledTimes(1))

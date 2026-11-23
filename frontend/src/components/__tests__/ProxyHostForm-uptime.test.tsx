@@ -90,9 +90,9 @@ describe('ProxyHostForm Add Uptime flow', () => {
     await userEvent.clear(screen.getByLabelText(/^Port$/))
     await userEvent.type(screen.getByLabelText(/^Port$/), '8080')
 
-    // Check Add Uptime
+    // Add Uptime is enabled by default
     const addUptimeCheckbox = screen.getByLabelText(/Add Uptime monitoring for this host/i)
-    await userEvent.click(addUptimeCheckbox)
+    expect(addUptimeCheckbox).toBeChecked()
 
     // Adjust uptime options — locate the container for the uptime inputs
     const uptimeCheckbox = screen.getByLabelText(/Add Uptime monitoring for this host/i)
@@ -152,7 +152,7 @@ describe('ProxyHostForm Add Uptime flow', () => {
     await userEvent.clear(screen.getByLabelText(/^Port$/))
     await userEvent.type(screen.getByLabelText(/^Port$/), '8080')
 
-    await userEvent.click(screen.getByLabelText(/Add Uptime monitoring for this host/i))
+    expect(screen.getByLabelText(/Add Uptime monitoring for this host/i)).toBeChecked()
     await userEvent.click(screen.getByRole('button', { name: 'Save' }))
 
     await waitFor(() => {
