@@ -562,7 +562,7 @@ export default function ProxyHostForm({ host, onSubmit, onCancel }: ProxyHostFor
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [nameError, setNameError] = useState<string | null>(null)
-  const [addUptime, setAddUptime] = useState(false)
+  const [addUptime, setAddUptime] = useState(true)
   const [uptimeInterval, setUptimeInterval] = useState(60)
   const [uptimeMaxRetries, setUptimeMaxRetries] = useState(3)
 
