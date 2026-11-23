@@ -52,8 +52,7 @@ func (h *ProxyGroupHandler) Create(c *gin.Context) {
 		Description string `json:"description"`
 		Color       string `json:"color"`
 	}
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &payload) {
 		return
 	}
 
@@ -117,8 +116,7 @@ func (h *ProxyGroupHandler) Update(c *gin.Context) {
 		Description *string `json:"description"`
 		Color       *string `json:"color"`
 	}
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &payload) {
 		return
 	}
 

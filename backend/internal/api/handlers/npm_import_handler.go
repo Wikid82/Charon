@@ -92,6 +92,9 @@ type NPMCertificate struct {
 	Meta           any      `json:"meta"`
 }
 
+// msgNPMExportNotValid is the answer for an upload that is not an Nginx Proxy Manager export.
+const msgNPMExportNotValid = "The file is not a valid Nginx Proxy Manager export."
+
 // NPMImportHandler handles NPM configuration imports.
 type NPMImportHandler struct {
 	db           *gorm.DB
@@ -120,17 +123,13 @@ func (h *NPMImportHandler) Upload(c *gin.Context) {
 		Content string `json:"content" binding:"required"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		if respondIfBodyTooLarge(c, err) {
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
 	var npmExport NPMExport
 	if err := json.Unmarshal([]byte(req.Content), &npmExport); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid NPM export JSON: %v", err)})
+		c.JSON(http.StatusBadRequest, gin.H{"error": msgNPMExportNotValid})
 		return
 	}
 
@@ -176,11 +175,7 @@ func (h *NPMImportHandler) Commit(c *gin.Context) {
 		Names       map[string]string `json:"names"`       // domain -> custom name
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		if respondIfBodyTooLarge(c, err) {
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -262,11 +257,7 @@ func (h *NPMImportHandler) Cancel(c *gin.Context) {
 		SessionUUID string `json:"session_uuid"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		if respondIfBodyTooLarge(c, err) {
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 

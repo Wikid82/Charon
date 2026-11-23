@@ -476,11 +476,7 @@ func (h *ProxyHostHandler) List(c *gin.Context) {
 // Create creates a new proxy host.
 func (h *ProxyHostHandler) Create(c *gin.Context) {
 	var payload map[string]any
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		if respondIfBodyTooLarge(c, err) {
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &payload) {
 		return
 	}
 
@@ -544,7 +540,7 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 
 	var host models.ProxyHost
 	if err := json.Unmarshal(payloadBytes, &host); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondInvalidRequest(c, err, &host)
 		return
 	}
 
@@ -649,11 +645,7 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 
 	// Perform a partial update: only mutate fields present in payload
 	var payload map[string]any
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		if respondIfBodyTooLarge(c, err) {
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &payload) {
 		return
 	}
 
@@ -780,7 +772,7 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		// Rebind to []models.Location
 		b, _ := json.Marshal(v)
 		var locs []models.Location
-		if err := json.Unmarshal(b, &locs); err == nil {
+		if unmarshalErr := json.Unmarshal(b, &locs); unmarshalErr == nil {
 			// Ensure UUIDs exist for any new location entries
 			for i := range locs {
 				if locs[i].UUID == "" {
@@ -798,13 +790,13 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 	if v, ok := payload["advanced_config"].(string); ok {
 		if v != "" && v != host.AdvancedConfig {
 			var parsed any
-			if err := json.Unmarshal([]byte(v), &parsed); err != nil {
+			if parseErr := json.Unmarshal([]byte(v), &parsed); parseErr != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "advanced_config must be valid Caddy JSON (not Caddyfile syntax). See https://caddyserver.com/docs/json/ for the correct format."})
 				return
 			}
 			parsed = caddy.NormalizeAdvancedConfig(parsed)
-			if norm, err := json.Marshal(parsed); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid advanced_config after normalization: " + err.Error()})
+			if norm, marshalErr := json.Marshal(parsed); marshalErr != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid advanced_config after normalization: " + marshalErr.Error()})
 				return
 			} else {
 				// Backup previous
@@ -896,7 +888,7 @@ func (h *ProxyHostHandler) Delete(c *gin.Context) {
 		if err := h.service.ReinsertDeleted(before); err != nil {
 			return err
 		}
-		// The purge removed the host's monitor; a fresh one is created for the restored host. Its check history is lost (D-35-12).
+		// The purge removed the host's monitor; a fresh one is created for the restored host. Its check history is lost.
 		if h.uptimeService != nil {
 			go h.uptimeService.SyncAndCheckForHost(host.ID)
 		}
@@ -933,11 +925,7 @@ func (h *ProxyHostHandler) TestConnection(c *gin.Context) {
 		ForwardPort int    `json:"forward_port" binding:"required"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		if respondIfBodyTooLarge(c, err) {
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -966,11 +954,7 @@ func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 		AccessListID *uint    `json:"access_list_id"` // nil means remove ACL
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		if respondIfBodyTooLarge(c, err) {
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -1031,11 +1015,7 @@ func (h *ProxyHostHandler) BulkUpdateGroup(c *gin.Context) {
 		HostUUIDs    []string `json:"host_uuids"    binding:"required"`
 		ProxyGroupID *string  `json:"proxy_group_id"` // nil means remove group assignment
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		if respondIfBodyTooLarge(c, err) {
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 	if len(req.HostUUIDs) == 0 {
@@ -1105,11 +1085,7 @@ type BulkUpdateSecurityHeadersRequest struct {
 func (h *ProxyHostHandler) BulkUpdateSecurityHeaders(c *gin.Context) {
 	var req BulkUpdateSecurityHeadersRequest
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		if respondIfBodyTooLarge(c, err) {
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 

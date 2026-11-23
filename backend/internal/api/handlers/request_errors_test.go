@@ -48,7 +48,7 @@ func TestRespondInternalErrorAnswersThePublicTextOnly(t *testing.T) {
 	log.SetOutput(&logs)
 	w := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(w)
-	c.Request = httptest.NewRequest(http.MethodGet, "/x", nil)
+	c.Request = httptest.NewRequest(http.MethodGet, "/x", http.NoBody)
 	c.Set("logger", logrus.NewEntry(log))
 
 	respondInternalError(c, "Could not do the thing.", errors.New("table \"secrets\" locked\nsecond line"))

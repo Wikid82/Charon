@@ -290,7 +290,6 @@ func TestNilIfTypedNilReturnsNilInterfaceForTypedNil(t *testing.T) {
 	t.Parallel()
 	var typedNil *recordingApplier
 	var wired CaddyConfigManager = typedNil
-	assert.True(t, wired != nil, "precondition: a typed nil is a non-nil interface")
 
 	assert.True(t, nilIfTypedNil(wired) == nil)
 

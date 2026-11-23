@@ -61,7 +61,7 @@ func removeUploadArtifact(importDir, sourceFile string) error {
 	return nil
 }
 
-// sweepImportUploads applies the retention rules of Caddyfile uploads under importDir/uploads (D-35-7), at now:
+// sweepImportUploads applies the retention rules of Caddyfile uploads under importDir/uploads, at now:
 //   - pending or reviewing upload sessions older than the TTL become expired and their files are removed;
 //   - entries under uploads/ older than the TTL that no live session refers to are removed;
 //   - rejected, expired and failed session rows older than the retention are deleted.

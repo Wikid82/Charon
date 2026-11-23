@@ -565,9 +565,12 @@ func (h *ManualChallengeHandler) CreateChallenge(c *gin.Context) {
 
 	var req CreateChallengeRequest
 	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
+		if respondIfBodyTooLarge(c, bindErr) {
+			return
+		}
 		c.JSON(http.StatusBadRequest, newErrorResponse(
 			"INVALID_REQUEST",
-			bindErr.Error(),
+			msgInvalidRequest,
 			nil,
 		))
 		return

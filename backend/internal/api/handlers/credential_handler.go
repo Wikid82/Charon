@@ -102,8 +102,7 @@ func (h *CredentialHandler) Create(c *gin.Context) {
 	}
 
 	var req services.CreateCredentialRequest
-	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -170,8 +169,7 @@ func (h *CredentialHandler) Update(c *gin.Context) {
 	}
 
 	var req services.UpdateCredentialRequest
-	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 

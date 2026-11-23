@@ -137,8 +137,9 @@ func TestUploadMulti_EmptyList(t *testing.T) {
 	r.ServeHTTP(w, request)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	// Matched Gin validation error
-	assert.Contains(t, w.Body.String(), "Error:Field validation for 'Files' failed on the 'min' tag")
+	// The validation failure names the public field, not the Go field or the validator text.
+	assert.Equal(t, "The request is not valid. Check: files.", decodeBody(t, w)["error"])
+	assert.NotContains(t, w.Body.String(), "Error:Field")
 }
 
 // TestUploadMulti_FileServerDetected covers the logic where parsable routes trigger a warning

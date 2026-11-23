@@ -42,9 +42,9 @@ func TestProxyHostUpdateAsLocationsCharacterization(t *testing.T) {
 		got[r.UUID] = r.Path
 	}
 	// Observed: UpdateAs writes no location row at all. The added row is not inserted, the changed row keeps its
-	// stored path and the removed row stays (finding F11). Restore code therefore treats the rows as the snapshot.
-	require.Equal(t, "/a", got["loc-a"], "a changed location is not rewritten (F11)")
-	require.Contains(t, got, "loc-b", "a removed location is not deleted (F11)")
-	require.NotContains(t, got, "loc-c", "an added location is not inserted (F11)")
+	// stored path and the removed row stays. Restore code therefore treats the rows as the snapshot.
+	require.Equal(t, "/a", got["loc-a"], "a changed location is not rewritten")
+	require.Contains(t, got, "loc-b", "a removed location is not deleted")
+	require.NotContains(t, got, "loc-c", "an added location is not inserted")
 	require.Len(t, rows, 2)
 }

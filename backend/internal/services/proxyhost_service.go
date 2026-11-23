@@ -326,11 +326,12 @@ func (s *ProxyHostService) createChecked(host *models.ProxyHost, admin bool, ver
 		if err != nil {
 			return err
 		}
-		if err := CreateKeepingSent(tx, host, sentColumns); err != nil {
-			return err
+		if createErr := CreateKeepingSent(tx, host, sentColumns); createErr != nil {
+			return createErr
 		}
-		written, err = readProxyHostSnapshot(tx, host.ID)
-		return err
+		var readErr error
+		written, readErr = readProxyHostSnapshot(tx, host.ID)
+		return readErr
 	})
 	if err != nil {
 		return ProxyHostSnapshot{}, err

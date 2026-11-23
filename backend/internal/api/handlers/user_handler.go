@@ -188,8 +188,7 @@ func (h *UserHandler) Setup(c *gin.Context) {
 
 	// 2. Parse request
 	var req SetupRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -367,8 +366,7 @@ func (h *UserHandler) UpdateProfile(c *gin.Context) {
 	}
 
 	var req UpdateProfileRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -469,8 +467,7 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	}
 
 	var req CreateUserRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -583,8 +580,7 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 	}
 
 	var req InviteUserRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -715,8 +711,7 @@ func (h *UserHandler) PreviewInviteURL(c *gin.Context) {
 	}
 
 	var req PreviewInviteURLRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -828,8 +823,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	}
 
 	var req UpdateUserRequest
-	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -1168,8 +1162,7 @@ func (h *UserHandler) UpdateUserPermissions(c *gin.Context) {
 	}
 
 	var req UpdateUserPermissionsRequest
-	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -1244,8 +1237,7 @@ type AcceptInviteRequest struct {
 // AcceptInvite accepts an invitation and sets the user's password (public endpoint).
 func (h *UserHandler) AcceptInvite(c *gin.Context) {
 	var req AcceptInviteRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 

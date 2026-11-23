@@ -27,9 +27,9 @@ func (c *fakeClock) Advance(d time.Duration) {
 	c.now = c.now.Add(d)
 }
 
-func newTestSessionStore(max int) (*importSessionStore[string], *fakeClock) {
+func newTestSessionStore(maxEntries int) (*importSessionStore[string], *fakeClock) {
 	clock := &fakeClock{now: time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)}
-	store := newImportSessionStore[string](importSessionTTL, max)
+	store := newImportSessionStore[string](importSessionTTL, maxEntries)
 	store.now = clock.Now
 	return store, clock
 }

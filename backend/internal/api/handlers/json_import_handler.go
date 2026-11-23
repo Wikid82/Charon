@@ -105,11 +105,7 @@ func (h *JSONImportHandler) Upload(c *gin.Context) {
 		Content string `json:"content" binding:"required"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		if respondIfBodyTooLarge(c, err) {
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -218,11 +214,7 @@ func (h *JSONImportHandler) Commit(c *gin.Context) {
 		Names       map[string]string `json:"names"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		if respondIfBodyTooLarge(c, err) {
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -254,11 +246,7 @@ func (h *JSONImportHandler) Cancel(c *gin.Context) {
 		SessionUUID string `json:"session_uuid"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		if respondIfBodyTooLarge(c, err) {
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 

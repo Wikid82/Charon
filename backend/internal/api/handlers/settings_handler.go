@@ -338,8 +338,7 @@ func (h *SettingsHandler) UpdateSetting(c *gin.Context) {
 	}
 
 	var req UpdateSettingRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -526,8 +525,7 @@ func (h *SettingsHandler) PatchConfig(c *gin.Context) {
 
 	// Parse nested configuration structure
 	var configUpdates map[string]interface{}
-	if err := c.ShouldBindJSON(&configUpdates); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &configUpdates) {
 		return
 	}
 
@@ -894,8 +892,7 @@ func (h *SettingsHandler) UpdateSMTPConfig(c *gin.Context) {
 	}
 
 	var req SMTPConfigRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -956,8 +953,7 @@ func (h *SettingsHandler) SendTestEmail(c *gin.Context) {
 	}
 
 	var req TestEmailRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -1005,11 +1001,7 @@ func (h *SettingsHandler) ValidatePublicURL(c *gin.Context) {
 	}
 
 	var req ValidateURLRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		if respondIfBodyTooLarge(c, err) {
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -1051,11 +1043,7 @@ func (h *SettingsHandler) TestPublicURL(c *gin.Context) {
 	}
 
 	var req TestURLRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		if respondIfBodyTooLarge(c, err) {
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 

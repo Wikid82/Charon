@@ -279,18 +279,7 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 	}
 
 	// Capture raw request for better diagnostics in tests
-	if err := c.ShouldBindJSON(&req); err != nil {
-		if respondIfBodyTooLarge(c, err) {
-			return
-		}
-		// Try to include raw body preview when binding fails
-		entry := middleware.GetRequestLogger(c)
-		if raw, _ := c.GetRawData(); len(raw) > 0 {
-			entry.WithError(err).WithField("raw_body_preview", util.SanitizeForLog(string(raw))).Error("Import Upload: failed to bind JSON")
-		} else {
-			entry.WithError(err).Error("Import Upload: failed to bind JSON")
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -340,17 +329,7 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 	// Parse uploaded file transiently
 	result, err := h.importerservice.ImportFile(tempPath)
 	if err != nil {
-		// Read a small preview of the uploaded file for diagnostics
-		preview := ""
-		// #nosec G304 -- tempPath is the validated temporary file from Gin SaveUploadedFile
-		if b, rerr := os.ReadFile(tempPath); rerr == nil {
-			if len(b) > 200 {
-				preview = string(b[:200])
-			} else {
-				preview = string(b)
-			}
-		}
-		middleware.GetRequestLogger(c).WithError(err).WithField("tempPath", util.SanitizeForLog(filepath.Base(tempPath))).WithField("content_preview", util.SanitizeForLog(preview)).Error("Import Upload: import failed")
+		middleware.GetRequestLogger(c).WithError(err).WithField("tempPath", util.SanitizeForLog(filepath.Base(tempPath))).WithField("content_len", len(normalizedContent)).Error("Import Upload: import failed")
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("import failed: %v", err)})
 		return
 	}
@@ -445,17 +424,7 @@ func (h *ImportHandler) DetectImports(c *gin.Context) {
 		Content string `json:"content" binding:"required"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		if respondIfBodyTooLarge(c, err) {
-			return
-		}
-		entry := middleware.GetRequestLogger(c)
-		if raw, _ := c.GetRawData(); len(raw) > 0 {
-			entry.WithError(err).WithField("raw_body_preview", util.SanitizeForLog(string(raw))).Error("Import UploadMulti: failed to bind JSON")
-		} else {
-			entry.WithError(err).Error("Import UploadMulti: failed to bind JSON")
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -479,11 +448,7 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 		} `json:"files" binding:"required,min=1"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		if respondIfBodyTooLarge(c, err) {
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 	if len(req.Files) > maxImportFiles {
@@ -570,15 +535,7 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 	result, err := h.importerservice.ImportFile(mainCaddyfile)
 	if err != nil {
 		// Provide diagnostics
-		preview := ""
-		if b, rerr := os.ReadFile(mainCaddyfile); rerr == nil {
-			if len(b) > 200 {
-				preview = string(b[:200])
-			} else {
-				preview = string(b)
-			}
-		}
-		middleware.GetRequestLogger(c).WithError(err).WithField("mainCaddyfile", util.SanitizeForLog(filepath.Base(mainCaddyfile))).WithField("preview", util.SanitizeForLog(preview)).Error("Import UploadMulti: import failed")
+		middleware.GetRequestLogger(c).WithError(err).WithField("mainCaddyfile", util.SanitizeForLog(filepath.Base(mainCaddyfile))).Error("Import UploadMulti: import failed")
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("import failed: %v", err)})
 		return
 	}
@@ -844,11 +801,7 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 		Names       map[string]string `json:"names"`       // domain -> custom name
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		if respondIfBodyTooLarge(c, err) {
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 

@@ -158,7 +158,7 @@ func (s *ProxyHostService) ReinsertDeleted(snap ProxyHostSnapshot) error {
 		}
 		host := snap.Host
 		host.Locations = nil
-		// A delete leaves the location rows behind (finding F6); they are replaced by the snapshot copies.
+		// A delete leaves the location rows behind; they are replaced by the snapshot copies.
 		if err := tx.Where("proxy_host_id = ?", snap.Host.ID).Delete(&models.Location{}).Error; err != nil {
 			return fmt.Errorf("clear locations of proxy host %d: %w", snap.Host.ID, err)
 		}

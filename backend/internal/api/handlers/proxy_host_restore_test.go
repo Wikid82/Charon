@@ -351,10 +351,10 @@ func TestProxyHostListAndGetWithoutAManagerDoNotPanic(t *testing.T) {
 	h.RegisterRoutes(r.Group("/api/v1"))
 
 	list := httptest.NewRecorder()
-	r.ServeHTTP(list, httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts", nil))
+	r.ServeHTTP(list, httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts", http.NoBody))
 	assert.Equal(t, http.StatusOK, list.Code)
 
 	get := httptest.NewRecorder()
-	r.ServeHTTP(get, httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts/"+host.UUID, nil))
+	r.ServeHTTP(get, httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts/"+host.UUID, http.NoBody))
 	assert.Equal(t, http.StatusOK, get.Code)
 }

@@ -512,7 +512,8 @@ func TestRedirectionHostHandler_Create_StatusCodeTypeMismatch_400(t *testing.T) 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	var result map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
-	assert.Contains(t, result["error"], "cannot unmarshal string")
+	assert.Equal(t, "The request is not valid. Check: status_code.", result["error"])
+	assert.Equal(t, "invalid_request", result["error_code"])
 }
 
 // --- Create: ApplyConfig failure / rollback coverage ---

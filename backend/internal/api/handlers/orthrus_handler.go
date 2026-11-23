@@ -119,8 +119,7 @@ type provisionRequest struct {
 // Provision creates a new Orthrus agent and returns the auth key exactly once.
 func (h *OrthrusHandler) Provision(c *gin.Context) {
 	var req provisionRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 	agent, plainKey, err := h.svc.Provision(req.Name)
@@ -164,8 +163,7 @@ type patchAgentRequest struct {
 func (h *OrthrusHandler) Patch(c *gin.Context) {
 	uuid := c.Param("uuid")
 	var req patchAgentRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 	agent, err := h.svc.Patch(uuid, services.AgentPatch{

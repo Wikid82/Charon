@@ -179,11 +179,7 @@ var booleanFieldsDefaultingTrueOnCreate = []string{"preserve_path", "ssl_forced"
 // Create creates a new redirection host.
 func (h *RedirectionHostHandler) Create(c *gin.Context) {
 	var payload map[string]any
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		if respondIfBodyTooLarge(c, err) {
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &payload) {
 		return
 	}
 
@@ -219,7 +215,7 @@ func (h *RedirectionHostHandler) Create(c *gin.Context) {
 
 	var host models.RedirectionHost
 	if err := json.Unmarshal(payloadBytes, &host); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondInvalidRequest(c, err, &host)
 		return
 	}
 
@@ -265,11 +261,7 @@ func (h *RedirectionHostHandler) Update(c *gin.Context) {
 	}
 
 	var payload map[string]any
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		if respondIfBodyTooLarge(c, err) {
-			return
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &payload) {
 		return
 	}
 

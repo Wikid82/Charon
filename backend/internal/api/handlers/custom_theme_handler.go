@@ -52,8 +52,7 @@ func (h *CustomThemeHandler) ListThemes(c *gin.Context) {
 // Returns: 201 with the created CustomTheme record.
 func (h *CustomThemeHandler) CreateTheme(c *gin.Context) {
 	var req createThemeRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -96,8 +95,7 @@ func (h *CustomThemeHandler) UpdateTheme(c *gin.Context) {
 	}
 
 	var req updateThemeRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 

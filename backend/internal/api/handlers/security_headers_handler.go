@@ -80,17 +80,20 @@ func (h *SecurityHeadersHandler) GetProfile(c *gin.Context) {
 func (h *SecurityHeadersHandler) CreateProfile(c *gin.Context) {
 	raw, err := c.GetRawData()
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		if respondIfBodyTooLarge(c, err) {
+			return
+		}
+		respondInvalidRequest(c, err, nil)
 		return
 	}
 	var req models.SecurityHeaderProfile
 	if err := json.Unmarshal(raw, &req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondInvalidRequest(c, err, &req)
 		return
 	}
 	var sent map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &sent); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondInvalidRequest(c, err, &sent)
 		return
 	}
 
@@ -148,8 +151,7 @@ func (h *SecurityHeadersHandler) UpdateProfile(c *gin.Context) {
 	}
 
 	var updates models.SecurityHeaderProfile
-	if err := c.ShouldBindJSON(&updates); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &updates) {
 		return
 	}
 
@@ -232,8 +234,7 @@ func (h *SecurityHeadersHandler) ApplyPreset(c *gin.Context) {
 		Name       string `json:"name" binding:"required"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -250,8 +251,7 @@ func (h *SecurityHeadersHandler) ApplyPreset(c *gin.Context) {
 // POST /api/v1/security/headers/score
 func (h *SecurityHeadersHandler) CalculateScore(c *gin.Context) {
 	var profile models.SecurityHeaderProfile
-	if err := c.ShouldBindJSON(&profile); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &profile) {
 		return
 	}
 
@@ -266,8 +266,7 @@ func (h *SecurityHeadersHandler) ValidateCSP(c *gin.Context) {
 		CSP string `json:"csp" binding:"required"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -286,8 +285,7 @@ func (h *SecurityHeadersHandler) BuildCSP(c *gin.Context) {
 		Directives []models.CSPDirective `json:"directives" binding:"required"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 

@@ -58,7 +58,7 @@ func applyOrRestore(ctx context.Context, mgr CaddyConfigManager, restore func() 
 	return applyErr
 }
 
-// respondProxyApplyFailed answers a refused apply (D-35-4): 500 with the proxy_apply_failed code. Administrators
+// respondProxyApplyFailed answers a refused apply: 500 with the proxy_apply_failed code. Administrators
 // get the apply detail in the text; other callers get the fixed text only. The detail is always logged, sanitized.
 // extra fields are merged into the body.
 func respondProxyApplyFailed(c *gin.Context, err error, extra gin.H) {
