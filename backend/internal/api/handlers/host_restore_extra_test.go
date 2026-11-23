@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -165,4 +166,56 @@ func TestProxyHostBulkWritersRaceFree(t *testing.T) {
 		}
 		assert.True(t, allowed[value], "host %d holds an unexpected access list %v", id, value)
 	}
+}
+
+// A refused delete of a host whose defaulted columns hold false or "" puts back every stored value, not the defaults.
+func TestProxyHostDeleteRefusedRestoresEveryStoredValue(t *testing.T) {
+	db := openHostRestoreDB(t)
+	host := seedHost(t, db, "refused-values")
+	require.NoError(t, db.Model(&models.ProxyHost{}).Where("id = ?", host.ID).Updates(map[string]any{
+		"enabled":                  false,
+		"block_exploits":           false,
+		"http2_support":            false,
+		"security_headers_enabled": false,
+		"forward_scheme":           "",
+	}).Error)
+	before := storedHost(t, db, host.ID)
+	f := newHostRestoreFixture(t, db, string(models.RoleAdmin), &refusingApplier{err: errRefused})
+
+	w := f.do(t, http.MethodDelete, "/api/v1/proxy-hosts/"+host.UUID, nil)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
+	after := storedHost(t, db, host.ID)
+	assert.Equal(t, before.Enabled, after.Enabled)
+	assert.Equal(t, before.BlockExploits, after.BlockExploits)
+	assert.Equal(t, before.HTTP2Support, after.HTTP2Support)
+	assert.Equal(t, before.SecurityHeadersEnabled, after.SecurityHeadersEnabled)
+	assert.Equal(t, before.ForwardScheme, after.ForwardScheme)
+	assert.Equal(t, int64(2), locationCount(t, db, host.ID))
+}
+
+// The same holds for a redirection host: a refused delete puts back the stored values, not the defaults.
+func TestRedirectionHostDeleteRefusedRestoresEveryStoredValue(t *testing.T) {
+	db := openHostRestoreDB(t)
+	redirect := models.RedirectionHost{UUID: uuid.NewString(), DomainNames: "refused-redirect-values.example.com", TargetURL: "https://target.example.com", StatusCode: 301}
+	require.NoError(t, db.Create(&redirect).Error)
+	require.NoError(t, db.Model(&models.RedirectionHost{}).Where("id = ?", redirect.ID).Updates(map[string]any{
+		"enabled":       false,
+		"http2_support": false,
+		"ssl_forced":    false,
+		"preserve_path": false,
+	}).Error)
+	var before models.RedirectionHost
+	require.NoError(t, db.First(&before, redirect.ID).Error)
+	f := newHostRestoreFixture(t, db, string(models.RoleAdmin), &refusingApplier{err: errRefused})
+
+	w := f.do(t, http.MethodDelete, "/api/v1/redirection-hosts/"+redirect.UUID, nil)
+
+	require.Equal(t, http.StatusInternalServerError, w.Code, w.Body.String())
+	var after models.RedirectionHost
+	require.NoError(t, db.First(&after, redirect.ID).Error)
+	assert.Equal(t, before.Enabled, after.Enabled)
+	assert.Equal(t, before.HTTP2Support, after.HTTP2Support)
+	assert.Equal(t, before.SSLForced, after.SSLForced)
+	assert.Equal(t, before.PreservePath, after.PreservePath)
 }
