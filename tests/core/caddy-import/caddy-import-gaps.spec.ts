@@ -692,3 +692,18 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
     });
   });
 });
+
+test.describe('Caddy Import - upload size limit', () => {
+  test.fixme('refuses a Caddyfile upload over 4 MiB', async ({ page }) => {
+    const FOUR_MIB = 4 << 20;
+    await page.goto('/tasks/import/caddyfile');
+
+    const response = await page.request.post('/api/v1/import/upload', {
+      headers: { ...(await getStoredAuthHeader(page)), 'Content-Type': 'application/json' },
+      data: JSON.stringify({ filename: 'oversized.caddy', content: 'a'.repeat(FOUR_MIB + 1) }),
+    });
+
+    expect(response.status()).toBe(413);
+    expect(await response.json()).toHaveProperty('error_code', 'request_too_large');
+  });
+});

@@ -1380,3 +1380,90 @@ test.describe('Proxy Hosts - destination policy', () => {
     }
   });
 });
+
+test.describe('Proxy Hosts - save limits', () => {
+  // Advanced configuration that the proxy refuses on apply: the module is not registered with Caddy.
+  const REFUSED_ADVANCED_CONFIG = '[{"handler":"charon_unregistered_module"}]';
+  const ONE_MIB = 1 << 20;
+  const createdUuids: string[] = [];
+  let domainCounter = 0;
+
+  function uniqueDomain(): string {
+    domainCounter += 1;
+    return `save-limits-${Date.now()}-${domainCounter}.example.test`;
+  }
+
+  async function createHostViaAPI(page: Page, domain: string): Promise<string> {
+    const response = await page.request.post('/api/v1/proxy-hosts', {
+      data: { domain_names: domain, forward_host: '192.168.1.80', forward_port: 8080, forward_scheme: 'http', enabled: true },
+    });
+    expect(response.status(), `seed proxy host ${domain}`).toBe(201);
+    const uuid = String((await response.json()).uuid);
+    createdUuids.push(uuid);
+    return uuid;
+  }
+
+  test.beforeEach(async ({ page, adminUser }) => {
+    await loginUser(page, adminUser);
+  });
+
+  test.afterEach(async ({ page }) => {
+    for (const uuid of createdUuids.splice(0)) {
+      await page.request.delete(`/api/v1/proxy-hosts/${uuid}`);
+    }
+  });
+
+  test.fixme('keeps the previous host when a change is refused', async ({ page }) => {
+    const domain = uniqueDomain();
+    const otherDomain = uniqueDomain();
+    let uuid = '';
+
+    await test.step('Create a host with no advanced configuration', async () => {
+      uuid = await createHostViaAPI(page, domain);
+    });
+
+    await test.step('Save an advanced configuration the proxy refuses on apply', async () => {
+      const response = await page.request.put(`/api/v1/proxy-hosts/${uuid}`, {
+        data: { domain_names: domain, forward_host: '192.168.1.80', forward_port: 8080, advanced_config: REFUSED_ADVANCED_CONFIG },
+      });
+      expect(response.status()).toBe(500);
+      expect(await response.json()).toHaveProperty('error_code', 'proxy_apply_failed');
+    });
+
+    await test.step('The host still shows its previous advanced configuration', async () => {
+      const response = await page.request.get(`/api/v1/proxy-hosts/${uuid}`);
+      expect(response.ok()).toBeTruthy();
+      expect((await response.json()).advanced_config).toBe('');
+    });
+
+    await test.step('Creating another host afterwards succeeds', async () => {
+      await createHostViaAPI(page, otherDomain);
+    });
+  });
+
+  test.fixme('refuses an advanced configuration over 256 KiB', async ({ page }) => {
+    const domain = uniqueDomain();
+    const oversized = JSON.stringify([{ handler: 'static_response', body: 'a'.repeat(256 * 1024) }]);
+
+    const response = await page.request.post('/api/v1/proxy-hosts', {
+      data: { domain_names: domain, forward_host: '192.168.1.80', forward_port: 8080, forward_scheme: 'http', advanced_config: oversized },
+    });
+
+    expect(response.status()).toBe(400);
+    expect(await response.json()).toHaveProperty('error_code', 'advanced_config_too_large');
+  });
+
+  test.fixme('refuses an oversized request', async ({ page }) => {
+    const domain = uniqueDomain();
+    const uuid = await createHostViaAPI(page, domain);
+    const oversizedBody = JSON.stringify({ domain_names: domain, name: 'a'.repeat(ONE_MIB + 1) });
+
+    const response = await page.request.put(`/api/v1/proxy-hosts/${uuid}`, {
+      headers: { 'Content-Type': 'application/json' },
+      data: oversizedBody,
+    });
+
+    expect(response.status()).toBe(413);
+    expect(await response.json()).toHaveProperty('error_code', 'request_too_large');
+  });
+});
