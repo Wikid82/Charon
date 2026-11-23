@@ -145,7 +145,7 @@ func parseStatusCodeField(value any) (int, error) {
 func (h *RedirectionHostHandler) List(c *gin.Context) {
 	hosts, err := h.service.List()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondInternalError(c, "Could not load the redirection hosts.", err)
 		return
 	}
 	c.JSON(http.StatusOK, hosts)
@@ -260,7 +260,7 @@ func (h *RedirectionHostHandler) Update(c *gin.Context) {
 	}
 	before, err := h.service.Snapshot(host.ID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not load the redirection host."})
+		respondInternalError(c, "Could not load the redirection host.", err)
 		return
 	}
 
@@ -356,12 +356,12 @@ func (h *RedirectionHostHandler) Delete(c *gin.Context) {
 
 	before, err := h.service.Snapshot(host.ID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not load the redirection host."})
+		respondInternalError(c, "Could not load the redirection host.", err)
 		return
 	}
 
 	if err := h.service.Delete(host.ID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondInternalError(c, "Could not delete the redirection host.", err)
 		return
 	}
 

@@ -466,7 +466,7 @@ func (h *ProxyHostHandler) leftOutHosts() map[string]struct{} {
 func (h *ProxyHostHandler) List(c *gin.Context) {
 	hosts, err := h.service.List()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondInternalError(c, "Could not load the proxy hosts.", err)
 		return
 	}
 
@@ -643,7 +643,7 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 	}
 	before, err := h.service.Snapshot(host.ID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not load the proxy host."})
+		respondInternalError(c, "Could not load the proxy host.", err)
 		return
 	}
 
@@ -862,7 +862,7 @@ func (h *ProxyHostHandler) Delete(c *gin.Context) {
 
 	before, err := h.service.Snapshot(host.ID)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not load the proxy host."})
+		respondInternalError(c, "Could not load the proxy host.", err)
 		return
 	}
 
@@ -888,7 +888,7 @@ func (h *ProxyHostHandler) Delete(c *gin.Context) {
 		delErr = h.service.Delete(host.ID)
 	}
 	if delErr != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": delErr.Error()})
+		respondInternalError(c, "Could not delete the proxy host.", delErr)
 		return
 	}
 
@@ -1126,7 +1126,7 @@ func (h *ProxyHostHandler) BulkUpdateSecurityHeaders(c *gin.Context) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "security header profile not found"})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondInternalError(c, "Could not check the security header profile.", err)
 			return
 		}
 	}
@@ -1188,7 +1188,7 @@ func (h *ProxyHostHandler) BulkUpdateSecurityHeaders(c *gin.Context) {
 	}
 
 	if err := tx.Commit().Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction: " + err.Error()})
+		respondInternalError(c, "Could not save the security header changes.", err)
 		return
 	}
 
