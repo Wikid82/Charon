@@ -89,7 +89,7 @@ func bindSitesInSource(t *testing.T) map[string]bool {
 // scanBindSites reads one source file and returns the methods in it that contain a bind call.
 func scanBindSites(t *testing.T, file string) map[string]bool {
 	t.Helper()
-	f, err := os.Open(file)
+	f, err := os.Open(file) // #nosec G304 -- test scans the handlers package's own source files, found by a fixed glob
 	require.NoError(t, err)
 	defer f.Close()
 	sites := map[string]bool{}
