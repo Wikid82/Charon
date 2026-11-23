@@ -1018,7 +1018,7 @@ ARG CA_CERTIFICATES_VERSION=20261020-r0
 # Renovate (repology, Alpine v3.24 repo, tracked via libcrypto3) raises it once a patched release
 # is published. libcrypto3 and libssl3 are built from the same Alpine `openssl` aport.
 # renovate: datasource=repology depName=alpine_3_24/libcrypto3 versioning=loose
-ARG OPENSSL_VERSION=3.5.9-r0
+ARG OPENSSL_VERSION=3.5.9-r1
 # hadolint ignore=DL3018
 
 ARG SQLITE_VERSION
