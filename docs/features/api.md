@@ -149,12 +149,15 @@ The API returns standard HTTP status codes:
 | ------ | --------- |
 | `200` | Success |
 | `201` | Resource created |
-| `400` | Invalid request body |
+| `400` | Invalid request body. The answer has `error_code: "invalid_request"` and may list the names of the fields to fix in `fields` |
 | `401` | Invalid or missing token |
 | `403` | Insufficient permissions |
 | `404` | Resource not found |
+| `413` | Request too large. The body is over the limit for that endpoint: 1 MB for proxy and redirection hosts, 64 KB for small settings requests such as the URL checks, 4 MB for Caddyfile imports, and 8 MB for JSON and Nginx Proxy Manager imports. The answer has `error_code: "request_too_large"` |
 | `429` | Too many requests in a short time. Wait for the `Retry-After` time, then try again |
-| `500` | Server error |
+| `500` | Server error. A refused proxy change answers with `error_code: "proxy_apply_failed"`; nothing was changed, and the previous settings are kept |
+
+Some limits are per field, not per request. For example, the advanced Caddy configuration of a proxy host can be at most 256 KB. A value over that limit is refused with a `400` and `error_code: "advanced_config_too_large"`. A Caddyfile upload with more than 64 files is refused with a `400` and `error_code: "import_too_many_files"`.
 
 ## Related
 

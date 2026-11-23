@@ -128,6 +128,7 @@ For example, `https://newblog.example.com/start%7Bdemo%7D` is accepted.
 
 ## A Few Things Worth Knowing
 
+- **A change the proxy can't apply is not kept.** If the proxy cannot apply a change, Charon keeps the previous settings and shows the error. Fix the problem and save again.
 - **Domain names must be unique.** You can't set up a Redirection Host for a domain that's already in use by a Proxy Host (or another Redirection Host) — Charon will tell you if there's a conflict, so you never end up with two rules quietly fighting over the same address.
 - **No redirecting a domain to itself.** Charon blocks you from pointing a domain's redirect target back at one of its own domain names — that would just send visitors in an endless loop.
 - **Turning a redirect off** (via the Enabled toggle) stops it from responding without deleting your configuration, so you can easily re-enable it later.

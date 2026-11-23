@@ -69,6 +69,11 @@ Choose what makes sense for each conflict.
 
 Charon creates proxy hosts for everything you selected. Done!
 
+### Size and Time Limits
+
+- **Caddyfile:** Up to 4 MB per import, and up to 64 files if you upload several at once. A pending upload is kept for 24 hours. A new upload replaces an older pending one.
+- **JSON and Nginx Proxy Manager files:** Up to 8 MB per file. A preview must be imported within one hour, after which you need to upload the file again. Charon keeps at most 4 previews at a time.
+
 ---
 
 ## Example: Simple Caddyfile
@@ -197,6 +202,12 @@ Always check the preview carefully. Make sure addresses and ports are correct.
 
 **Solution:** Import what works, add the rest manually through the UI.
 
+### "Request too large"
+
+**Problem:** The file is bigger than the limit (4 MB for Caddyfile, 8 MB for JSON or Nginx Proxy Manager), or you uploaded more than 64 Caddyfile files at once.
+
+**Solution:** Remove sites you don't need, or split the file and import each part on its own.
+
 ---
 
 ## After Importing
@@ -214,11 +225,12 @@ Everything is now managed by Charon!
 
 ## What About Nginx Proxy Manager?
 
-NPM import is planned for a future update. For now:
+Charon can import an Nginx Proxy Manager export file. Open the **Import NPM** page, upload your export file, check the preview, then confirm the import. The file must be 8 MB or smaller, and you must finish the import within one hour of the preview.
 
-1. Export your NPM config (if possible)
-2. Look at which domains point where
-3. Add them manually through Charon's UI (it's pretty quick)
+If you can't use the import, you can also:
+
+1. Look at which domains point where in your Nginx Proxy Manager
+2. Add them manually through Charon's UI (it's pretty quick)
 
 ---
 
