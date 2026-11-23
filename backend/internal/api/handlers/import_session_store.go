@@ -28,7 +28,12 @@ type importSessionStore[T any] struct {
 	entries map[string]importSessionEntry[T]
 }
 
+// newImportSessionStore returns a store that holds at most maxEntries entries. A bound below one would leave Put with
+// no room for its entry, so the bound is at least one.
 func newImportSessionStore[T any](ttl time.Duration, maxEntries int) *importSessionStore[T] {
+	if maxEntries < 1 {
+		maxEntries = 1
+	}
 	return &importSessionStore[T]{
 		ttl:     ttl,
 		max:     maxEntries,

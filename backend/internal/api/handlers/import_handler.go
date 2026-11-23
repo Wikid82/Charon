@@ -90,8 +90,8 @@ func (h *ImportHandler) RegisterRoutes(router *gin.RouterGroup) {
 	router.POST("/import/upload", body, h.Upload)
 	router.POST("/import/upload-multi", body, h.UploadMulti)
 	router.POST("/import/detect-imports", body, h.DetectImports)
-	router.POST("/import/commit", h.Commit)
-	router.DELETE("/import/cancel", h.Cancel)
+	router.POST("/import/commit", body, h.Commit)
+	router.DELETE("/import/cancel", body, h.Cancel)
 }
 
 // GetStatus returns current import session status.
@@ -652,7 +652,6 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 	})
 }
 
-// detectImportDirectives scans Caddyfile content for import directives.
 // Import upload answers and limits (see import_upload_cleanup.go).
 const (
 	codeImportTooManyFiles    = "import_too_many_files"
@@ -696,8 +695,8 @@ func (h *ImportHandler) SweepUploads() error {
 	return sweepImportUploads(h.db, h.importDir, h.mountPath, time.Now())
 }
 
+// detectImportDirectives scans Caddyfile content for import directives.
 func detectImportDirectives(content string) []string {
-
 	imports := []string{}
 	lines := strings.Split(content, "\n")
 	for _, line := range lines {
