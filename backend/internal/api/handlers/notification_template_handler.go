@@ -37,8 +37,7 @@ func (h *NotificationTemplateHandler) Create(c *gin.Context) {
 	}
 
 	var t models.NotificationTemplate
-	if err := c.ShouldBindJSON(&t); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &t) {
 		return
 	}
 	if err := h.service.CreateTemplate(&t); err != nil {
@@ -58,8 +57,7 @@ func (h *NotificationTemplateHandler) Update(c *gin.Context) {
 
 	id := c.Param("id")
 	var t models.NotificationTemplate
-	if err := c.ShouldBindJSON(&t); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &t) {
 		return
 	}
 	t.ID = id
@@ -92,8 +90,7 @@ func (h *NotificationTemplateHandler) Delete(c *gin.Context) {
 // Preview allows rendering an arbitrary template (provided in request) or a stored template by id.
 func (h *NotificationTemplateHandler) Preview(c *gin.Context) {
 	var raw map[string]any
-	if err := c.ShouldBindJSON(&raw); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &raw) {
 		return
 	}
 

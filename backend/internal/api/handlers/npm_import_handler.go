@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"sync"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -15,12 +14,8 @@ import (
 	"github.com/Wikid82/charon/backend/internal/services"
 )
 
-// npmImportSessions stores parsed NPM exports keyed by session UUID.
-// TODO: Implement session expiration to prevent memory leaks (e.g., TTL-based cleanup).
-var (
-	npmImportSessions   = make(map[string]NPMExport)
-	npmImportSessionsMu sync.RWMutex
-)
+// npmImportSessions holds parsed NPM exports keyed by session UUID until they are committed, cancelled or expire.
+var npmImportSessions = newImportSessionStore[NPMExport](importSessionTTL, maxImportSessions)
 
 // NPMExport represents the top-level structure of an NPM export file.
 type NPMExport struct {
@@ -97,6 +92,9 @@ type NPMCertificate struct {
 	Meta           any      `json:"meta"`
 }
 
+// msgNPMExportNotValid is the answer for an upload that is not an Nginx Proxy Manager export.
+const msgNPMExportNotValid = "The file is not a valid Nginx Proxy Manager export."
+
 // NPMImportHandler handles NPM configuration imports.
 type NPMImportHandler struct {
 	db           *gorm.DB
@@ -113,9 +111,10 @@ func NewNPMImportHandler(db *gorm.DB) *NPMImportHandler {
 
 // RegisterRoutes registers NPM import routes.
 func (h *NPMImportHandler) RegisterRoutes(router *gin.RouterGroup) {
-	router.POST("/import/npm/upload", h.Upload)
-	router.POST("/import/npm/commit", h.Commit)
-	router.POST("/import/npm/cancel", h.Cancel)
+	body := limitRequestBody(maxJSONImportBodyBytes)
+	router.POST("/import/npm/upload", body, h.Upload)
+	router.POST("/import/npm/commit", body, h.Commit)
+	router.POST("/import/npm/cancel", body, h.Cancel)
 }
 
 // Upload parses an NPM export JSON and returns a preview with conflict detection.
@@ -124,14 +123,13 @@ func (h *NPMImportHandler) Upload(c *gin.Context) {
 		Content string `json:"content" binding:"required"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
 	var npmExport NPMExport
 	if err := json.Unmarshal([]byte(req.Content), &npmExport); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid NPM export JSON: %v", err)})
+		c.JSON(http.StatusBadRequest, gin.H{"error": msgNPMExportNotValid})
 		return
 	}
 
@@ -153,9 +151,7 @@ func (h *NPMImportHandler) Upload(c *gin.Context) {
 	sid := uuid.NewString()
 
 	// Store the parsed export in session storage for later commit
-	npmImportSessionsMu.Lock()
-	npmImportSessions[sid] = npmExport
-	npmImportSessionsMu.Unlock()
+	npmImportSessions.Put(sid, npmExport)
 
 	c.JSON(http.StatusOK, gin.H{
 		"session":          gin.H{"id": sid, "state": "transient", "source_type": "npm"},
@@ -179,15 +175,12 @@ func (h *NPMImportHandler) Commit(c *gin.Context) {
 		Names       map[string]string `json:"names"`       // domain -> custom name
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
 	// Retrieve the stored NPM export from session
-	npmImportSessionsMu.RLock()
-	npmExport, ok := npmImportSessions[req.SessionUUID]
-	npmImportSessionsMu.RUnlock()
+	npmExport, ok := npmImportSessions.Get(req.SessionUUID)
 
 	if !ok {
 		c.JSON(http.StatusNotFound, gin.H{"error": "session not found or expired"})
@@ -231,7 +224,7 @@ func (h *NPMImportHandler) Commit(c *gin.Context) {
 				host.CreatedAt = existing.CreatedAt
 
 				if err := h.proxyHostSvc.UpdateImported(budget, &host); err != nil {
-					errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, err.Error()))
+					errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, importErrorText(err)))
 				} else {
 					updated++
 				}
@@ -241,16 +234,14 @@ func (h *NPMImportHandler) Commit(c *gin.Context) {
 
 		host.UUID = uuid.NewString()
 		if err := h.proxyHostSvc.CreateImported(budget, &host); err != nil {
-			errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, err.Error()))
+			errors = append(errors, fmt.Sprintf("%s: %s", host.DomainNames, importErrorText(err)))
 		} else {
 			created++
 		}
 	}
 
 	// Clean up session after successful commit
-	npmImportSessionsMu.Lock()
-	delete(npmImportSessions, req.SessionUUID)
-	npmImportSessionsMu.Unlock()
+	npmImportSessions.Delete(req.SessionUUID)
 
 	c.JSON(http.StatusOK, gin.H{
 		"created": created,
@@ -266,8 +257,7 @@ func (h *NPMImportHandler) Cancel(c *gin.Context) {
 		SessionUUID string `json:"session_uuid"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -277,9 +267,7 @@ func (h *NPMImportHandler) Cancel(c *gin.Context) {
 	}
 
 	// Clean up session if it exists
-	npmImportSessionsMu.Lock()
-	delete(npmImportSessions, req.SessionUUID)
-	npmImportSessionsMu.Unlock()
+	npmImportSessions.Delete(req.SessionUUID)
 
 	c.JSON(http.StatusOK, gin.H{"status": "cancelled"})
 }

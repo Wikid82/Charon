@@ -35,8 +35,7 @@ func (h *LogsHandler) Read(c *gin.Context) {
 	filename := c.Param("filename")
 
 	var filter models.LogFilter
-	if err := c.ShouldBindQuery(&filter); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid query parameters: " + err.Error()})
+	if !bindQuery(c, &filter) {
 		return
 	}
 	if err := filter.Validate(); err != nil {

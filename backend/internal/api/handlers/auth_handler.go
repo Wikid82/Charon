@@ -201,8 +201,7 @@ type LoginRequest struct {
 
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req LoginRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -291,8 +290,7 @@ type ChangePasswordRequest struct {
 
 func (h *AuthHandler) ChangePassword(c *gin.Context) {
 	var req ChangePasswordRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 

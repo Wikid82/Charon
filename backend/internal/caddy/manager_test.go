@@ -333,6 +333,27 @@ func TestManager_Rollback_Failure(t *testing.T) {
 	assert.Contains(t, err.Error(), "rollback also failed")
 }
 
+// A failed rollback is reported with ErrRollbackFailed, so callers match the sentinel and not the text.
+func TestManager_Rollback_FailureWrapsErrRollbackFailed(t *testing.T) {
+	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer caddyServer.Close()
+
+	dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.ProxyHost{}, &models.Location{}, &models.Setting{}, &models.CaddyConfig{}, &models.SSLCertificate{}))
+
+	tmpDir := t.TempDir()
+	manager := NewManager(newTestClient(t, caddyServer.URL), db, tmpDir, "", false, config.SecurityConfig{})
+	_ = os.WriteFile(filepath.Join(tmpDir, "config-123.json"), []byte("{}"), 0o600) // #nosec G306 -- test fixture
+
+	err = manager.ApplyConfig(context.Background())
+	require.Error(t, err)
+	assert.ErrorIs(t, err, ErrRollbackFailed)
+}
+
 func TestComputeEffectiveFlags_DefaultsNoDB(t *testing.T) {
 	// No DB - rely on SecurityConfig defaults only
 	secCfg := config.SecurityConfig{CerberusEnabled: true, ACLMode: "enabled", WAFMode: "enabled", RateLimitMode: "enabled", CrowdSecMode: "local"}

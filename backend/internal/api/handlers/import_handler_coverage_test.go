@@ -31,6 +31,12 @@ func (importCoverageProxyHostSvcStub) List() ([]models.ProxyHost, error) {
 
 func setupReadOnlyImportDB(t *testing.T) *gorm.DB {
 	t.Helper()
+	return setupReadOnlyImportDBWithRows(t)
+}
+
+// setupReadOnlyImportDBWithRows is setupReadOnlyImportDB with rows stored before the file becomes read-only.
+func setupReadOnlyImportDBWithRows(t *testing.T, rows ...models.ImportSession) *gorm.DB {
+	t.Helper()
 
 	tmp := t.TempDir()
 	dbPath := filepath.Join(tmp, "import_ro.db")
@@ -38,6 +44,9 @@ func setupReadOnlyImportDB(t *testing.T) *gorm.DB {
 	rwDB, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, rwDB.AutoMigrate(&models.ImportSession{}))
+	for i := range rows {
+		require.NoError(t, rwDB.Create(&rows[i]).Error)
+	}
 	sqlDB, err := rwDB.DB()
 	require.NoError(t, err)
 	require.NoError(t, sqlDB.Close())
@@ -128,8 +137,9 @@ func TestUploadMulti_EmptyList(t *testing.T) {
 	r.ServeHTTP(w, request)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	// Matched Gin validation error
-	assert.Contains(t, w.Body.String(), "Error:Field validation for 'Files' failed on the 'min' tag")
+	// The validation failure names the public field, not the Go field or the validator text.
+	assert.Equal(t, "The request is not valid. Check: files.", decodeBody(t, w)["error"])
+	assert.NotContains(t, w.Body.String(), "Error:Field")
 }
 
 // TestUploadMulti_FileServerDetected covers the logic where parsable routes trigger a warning
@@ -440,7 +450,6 @@ func TestUploadMulti_ReadOnlyDBRespondsWithPermissionError(t *testing.T) {
 
 func TestCommit_ReadOnlyDBSaveRespondsWithPermissionError(t *testing.T) {
 
-	roDB := setupReadOnlyImportDB(t)
 	mockSvc := new(MockImporterService)
 	mockSvc.On("ImportFile", mock.AnythingOfType("string")).Return(&caddy.ImportResult{
 		Hosts: []caddy.ParsedHost{{DomainNames: "commit.example.com", ForwardHost: "localhost", ForwardPort: 8080}},
@@ -450,7 +459,10 @@ func TestCommit_ReadOnlyDBSaveRespondsWithPermissionError(t *testing.T) {
 	uploadsDir := filepath.Join(importDir, "uploads")
 	require.NoError(t, os.MkdirAll(uploadsDir, 0o750))
 	sid := "readonly-commit-session"
-	require.NoError(t, os.WriteFile(filepath.Join(uploadsDir, sid+".caddyfile"), []byte("commit.example.com { reverse_proxy localhost:8080 }"), 0o600))
+	uploadPath := filepath.Join(uploadsDir, sid+".caddyfile")
+	require.NoError(t, os.WriteFile(uploadPath, []byte("commit.example.com { reverse_proxy localhost:8080 }"), 0o600))
+	parsed := mustMarshal(&caddy.ImportResult{Hosts: []caddy.ParsedHost{{DomainNames: "commit.example.com", ForwardHost: "localhost", ForwardPort: 8080}}})
+	roDB := setupReadOnlyImportDBWithRows(t, models.ImportSession{UUID: sid, SourceFile: uploadPath, Status: "pending", ParsedData: string(parsed)})
 
 	h := NewImportHandlerWithService(roDB, importCoverageProxyHostSvcStub{}, "caddy", importDir, "", nil)
 	h.importerservice = mockSvc

@@ -11,11 +11,11 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
-// probeHosts generates the configuration for hosts with the given admin allow-list and returns its JSON.
-func probeConfig(t *testing.T, hosts []models.ProxyHost, adminWhitelist string, sec *models.SecurityConfig, opts ...GenerateConfigOption) []byte {
+// probeConfig generates the configuration for hosts with the given admin allow-list and returns its JSON.
+func probeConfig(t *testing.T, hosts []models.ProxyHost, adminWhitelist string, opts ...GenerateConfigOption) []byte {
 	t.Helper()
 	cfg, err := GenerateConfig(hosts, "/data/caddy/data", "", "/frontend/dist", "", false,
-		false, false, sec != nil && sec.RateLimitRequests > 0, true, adminWhitelist, nil, nil, nil, sec, nil, opts...)
+		false, false, false, true, adminWhitelist, nil, nil, nil, nil, nil, opts...)
 	require.NoError(t, err)
 	raw, err := json.Marshal(cfg)
 	require.NoError(t, err)
@@ -39,7 +39,7 @@ func aclHost(domain string, list *models.AccessList) models.ProxyHost {
 // proxy's own address never decides, and the visitor's address decides wherever the peer is trusted.
 func TestProxyChecksJudgeTheVisitorNotThePeer(t *testing.T) {
 	blocked := &models.AccessList{Name: "block", Type: "blacklist", IPRules: `[{"cidr":"203.0.113.0/24"}]`, Enabled: true}
-	raw := probeConfig(t, []models.ProxyHost{aclHost("blocked.example.com", blocked)}, "", nil)
+	raw := probeConfig(t, []models.ProxyHost{aclHost("blocked.example.com", blocked)}, "")
 
 	tests := []struct {
 		name    string
@@ -78,7 +78,7 @@ func TestProxyChecksJudgeTheVisitorNotThePeer(t *testing.T) {
 // visitor is trusted, so the visitor address decides a local-network-only list.
 func TestLoopbackPeerWithForwardedAddressIsJudgedByTheVisitor(t *testing.T) {
 	local := &models.AccessList{Name: "local", Type: "whitelist", LocalNetworkOnly: true, Enabled: true}
-	raw := probeConfig(t, []models.ProxyHost{aclHost("local.example.com", local)}, "", nil)
+	raw := probeConfig(t, []models.ProxyHost{aclHost("local.example.com", local)}, "")
 
 	loopback := netip.MustParseAddr("127.0.0.1")
 	require.True(t, caddymatchtest.HostRefuses(t, raw, "local.example.com",
@@ -92,7 +92,7 @@ func TestLoopbackPeerWithForwardedAddressIsJudgedByTheVisitor(t *testing.T) {
 // TestAdminAllowListExemptsByVisitorAddress: an admin allow-list address stays exempt when it is the visitor.
 func TestAdminAllowListExemptsByVisitorAddress(t *testing.T) {
 	blocked := &models.AccessList{Name: "block", Type: "blacklist", IPRules: `[{"cidr":"203.0.113.0/24"}]`, Enabled: true}
-	raw := probeConfig(t, []models.ProxyHost{aclHost("admin.example.com", blocked)}, "203.0.113.10", nil)
+	raw := probeConfig(t, []models.ProxyHost{aclHost("admin.example.com", blocked)}, "203.0.113.10")
 
 	require.False(t, caddymatchtest.HostRefuses(t, raw, "admin.example.com",
 		caddymatchtest.Probe{Addr: netip.MustParseAddr("10.0.0.5"), Client: netip.MustParseAddr("203.0.113.10")}))
@@ -104,7 +104,7 @@ func TestAdminAllowListExemptsByVisitorAddress(t *testing.T) {
 // visitor, so a trusted proxy's forwarded visitor decides the country. The walk fails if the lookup comes first.
 func TestCountryHandlerReadsTheVisitorAfterTheHeaderSet(t *testing.T) {
 	geo := &models.AccessList{Name: "geo", Type: "geo_blacklist", CountryCodes: "RU", Enabled: true}
-	raw := probeConfig(t, []models.ProxyHost{aclHost("geo.example.com", geo)}, "", nil,
+	raw := probeConfig(t, []models.ProxyHost{aclHost("geo.example.com", geo)}, "",
 		WithGeoIPDatabase("/data/geoip/GeoLite2-Country.mmdb", true))
 
 	require.True(t, caddymatchtest.HostRefuses(t, raw, "geo.example.com",

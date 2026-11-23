@@ -165,13 +165,21 @@ func generateForwardHostWarnings(forwardHost string) []ProxyHostWarning {
 	return warnings
 }
 
+// hostMonitorSync is the uptime monitor work the proxy host handlers trigger. *services.UptimeService satisfies it;
+// tests substitute a recorder.
+type hostMonitorSync interface {
+	SyncMonitorForHost(hostID uint) error
+	SyncAndCheckForHost(hostID uint)
+	RemoveForHost(proxyHostID uint, deleteParent func() error) error
+}
+
 // ProxyHostHandler handles CRUD operations for proxy hosts.
 type ProxyHostHandler struct {
 	service             *services.ProxyHostService
 	db                  *gorm.DB
-	caddyManager        *caddy.Manager
+	caddyManager        hostConfigApplier
 	notificationService *services.NotificationService
-	uptimeService       *services.UptimeService
+	uptime              hostMonitorSync
 	connectionTestGate
 }
 
@@ -425,9 +433,9 @@ func NewProxyHostHandler(db *gorm.DB, caddyManager *caddy.Manager, ns *services.
 	return &ProxyHostHandler{
 		service:             services.NewProxyHostService(db),
 		db:                  db,
-		caddyManager:        caddyManager,
+		caddyManager:        nilIfTypedNil[hostConfigApplier](caddyManager),
 		notificationService: ns,
-		uptimeService:       uptimeService,
+		uptime:              nilIfTypedNil[hostMonitorSync](uptimeService),
 	}
 }
 
@@ -442,33 +450,41 @@ func (h *ProxyHostHandler) SetCertificateService(certService services.Certificat
 
 // RegisterRoutes registers proxy host routes.
 func (h *ProxyHostHandler) RegisterRoutes(router *gin.RouterGroup) {
+	body := limitRequestBody(maxHostRequestBodyBytes)
 	router.GET("/proxy-hosts", h.List)
-	router.POST("/proxy-hosts", h.Create)
+	router.POST("/proxy-hosts", body, h.Create)
 	router.GET("/proxy-hosts/:uuid", h.Get)
-	router.PUT("/proxy-hosts/:uuid", h.Update)
+	router.PUT("/proxy-hosts/:uuid", body, h.Update)
 	router.DELETE("/proxy-hosts/:uuid", h.Delete)
-	router.POST("/proxy-hosts/test", h.TestConnection)
-	router.PUT("/proxy-hosts/bulk-update-acl", h.BulkUpdateACL)
-	router.PUT("/proxy-hosts/bulk-update-group", h.BulkUpdateGroup)
-	router.PUT("/proxy-hosts/bulk-update-security-headers", h.BulkUpdateSecurityHeaders)
+	router.POST("/proxy-hosts/test", body, h.TestConnection)
+	router.PUT("/proxy-hosts/bulk-update-acl", body, h.BulkUpdateACL)
+	router.PUT("/proxy-hosts/bulk-update-group", body, h.BulkUpdateGroup)
+	router.PUT("/proxy-hosts/bulk-update-security-headers", body, h.BulkUpdateSecurityHeaders)
+}
+
+// leftOutHosts returns the host UUIDs the last apply left out, or nil when no manager is wired.
+func (h *ProxyHostHandler) leftOutHosts() map[string]struct{} {
+	if h.caddyManager == nil {
+		return nil
+	}
+	return h.caddyManager.LeftOutHostUUIDs()
 }
 
 // List retrieves all proxy hosts.
 func (h *ProxyHostHandler) List(c *gin.Context) {
 	hosts, err := h.service.List()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondInternalError(c, "Could not load the proxy hosts.", err)
 		return
 	}
 
-	jsonListForRoleWithFlags(c, http.StatusOK, hosts, proxyHostRedactedFields, proxyHostFlagsWith(h.caddyManager.LeftOutHostUUIDs(), isAdmin(c)))
+	jsonListForRoleWithFlags(c, http.StatusOK, hosts, proxyHostRedactedFields, proxyHostFlagsWith(h.leftOutHosts(), isAdmin(c)))
 }
 
 // Create creates a new proxy host.
 func (h *ProxyHostHandler) Create(c *gin.Context) {
 	var payload map[string]any
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &payload) {
 		return
 	}
 
@@ -532,7 +548,7 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 
 	var host models.ProxyHost
 	if err := json.Unmarshal(payloadBytes, &host); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondInvalidRequest(c, err, &host)
 		return
 	}
 
@@ -563,22 +579,17 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 		host.Locations[i].UUID = uuid.NewString()
 	}
 
-	if err := h.service.CreateAs(&host, isAdmin(c), requestKeys(payload)...); err != nil {
+	created, err := h.service.CreateAsSnapshot(&host, isAdmin(c), requestKeys(payload)...)
+	if err != nil {
 		respondHostWriteError(c, err)
 		return
 	}
 
-	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
-			// Rollback: delete the created host if config application fails
-			middleware.GetRequestLogger(c).WithError(err).Error("Error applying config")
-			if deleteErr := h.service.Delete(host.ID); deleteErr != nil {
-				idStr := strconv.FormatUint(uint64(host.ID), 10)
-				middleware.GetRequestLogger(c).WithField("host_id", idStr).WithError(deleteErr).Error("Critical: Failed to rollback host")
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
-			return
-		}
+	if applyErr := applyOrRestore(c.Request.Context(), h.caddyManager, func() error {
+		return h.service.RemoveCreated(created)
+	}); applyErr != nil {
+		respondProxyApplyFailed(c, applyErr, nil)
+		return
 	}
 
 	// Send Notification
@@ -596,8 +607,8 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 	}
 
 	// Trigger immediate uptime monitor creation + health check (non-blocking)
-	if h.uptimeService != nil {
-		go h.uptimeService.SyncAndCheckForHost(host.ID)
+	if h.uptime != nil {
+		go h.uptime.SyncAndCheckForHost(host.ID)
 	}
 
 	// Generate advisory warnings for private/Docker IPs
@@ -622,7 +633,7 @@ func (h *ProxyHostHandler) Get(c *gin.Context) {
 		return
 	}
 
-	jsonForRoleWithFlags(c, http.StatusOK, *host, proxyHostRedactedFields, proxyHostFlagsWith(h.caddyManager.LeftOutHostUUIDs(), isAdmin(c)))
+	jsonForRoleWithFlags(c, http.StatusOK, *host, proxyHostRedactedFields, proxyHostFlagsWith(h.leftOutHosts(), isAdmin(c)))
 }
 
 // Update updates an existing proxy host.
@@ -634,11 +645,9 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "proxy host not found"})
 		return
 	}
-
 	// Perform a partial update: only mutate fields present in payload
 	var payload map[string]any
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &payload) {
 		return
 	}
 
@@ -765,7 +774,7 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		// Rebind to []models.Location
 		b, _ := json.Marshal(v)
 		var locs []models.Location
-		if err := json.Unmarshal(b, &locs); err == nil {
+		if unmarshalErr := json.Unmarshal(b, &locs); unmarshalErr == nil {
 			// Ensure UUIDs exist for any new location entries
 			for i := range locs {
 				if locs[i].UUID == "" {
@@ -783,13 +792,13 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 	if v, ok := payload["advanced_config"].(string); ok {
 		if v != "" && v != host.AdvancedConfig {
 			var parsed any
-			if err := json.Unmarshal([]byte(v), &parsed); err != nil {
+			if parseErr := json.Unmarshal([]byte(v), &parsed); parseErr != nil {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "advanced_config must be valid Caddy JSON (not Caddyfile syntax). See https://caddyserver.com/docs/json/ for the correct format."})
 				return
 			}
 			parsed = caddy.NormalizeAdvancedConfig(parsed)
-			if norm, err := json.Marshal(parsed); err != nil {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid advanced_config after normalization: " + err.Error()})
+			if norm, marshalErr := json.Marshal(parsed); marshalErr != nil {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid advanced_config after normalization: " + marshalErr.Error()})
 				return
 			} else {
 				// Backup previous
@@ -802,21 +811,22 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		}
 	}
 
-	if err := h.service.UpdateAs(host, isAdmin(c)); err != nil {
+	before, written, err := h.service.UpdateAsSnapshot(host, isAdmin(c))
+	if err != nil {
 		respondHostWriteError(c, err)
 		return
 	}
 
-	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
-			return
-		}
+	if applyErr := applyOrRestore(c.Request.Context(), h.caddyManager, func() error {
+		return h.service.RestoreUpdated(before, written)
+	}); applyErr != nil {
+		respondProxyApplyFailed(c, applyErr, nil)
+		return
 	}
 
 	// Sync associated uptime monitor with updated proxy host values
-	if h.uptimeService != nil {
-		if err := h.uptimeService.SyncMonitorForHost(host.ID); err != nil {
+	if h.uptime != nil {
+		if err := h.uptime.SyncMonitorForHost(host.ID); err != nil {
 			middleware.GetRequestLogger(c).WithError(err).WithField("host_id", host.ID).Warn("Failed to sync uptime monitor for host")
 			// Don't fail the request if sync fails - the host update succeeded
 		}
@@ -857,24 +867,36 @@ func (h *ProxyHostHandler) Delete(c *gin.Context) {
 	//      its "proxy host not found" guard and creates nothing.
 	// The legacy delete_uptime=true query param is ignored — cleanup is
 	// unconditional.
+	// The stored state is read inside the delete's write lock, so the restore puts back exactly what was removed.
+	var before services.ProxyHostSnapshot
+	deleteHost := func() error {
+		snap, err := h.service.DeleteSnapshot(host.ID)
+		before = snap
+		return err
+	}
 	var delErr error
-	if h.uptimeService != nil {
-		delErr = h.uptimeService.RemoveForHost(host.ID, func() error {
-			return h.service.Delete(host.ID)
-		})
+	if h.uptime != nil {
+		delErr = h.uptime.RemoveForHost(host.ID, deleteHost)
 	} else {
-		delErr = h.service.Delete(host.ID)
+		delErr = deleteHost()
 	}
 	if delErr != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": delErr.Error()})
+		respondInternalError(c, "Could not delete the proxy host.", delErr)
 		return
 	}
 
-	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
-			return
+	if applyErr := applyOrRestore(c.Request.Context(), h.caddyManager, func() error {
+		if err := h.service.ReinsertDeleted(before); err != nil {
+			return err
 		}
+		// The purge removed the host's monitor; a fresh one is created for the restored host. Its check history is lost.
+		if h.uptime != nil {
+			go h.uptime.SyncAndCheckForHost(host.ID)
+		}
+		return nil
+	}); applyErr != nil {
+		respondProxyApplyFailed(c, applyErr, nil)
+		return
 	}
 
 	// Send Notification
@@ -904,8 +926,7 @@ func (h *ProxyHostHandler) TestConnection(c *gin.Context) {
 		ForwardPort int    `json:"forward_port" binding:"required"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -927,6 +948,22 @@ func (h *ProxyHostHandler) TestConnection(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Connection successful"})
 }
 
+// uniqueHostUUIDs returns the uuids with repeats removed, keeping the first occurrence. A bulk write changes each host
+// once: a repeated uuid would record two changes for one row, and restoring the first would make the second look
+// superseded.
+func uniqueHostUUIDs(uuids []string) []string {
+	seen := make(map[string]struct{}, len(uuids))
+	unique := make([]string, 0, len(uuids))
+	for _, id := range uuids {
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	return unique
+}
+
 // BulkUpdateACL applies or removes an access list to multiple proxy hosts.
 func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 	var req struct {
@@ -934,8 +971,7 @@ func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 		AccessListID *uint    `json:"access_list_id"` // nil means remove ACL
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -946,8 +982,9 @@ func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 
 	updated := 0
 	failures := []map[string]string{}
+	var changes []services.ColumnChange
 
-	for _, hostUUID := range req.HostUUIDs {
+	for _, hostUUID := range uniqueHostUUIDs(req.HostUUIDs) {
 		host, err := h.service.GetByUUID(hostUUID)
 		if err != nil {
 			failures = append(failures, map[string]string{
@@ -958,7 +995,8 @@ func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 		}
 
 		host.AccessListID = req.AccessListID
-		if err := h.service.UpdateAs(host, isAdmin(c)); err != nil {
+		before, written, err := h.service.UpdateAsSnapshot(host, isAdmin(c))
+		if err != nil {
 			failures = append(failures, map[string]string{
 				"uuid":  hostUUID,
 				"error": err.Error(),
@@ -966,17 +1004,16 @@ func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 			continue
 		}
 
+		changes = append(changes, services.ColumnChange{ID: host.ID, Old: before.Host.AccessListID, WrittenAt: written.Host.UpdatedAt})
 		updated++
 	}
 
 	// Apply Caddy config once for all updates
-	if updated > 0 && h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to apply configuration: " + err.Error(),
-				"updated": updated,
-				"errors":  failures,
-			})
+	if updated > 0 {
+		if applyErr := applyOrRestore(c.Request.Context(), h.caddyManager, func() error {
+			return h.service.RestoreColumn("access_list_id", changes)
+		}); applyErr != nil {
+			respondProxyApplyFailed(c, applyErr, gin.H{"updated": 0, "errors": failures})
 			return
 		}
 	}
@@ -994,8 +1031,7 @@ func (h *ProxyHostHandler) BulkUpdateGroup(c *gin.Context) {
 		HostUUIDs    []string `json:"host_uuids"    binding:"required"`
 		ProxyGroupID *string  `json:"proxy_group_id"` // nil means remove group assignment
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 	if len(req.HostUUIDs) == 0 {
@@ -1015,8 +1051,9 @@ func (h *ProxyHostHandler) BulkUpdateGroup(c *gin.Context) {
 
 	updated := 0
 	failures := []map[string]string{}
+	var changes []services.ColumnChange
 
-	for _, hostUUID := range req.HostUUIDs {
+	for _, hostUUID := range uniqueHostUUIDs(req.HostUUIDs) {
 		host, err := h.service.GetByUUID(hostUUID)
 		if err != nil {
 			failures = append(failures, map[string]string{
@@ -1026,23 +1063,23 @@ func (h *ProxyHostHandler) BulkUpdateGroup(c *gin.Context) {
 			continue
 		}
 		host.ProxyGroupID = resolvedGroupID
-		if err := h.service.UpdateAs(host, isAdmin(c)); err != nil {
+		before, written, err := h.service.UpdateAsSnapshot(host, isAdmin(c))
+		if err != nil {
 			failures = append(failures, map[string]string{
 				"uuid":  hostUUID,
 				"error": err.Error(),
 			})
 			continue
 		}
+		changes = append(changes, services.ColumnChange{ID: host.ID, Old: before.Host.ProxyGroupID, WrittenAt: written.Host.UpdatedAt})
 		updated++
 	}
 
-	if updated > 0 && h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to apply configuration: " + err.Error(),
-				"updated": updated,
-				"errors":  failures,
-			})
+	if updated > 0 {
+		if applyErr := applyOrRestore(c.Request.Context(), h.caddyManager, func() error {
+			return h.service.RestoreColumn("proxy_group_id", changes)
+		}); applyErr != nil {
+			respondProxyApplyFailed(c, applyErr, gin.H{"updated": 0, "errors": failures})
 			return
 		}
 	}
@@ -1063,8 +1100,7 @@ type BulkUpdateSecurityHeadersRequest struct {
 func (h *ProxyHostHandler) BulkUpdateSecurityHeaders(c *gin.Context) {
 	var req BulkUpdateSecurityHeadersRequest
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -1081,7 +1117,7 @@ func (h *ProxyHostHandler) BulkUpdateSecurityHeaders(c *gin.Context) {
 				c.JSON(http.StatusBadRequest, gin.H{"error": "security header profile not found"})
 				return
 			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondInternalError(c, "Could not check the security header profile.", err)
 			return
 		}
 	}
@@ -1096,8 +1132,9 @@ func (h *ProxyHostHandler) BulkUpdateSecurityHeaders(c *gin.Context) {
 
 	updated := 0
 	failures := []map[string]string{}
+	var changes []services.ColumnChange
 
-	for _, hostUUID := range req.HostUUIDs {
+	for _, hostUUID := range uniqueHostUUIDs(req.HostUUIDs) {
 		var host models.ProxyHost
 		if err := tx.Where("uuid = ?", hostUUID).First(&host).Error; err != nil {
 			failures = append(failures, map[string]string{
@@ -1108,8 +1145,9 @@ func (h *ProxyHostHandler) BulkUpdateSecurityHeaders(c *gin.Context) {
 		}
 
 		// Update security header profile ID
+		oldValue := host.SecurityHeaderProfileID
 		host.SecurityHeaderProfileID = req.SecurityHeaderProfileID
-		if err := tx.Model(&host).Where("id = ?", host.ID).Select("SecurityHeaderProfileID").Updates(&host).Error; err != nil {
+		if err := tx.Model(&host).Where("id = ?", host.ID).Select("SecurityHeaderProfileID", "UpdatedAt").Updates(&host).Error; err != nil {
 			failures = append(failures, map[string]string{
 				"uuid":  hostUUID,
 				"error": err.Error(),
@@ -1117,6 +1155,15 @@ func (h *ProxyHostHandler) BulkUpdateSecurityHeaders(c *gin.Context) {
 			continue
 		}
 
+		var stamp models.ProxyHost
+		if err := tx.Select("updated_at").Where("id = ?", host.ID).First(&stamp).Error; err != nil {
+			failures = append(failures, map[string]string{
+				"uuid":  hostUUID,
+				"error": err.Error(),
+			})
+			continue
+		}
+		changes = append(changes, services.ColumnChange{ID: host.ID, Old: oldValue, WrittenAt: stamp.UpdatedAt})
 		updated++
 	}
 
@@ -1132,18 +1179,16 @@ func (h *ProxyHostHandler) BulkUpdateSecurityHeaders(c *gin.Context) {
 	}
 
 	if err := tx.Commit().Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to commit transaction: " + err.Error()})
+		respondInternalError(c, "Could not save the security header changes.", err)
 		return
 	}
 
 	// Apply Caddy config once for all updates
-	if updated > 0 && h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{
-				"error":   "Failed to apply configuration: " + err.Error(),
-				"updated": updated,
-				"errors":  failures,
-			})
+	if updated > 0 {
+		if applyErr := applyOrRestore(c.Request.Context(), h.caddyManager, func() error {
+			return h.service.RestoreColumn("security_header_profile_id", changes)
+		}); applyErr != nil {
+			respondProxyApplyFailed(c, applyErr, gin.H{"updated": 0, "errors": failures})
 			return
 		}
 	}

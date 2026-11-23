@@ -3,6 +3,7 @@ package services
 import (
 	"fmt"
 	"net"
+	"strings"
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -378,4 +379,38 @@ func TestProxyHostService_NoCertificateService_DoesNotPanic(t *testing.T) {
 	require.NoError(t, service.Create(host))
 	require.NoError(t, service.Update(host))
 	require.NoError(t, service.Delete(host.ID))
+}
+
+// Unit cases for the advanced configuration size rule (see checkAdvancedConfigSize).
+func TestCheckAdvancedConfigSize(t *testing.T) {
+	t.Parallel()
+	atLimit := &models.ProxyHost{AdvancedConfig: strings.Repeat("a", MaxAdvancedConfigBytes)}
+	overLimit := &models.ProxyHost{AdvancedConfig: strings.Repeat("a", MaxAdvancedConfigBytes+1)}
+	stored := hostAdminFields{advancedConfig: canonicalAdvancedConfig(overLimit.AdvancedConfig)}
+
+	assert.NoError(t, checkAdvancedConfigSize(atLimit, 0, hostAdminFields{}), "the limit itself is allowed")
+	assert.ErrorIs(t, checkAdvancedConfigSize(overLimit, 0, hostAdminFields{}), ErrAdvancedConfigTooLarge, "a new host is refused")
+	assert.ErrorIs(t, checkAdvancedConfigSize(overLimit, 7, hostAdminFields{}), ErrAdvancedConfigTooLarge, "a changed value is refused")
+	assert.NoError(t, checkAdvancedConfigSize(overLimit, 7, stored), "a stored value that did not change is kept")
+}
+
+// A new host with an oversized advanced configuration is refused with the typed error, and nothing is stored.
+func TestProxyHostServiceRefusesOversizedAdvancedConfigOnCreate(t *testing.T) {
+	t.Parallel()
+	db := setupProxyHostTestDB(t)
+	service := NewProxyHostService(db)
+	host := &models.ProxyHost{
+		UUID:           "oversized-advanced",
+		DomainNames:    "oversized-advanced.example.com",
+		ForwardHost:    "10.0.0.8",
+		ForwardPort:    8080,
+		AdvancedConfig: `{"handler":"` + strings.Repeat("a", MaxAdvancedConfigBytes) + `"}`,
+	}
+
+	err := service.CreateAs(host, true)
+
+	require.ErrorIs(t, err, ErrAdvancedConfigTooLarge)
+	var n int64
+	require.NoError(t, db.Model(&models.ProxyHost{}).Count(&n).Error)
+	assert.Zero(t, n)
 }

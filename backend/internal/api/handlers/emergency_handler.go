@@ -451,8 +451,7 @@ func (h *EmergencyHandler) GenerateToken(c *gin.Context) {
 	}
 
 	var req GenerateTokenRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -536,8 +535,7 @@ func (h *EmergencyHandler) UpdateTokenExpiration(c *gin.Context) {
 	}
 
 	var req UpdateExpirationRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 

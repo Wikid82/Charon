@@ -13,7 +13,6 @@ import (
 	"github.com/google/uuid"
 	"gorm.io/gorm"
 
-	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/caddy"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
@@ -25,7 +24,7 @@ import (
 // Update) — see docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §4.4.
 type RedirectionHostHandler struct {
 	service      *services.RedirectionHostService
-	caddyManager *caddy.Manager
+	caddyManager CaddyConfigManager
 	db           *gorm.DB
 }
 
@@ -33,17 +32,18 @@ type RedirectionHostHandler struct {
 func NewRedirectionHostHandler(db *gorm.DB, caddyManager *caddy.Manager) *RedirectionHostHandler {
 	return &RedirectionHostHandler{
 		service:      services.NewRedirectionHostService(db),
-		caddyManager: caddyManager,
+		caddyManager: nilIfTypedNil[CaddyConfigManager](caddyManager),
 		db:           db,
 	}
 }
 
 // RegisterRoutes registers redirection host routes on the given router group.
 func (h *RedirectionHostHandler) RegisterRoutes(router *gin.RouterGroup) {
+	body := limitRequestBody(maxHostRequestBodyBytes)
 	router.GET("/redirection-hosts", h.List)
-	router.POST("/redirection-hosts", h.Create)
+	router.POST("/redirection-hosts", body, h.Create)
 	router.GET("/redirection-hosts/:uuid", h.Get)
-	router.PUT("/redirection-hosts/:uuid", h.Update)
+	router.PUT("/redirection-hosts/:uuid", body, h.Update)
 	router.DELETE("/redirection-hosts/:uuid", h.Delete)
 }
 
@@ -145,7 +145,7 @@ func parseStatusCodeField(value any) (int, error) {
 func (h *RedirectionHostHandler) List(c *gin.Context) {
 	hosts, err := h.service.List()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondInternalError(c, "Could not load the redirection hosts.", err)
 		return
 	}
 	c.JSON(http.StatusOK, hosts)
@@ -179,8 +179,7 @@ var booleanFieldsDefaultingTrueOnCreate = []string{"preserve_path", "ssl_forced"
 // Create creates a new redirection host.
 func (h *RedirectionHostHandler) Create(c *gin.Context) {
 	var payload map[string]any
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &payload) {
 		return
 	}
 
@@ -216,29 +215,23 @@ func (h *RedirectionHostHandler) Create(c *gin.Context) {
 
 	var host models.RedirectionHost
 	if err := json.Unmarshal(payloadBytes, &host); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		respondInvalidRequest(c, err, &host)
 		return
 	}
 
 	host.UUID = uuid.NewString()
 
-	if err := h.service.CreateAs(&host, isAdmin(c)); err != nil {
+	created, err := h.service.CreateAsSnapshot(&host, isAdmin(c))
+	if err != nil {
 		respondRedirectionHostWriteError(c, err)
 		return
 	}
 
-	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
-			// Rollback: delete the created host if config application fails,
-			// mirroring proxy_host_handler.go's Create rollback pattern.
-			middleware.GetRequestLogger(c).WithError(err).Error("Error applying config")
-			if deleteErr := h.service.Delete(host.ID); deleteErr != nil {
-				idStr := strconv.FormatUint(uint64(host.ID), 10)
-				middleware.GetRequestLogger(c).WithField("host_id", idStr).WithError(deleteErr).Error("Critical: Failed to rollback redirection host")
-			}
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
-			return
-		}
+	if applyErr := applyOrRestore(c.Request.Context(), h.caddyManager, func() error {
+		return h.service.RemoveCreated(created)
+	}); applyErr != nil {
+		respondProxyApplyFailed(c, applyErr, nil)
+		return
 	}
 
 	c.JSON(http.StatusCreated, host)
@@ -261,10 +254,8 @@ func (h *RedirectionHostHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "redirection host not found"})
 		return
 	}
-
 	var payload map[string]any
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &payload) {
 		return
 	}
 
@@ -325,16 +316,17 @@ func (h *RedirectionHostHandler) Update(c *gin.Context) {
 		host.DNSProviderID = resolvedDNSProviderID
 	}
 
-	if err := h.service.UpdateAs(host, isAdmin(c)); err != nil {
+	before, written, err := h.service.UpdateAsSnapshot(host, isAdmin(c))
+	if err != nil {
 		respondRedirectionHostWriteError(c, err)
 		return
 	}
 
-	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
-			return
-		}
+	if applyErr := applyOrRestore(c.Request.Context(), h.caddyManager, func() error {
+		return h.service.RestoreUpdated(before, written)
+	}); applyErr != nil {
+		respondProxyApplyFailed(c, applyErr, nil)
+		return
 	}
 
 	c.JSON(http.StatusOK, host)
@@ -348,16 +340,17 @@ func (h *RedirectionHostHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	if err := h.service.Delete(host.ID); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+	before, err := h.service.DeleteSnapshot(host.ID)
+	if err != nil {
+		respondInternalError(c, "Could not delete the redirection host.", err)
 		return
 	}
 
-	if h.caddyManager != nil {
-		if err := h.caddyManager.ApplyConfig(c.Request.Context()); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to apply configuration: " + err.Error()})
-			return
-		}
+	if applyErr := applyOrRestore(c.Request.Context(), h.caddyManager, func() error {
+		return h.service.ReinsertDeleted(before)
+	}); applyErr != nil {
+		respondProxyApplyFailed(c, applyErr, nil)
+		return
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "redirection host deleted"})

@@ -73,6 +73,36 @@ async function resetImportSessionWithRetry(page: Page): Promise<void> {
 }
 
 /**
+ * Clicks Commit and waits for the commit response regardless of status, then
+ * asserts 200. Failing fast with the status and body makes a rejected commit
+ * (e.g. a session cancelled by another worker) diagnosable instead of a
+ * 90s waitForResponse timeout.
+ */
+async function clickCommitAndExpectOk(page: Page): Promise<void> {
+  const commitPromise = page.waitForResponse(
+    r => r.url().includes('/api/v1/import/commit'),
+    { timeout: 15000 }
+  );
+
+  await page.getByRole('button', { name: /commit/i }).click();
+
+  let response;
+  try {
+    response = await commitPromise;
+  } catch {
+    throw new Error('[caddy-import-gaps] Timed out waiting for /api/v1/import/commit response');
+  }
+
+  const status = response.status();
+  if (status !== 200) {
+    const body = (await response.text().catch(() => '')).slice(0, 500);
+    throw new Error(
+      `[caddy-import-gaps] /api/v1/import/commit returned ${status}. Body: ${body || '<empty>'}`
+    );
+  }
+}
+
+/**
  * Helper: Complete the full import flow from paste to success modal
  * Reusable across multiple tests to reduce duplication
  */
@@ -102,11 +132,7 @@ async function completeImportFlow(
   });
 
   await test.step('Commit import and wait for success modal', async () => {
-    const commitPromise = page.waitForResponse(r =>
-      r.url().includes('/api/v1/import/commit') && r.status() === 200
-    );
-    await page.getByRole('button', { name: /commit/i }).click();
-    await commitPromise;
+    await clickCommitAndExpectOk(page);
 
     // Firefox CI can take >5s to render the modal after the API response;
     // use an explicit 10s timeout to prevent flaky failures.
@@ -115,6 +141,11 @@ async function completeImportFlow(
 }
 
 test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
+  // Serial: every case in this file shares one global import session, and the
+  // beforeEach reset of one worker cancels another worker's session mid-flow
+  // (the backend answers the commit with 404 "session not found or file missing").
+  test.describe.configure({ mode: 'serial' });
+
   test.beforeEach(async ({ page }) => {
     await resetImportSessionWithRetry(page);
   });
@@ -690,5 +721,20 @@ test.describe('Caddy Import Gap Coverage @caddy-import-gaps', () => {
         expect(createdHost.name).toBe(customName);
       });
     });
+  });
+});
+
+test.describe('Caddy Import - upload size limit', () => {
+  test('refuses a Caddyfile upload over 4 MiB', async ({ page }) => {
+    const FOUR_MIB = 4 << 20;
+    await page.goto('/tasks/import/caddyfile');
+
+    const response = await page.request.post('/api/v1/import/upload', {
+      headers: { ...(await getStoredAuthHeader(page)), 'Content-Type': 'application/json' },
+      data: JSON.stringify({ filename: 'oversized.caddy', content: 'a'.repeat(FOUR_MIB + 1) }),
+    });
+
+    expect(response.status()).toBe(413);
+    expect(await response.json()).toHaveProperty('error_code', 'request_too_large');
   });
 });

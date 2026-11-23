@@ -79,8 +79,7 @@ type createRequest struct {
 // Create persists a new TunnelConfig.
 func (h *HecateHandler) Create(c *gin.Context) {
 	var req createRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -126,8 +125,7 @@ type updateRequest struct {
 func (h *HecateHandler) Update(c *gin.Context) {
 	uuid := c.Param("uuid")
 	var req updateRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -200,8 +198,7 @@ type rotateCredentialsRequest struct {
 func (h *HecateHandler) RotateCredentials(c *gin.Context) {
 	uuid := c.Param("uuid")
 	var req rotateCredentialsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 	if err := h.svc.RotateCredentials(uuid, req.Credentials); err != nil {

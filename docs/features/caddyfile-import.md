@@ -85,6 +85,14 @@ The import preview shows:
 
 Click **Import** to create hosts. The process handles each host individually—one failure doesn't block others.
 
+### Limits
+
+- **File size:** One Caddyfile import request can be up to **4 MB**. A larger file is refused with a "Request too large" message.
+- **Number of files:** A multi-file upload can have at most **64 files**. Send more and Charon refuses the upload before it saves anything.
+- **Pending imports expire:** An upload you have not imported yet is kept for **24 hours**. After that, it is removed and you need to upload the file again.
+- **A new upload replaces the old one:** If you upload a second file while an earlier upload is still waiting, the earlier one is dropped.
+- **Clean-up:** Uploaded files are removed after you import, cancel, or when the import fails.
+
 ## Import Results Modal
 
 After import completes, a summary modal displays:
@@ -170,6 +178,7 @@ Some Caddyfile features require manual configuration after import:
 | Missing hosts | Ensure site blocks have valid domains |
 | TLS warnings | Configure certificates manually post-import |
 | Duplicate domains | Enable overwrite or rename in source |
+| Request too large | The file is over 4 MB, or the multi-file upload has more than 64 files. Split the configuration into smaller files and import them one at a time |
 
 ## Related
 

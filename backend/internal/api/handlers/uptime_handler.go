@@ -58,9 +58,7 @@ type CreateMonitorRequest struct {
 // Create creates a new uptime monitor
 func (h *UptimeHandler) Create(c *gin.Context) {
 	var req CreateMonitorRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		logger.Log().WithError(err).Warn("Invalid JSON payload for monitor creation")
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -173,9 +171,7 @@ func (h *UptimeHandler) Health(c *gin.Context) {
 func (h *UptimeHandler) Update(c *gin.Context) {
 	id := c.Param("id")
 	var updates map[string]any
-	if err := c.ShouldBindJSON(&updates); err != nil {
-		logger.Log().WithField("error", sanitizeForLog(err.Error())).WithField("monitor_id", sanitizeForLog(id)).Warn("Invalid JSON payload for monitor update")
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &updates) {
 		return
 	}
 

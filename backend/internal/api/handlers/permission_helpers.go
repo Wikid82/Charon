@@ -50,10 +50,24 @@ const forwardTargetRefusedCode = "forward_target_refused"
 // reserved ports or address policy.
 const forwardTargetRefusedText = "This forward target is not allowed."
 
+// isForwardTargetRefused reports whether err is a refused forward target of any cause.
+func isForwardTargetRefused(err error) bool {
+	return errors.Is(err, services.ErrOrthrusListenerTarget) || errors.Is(err, services.ErrAgentForwardTarget) || errors.Is(err, services.ErrForwardTargetAddress)
+}
+
+// importErrorText is the text an import result shows for a failed host: the one forward target message for a refused
+// forward target (the same text the host form shows), otherwise the error text.
+func importErrorText(err error) string {
+	if isForwardTargetRefused(err) {
+		return forwardTargetRefusedText
+	}
+	return err.Error()
+}
+
 // respondForwardTargetRefused writes the 400 for a refused forward target and reports
 // whether err was that refusal. Every cause gets the same text.
 func respondForwardTargetRefused(c *gin.Context, err error) bool {
-	if !errors.Is(err, services.ErrOrthrusListenerTarget) && !errors.Is(err, services.ErrAgentForwardTarget) && !errors.Is(err, services.ErrForwardTargetAddress) {
+	if !isForwardTargetRefused(err) {
 		return false
 	}
 	c.JSON(http.StatusBadRequest, gin.H{
@@ -63,6 +77,12 @@ func respondForwardTargetRefused(c *gin.Context, err error) bool {
 	return true
 }
 
+// Advanced configuration size refusal (400, see services.MaxAdvancedConfigBytes).
+const (
+	codeAdvancedConfigTooLarge = "advanced_config_too_large"
+	msgAdvancedConfigTooLarge  = "The advanced configuration is too large (limit 256 KiB)."
+)
+
 // respondHostWriteError writes the response for a rejected proxy or redirection
 // host write: 403 for an admin-only field, otherwise 400 with the validation message.
 func respondHostWriteError(c *gin.Context, err error) {
@@ -70,6 +90,10 @@ func respondHostWriteError(c *gin.Context, err error) {
 		return
 	}
 	if respondForwardTargetRefused(c, err) {
+		return
+	}
+	if errors.Is(err, services.ErrAdvancedConfigTooLarge) {
+		respondCoded(c, http.StatusBadRequest, codeAdvancedConfigTooLarge, msgAdvancedConfigTooLarge, nil)
 		return
 	}
 	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

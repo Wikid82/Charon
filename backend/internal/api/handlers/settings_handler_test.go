@@ -536,7 +536,8 @@ func TestSettingsHandler_UpdateSetting_MissingKeyRejected(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-	assert.Contains(t, w.Body.String(), "Key")
+	assert.Contains(t, w.Body.String(), "Check: key.", "the answer names the public field")
+	assert.NotContains(t, w.Body.String(), "Key:", "no validator detail reaches the client")
 }
 
 func TestSettingsHandler_UpdateSetting_InvalidKeepaliveIdle(t *testing.T) {

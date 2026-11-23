@@ -74,8 +74,7 @@ func (h *RemoteServerHandler) List(c *gin.Context) {
 // Create creates a new remote server.
 func (h *RemoteServerHandler) Create(c *gin.Context) {
 	var server models.RemoteServer
-	if err := c.ShouldBindJSON(&server); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &server) {
 		return
 	}
 
@@ -132,8 +131,7 @@ func (h *RemoteServerHandler) Update(c *gin.Context) {
 		return
 	}
 
-	if err := c.ShouldBindJSON(server); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, server) {
 		return
 	}
 
@@ -292,8 +290,7 @@ func (h *RemoteServerHandler) TestConnectionCustom(c *gin.Context) {
 		Port int    `json:"port" binding:"required"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 

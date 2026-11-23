@@ -654,8 +654,8 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		management.POST("/settings/smtp/test-email", middleware.RequireRole(models.RoleAdmin), settingsHandler.SendTestEmail)
 
 		// URL Validation
-		management.POST("/settings/validate-url", middleware.RequireRole(models.RoleAdmin), settingsHandler.ValidatePublicURL)
-		management.POST("/settings/test-url", middleware.RequireRole(models.RoleAdmin), settingsHandler.TestPublicURL)
+		management.POST("/settings/validate-url", middleware.RequireRole(models.RoleAdmin), handlers.LimitSmallJSONBody(), settingsHandler.ValidatePublicURL)
+		management.POST("/settings/test-url", middleware.RequireRole(models.RoleAdmin), handlers.LimitSmallJSONBody(), settingsHandler.TestPublicURL)
 
 		// Feature flags (DB-backed with env fallback)
 		featureFlagsHandler := handlers.NewFeatureFlagsHandler(db, caddyManager, cerb)
@@ -1276,6 +1276,9 @@ func startDatabaseMaintenance(ctx context.Context, gate *dbmaint.Gate, db *gorm.
 func RegisterImportHandler(router *gin.Engine, db *gorm.DB, cfg config.Config, caddyBinary, importDir, mountPath string, browserOrigin *middleware.BrowserOriginGuard) {
 	securityService := services.NewSecurityService(db)
 	importHandler := handlers.NewImportHandlerWithDeps(db, caddyBinary, importDir, mountPath, securityService)
+	if err := importHandler.SweepUploads(); err != nil {
+		logger.Log().WithError(err).Warn("Could not apply import upload retention at start-up")
+	}
 	api := router.Group("/api/v1")
 	authService := services.NewAuthService(db, cfg)
 	authenticatedAdmin := api.Group("/")

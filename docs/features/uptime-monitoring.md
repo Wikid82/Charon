@@ -124,6 +124,8 @@ job runs once an hour and permanently deletes heartbeats older than your
 **Heartbeat retention** setting (30 days by default). Pick a window that matches
 how far back you like to look.
 
+If you delete a proxy host and Charon cannot apply the deletion, the host comes back with a new monitor, and that host's earlier check history is not kept.
+
 ### Reclaiming disk space
 
 Every check adds a small record, so history takes up room. As a rough guide,
@@ -559,7 +561,6 @@ Complement with:
 
 Future enhancements under consideration:
 
-- [ ] **HTTP health check support** - Check specific endpoints with status code validation
 - [ ] **Configurable failure threshold** - Adjust consecutive failure count via UI
 - [ ] **Response time alerts** - Notify on degraded performance, not just failures
 - [ ] **Notification batching** - Group multiple alerts to reduce noise
