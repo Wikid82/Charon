@@ -165,13 +165,21 @@ func generateForwardHostWarnings(forwardHost string) []ProxyHostWarning {
 	return warnings
 }
 
+// hostMonitorSync is the uptime monitor work the proxy host handlers trigger. *services.UptimeService satisfies it;
+// tests substitute a recorder.
+type hostMonitorSync interface {
+	SyncMonitorForHost(hostID uint) error
+	SyncAndCheckForHost(hostID uint)
+	RemoveForHost(proxyHostID uint, deleteParent func() error) error
+}
+
 // ProxyHostHandler handles CRUD operations for proxy hosts.
 type ProxyHostHandler struct {
 	service             *services.ProxyHostService
 	db                  *gorm.DB
 	caddyManager        hostConfigApplier
 	notificationService *services.NotificationService
-	uptimeService       *services.UptimeService
+	uptime              hostMonitorSync
 	connectionTestGate
 }
 
@@ -427,7 +435,7 @@ func NewProxyHostHandler(db *gorm.DB, caddyManager *caddy.Manager, ns *services.
 		db:                  db,
 		caddyManager:        nilIfTypedNil[hostConfigApplier](caddyManager),
 		notificationService: ns,
-		uptimeService:       uptimeService,
+		uptime:              nilIfTypedNil[hostMonitorSync](uptimeService),
 	}
 }
 
@@ -599,8 +607,8 @@ func (h *ProxyHostHandler) Create(c *gin.Context) {
 	}
 
 	// Trigger immediate uptime monitor creation + health check (non-blocking)
-	if h.uptimeService != nil {
-		go h.uptimeService.SyncAndCheckForHost(host.ID)
+	if h.uptime != nil {
+		go h.uptime.SyncAndCheckForHost(host.ID)
 	}
 
 	// Generate advisory warnings for private/Docker IPs
@@ -637,12 +645,6 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "proxy host not found"})
 		return
 	}
-	before, err := h.service.Snapshot(host.ID)
-	if err != nil {
-		respondInternalError(c, "Could not load the proxy host.", err)
-		return
-	}
-
 	// Perform a partial update: only mutate fields present in payload
 	var payload map[string]any
 	if !bindJSON(c, &payload) {
@@ -809,7 +811,7 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 		}
 	}
 
-	written, err := h.service.UpdateAsSnapshot(host, isAdmin(c))
+	before, written, err := h.service.UpdateAsSnapshot(host, isAdmin(c))
 	if err != nil {
 		respondHostWriteError(c, err)
 		return
@@ -823,8 +825,8 @@ func (h *ProxyHostHandler) Update(c *gin.Context) {
 	}
 
 	// Sync associated uptime monitor with updated proxy host values
-	if h.uptimeService != nil {
-		if err := h.uptimeService.SyncMonitorForHost(host.ID); err != nil {
+	if h.uptime != nil {
+		if err := h.uptime.SyncMonitorForHost(host.ID); err != nil {
 			middleware.GetRequestLogger(c).WithError(err).WithField("host_id", host.ID).Warn("Failed to sync uptime monitor for host")
 			// Don't fail the request if sync fails - the host update succeeded
 		}
@@ -852,12 +854,6 @@ func (h *ProxyHostHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	before, err := h.service.Snapshot(host.ID)
-	if err != nil {
-		respondInternalError(c, "Could not load the proxy host.", err)
-		return
-	}
-
 	// Purge linked uptime monitors, THEN delete the ProxyHost row, both under the
 	// per-host "proxy-<id>" lock RemoveForHost holds internally. Two things this
 	// buys us:
@@ -871,13 +867,18 @@ func (h *ProxyHostHandler) Delete(c *gin.Context) {
 	//      its "proxy host not found" guard and creates nothing.
 	// The legacy delete_uptime=true query param is ignored — cleanup is
 	// unconditional.
+	// The stored state is read inside the delete's write lock, so the restore puts back exactly what was removed.
+	var before services.ProxyHostSnapshot
+	deleteHost := func() error {
+		snap, err := h.service.DeleteSnapshot(host.ID)
+		before = snap
+		return err
+	}
 	var delErr error
-	if h.uptimeService != nil {
-		delErr = h.uptimeService.RemoveForHost(host.ID, func() error {
-			return h.service.Delete(host.ID)
-		})
+	if h.uptime != nil {
+		delErr = h.uptime.RemoveForHost(host.ID, deleteHost)
 	} else {
-		delErr = h.service.Delete(host.ID)
+		delErr = deleteHost()
 	}
 	if delErr != nil {
 		respondInternalError(c, "Could not delete the proxy host.", delErr)
@@ -889,8 +890,8 @@ func (h *ProxyHostHandler) Delete(c *gin.Context) {
 			return err
 		}
 		// The purge removed the host's monitor; a fresh one is created for the restored host. Its check history is lost.
-		if h.uptimeService != nil {
-			go h.uptimeService.SyncAndCheckForHost(host.ID)
+		if h.uptime != nil {
+			go h.uptime.SyncAndCheckForHost(host.ID)
 		}
 		return nil
 	}); applyErr != nil {
@@ -947,6 +948,22 @@ func (h *ProxyHostHandler) TestConnection(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Connection successful"})
 }
 
+// uniqueHostUUIDs returns the uuids with repeats removed, keeping the first occurrence. A bulk write changes each host
+// once: a repeated uuid would record two changes for one row, and restoring the first would make the second look
+// superseded.
+func uniqueHostUUIDs(uuids []string) []string {
+	seen := make(map[string]struct{}, len(uuids))
+	unique := make([]string, 0, len(uuids))
+	for _, id := range uuids {
+		if _, dup := seen[id]; dup {
+			continue
+		}
+		seen[id] = struct{}{}
+		unique = append(unique, id)
+	}
+	return unique
+}
+
 // BulkUpdateACL applies or removes an access list to multiple proxy hosts.
 func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 	var req struct {
@@ -967,7 +984,7 @@ func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 	failures := []map[string]string{}
 	var changes []services.ColumnChange
 
-	for _, hostUUID := range req.HostUUIDs {
+	for _, hostUUID := range uniqueHostUUIDs(req.HostUUIDs) {
 		host, err := h.service.GetByUUID(hostUUID)
 		if err != nil {
 			failures = append(failures, map[string]string{
@@ -977,9 +994,8 @@ func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 			continue
 		}
 
-		oldValue := host.AccessListID
 		host.AccessListID = req.AccessListID
-		written, err := h.service.UpdateAsSnapshot(host, isAdmin(c))
+		before, written, err := h.service.UpdateAsSnapshot(host, isAdmin(c))
 		if err != nil {
 			failures = append(failures, map[string]string{
 				"uuid":  hostUUID,
@@ -988,7 +1004,7 @@ func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 			continue
 		}
 
-		changes = append(changes, services.ColumnChange{ID: host.ID, Old: oldValue, WrittenAt: written.Host.UpdatedAt})
+		changes = append(changes, services.ColumnChange{ID: host.ID, Old: before.Host.AccessListID, WrittenAt: written.Host.UpdatedAt})
 		updated++
 	}
 
@@ -1037,7 +1053,7 @@ func (h *ProxyHostHandler) BulkUpdateGroup(c *gin.Context) {
 	failures := []map[string]string{}
 	var changes []services.ColumnChange
 
-	for _, hostUUID := range req.HostUUIDs {
+	for _, hostUUID := range uniqueHostUUIDs(req.HostUUIDs) {
 		host, err := h.service.GetByUUID(hostUUID)
 		if err != nil {
 			failures = append(failures, map[string]string{
@@ -1046,9 +1062,8 @@ func (h *ProxyHostHandler) BulkUpdateGroup(c *gin.Context) {
 			})
 			continue
 		}
-		oldValue := host.ProxyGroupID
 		host.ProxyGroupID = resolvedGroupID
-		written, err := h.service.UpdateAsSnapshot(host, isAdmin(c))
+		before, written, err := h.service.UpdateAsSnapshot(host, isAdmin(c))
 		if err != nil {
 			failures = append(failures, map[string]string{
 				"uuid":  hostUUID,
@@ -1056,7 +1071,7 @@ func (h *ProxyHostHandler) BulkUpdateGroup(c *gin.Context) {
 			})
 			continue
 		}
-		changes = append(changes, services.ColumnChange{ID: host.ID, Old: oldValue, WrittenAt: written.Host.UpdatedAt})
+		changes = append(changes, services.ColumnChange{ID: host.ID, Old: before.Host.ProxyGroupID, WrittenAt: written.Host.UpdatedAt})
 		updated++
 	}
 
@@ -1119,7 +1134,7 @@ func (h *ProxyHostHandler) BulkUpdateSecurityHeaders(c *gin.Context) {
 	failures := []map[string]string{}
 	var changes []services.ColumnChange
 
-	for _, hostUUID := range req.HostUUIDs {
+	for _, hostUUID := range uniqueHostUUIDs(req.HostUUIDs) {
 		var host models.ProxyHost
 		if err := tx.Where("uuid = ?", hostUUID).First(&host).Error; err != nil {
 			failures = append(failures, map[string]string{

@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 
@@ -120,13 +121,32 @@ func (s *RedirectionHostService) Update(host *models.RedirectionHost) error {
 // uniqueness checks and the write run in one write-locked transaction (see
 // WithWriteLock).
 func (s *RedirectionHostService) UpdateAs(host *models.RedirectionHost, admin bool) error {
-	_, err := s.UpdateAsSnapshot(host, admin)
+	_, _, err := s.UpdateAsSnapshot(host, admin)
 	return err
 }
 
 // Delete removes a redirection host.
 func (s *RedirectionHostService) Delete(id uint) error {
-	return s.db.Delete(&models.RedirectionHost{}, id).Error
+	_, err := s.DeleteSnapshot(id)
+	return err
+}
+
+// DeleteSnapshot removes a redirection host and returns the stored state it had, read in the same write-locked
+// transaction as the delete.
+func (s *RedirectionHostService) DeleteSnapshot(id uint) (models.RedirectionHost, error) {
+	var before models.RedirectionHost
+	err := WithWriteLock(s.db, &models.RedirectionHost{}, func(tx *gorm.DB) error {
+		snap, err := readRedirectionHost(tx, id)
+		if err != nil {
+			return err
+		}
+		if err := tx.Delete(&models.RedirectionHost{}, id).Error; err != nil {
+			return fmt.Errorf("delete redirection host %d: %w", id, err)
+		}
+		before = snap
+		return nil
+	})
+	return before, err
 }
 
 // GetByID retrieves a redirection host by numeric ID.

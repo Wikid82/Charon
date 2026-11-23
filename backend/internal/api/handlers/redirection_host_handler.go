@@ -254,12 +254,6 @@ func (h *RedirectionHostHandler) Update(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"error": "redirection host not found"})
 		return
 	}
-	before, err := h.service.Snapshot(host.ID)
-	if err != nil {
-		respondInternalError(c, "Could not load the redirection host.", err)
-		return
-	}
-
 	var payload map[string]any
 	if !bindJSON(c, &payload) {
 		return
@@ -322,7 +316,7 @@ func (h *RedirectionHostHandler) Update(c *gin.Context) {
 		host.DNSProviderID = resolvedDNSProviderID
 	}
 
-	written, err := h.service.UpdateAsSnapshot(host, isAdmin(c))
+	before, written, err := h.service.UpdateAsSnapshot(host, isAdmin(c))
 	if err != nil {
 		respondRedirectionHostWriteError(c, err)
 		return
@@ -346,13 +340,8 @@ func (h *RedirectionHostHandler) Delete(c *gin.Context) {
 		return
 	}
 
-	before, err := h.service.Snapshot(host.ID)
+	before, err := h.service.DeleteSnapshot(host.ID)
 	if err != nil {
-		respondInternalError(c, "Could not load the redirection host.", err)
-		return
-	}
-
-	if err := h.service.Delete(host.ID); err != nil {
 		respondInternalError(c, "Could not delete the redirection host.", err)
 		return
 	}

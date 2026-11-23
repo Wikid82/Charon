@@ -21,7 +21,7 @@ func TestRedirectionHostRestoreUpdatedPutsTheRowBack(t *testing.T) {
 	current, err := service.GetByID(host.ID)
 	require.NoError(t, err)
 	current.TargetURL = "https://b.example.com"
-	written, err := service.UpdateAsSnapshot(current, true)
+	_, written, err := service.UpdateAsSnapshot(current, true)
 	require.NoError(t, err)
 
 	require.NoError(t, service.RestoreUpdated(before, written))
@@ -42,7 +42,7 @@ func TestRedirectionHostRestoreUpdatedKeepsANewerWrite(t *testing.T) {
 	current, err := service.GetByID(host.ID)
 	require.NoError(t, err)
 	current.TargetURL = "https://b.example.com"
-	written, err := service.UpdateAsSnapshot(current, true)
+	_, written, err := service.UpdateAsSnapshot(current, true)
 	require.NoError(t, err)
 	newer, err := service.GetByID(host.ID)
 	require.NoError(t, err)

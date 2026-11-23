@@ -50,14 +50,21 @@ func (s *RedirectionHostService) CreateAsSnapshot(host *models.RedirectionHost, 
 	return written, err
 }
 
-// UpdateAsSnapshot is UpdateAs that also returns the stored state the update left, read in the same write-locked
-// transaction.
-func (s *RedirectionHostService) UpdateAsSnapshot(host *models.RedirectionHost, admin bool) (models.RedirectionHost, error) {
-	var written models.RedirectionHost
-	err := WithWriteLock(s.db, &models.RedirectionHost{}, func(tx *gorm.DB) error {
+// UpdateAsSnapshot is UpdateAs that also returns the stored state the update replaced (before) and the state it left
+// (written), both read in the same write-locked transaction as the write.
+func (s *RedirectionHostService) UpdateAsSnapshot(host *models.RedirectionHost, admin bool) (before, written models.RedirectionHost, err error) {
+	err = WithWriteLock(s.db, &models.RedirectionHost{}, func(tx *gorm.DB) error {
 		if err := s.checkHostWrite(tx, host, host.ID, admin); err != nil {
 			return err
 		}
+		snap, err := readRedirectionHost(tx, host.ID)
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil // a row that is gone matches nothing, as UpdateAs always did
+		}
+		if err != nil {
+			return err
+		}
+		before = snap
 		// Use Updates+Select("*") to handle nullable foreign keys properly,
 		// mirroring ProxyHostService.Update.
 		if err := tx.Model(&models.RedirectionHost{}).
@@ -66,14 +73,13 @@ func (s *RedirectionHostService) UpdateAsSnapshot(host *models.RedirectionHost, 
 			Updates(host).Error; err != nil {
 			return err
 		}
-		var readErr error
-		written, readErr = readRedirectionHost(tx, host.ID)
-		if errors.Is(readErr, gorm.ErrRecordNotFound) {
-			return nil // a row that is gone matches nothing, as UpdateAs always did
-		}
-		return readErr
+		written, err = readRedirectionHost(tx, host.ID)
+		return err
 	})
-	return written, err
+	if err != nil {
+		return models.RedirectionHost{}, models.RedirectionHost{}, err
+	}
+	return before, written, nil
 }
 
 // RestoreUpdated puts snap back while the stored row still holds what the refused update wrote (written).
@@ -131,7 +137,7 @@ func (s *RedirectionHostService) ReinsertDeleted(snap models.RedirectionHost) er
 		if err := checkCrossTableDomainConflict(tx, snap.DomainNames, &models.ProxyHost{}); err != nil {
 			return fmt.Errorf("%w: %w", ErrRestoreSuperseded, err)
 		}
-		if err := tx.Omit(clause.Associations).Create(&snap).Error; err != nil {
+		if err := insertKeepingValues(tx, &snap); err != nil {
 			return fmt.Errorf("re-insert redirection host %d: %w", snap.ID, err)
 		}
 		return nil

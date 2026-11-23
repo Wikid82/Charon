@@ -63,7 +63,7 @@ func TestProxyHostRestoreUpdatedPutsTheRowAndLocationsBack(t *testing.T) {
 	current, err := service.GetByID(host.ID)
 	require.NoError(t, err)
 	current.ForwardPort = 9999
-	written, err := service.UpdateAsSnapshot(current, true)
+	_, written, err := service.UpdateAsSnapshot(current, true)
 	require.NoError(t, err)
 
 	require.NoError(t, service.RestoreUpdated(before, written))
@@ -86,7 +86,7 @@ func TestProxyHostRestoreUpdatedKeepsANewerWrite(t *testing.T) {
 	current, err := service.GetByID(host.ID)
 	require.NoError(t, err)
 	current.ForwardPort = 9999
-	written, err := service.UpdateAsSnapshot(current, true)
+	_, written, err := service.UpdateAsSnapshot(current, true)
 	require.NoError(t, err)
 
 	// A newer valid write lands after the refused one.
@@ -206,7 +206,7 @@ func TestProxyHostRestoreColumnRestoresUnchangedRowsAndKeepsEditedOnes(t *testin
 		require.NoError(t, err)
 		next := uint(4)
 		current.AccessListID = &next
-		written, err := service.UpdateAsSnapshot(current, true)
+		_, written, err := service.UpdateAsSnapshot(current, true)
 		require.NoError(t, err)
 		changes = append(changes, ColumnChange{ID: id, Old: nil, WrittenAt: written.Host.UpdatedAt})
 	}

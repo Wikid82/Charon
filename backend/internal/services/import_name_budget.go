@@ -71,6 +71,6 @@ func (s *ProxyHostService) CreateImported(b *ImportNameBudget, host *models.Prox
 
 // UpdateImported is UpdateAs for an import host, with the import's name budget.
 func (s *ProxyHostService) UpdateImported(b *ImportNameBudget, host *models.ProxyHost) error {
-	_, err := s.updateChecked(host, true, b.preflight(host))
+	_, _, err := s.updateChecked(host, true, b.preflight(host))
 	return err
 }

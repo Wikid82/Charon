@@ -7,6 +7,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"sync"
 	"testing"
 
 	"github.com/gin-gonic/gin"
@@ -31,11 +32,14 @@ type refusingApplier struct {
 	err     error
 	onApply func()
 	left    map[string]struct{}
+	mu      sync.Mutex
 	seen    []context.Context
 }
 
 func (a *refusingApplier) ApplyConfig(ctx context.Context) error {
+	a.mu.Lock()
 	a.seen = append(a.seen, ctx)
+	a.mu.Unlock()
 	if a.onApply != nil {
 		a.onApply()
 	}
@@ -81,7 +85,9 @@ func newHostRestoreFixture(t *testing.T, db *gorm.DB, role string, applier *refu
 		c.Next()
 	})
 	h.RegisterRoutes(r.Group("/api/v1"))
-	NewRedirectionHostHandler(db, nil).RegisterRoutes(r.Group("/api/v1"))
+	redirect := NewRedirectionHostHandler(db, nil)
+	redirect.caddyManager = applier
+	redirect.RegisterRoutes(r.Group("/api/v1"))
 	return hostRestoreFixture{router: r, db: db, handler: h}
 }
 

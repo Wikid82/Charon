@@ -65,7 +65,7 @@ func writeProxyHostSnapshot(tx *gorm.DB, snap ProxyHostSnapshot) error {
 	if err := tx.Model(&models.ProxyHost{}).
 		Where("id = ?", id).
 		Select("*").
-		Omit("Locations").
+		Omit(clause.Associations).
 		Updates(&snap.Host).Error; err != nil {
 		return fmt.Errorf("restore proxy host %d: %w", id, err)
 	}
@@ -75,15 +75,26 @@ func writeProxyHostSnapshot(tx *gorm.DB, snap ProxyHostSnapshot) error {
 	return insertProxyHostLocations(tx, snap.Locations)
 }
 
-// insertProxyHostLocations inserts location rows with their original ids.
-func insertProxyHostLocations(tx *gorm.DB, locations []models.Location) error {
-	if len(locations) == 0 {
-		return nil
+// insertKeepingValues inserts row (a pointer to a struct) with its original ids and then writes every column back with
+// the value row held before the insert. GORM replaces the zero value of a column with a default tag by that default on
+// insert, both in the SQL and in the struct, so a stored false or "" would otherwise come back as the default. The
+// values are copied before the insert. Associations are not written.
+func insertKeepingValues(tx *gorm.DB, row any) error {
+	want := reflect.New(reflect.TypeOf(row).Elem())
+	want.Elem().Set(reflect.ValueOf(row).Elem())
+	if err := tx.Omit(clause.Associations).Create(row).Error; err != nil {
+		return err
 	}
-	rows := make([]models.Location, len(locations))
-	copy(rows, locations)
-	if err := tx.Create(&rows).Error; err != nil {
-		return fmt.Errorf("insert locations: %w", err)
+	return tx.Model(row).Select("*").Omit(clause.Associations).Updates(want.Interface()).Error
+}
+
+// insertProxyHostLocations inserts location rows with their original ids and stored values.
+func insertProxyHostLocations(tx *gorm.DB, locations []models.Location) error {
+	for i := range locations {
+		row := locations[i]
+		if err := insertKeepingValues(tx, &row); err != nil {
+			return fmt.Errorf("insert location %d of proxy host %d: %w", row.ID, row.ProxyHostID, err)
+		}
 	}
 	return nil
 }
@@ -162,7 +173,7 @@ func (s *ProxyHostService) ReinsertDeleted(snap ProxyHostSnapshot) error {
 		if err := tx.Where("proxy_host_id = ?", snap.Host.ID).Delete(&models.Location{}).Error; err != nil {
 			return fmt.Errorf("clear locations of proxy host %d: %w", snap.Host.ID, err)
 		}
-		if err := tx.Omit(clause.Associations).Create(&host).Error; err != nil {
+		if err := insertKeepingValues(tx, &host); err != nil {
 			return fmt.Errorf("re-insert proxy host %d: %w", snap.Host.ID, err)
 		}
 		return insertProxyHostLocations(tx, snap.Locations)

@@ -11,7 +11,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
-// probeHosts generates the configuration for hosts with the given admin allow-list and returns its JSON.
+// probeConfig generates the configuration for hosts with the given admin allow-list and returns its JSON.
 func probeConfig(t *testing.T, hosts []models.ProxyHost, adminWhitelist string, opts ...GenerateConfigOption) []byte {
 	t.Helper()
 	cfg, err := GenerateConfig(hosts, "/data/caddy/data", "", "/frontend/dist", "", false,
