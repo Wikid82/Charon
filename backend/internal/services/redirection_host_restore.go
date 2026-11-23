@@ -54,27 +54,31 @@ func (s *RedirectionHostService) CreateAsSnapshot(host *models.RedirectionHost, 
 // (written), both read in the same write-locked transaction as the write.
 func (s *RedirectionHostService) UpdateAsSnapshot(host *models.RedirectionHost, admin bool) (before, written models.RedirectionHost, err error) {
 	err = WithWriteLock(s.db, &models.RedirectionHost{}, func(tx *gorm.DB) error {
-		if err := s.checkHostWrite(tx, host, host.ID, admin); err != nil {
-			return err
+		if checkErr := s.checkHostWrite(tx, host, host.ID, admin); checkErr != nil {
+			return checkErr
 		}
-		snap, err := readRedirectionHost(tx, host.ID)
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		stored, readErr := readRedirectionHost(tx, host.ID)
+		if errors.Is(readErr, gorm.ErrRecordNotFound) {
 			return nil // a row that is gone matches nothing, as UpdateAs always did
 		}
-		if err != nil {
-			return err
+		if readErr != nil {
+			return readErr
 		}
-		before = snap
+		before = stored
 		// Use Updates+Select("*") to handle nullable foreign keys properly,
 		// mirroring ProxyHostService.Update.
-		if err := tx.Model(&models.RedirectionHost{}).
+		if updErr := tx.Model(&models.RedirectionHost{}).
 			Where("id = ?", host.ID).
 			Select("*").
-			Updates(host).Error; err != nil {
-			return err
+			Updates(host).Error; updErr != nil {
+			return updErr
 		}
-		written, err = readRedirectionHost(tx, host.ID)
-		return err
+		left, leftErr := readRedirectionHost(tx, host.ID)
+		if leftErr != nil {
+			return leftErr
+		}
+		written = left
+		return nil
 	})
 	if err != nil {
 		return models.RedirectionHost{}, models.RedirectionHost{}, err

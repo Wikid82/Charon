@@ -172,3 +172,42 @@ func TestMapBodiesNameNoField(t *testing.T) {
 	require.False(t, bindJSON(c, &payload))
 	assert.NotContains(t, decodeBody(t, w), "fields")
 }
+
+type probeCredentials struct {
+	Password string `json:"password" binding:"min=8"`
+}
+
+// probeWithCredentials embeds probeCredentials without a tag of its own, so the validator path runs through "-".
+type probeWithCredentials struct {
+	probeCredentials
+	Note string `json:"note"`
+}
+
+func TestBindFailureNamesAFieldOfAnEmbeddedStruct(t *testing.T) {
+	t.Parallel()
+	var logs strings.Builder
+	c, w := probeContext(t, http.MethodPost, "/x", `{"password":"x"}`, &logs)
+	var payload probeWithCredentials
+
+	require.False(t, bindJSON(c, &payload))
+
+	require.Equal(t, http.StatusBadRequest, w.Code)
+	answer := decodeBody(t, w)
+	assert.Equal(t, "The request is not valid. Check: password.", answer["error"])
+	assert.NotContains(t, w.Body.String(), "probeCredentials")
+}
+
+func TestValidationFieldNameSkipsHiddenPathElements(t *testing.T) {
+	t.Parallel()
+	cases := map[string]string{
+		"probeRequest.password":           "password",
+		"probeWithCredentials.-.password": "password",
+		"probeWithCredentials.-.-.code":   "code",
+		"probeRequest.files[0].content":   "files",
+		"probeRequest.-":                  "",
+		"password":                        "password",
+	}
+	for namespace, want := range cases {
+		assert.Equal(t, want, validationFieldName(namespace), "namespace %q", namespace)
+	}
+}

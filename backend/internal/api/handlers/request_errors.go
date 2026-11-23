@@ -149,14 +149,20 @@ func invalidFields(err error, obj any) []string {
 }
 
 // validationFieldName reduces a validator namespace to the top-level public name. The namespace starts with the struct
-// type name, which is dropped first.
+// type name, which is dropped first. An embedded struct carries no name of its own and shows as fieldNameHidden in the
+// path (zzReq.-.password), so those elements are skipped and the field inside the embedded struct is named.
 func validationFieldName(namespace string) string {
-	_, rest, found := strings.Cut(namespace, ".")
-	if !found {
+	elements := strings.Split(namespace, ".")
+	if len(elements) == 1 {
 		// An anonymous root struct has no type name in front of its fields.
 		return topLevelName(namespace)
 	}
-	return topLevelName(rest)
+	for _, element := range elements[1:] {
+		if name := topLevelName(element); name != fieldNameHidden {
+			return name
+		}
+	}
+	return ""
 }
 
 // topLevelName reduces a dotted or indexed field path (files[0].content) to its first element (files).

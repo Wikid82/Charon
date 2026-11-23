@@ -358,7 +358,7 @@ func (s *ProxyHostService) UpdateAs(host *models.ProxyHost, admin bool) error {
 
 // UpdateAsSnapshot is UpdateAs that also returns the stored state the update replaced (before) and the state it left
 // (written). Both are read in the same write-locked transaction as the write, so a concurrent writer cannot slip
-// between the read and the update.
+// between the read and the update. A row that is gone matches nothing and returns empty snapshots.
 func (s *ProxyHostService) UpdateAsSnapshot(host *models.ProxyHost, admin bool) (before, written ProxyHostSnapshot, err error) {
 	return s.updateChecked(host, admin, preflightHostNames(host))
 }
@@ -366,27 +366,31 @@ func (s *ProxyHostService) UpdateAsSnapshot(host *models.ProxyHost, admin bool) 
 // updateChecked is UpdateAsSnapshot with the name verdicts already collected.
 func (s *ProxyHostService) updateChecked(host *models.ProxyHost, admin bool, verdicts forwardVerdicts) (before, written ProxyHostSnapshot, err error) {
 	err = WithWriteLock(s.db, &models.ProxyHost{}, func(tx *gorm.DB) error {
-		if err := s.checkHostWrite(tx, host, host.ID, admin, verdicts); err != nil {
-			return err
+		if checkErr := s.checkHostWrite(tx, host, host.ID, admin, verdicts); checkErr != nil {
+			return checkErr
 		}
-		snap, err := readProxyHostSnapshot(tx, host.ID)
-		if errors.Is(err, gorm.ErrRecordNotFound) {
+		stored, readErr := readProxyHostSnapshot(tx, host.ID)
+		if errors.Is(readErr, gorm.ErrRecordNotFound) {
 			return nil // a row that is gone matches nothing, as UpdateAs always did
 		}
-		if err != nil {
-			return err
+		if readErr != nil {
+			return readErr
 		}
-		before = snap
+		before = stored
 		// Use Updates to handle nullable foreign keys properly
 		// Must use Select to explicitly allow setting nullable fields to nil
-		if err := tx.Model(&models.ProxyHost{}).
+		if updErr := tx.Model(&models.ProxyHost{}).
 			Where("id = ?", host.ID).
 			Select("*").
-			Updates(host).Error; err != nil {
-			return err
+			Updates(host).Error; updErr != nil {
+			return updErr
 		}
-		written, err = readProxyHostSnapshot(tx, host.ID)
-		return err
+		left, leftErr := readProxyHostSnapshot(tx, host.ID)
+		if leftErr != nil {
+			return leftErr
+		}
+		written = left
+		return nil
 	})
 	if err != nil {
 		return ProxyHostSnapshot{}, ProxyHostSnapshot{}, err
