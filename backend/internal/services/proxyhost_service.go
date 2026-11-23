@@ -283,11 +283,19 @@ func (s *ProxyHostService) Create(host *models.ProxyHost) error {
 // CreateKeepingSent). The uniqueness checks and the insert run in one
 // write-locked transaction (see WithWriteLock).
 func (s *ProxyHostService) CreateAs(host *models.ProxyHost, admin bool, sentKeys ...string) error {
+	_, err := s.CreateAsSnapshot(host, admin, sentKeys...)
+	return err
+}
+
+// CreateAsSnapshot is CreateAs that also returns the stored state the create left, read in the same write-locked
+// transaction, so a later restore compares against exactly what this request wrote.
+func (s *ProxyHostService) CreateAsSnapshot(host *models.ProxyHost, admin bool, sentKeys ...string) (ProxyHostSnapshot, error) {
 	return s.createChecked(host, admin, preflightHostNames(host), sentKeys...)
 }
 
 // createChecked is CreateAs with the name verdicts already collected.
-func (s *ProxyHostService) createChecked(host *models.ProxyHost, admin bool, verdicts forwardVerdicts, sentKeys ...string) error {
+func (s *ProxyHostService) createChecked(host *models.ProxyHost, admin bool, verdicts forwardVerdicts, sentKeys ...string) (ProxyHostSnapshot, error) {
+	var written ProxyHostSnapshot
 	err := WithWriteLock(s.db, &models.ProxyHost{}, func(tx *gorm.DB) error {
 		if err := s.checkHostWrite(tx, host, 0, admin, verdicts); err != nil {
 			return err
@@ -296,13 +304,17 @@ func (s *ProxyHostService) createChecked(host *models.ProxyHost, admin bool, ver
 		if err != nil {
 			return err
 		}
-		return CreateKeepingSent(tx, host, sentColumns)
+		if err := CreateKeepingSent(tx, host, sentColumns); err != nil {
+			return err
+		}
+		written, err = readProxyHostSnapshot(tx, host.ID)
+		return err
 	})
 	if err != nil {
-		return err
+		return ProxyHostSnapshot{}, err
 	}
 	s.invalidateCertCache()
-	return nil
+	return written, nil
 }
 
 // Update validates and updates an existing proxy host. It is the trusted
@@ -317,27 +329,43 @@ func (s *ProxyHostService) Update(host *models.ProxyHost) error {
 // uniqueness checks and the write run in one write-locked transaction (see
 // WithWriteLock).
 func (s *ProxyHostService) UpdateAs(host *models.ProxyHost, admin bool) error {
+	_, err := s.UpdateAsSnapshot(host, admin)
+	return err
+}
+
+// UpdateAsSnapshot is UpdateAs that also returns the stored state the update left, read in the same write-locked
+// transaction (see CreateAsSnapshot).
+func (s *ProxyHostService) UpdateAsSnapshot(host *models.ProxyHost, admin bool) (ProxyHostSnapshot, error) {
 	return s.updateChecked(host, admin, preflightHostNames(host))
 }
 
 // updateChecked is UpdateAs with the name verdicts already collected.
-func (s *ProxyHostService) updateChecked(host *models.ProxyHost, admin bool, verdicts forwardVerdicts) error {
+func (s *ProxyHostService) updateChecked(host *models.ProxyHost, admin bool, verdicts forwardVerdicts) (ProxyHostSnapshot, error) {
+	var written ProxyHostSnapshot
 	err := WithWriteLock(s.db, &models.ProxyHost{}, func(tx *gorm.DB) error {
 		if err := s.checkHostWrite(tx, host, host.ID, admin, verdicts); err != nil {
 			return err
 		}
 		// Use Updates to handle nullable foreign keys properly
 		// Must use Select to explicitly allow setting nullable fields to nil
-		return tx.Model(&models.ProxyHost{}).
+		if err := tx.Model(&models.ProxyHost{}).
 			Where("id = ?", host.ID).
 			Select("*").
-			Updates(host).Error
+			Updates(host).Error; err != nil {
+			return err
+		}
+		var readErr error
+		written, readErr = readProxyHostSnapshot(tx, host.ID)
+		if errors.Is(readErr, gorm.ErrRecordNotFound) {
+			return nil // a row that is gone matches nothing, as UpdateAs always did
+		}
+		return readErr
 	})
 	if err != nil {
-		return err
+		return ProxyHostSnapshot{}, err
 	}
 	s.invalidateCertCache()
-	return nil
+	return written, nil
 }
 
 // Delete removes a proxy host.

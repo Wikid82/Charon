@@ -104,12 +104,8 @@ func (s *RedirectionHostService) Create(host *models.RedirectionHost) error {
 // transaction. The lock is database wide, so it also serializes against
 // concurrent ProxyHostService writes (see WithWriteLock).
 func (s *RedirectionHostService) CreateAs(host *models.RedirectionHost, admin bool) error {
-	return WithWriteLock(s.db, &models.RedirectionHost{}, func(tx *gorm.DB) error {
-		if err := s.checkHostWrite(tx, host, 0, admin); err != nil {
-			return err
-		}
-		return tx.Create(host).Error
-	})
+	_, err := s.CreateAsSnapshot(host, admin)
+	return err
 }
 
 // Update validates and updates an existing redirection host. It is the trusted
@@ -124,17 +120,8 @@ func (s *RedirectionHostService) Update(host *models.RedirectionHost) error {
 // uniqueness checks and the write run in one write-locked transaction (see
 // WithWriteLock).
 func (s *RedirectionHostService) UpdateAs(host *models.RedirectionHost, admin bool) error {
-	return WithWriteLock(s.db, &models.RedirectionHost{}, func(tx *gorm.DB) error {
-		if err := s.checkHostWrite(tx, host, host.ID, admin); err != nil {
-			return err
-		}
-		// Use Updates+Select("*") to handle nullable foreign keys properly,
-		// mirroring ProxyHostService.Update.
-		return tx.Model(&models.RedirectionHost{}).
-			Where("id = ?", host.ID).
-			Select("*").
-			Updates(host).Error
-	})
+	_, err := s.UpdateAsSnapshot(host, admin)
+	return err
 }
 
 // Delete removes a redirection host.

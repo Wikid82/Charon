@@ -65,10 +65,12 @@ func (b *ImportNameBudget) preflight(host *models.ProxyHost) forwardVerdicts {
 
 // CreateImported is CreateAs for an import host, with the import's name budget.
 func (s *ProxyHostService) CreateImported(b *ImportNameBudget, host *models.ProxyHost) error {
-	return s.createChecked(host, true, b.preflight(host))
+	_, err := s.createChecked(host, true, b.preflight(host))
+	return err
 }
 
 // UpdateImported is UpdateAs for an import host, with the import's name budget.
 func (s *ProxyHostService) UpdateImported(b *ImportNameBudget, host *models.ProxyHost) error {
-	return s.updateChecked(host, true, b.preflight(host))
+	_, err := s.updateChecked(host, true, b.preflight(host))
+	return err
 }
