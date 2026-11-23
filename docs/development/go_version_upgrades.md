@@ -11,7 +11,7 @@ When Charon upgrades to a new Go version, your development tools (like golangci-
 git pull
 
 # Step 2: Update your Go installation
-.github/skills/scripts/skill-runner.sh utility-update-go-version
+.claude/skills/scripts/skill-runner.sh utility-update-go-version
 
 # Step 3: Rebuild tools
 ./scripts/rebuild-go-tools.sh
@@ -74,7 +74,7 @@ git pull origin development
 **Option A: Use the Automated Skill (Recommended)**
 
 ```bash
-.github/skills/scripts/skill-runner.sh utility-update-go-version
+.claude/skills/scripts/skill-runner.sh utility-update-go-version
 ```
 
 This script:
@@ -213,7 +213,7 @@ grep '^go ' go.work
 **Install that version:**
 
 ```bash
-.github/skills/scripts/skill-runner.sh utility-update-go-version
+.claude/skills/scripts/skill-runner.sh utility-update-go-version
 ```
 
 ### IDE showing errors but code compiles fine

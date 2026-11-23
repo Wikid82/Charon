@@ -50,7 +50,7 @@ For Alpine: Update base image or `RUN apk upgrade --no-cache`
 ### Phase 5: Validation
 
 1. Run full test suite: `go test ./...` and `cd frontend && npm test`
-2. Re-run security scan: `.github/skills/scripts/skill-runner.sh security-scan-go-vuln`
+2. Re-run security scan: `.claude/skills/scripts/skill-runner.sh security-scan-go-vuln`
 3. Verify no regressions.
 
 ### Phase 6: Documentation

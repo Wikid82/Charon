@@ -142,7 +142,7 @@ never affected by this.
 ## CI/CD & Commit Conventions
 
 - **Triggers**: Use `feat:`, `fix:`, or `perf:` to trigger Docker builds. `chore:` skips builds.
-- **Dependency bumps**: Renovate emits `deps:` (`.github/renovate.json` → `semanticCommitType: deps`, scope dropped). `deps:` is a release-triggering prefix for release-please, so a bump of anything that ships in the container cuts a patch release. CI-only tooling — GitHub Actions pins and the `custom.regex` trackers under `.github/workflows`, `scripts`, and `.github/skills` (golangci-lint, gotestsum, govulncheck, gopls, Syft, Grype, Semgrep image, CodeQL CLI, `NODE_VERSION`/`GO_VERSION`) — is forced back to `chore:` by packageRules so it doesn't cut a release.
+- **Dependency bumps**: Renovate emits `deps:` (`.github/renovate.json` → `semanticCommitType: deps`, scope dropped). `deps:` is a release-triggering prefix for release-please, so a bump of anything that ships in the container cuts a patch release. CI-only tooling — GitHub Actions pins and the `custom.regex` trackers under `.github/workflows`, `scripts`, and `.claude/skills` (golangci-lint, gotestsum, govulncheck, gopls, Syft, Grype, Semgrep image, CodeQL CLI, `NODE_VERSION`/`GO_VERSION`) — is forced back to `chore:` by packageRules so it doesn't cut a release.
 - **Beta**: `feature/beta-release` always builds.
 - **Weekly Promotion PRs** (`nightly → main`): ALWAYS merge using **"Create a merge commit"** — NEVER squash or rebase. Squash merging collapses all commits into bullet lines that the `auto-versioning` workflow cannot parse, silently preventing minor version bumps and producing empty release notes.
 - **release-please silently skipping or under-bumping a release**: if a weekly promotion merges clean but no release PR appears (or it proposes the wrong bump type), this is a known date-ordering quirk, not a missing prefix or config bug — release-please's commit walk stops once it reaches the release boundary's *commit date*, so nightly commits older than an interim release that landed directly on `main` get silently stranded. See `docs/troubleshooting/release-please-skips.md` for root cause and recovery (spacer commits do NOT fix this — hand-correct the release-please PR's manifest version and body directly).
@@ -286,10 +286,10 @@ Unlike the retired Management agent, the orchestrating session is **not** banned
 Run project skills via the skill runner:
 
 ```bash
-.github/skills/scripts/skill-runner.sh <skill-name>
+.claude/skills/scripts/skill-runner.sh <skill-name>
 ```
 
-Available skills (see `.github/skills/*.SKILL.md` for full docs):
+Available skills (see `.claude/skills/*.SKILL.md` for full docs):
 
 | Skill | Purpose |
 |-------|---------|

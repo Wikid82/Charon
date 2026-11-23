@@ -1,0 +1,476 @@
+#!/usr/bin/env bash
+# Docker: Rebuild E2E Environment - Execution Script
+#
+# Rebuilds the Docker image and restarts the Playwright E2E testing
+# environment with fresh code and optionally clean state.
+
+set -euo pipefail
+
+# Source helper scripts
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SKILLS_SCRIPTS_DIR="$(cd "${SCRIPT_DIR}/../scripts" && pwd)"
+
+# shellcheck source=../scripts/_logging_helpers.sh
+source "${SKILLS_SCRIPTS_DIR}/_logging_helpers.sh"
+# shellcheck source=../scripts/_error_handling_helpers.sh
+source "${SKILLS_SCRIPTS_DIR}/_error_handling_helpers.sh"
+# shellcheck source=../scripts/_environment_helpers.sh
+source "${SKILLS_SCRIPTS_DIR}/_environment_helpers.sh"
+
+# Project root is 3 levels up from this script
+PROJECT_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
+
+# Docker compose file for Playwright E2E tests
+COMPOSE_FILE=".docker/compose/docker-compose.playwright-local.yml"
+CONTAINER_NAME="charon-e2e"
+IMAGE_NAME="charon:local"
+HEALTH_TIMEOUT=60
+HEALTH_INTERVAL=5
+
+# Dev/test-only "What's New" changelog fixture injection (mirrors the
+# `Inject E2E changelog fixture` step in .github/workflows/e2e-tests-split.yml).
+# The committed backend/internal/changelog/data/changelog.json is a `[]`
+# placeholder (go:embed'd at build time), so it must be overwritten with the
+# E2E fixture's content before the image builds, or every
+# tests/settings/whats-new-changelog.spec.ts scenario fails identically
+# across all browsers (the modal never has data to render). Unlike CI's
+# ephemeral runner, this repo checkout persists locally, so (unlike CI) the
+# overwrite MUST be reverted once the image build has captured it — see
+# revert_changelog_fixture(), wired via a trap so it still runs if the build
+# fails partway through.
+CHANGELOG_FIXTURE_SRC="tests/fixtures/changelog-fixture.json"
+CHANGELOG_TARGET="backend/internal/changelog/data/changelog.json"
+CHANGELOG_FIXTURE_INJECTED=false
+
+# Default parameter values
+NO_CACHE=false
+CLEAN=false
+PROFILE=""
+
+# Parse command-line arguments
+parse_arguments() {
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --no-cache)
+                NO_CACHE=true
+                shift
+                ;;
+            --clean)
+                CLEAN=true
+                shift
+                ;;
+            --profile=*)
+                PROFILE="${1#*=}"
+                shift
+                ;;
+            --profile)
+                PROFILE="${2:-}"
+                shift 2
+                ;;
+            -h|--help)
+                show_help
+                exit 0
+                ;;
+            *)
+                log_warning "Unknown argument: $1"
+                shift
+                ;;
+        esac
+    done
+}
+
+# Show help message
+show_help() {
+    cat << EOF
+Usage: run.sh [OPTIONS]
+
+Rebuild Docker image and restart E2E Playwright container.
+
+Options:
+    --no-cache          Force rebuild without Docker cache
+    --clean             Remove test volumes for fresh state
+    --profile=PROFILE   Docker Compose profile to enable
+                        (security-tests, notification-tests)
+    -h, --help          Show this help message
+
+Environment Variables:
+    DOCKER_NO_CACHE         Force rebuild without cache (default: false)
+    SKIP_VOLUME_CLEANUP     Preserve test data volumes (default: false)
+
+Examples:
+    run.sh                              # Standard rebuild
+    run.sh --no-cache                   # Force complete rebuild
+    run.sh --clean                      # Rebuild with fresh volumes
+    run.sh --profile=security-tests     # Enable CrowdSec for testing
+    run.sh --no-cache --clean           # Complete fresh rebuild
+EOF
+}
+
+# Stop existing containers
+stop_containers() {
+    log_step "STOP" "Stopping existing E2E containers"
+
+    local compose_cmd="docker compose -f ${COMPOSE_FILE}"
+
+    # Add profile if specified
+    if [[ -n "${PROFILE}" ]]; then
+        compose_cmd="${compose_cmd} --profile ${PROFILE}"
+    fi
+
+    # Stop and remove containers
+    if ${compose_cmd} ps -q 2>/dev/null | grep -q .; then
+        log_info "Stopping containers..."
+        ${compose_cmd} down --remove-orphans || true
+    else
+        log_info "No running containers to stop"
+    fi
+}
+
+# Clean volumes if requested
+clean_volumes() {
+    if [[ "${CLEAN}" != "true" ]]; then
+        return 0
+    fi
+
+    if [[ "${SKIP_VOLUME_CLEANUP:-false}" == "true" ]]; then
+        log_warning "Skipping volume cleanup (SKIP_VOLUME_CLEANUP=true)"
+        return 0
+    fi
+
+    log_step "CLEAN" "Removing test volumes"
+
+    local volumes=(
+        "playwright_data"
+        "playwright_caddy_data"
+        "playwright_caddy_config"
+        "playwright_crowdsec_data"
+        "playwright_crowdsec_config"
+    )
+
+    for vol in "${volumes[@]}"; do
+        # Try both prefixed and unprefixed volume names
+        for prefix in "compose_" ""; do
+            local full_name="${prefix}${vol}"
+            if docker volume inspect "${full_name}" &>/dev/null; then
+                log_info "Removing volume: ${full_name}"
+                docker volume rm "${full_name}" || true
+            fi
+        done
+    done
+
+    log_success "Volumes cleaned"
+}
+
+# Inject the deterministic E2E changelog fixture so go:embed bakes real
+# "What's New" data into the image, then register a trap to guarantee the
+# working-tree overwrite is reverted afterward — including on build failure.
+inject_changelog_fixture() {
+    log_step "FIXTURE" "Injecting E2E changelog fixture"
+
+    check_file_exists "${CHANGELOG_FIXTURE_SRC}" "Changelog fixture not found: ${CHANGELOG_FIXTURE_SRC}"
+    check_file_exists "${CHANGELOG_TARGET}" "Changelog embed target not found: ${CHANGELOG_TARGET}"
+
+    cp "${CHANGELOG_FIXTURE_SRC}" "${CHANGELOG_TARGET}"
+    CHANGELOG_FIXTURE_INJECTED=true
+    trap revert_changelog_fixture EXIT
+
+    log_success "Fixture injected (will be embedded via go:embed at build time)"
+}
+
+# Restore the committed `[]` placeholder so the local checkout never keeps
+# the E2E-only fixture content. Safe to call multiple times; a no-op unless
+# inject_changelog_fixture() actually ran.
+revert_changelog_fixture() {
+    if [[ "${CHANGELOG_FIXTURE_INJECTED}" != "true" ]]; then
+        return 0
+    fi
+
+    log_step "FIXTURE" "Reverting changelog fixture overwrite"
+    if git checkout -- "${CHANGELOG_TARGET}" 2>/dev/null; then
+        log_success "Reverted ${CHANGELOG_TARGET} to committed placeholder"
+    else
+        log_warning "Failed to revert ${CHANGELOG_TARGET} via git checkout — verify manually"
+    fi
+    CHANGELOG_FIXTURE_INJECTED=false
+}
+
+# Build Docker image
+build_image() {
+    log_step "BUILD" "Building Docker image: ${IMAGE_NAME}"
+
+    # VERSION=dev keeps the E2E image unversioned: the What's New E2E spec
+    # depends on the unversioned build and skips itself on versioned images.
+    local build_args=("--build-arg" "VERSION=dev" "-t" "${IMAGE_NAME}" ".")
+
+    if [[ "${NO_CACHE}" == "true" ]] || [[ "${DOCKER_NO_CACHE:-false}" == "true" ]]; then
+        log_info "Building with --no-cache"
+        build_args=("--no-cache" "${build_args[@]}")
+    fi
+
+    log_command "docker build ${build_args[*]}"
+
+    if ! docker build "${build_args[@]}"; then
+        error_exit "Docker build failed"
+    fi
+
+    log_success "Image built successfully: ${IMAGE_NAME}"
+}
+
+# Start containers
+start_containers() {
+    log_step "START" "Starting E2E containers"
+
+    local compose_cmd="docker compose -f ${COMPOSE_FILE}"
+
+    # Add profile if specified
+    if [[ -n "${PROFILE}" ]]; then
+        log_info "Enabling profile: ${PROFILE}"
+        compose_cmd="${compose_cmd} --profile ${PROFILE}"
+    fi
+
+    log_command "${compose_cmd} up -d"
+
+    if ! ${compose_cmd} up -d; then
+        error_exit "Failed to start containers"
+    fi
+
+    log_success "Containers started"
+}
+
+# Wait for container health
+wait_for_health() {
+    log_step "HEALTH" "Waiting for container to be healthy"
+
+    local elapsed=0
+    local healthy=false
+
+    while [[ ${elapsed} -lt ${HEALTH_TIMEOUT} ]]; do
+        local health_status
+        health_status=$(docker inspect --format='{{.State.Health.Status}}' "${CONTAINER_NAME}" 2>/dev/null || echo "unknown")
+
+        case "${health_status}" in
+            healthy)
+                healthy=true
+                break
+                ;;
+            unhealthy)
+                log_error "Container is unhealthy"
+                docker logs "${CONTAINER_NAME}" --tail 20
+                error_exit "Container health check failed"
+                ;;
+            starting)
+                log_info "Health status: starting (${elapsed}s/${HEALTH_TIMEOUT}s)"
+                ;;
+            *)
+                log_info "Health status: ${health_status} (${elapsed}s/${HEALTH_TIMEOUT}s)"
+                ;;
+        esac
+
+        sleep "${HEALTH_INTERVAL}"
+        elapsed=$((elapsed + HEALTH_INTERVAL))
+    done
+
+    if [[ "${healthy}" != "true" ]]; then
+        log_error "Container did not become healthy in ${HEALTH_TIMEOUT}s"
+        docker logs "${CONTAINER_NAME}" --tail 50
+        error_exit "Health check timeout"
+    fi
+
+    log_success "Container is healthy"
+}
+
+# Detect and persist the E2E Caddy proxy port.
+#
+# On dev machines that already run a separate, always-on Charon deployment
+# bound to host port 80, docker-compose.playwright-local.yml remaps this
+# container's Caddy proxy (container port 80) to host port 8180 instead
+# (see that file's own comment). tests/utils/api-helpers.ts's
+# caddyProxyOrigin() defaults to host port 80 unless PLAYWRIGHT_CADDY_PROXY_PORT
+# is set, so leaving it unset silently sends every WAF/ACL/CrowdSec
+# "malicious request" E2E probe to the OTHER, unrelated Charon instance on
+# port 80 instead of this E2E container. That instance has no route for the
+# test's ad-hoc proxy host/domain and just serves its own catch-all (200 OK)
+# - producing "got 200 instead of 403/502" failures with no error anywhere
+# in the stack to point at. Confirmed live on this class of setup:
+# `curl -H "Host: x" http://127.0.0.1:80/` -> 200 (wrong container) vs.
+# `curl -H "Host: x" http://127.0.0.1:8180/` -> 404 (this container).
+#
+# Detect the actual host port mapped to this container's port 80 and persist
+# it to .env so `npx playwright test` picks it up automatically -
+# playwright.config.js loads .env via dotenv for local (non-CI) runs.
+sync_caddy_proxy_port() {
+    log_step "PORT CHECK" "Verifying Caddy proxy port mapping"
+
+    local mapped
+    mapped="$(docker port "${CONTAINER_NAME}" 80/tcp 2>/dev/null | head -n1 | sed -E 's/.*:([0-9]+)$/\1/')"
+
+    if [[ -z "${mapped}" ]]; then
+        log_warning "Could not determine host port mapped to ${CONTAINER_NAME}:80 - skipping PLAYWRIGHT_CADDY_PROXY_PORT sync"
+        return
+    fi
+
+    local env_file="${PROJECT_ROOT}/.env"
+    touch "${env_file}"
+
+    if [[ "${mapped}" == "80" ]]; then
+        # No remap in effect; drop any stale override so the default (80) applies.
+        if grep -q '^PLAYWRIGHT_CADDY_PROXY_PORT=' "${env_file}" 2>/dev/null; then
+            sed -i.bak '/^PLAYWRIGHT_CADDY_PROXY_PORT=/d' "${env_file}" && rm -f "${env_file}.bak"
+            log_info "Removed stale PLAYWRIGHT_CADDY_PROXY_PORT override (container now maps directly to host port 80)"
+        fi
+        return
+    fi
+
+    if grep -q "^PLAYWRIGHT_CADDY_PROXY_PORT=${mapped}$" "${env_file}" 2>/dev/null; then
+        log_info "PLAYWRIGHT_CADDY_PROXY_PORT already set to ${mapped} in .env"
+        return
+    fi
+
+    if grep -q '^PLAYWRIGHT_CADDY_PROXY_PORT=' "${env_file}" 2>/dev/null; then
+        sed -i.bak "s/^PLAYWRIGHT_CADDY_PROXY_PORT=.*/PLAYWRIGHT_CADDY_PROXY_PORT=${mapped}/" "${env_file}" && rm -f "${env_file}.bak"
+    else
+        {
+            echo ""
+            echo "# Auto-set by docker-rebuild-e2e: ${CONTAINER_NAME}'s Caddy proxy (container"
+            echo "# port 80) is remapped to host port ${mapped} because host port 80 is occupied"
+            echo "# by another container. Required so caddyProxyOrigin() in"
+            echo "# tests/utils/api-helpers.ts targets this E2E container, not whatever else is"
+            echo "# listening on port 80."
+            echo "PLAYWRIGHT_CADDY_PROXY_PORT=${mapped}"
+        } >> "${env_file}"
+    fi
+
+    log_warning "Host port 80 is occupied by something other than ${CONTAINER_NAME} - its Caddy proxy is on host port ${mapped}"
+    log_success "Set PLAYWRIGHT_CADDY_PROXY_PORT=${mapped} in .env for Playwright"
+}
+
+# Verify environment
+verify_environment() {
+    log_step "VERIFY" "Verifying E2E environment"
+
+    # Check container is running
+    if ! docker ps --filter "name=${CONTAINER_NAME}" --format "{{.Names}}" | grep -q "${CONTAINER_NAME}"; then
+        error_exit "Container ${CONTAINER_NAME} is not running"
+    fi
+
+    # Test health endpoint
+    log_info "Testing health endpoint..."
+    if curl -sf http://localhost:8080/api/v1/health &>/dev/null; then
+        log_success "Health endpoint responding"
+    else
+        log_warning "Health endpoint not responding (may need more time)"
+    fi
+
+    # Show container status
+    log_info "Container status:"
+    docker ps --filter "name=${CONTAINER_NAME}" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+}
+
+# Show summary
+show_summary() {
+    log_step "SUMMARY" "E2E environment ready"
+
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "  E2E Environment Ready"
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "  Application URL:  http://localhost:8080"
+    echo "  Health Check:     http://localhost:8080/api/v1/health"
+    echo "  Container:        ${CONTAINER_NAME}"
+    local proxy_port
+    proxy_port="$(docker port "${CONTAINER_NAME}" 80/tcp 2>/dev/null | head -n1 | sed -E 's/.*:([0-9]+)$/\1/')"
+    if [[ -n "${proxy_port}" ]]; then
+        echo "  Caddy Proxy Port: ${proxy_port} (PLAYWRIGHT_CADDY_PROXY_PORT synced to .env)"
+    fi
+    echo ""
+    echo "  Run E2E tests:"
+    echo "    .claude/skills/scripts/skill-runner.sh test-e2e-playwright"
+    echo ""
+    echo "  Run in debug mode:"
+    echo "    .claude/skills/scripts/skill-runner.sh test-e2e-playwright-debug"
+    echo ""
+    echo "  View logs:"
+    echo "    docker logs ${CONTAINER_NAME} -f"
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+}
+
+# ensure_env_value: write NAME=VALUE to the env file only when NAME has no value yet, so
+# generated secrets are created once and reused by later runs.
+ensure_env_value() {
+    local env_file="$1"
+    local name="$2"
+    local value="$3"
+
+    if grep -q "^${name}=." "${env_file}" 2>/dev/null; then
+        return 0
+    fi
+
+    sed -i.bak "/^${name}=/d" "${env_file}" && rm -f "${env_file}.bak"
+    printf '%s=%s\n' "${name}" "${value}" >> "${env_file}"
+    log_info "Wrote ${name} to .env (generated once, reused on later runs)"
+}
+
+# ensure_test_secrets: make the per-run test values (emergency and first-run setup) available to docker compose.
+# The compose file interpolates ${VAR:?} references, and compose reads .env from its own
+# directory, not the project root, so the values are exported from the root .env here.
+# This runs before any compose command, including the cleanup in stop_containers.
+ensure_test_secrets() {
+    local env_file="${PROJECT_ROOT}/.env"
+    touch "${env_file}"
+
+    ensure_env_value "${env_file}" CHARON_ENCRYPTION_KEY "$(openssl rand -base64 32)"
+    ensure_env_value "${env_file}" CHARON_EMERGENCY_TOKEN "$(openssl rand -hex 32)"
+    ensure_env_value "${env_file}" CHARON_EMERGENCY_USERNAME "admin"
+    ensure_env_value "${env_file}" CHARON_EMERGENCY_PASSWORD "$(openssl rand -hex 16)"
+    ensure_env_value "${env_file}" CHARON_SETUP_TOKEN "$(openssl rand -hex 32)"
+
+    set -a
+    # shellcheck source=/dev/null
+    source "${env_file}"
+    set +a
+}
+
+# Main execution
+main() {
+    parse_arguments "$@"
+
+    # Validate environment
+    log_step "ENVIRONMENT" "Validating prerequisites"
+    validate_docker_environment || error_exit "Docker is not available"
+    check_command_exists "docker" "Docker is required"
+
+    # Validate project structure
+    log_step "VALIDATION" "Checking project structure"
+    cd "${PROJECT_ROOT}"
+    check_file_exists "Dockerfile" "Dockerfile is required"
+    check_file_exists "${COMPOSE_FILE}" "Playwright compose file is required"
+
+    log_step "SECRETS" "Ensuring emergency-test values in .env"
+    ensure_test_secrets
+
+    # Log configuration
+    log_step "CONFIG" "Rebuild configuration"
+    log_info "No cache: ${NO_CACHE}"
+    log_info "Clean volumes: ${CLEAN}"
+    log_info "Profile: ${PROFILE:-<none>}"
+    log_info "Compose file: ${COMPOSE_FILE}"
+
+    # Execute rebuild steps
+    stop_containers
+    clean_volumes
+    inject_changelog_fixture
+    build_image
+    revert_changelog_fixture
+    start_containers
+    wait_for_health
+    sync_caddy_proxy_port
+    verify_environment
+    show_summary
+
+    log_success "E2E environment rebuild complete"
+}
+
+# Run main with all arguments
+main "$@"

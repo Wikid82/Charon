@@ -117,12 +117,12 @@
     },
     {
       "customType": "regex",
-      "description": "Track Alpine apk package floors (libxml2, ca-certificates) via Repology in Dockerfile",
+      "description": "Track Alpine apk package floors (libxml2, ca-certificates, openssl) via Repology in Dockerfile. depName is <alpine repo>/<package> (e.g. alpine_3_24/libxml2) and must follow the ALPINE_IMAGE branch.",
       "managerFilePatterns": [
         "/^Dockerfile$/"
       ],
       "matchStrings": [
-        "#\\s*renovate:\\s*datasource=(?<datasource>repology)\\s+depName=(?<depName>[^\\s]+)\\s+versioning=(?<versioning>[^\\s]+)\\s*\\nARG (?:LIBXML2|CA_CERTIFICATES)_VERSION=(?<currentValue>[^\\s]+)"
+        "#\\s*renovate:\\s*datasource=(?<datasource>repology)\\s+depName=(?<depName>[^\\s]+)\\s+versioning=(?<versioning>[^\\s]+)\\s*\\nARG (?:LIBXML2|CA_CERTIFICATES|OPENSSL)_VERSION=(?<currentValue>[^\\s]+)"
       ]
     },
     {
@@ -306,7 +306,7 @@
         "/^\\.github/workflows/docker-build\\.yml$/",
         "/^\\.github/workflows/supply-chain-pr\\.yml$/",
         "/^\\.github/workflows/supply-chain-verify\\.yml$/",
-        "/^\\.github/skills/security-scan-docker-image-scripts/run\\.sh$/"
+        "/^\\.claude/skills/security-scan-docker-image-scripts/run\\.sh$/"
       ],
       "matchStrings": [
         "SYFT_VERSION:\\s*['\"]?v(?<currentValue>[^'\"\\s]+)['\"]?",
@@ -322,7 +322,7 @@
       "description": "Track Grype version in workflows and scripts",
       "managerFilePatterns": [
         "/^\\.github/workflows/supply-chain-pr\\.yml$/",
-        "/^\\.github/skills/security-scan-docker-image-scripts/run\\.sh$/"
+        "/^\\.claude/skills/security-scan-docker-image-scripts/run\\.sh$/"
       ],
       "matchStrings": [
         "anchore/grype/(?:main|[0-9a-f]{40})/install\\.sh \\| sh -s -- -b /usr/local/bin v(?<currentValue>[0-9]+\\.[0-9]+\\.[0-9]+)",
@@ -337,7 +337,7 @@
       "customType": "regex",
       "description": "Track go-version in skill example workflows",
       "managerFilePatterns": [
-        "/^\\.github/skills/examples/.*\\.yml$/"
+        "/^\\.claude/skills/examples/.*\\.yml$/"
       ],
       "matchStrings": [
         "go-version: [\"']?(?<currentValue>[\\d\\.]+)[\"']?"
@@ -887,7 +887,7 @@
   ],
   "github-actions": {
     "managerFilePatterns": [
-      "/^\\.github/skills/examples/.*\\.ya?ml$/"
+      "/^\\.claude/skills/examples/.*\\.ya?ml$/"
     ]
   },
   "packageRules": [
@@ -901,7 +901,7 @@
       "groupSlug": "playwright"
     },
     {
-      "description": "Release gating: bumps default to deps: (a release-triggering prefix for release-please) so a dependency that ships in the container cuts a patch release. CI-only tooling — GitHub Actions pins, and custom.regex trackers under .github/workflows, scripts, and .github/skills (golangci-lint, gotestsum, govulncheck, gopls, Syft, Grype, Semgrep image, CodeQL CLI, NODE_VERSION/GO_VERSION) — does not ship, so force it back to chore: (non-releasable).",
+      "description": "Release gating: bumps default to deps: (a release-triggering prefix for release-please) so a dependency that ships in the container cuts a patch release. CI-only tooling — GitHub Actions pins, and custom.regex trackers under .github/workflows, scripts, and .claude/skills (golangci-lint, gotestsum, govulncheck, gopls, Syft, Grype, Semgrep image, CodeQL CLI, NODE_VERSION/GO_VERSION) — does not ship, so force it back to chore: (non-releasable).",
       "matchManagers": [
         "github-actions"
       ],
@@ -915,7 +915,7 @@
       "matchFileNames": [
         ".github/workflows/**",
         "scripts/**",
-        ".github/skills/**",
+        ".claude/skills/**",
         "Makefile"
       ],
       "semanticCommitType": "chore"

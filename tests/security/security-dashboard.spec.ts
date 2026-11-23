@@ -87,6 +87,22 @@ async function readSecurityStatus(page: import('@playwright/test').Page): Promis
   return response.json();
 }
 
+/**
+ * Waits until the dashboard has finished rendering before a test clicks into it.
+ *
+ * The page renders in stages: the route's lazy chunk shows a "Loading..." fallback, the module
+ * cards appear, and then the login-protection, trusted-proxy and GeoIP cards replace their
+ * skeletons with content of a different height, pushing the module grid down. Each stage is
+ * awaited explicitly so an action never targets a position that is still moving.
+ */
+async function waitForDashboardToSettle(page: import('@playwright/test').Page): Promise<void> {
+  await expect(page.getByRole('heading', { name: 'Security', level: 1 })).toBeVisible();
+  await expect(page.getByTestId('toggle-crowdsec')).toBeEnabled();
+  await expect(page.getByTestId('login-protection-skeleton')).toHaveCount(0);
+  await expect(page.getByTestId('trusted-proxies-skeleton')).toHaveCount(0);
+  await expect(page.getByTestId('geoip-card-skeleton')).toHaveCount(0);
+}
+
 test.describe('Security Dashboard @security', () => {
   test.beforeEach(async ({ page, adminUser }) => {
     await loginUser(page, adminUser);
@@ -154,43 +170,28 @@ test.describe('Security Dashboard @security', () => {
   });
 
   test('navigates to security sub-pages from dashboard actions', async ({ page }) => {
-    const crowdsecButton = page
-      .getByTestId('toggle-crowdsec')
-      .locator('xpath=ancestor::div[contains(@class, "flex")][1]')
-      .getByRole('button', { name: /configure|manage.*lists/i })
-      .first();
-    await crowdsecButton.click({ force: true });
-    await expect(page).toHaveURL(/\/security\/crowdsec/);
+    const destinations = [
+      { toggleTestId: 'toggle-crowdsec', actionName: /configure|manage.*lists/i, url: /\/security\/crowdsec/ },
+      { toggleTestId: 'toggle-acl', actionName: /manage.*lists|configure/i, url: /\/security\/access-lists|\/access-lists/ },
+      { toggleTestId: 'toggle-waf', actionName: /configure/i, url: /\/security\/waf/ },
+      { toggleTestId: 'toggle-rate-limit', actionName: /configure/i, url: /\/security\/rate-limiting/ },
+    ];
 
-    await page.goto('/security');
-    await waitForLoadingComplete(page);
-    const aclButton = page
-      .getByTestId('toggle-acl')
-      .locator('xpath=ancestor::div[contains(@class, "flex")][1]')
-      .getByRole('button', { name: /manage.*lists|configure/i })
-      .first();
-    await aclButton.click({ force: true });
-    await expect(page).toHaveURL(/\/security\/access-lists|\/access-lists/);
+    for (const { toggleTestId, actionName, url } of destinations) {
+      await test.step(`opens the action for ${toggleTestId}`, async () => {
+        await page.goto('/security');
+        await waitForDashboardToSettle(page);
 
-    await page.goto('/security');
-    await waitForLoadingComplete(page);
-    const wafButton = page
-      .getByTestId('toggle-waf')
-      .locator('xpath=ancestor::div[contains(@class, "flex")][1]')
-      .getByRole('button', { name: /configure/i })
-      .first();
-    await wafButton.click({ force: true });
-    await expect(page).toHaveURL(/\/security\/waf/);
+        // A module's footer is the nearest flex ancestor of its toggle. It holds only that module's action button.
+        await page
+          .getByTestId(toggleTestId)
+          .locator('xpath=ancestor::div[contains(@class, "flex")][1]')
+          .getByRole('button', { name: actionName })
+          .click();
 
-    await page.goto('/security');
-    await waitForLoadingComplete(page);
-    const rateLimitButton = page
-      .getByTestId('toggle-rate-limit')
-      .locator('xpath=ancestor::div[contains(@class, "flex")][1]')
-      .getByRole('button', { name: /configure/i })
-      .first();
-    await rateLimitButton.click({ force: true });
-    await expect(page).toHaveURL(/\/security\/rate-limiting/);
+        await expect(page).toHaveURL(url);
+      });
+    }
   });
 
   test('opens audit logs from dashboard header', async ({ page }) => {

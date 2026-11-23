@@ -150,7 +150,7 @@ export COSIGN_PASSWORD="your-password"
 cosign sign --yes --key <(echo "${COSIGN_PRIVATE_KEY}") charon:local
 
 # Or use the Charon skill
-.github/skills/scripts/skill-runner.sh security-sign-cosign docker charon:local
+.claude/skills/scripts/skill-runner.sh security-sign-cosign docker charon:local
 
 # Cleanup
 unset COSIGN_PRIVATE_KEY

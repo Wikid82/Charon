@@ -26,7 +26,7 @@ require (
 	github.com/studio-b12/gowebdav v0.13.0
 	golang.org/x/crypto v0.59.0
 	golang.org/x/mod v0.43.0
-	golang.org/x/net v0.62.0
+	golang.org/x/net v0.63.0
 	golang.org/x/oauth2 v0.38.0
 	golang.org/x/sys v0.50.0
 	golang.org/x/text v0.44.0
@@ -66,10 +66,11 @@ require (
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect
-	github.com/klauspost/compress v1.20.4 // indirect
+	github.com/klauspost/compress v1.20.5 // indirect
 	github.com/klauspost/cpuid/v2 v2.4.2 // indirect
 	github.com/klauspost/crc32 v1.3.0 // indirect
 	github.com/kr/fs v0.1.0 // indirect
+	github.com/kr/pretty v0.3.1 // indirect
 	github.com/kylelemons/godebug v1.1.0 // indirect
 	github.com/leodido/go-urn v1.5.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
@@ -99,8 +100,8 @@ require (
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.2 // indirect
 	github.com/zeebo/xxh3 v1.1.0 // indirect
-	go.mongodb.org/mongo-driver/v2 v2.10.0 // indirect
-	go.opentelemetry.io/auto/sdk v1.2.1 // indirect
+	go.mongodb.org/mongo-driver/v2 v2.10.1 // indirect
+	go.opentelemetry.io/auto/sdk v1.2.2 // indirect
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.72.0 // indirect
 	go.opentelemetry.io/otel v1.47.0 // indirect
 	go.opentelemetry.io/otel/log v1.47.0 // indirect
@@ -108,10 +109,12 @@ require (
 	go.opentelemetry.io/otel/trace v1.47.0 // indirect
 	go.yaml.in/yaml/v3 v3.0.6 // indirect
 	golang.org/x/arch v0.33.0 // indirect
+	golang.org/x/tools v0.53.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
+	gopkg.in/check.v1 v1.0.0-20180628173108-788fd7840127 // indirect
 	gopkg.in/ini.v1 v1.68.0 // indirect
-	modernc.org/libc v1.81.2 // indirect
+	modernc.org/libc v1.82.12 // indirect
 	modernc.org/mathutil v1.7.1 // indirect
 	modernc.org/memory v1.13.0 // indirect
-	modernc.org/sqlite v1.62.0 // indirect
+	modernc.org/sqlite v1.63.0 // indirect
 )

@@ -148,7 +148,7 @@ The task is not complete until ALL of the following pass with zero issues:
 1. **Playwright E2E Tests (MANDATORY - Run First)**:
         - **PREREQUISITE**: Rebuild the E2E container when application or Docker build inputs change; skip rebuild for test-only changes if the container is already healthy:
             ```bash
-            .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+            .claude/skills/scripts/skill-runner.sh docker-rebuild-e2e
             ```
       This ensures the container has latest code and proper environment variables (emergency token, encryption key from `.env`).
     - **Run**: `npx playwright test --project=chromium --project=firefox --project=webkit` from project root
@@ -201,7 +201,7 @@ The task is not complete until ALL of the following pass with zero issues:
        - Multi-stage build artifacts with known issues
      - **Why Critical**: Image-only vulnerabilities can exist even when filesystem scans pass
      - **CI Alignment**: Uses exact same Syft/Grype versions as supply-chain-pr.yml workflow
-     - **Run**: `.github/skills/scripts/skill-runner.sh security-scan-docker-image`
+     - **Run**: `.claude/skills/scripts/skill-runner.sh security-scan-docker-image`
    - **CodeQL Scans**: Static analysis for Go and JavaScript
    - **QA_Security Requirements**: Must run BOTH Trivy and Docker Image scans, compare results, and block approval if image scan reveals additional vulnerabilities not caught by Trivy
 

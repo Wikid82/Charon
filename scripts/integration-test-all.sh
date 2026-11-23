@@ -4,7 +4,7 @@ set -euo pipefail
 # Aggregates integration tests using skill entrypoints.
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-SKILL_RUNNER="${PROJECT_ROOT}/.github/skills/scripts/skill-runner.sh"
+SKILL_RUNNER="${PROJECT_ROOT}/.claude/skills/scripts/skill-runner.sh"
 
 if [[ ! -x "${SKILL_RUNNER}" ]]; then
   echo "ERROR: skill runner not found or not executable: ${SKILL_RUNNER}" >&2

@@ -24,7 +24,7 @@
 #   3. Installs a `codeql` shim on PATH (via `gh codeql install-stub`) that
 #      forwards to `gh codeql`, so every existing script that calls a bare
 #      `codeql` command (codeql-go-scan.sh, codeql-js-scan.sh,
-#      tools/codeql_scan.sh, .github/skills/security-scan-codeql-scripts,
+#      tools/codeql_scan.sh, .claude/skills/security-scan-codeql-scripts,
 #      VS Code tasks) works unmodified.
 #
 # Safe to re-run; every step is idempotent.
@@ -41,7 +41,7 @@ NC='\033[0m'
 # deliberately and re-validate `lefthook run codeql` locally before raising
 # this — an exact pin (not "latest") keeps local scans reproducible, per
 # CLAUDE.md's "use exact dependency versions" convention.
-CODEQL_VERSION="${CODEQL_VERSION:-v2.27.4}"
+CODEQL_VERSION="${CODEQL_VERSION:-v2.27.5}"
 
 # Where to install the `codeql` PATH shim. Defaults to the first writable,
 # user-owned directory already on PATH so no sudo is required.

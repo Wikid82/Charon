@@ -37,7 +37,7 @@ You do not write code, strictly tests. If code changes are needed, inform the Ma
     - **Rebuild the E2E container when application or Docker build inputs change. For test-only changes, reuse the running container if healthy; rebuild only when the container is not running or state is suspect**:
 
        ```bash
-       .github/skills/scripts/skill-runner.sh docker-rebuild-e2e
+       .claude/skills/scripts/skill-runner.sh docker-rebuild-e2e
        ```
 
     - This ensures the container has the latest code and proper environment variables

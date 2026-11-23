@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-c62f18665cd67ce1
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:24224cf39ff2ec2f6dd6ba46f3bb505181ff449784b10f4db55af4d066b5ed59
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-d62d6789aaa392f5
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:e33f3499c940ab4a226bd9febda8d9c515e2636a1d79822fc556c52044f19a0d
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -52,7 +52,7 @@ ARG CROWDSEC_VERSION=1.8.2
 # renovate: datasource=github-tags depName=expr-lang/expr extractVersion=^v(?<version>.+)$
 ARG EXPR_LANG_VERSION=1.17.8
 # renovate: datasource=go depName=golang.org/x/net
-ARG XNET_VERSION=0.62.0
+ARG XNET_VERSION=0.63.0
 # Shared golang.org/x/crypto pin — consumed by BOTH the caddy-builder and the
 # crowdsec-builder stages so the two never drift. v0.56.0 also carries the
 # golang.org/x/crypto/ssh channel-flood deadlock DoS fixes (GO-2026-6354, GO-2026-6355).
@@ -68,7 +68,7 @@ ARG XMOD_VERSION=0.43.0
 # is patched above: pinned here so the CrowdSec/cscli and Caddy binaries (which
 # pull it in transitively) are patched immediately, ahead of upstream releases.
 # renovate: datasource=go depName=github.com/klauspost/compress
-ARG KLAUSPOST_COMPRESS_VERSION=1.20.4
+ARG KLAUSPOST_COMPRESS_VERSION=1.20.5
 # grpc-go HTTP/2 DATA-frame memory-exhaustion DoS fix (CVE-2026-84304), matching how
 # golang.org/x/crypto and klauspost/compress are patched above: pinned here so the Caddy
 # and CrowdSec/cscli binaries (which pull it in transitively) are patched immediately,
@@ -80,7 +80,7 @@ ARG KLAUSPOST_COMPRESS_VERSION=1.20.4
 # renovate: datasource=go depName=google.golang.org/grpc
 ARG GRPC_VERSION=1.83.2
 # renovate: datasource=npm depName=npm
-ARG NPM_VERSION=12.2.2
+ARG NPM_VERSION=12.2.3
 
 # Allow pinning Caddy version - Renovate will update this
 # Build the most recent Caddy 2.x release (keeps major pinned under v3).
@@ -105,7 +105,7 @@ ARG CORAZA_VERSION=3.8.1
 # (no leading `v`); the `--with` lines add the `v`. Renovate tracks each via
 # the datasource=go marker.
 # renovate: datasource=go depName=github.com/zhangjiayin/caddy-geoip2
-ARG CADDY_GEOIP2_VERSION=1.3.1
+ARG CADDY_GEOIP2_VERSION=1.4.0
 # renovate: datasource=go depName=github.com/mholt/caddy-ratelimit
 ARG CADDY_RATELIMIT_VERSION=0.1.0
 # ---- DNS-01 Challenge Provider Modules (github.com/caddy-dns/*) ----
@@ -626,6 +626,9 @@ RUN --mount=type=cache,target=/root/.cache/go-build \
         _retry go get github.com/hslatman/ipstore@v0.5.0; \
         # renovate: datasource=go depName=github.com/go-chi/chi/v5
         _retry go get github.com/go-chi/chi/v5@v5.5.0; \
+        # GO-2026-6909: add crewjam/saml to build to path vul once one is available.
+        # renovate: datasource=go depName=github.com/crewjam/saml
+        _retry go get github.com/crewjam/saml@v0.6.3; \
         _retry go get golang.org/x/crypto@v${XCRYPTO_VERSION}; \
         _retry go get golang.org/x/net@v${XNET_VERSION}; \
         # klauspost/compress DoS/resource-exhaustion fix. Affects /usr/bin/caddy
@@ -994,9 +997,10 @@ WORKDIR /app
 #
 # libxml2 carries open CVEs with no upstream fix as of 2.13.9-r2. It is declared as a
 # minimum-version floor (`>=`) so builds always pull the newest Alpine package, and the
-# floor itself is bumped by Renovate (apk) the moment a patched release is published.
-# renovate: datasource=apk depName=libxml2 versioning=loose
-ARG LIBXML2_VERSION=2.13.9-r2
+# floor itself is bumped by Renovate (repology, Alpine v3.24 repo) the moment a patched
+# release is published. The `alpine_3_24` repo in depName must follow the ALPINE_IMAGE branch.
+# renovate: datasource=repology depName=alpine_3_24/libxml2 versioning=loose
+ARG LIBXML2_VERSION=2.13.9-r3
 #
 # zlib: exact-version pin is declared globally (ZLIB_VERSION, top of file) and shared with
 # the toolchain-runtime stage.
@@ -1004,9 +1008,17 @@ ARG ZLIB_VERSION
 #
 # ca-certificates is a minimum-version floor so the image always carries a Mozilla bundle that
 # distrusts the compromised eMudhra intermediates' roots (Oct 2026) even when the base image
-# layer is stale; Renovate (apk) raises the floor as newer bundles ship.
-# renovate: datasource=apk depName=ca-certificates versioning=loose
+# layer is stale; Renovate (repology, Alpine v3.24 repo) raises the floor as newer bundles ship.
+# renovate: datasource=repology depName=alpine_3_24/ca-certificates versioning=loose
 ARG CA_CERTIFICATES_VERSION=20261020-r0
+#
+# OpenSSL (libcrypto3/libssl3) is a minimum-version floor. Grype flags four HIGH OpenSSL CVEs
+# against 3.5.9-r0 with no fixed version yet; they are accepted in .grype.yaml and .trivyignore
+# (2026-11-18 batch). The floor guarantees the image never installs an older OpenSSL build, and
+# Renovate (repology, Alpine v3.24 repo, tracked via libcrypto3) raises it once a patched release
+# is published. libcrypto3 and libssl3 are built from the same Alpine `openssl` aport.
+# renovate: datasource=repology depName=alpine_3_24/libcrypto3 versioning=loose
+ARG OPENSSL_VERSION=3.5.9-r0
 # hadolint ignore=DL3018
 
 ARG SQLITE_VERSION
@@ -1014,7 +1026,8 @@ ARG SQLITE_VERSION
 RUN apk add --no-cache \
     bash "ca-certificates>=${CA_CERTIFICATES_VERSION}" "ca-certificates-bundle>=${CA_CERTIFICATES_VERSION}" sqlite-libs sqlite tzdata gettext libcap libcap-utils \
     c-ares busybox-extras "libxml2>=${LIBXML2_VERSION}" "zlib=${ZLIB_VERSION}" \
-    && apk upgrade --no-cache libcrypto3 libssl3 musl musl-utils \
+    && apk add --no-cache "libcrypto3>=${OPENSSL_VERSION}" "libssl3>=${OPENSSL_VERSION}" \
+    && apk upgrade --no-cache musl musl-utils \
     # CVE-2026-34743: xz-libs DoS via buffer overflow in index decoding (fixed in 5.8.3-r0)
     xz-libs
 
@@ -1038,7 +1051,7 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 # /app/geoip/.missing so the runtime can report it. The database lives in /app/geoip, outside the data volume, so a
 # volume mounted over /app/data does not hide it. Operators can place a newer copy in /app/data/geoip, which takes
 # precedence. The build does not fail: the image then ships without a database and country access lists refuse requests.
-ARG GEOLITE2_COUNTRY_SHA256=bdb2b3f86dc278e5a5df64bc6fbe3de03f4844a5e97945a94df76e77049ee788
+ARG GEOLITE2_COUNTRY_SHA256=33c6af7a3362c35876ed6192a958734402ab8cdd9d71f97dfbda333eb71e1c00
 RUN mkdir -p /app/geoip && \
     db=/app/geoip/GeoLite2-Country.mmdb && \
     if [ "$CI" = "true" ] || [ "$CI" = "1" ]; then \
