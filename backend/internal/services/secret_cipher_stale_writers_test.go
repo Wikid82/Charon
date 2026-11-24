@@ -138,7 +138,7 @@ func TestBackupRemoteService_StaleRowWrites(t *testing.T) {
 
 	t.Run("complete oauth stores the new tokens", func(t *testing.T) {
 		db := newSecretWriteDB(t)
-		secretsJSON, err := json.Marshal(RemoteTargetSecrets{OAuthClientSecret: "client-secret"})
+		secretsJSON, err := json.Marshal(RemoteTargetSecrets{OAuthClientSecret: "client-secret"}) // #nosec G117 -- test fixture secrets are encrypted before storage, as in production
 		require.NoError(t, err)
 		ciphertext, version, err := cipher.EncryptWithCurrentKey(secretsJSON)
 		require.NoError(t, err)
@@ -179,7 +179,7 @@ func TestBackupRemoteService_StaleRowWrites(t *testing.T) {
 
 	t.Run("disconnect with secrets stores cleared tokens", func(t *testing.T) {
 		db := newSecretWriteDB(t)
-		secretsJSON, err := json.Marshal(RemoteTargetSecrets{OAuthAccessToken: "live-access"})
+		secretsJSON, err := json.Marshal(RemoteTargetSecrets{OAuthAccessToken: "live-access"}) // #nosec G117 -- test fixture secrets are encrypted before storage, as in production
 		require.NoError(t, err)
 		ciphertext, version, err := cipher.EncryptWithCurrentKey(secretsJSON)
 		require.NoError(t, err)
