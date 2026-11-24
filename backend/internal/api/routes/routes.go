@@ -1188,9 +1188,10 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		certHandler.SetDB(db)
 		certHandler.SetPasswordAttemptGuard(authRateLimiter)
 
-		// Migrate unencrypted private keys
+		// Encrypt legacy plaintext private keys. A failed run is rolled back
+		// as a whole and retried on the next start.
 		if err := certService.MigratePrivateKeys(); err != nil {
-			logger.Log().WithError(err).Warn("Failed to migrate certificate private keys")
+			logger.Log().WithError(err).Warn("Failed to migrate certificate private keys; retrying on next start")
 		}
 
 		// Certificate reads back the role=user-reachable Certificates page;

@@ -212,7 +212,7 @@ func TestDeleteCertificate_Success(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
-	cs := newTestCertificateService(tmpDir, db)
+	cs := newTestCertServiceWithEnc(t, tmpDir, db)
 	certPEM, keyPEM := generateTestCertAndKey(t, "delete.example.com", time.Now().Add(24*time.Hour))
 	info, err := cs.UploadCertificate("to-delete", string(certPEM), string(keyPEM), "")
 	require.NoError(t, err)
@@ -232,7 +232,7 @@ func TestDeleteCertificate_InUse(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
-	cs := newTestCertificateService(tmpDir, db)
+	cs := newTestCertServiceWithEnc(t, tmpDir, db)
 	certPEM, keyPEM := generateTestCertAndKey(t, "inuse.example.com", time.Now().Add(24*time.Hour))
 	info, err := cs.UploadCertificate("in-use-cert", string(certPEM), string(keyPEM), "")
 	require.NoError(t, err)

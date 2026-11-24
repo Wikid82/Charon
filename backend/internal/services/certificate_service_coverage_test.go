@@ -468,8 +468,18 @@ func TestCertificateService_CheckExpiry(t *testing.T) {
 
 func TestCertificateService_MigratePrivateKeys(t *testing.T) {
 	t.Run("no encryption service", func(t *testing.T) {
-		cs := &CertificateService{secrets: nil}
-		err := cs.MigratePrivateKeys()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
+		require.NoError(t, db.Exec("ALTER TABLE ssl_certificates ADD COLUMN private_key TEXT DEFAULT ''").Error)
+		require.NoError(t, db.Exec(
+			"INSERT INTO ssl_certificates (uuid, name, provider, domains, private_key) VALUES (?, ?, ?, ?, ?)",
+			"no-key-1", "No Key", "custom", "nokey.example.com", "plaintext-key-data",
+		).Error)
+
+		cs := &CertificateService{db: db, secrets: nil}
+		err = cs.MigratePrivateKeys()
 		require.NoError(t, err)
 	})
 

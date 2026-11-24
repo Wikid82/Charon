@@ -16,6 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/testutil"
@@ -29,7 +30,7 @@ func TestCertificateHandler_Upload_WithChainFile(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
 	tmpDir := t.TempDir()
-	svc := services.NewCertificateService(tmpDir, db, nil)
+	svc := services.NewCertificateService(tmpDir, db, cryptotest.SingleKey(newTestEncSvc(t)))
 	h := NewCertificateHandler(svc, nil, nil)
 
 	r := gin.New()
