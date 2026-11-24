@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
@@ -35,7 +36,7 @@ func newTestCertServiceWithEnc(t *testing.T, dataDir string, db *gorm.DB) *Certi
 	return &CertificateService{
 		dataDir: dataDir,
 		db:      db,
-		secrets: crypto.SingleKey(encSvc),
+		secrets: cryptotest.SingleKey(encSvc),
 		scanTTL: 5 * time.Minute,
 	}
 }
@@ -362,7 +363,7 @@ func TestCertificateService_GetDecryptedPrivateKey(t *testing.T) {
 	encSvc := newTestEncryptionService(t)
 
 	t.Run("no encrypted key", func(t *testing.T) {
-		cs := &CertificateService{secrets: crypto.SingleKey(encSvc)}
+		cs := &CertificateService{secrets: cryptotest.SingleKey(encSvc)}
 		cert := &models.SSLCertificate{PrivateKeyEncrypted: ""}
 		_, err := cs.GetDecryptedPrivateKey(cert)
 		assert.Error(t, err)
@@ -378,7 +379,7 @@ func TestCertificateService_GetDecryptedPrivateKey(t *testing.T) {
 	})
 
 	t.Run("successful decryption", func(t *testing.T) {
-		cs := &CertificateService{secrets: crypto.SingleKey(encSvc)}
+		cs := &CertificateService{secrets: cryptotest.SingleKey(encSvc)}
 		plaintext := "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----" //nolint:gosec // test data, not real credentials
 		encrypted, err := encSvc.Encrypt([]byte(plaintext))
 		require.NoError(t, err)
@@ -481,7 +482,7 @@ func TestCertificateService_MigratePrivateKeys(t *testing.T) {
 		require.NoError(t, db.Exec("ALTER TABLE ssl_certificates ADD COLUMN private_key TEXT DEFAULT ''").Error)
 
 		encSvc := newTestEncryptionService(t)
-		cs := &CertificateService{db: db, secrets: crypto.SingleKey(encSvc)}
+		cs := &CertificateService{db: db, secrets: cryptotest.SingleKey(encSvc)}
 
 		err = cs.MigratePrivateKeys()
 		require.NoError(t, err)
@@ -502,7 +503,7 @@ func TestCertificateService_MigratePrivateKeys(t *testing.T) {
 		).Error)
 
 		encSvc := newTestEncryptionService(t)
-		cs := &CertificateService{db: db, secrets: crypto.SingleKey(encSvc)}
+		cs := &CertificateService{db: db, secrets: cryptotest.SingleKey(encSvc)}
 
 		err = cs.MigratePrivateKeys()
 		require.NoError(t, err)

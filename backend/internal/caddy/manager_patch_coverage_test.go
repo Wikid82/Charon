@@ -12,6 +12,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -283,5 +284,5 @@ func TestManager_SetSecretCipher(t *testing.T) {
 	m := NewManager(nil, db, t.TempDir(), "", false, config.SecurityConfig{})
 	key, err := crypto.NewEncryptionService("MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 	require.NoError(t, err)
-	m.SetSecretCipher(crypto.SingleKey(key))
+	m.SetSecretCipher(cryptotest.SingleKey(key))
 }

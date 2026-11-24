@@ -7,6 +7,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 )
 
 func TestEncryptSecret_NilCipherReportsMissingKeyWithoutPanic(t *testing.T) {
@@ -27,7 +28,7 @@ func TestEncryptSecret_ReturnsCiphertextAndVersion(t *testing.T) {
 	svc, err := crypto.NewEncryptionService(key)
 	require.NoError(t, err)
 
-	ciphertext, keyVersion, err := encryptSecret(crypto.SingleKey(svc), []byte("secret"))
+	ciphertext, keyVersion, err := encryptSecret(cryptotest.SingleKey(svc), []byte("secret"))
 
 	require.NoError(t, err)
 	assert.NotEmpty(t, ciphertext)
@@ -48,7 +49,7 @@ func TestDecryptSecret_RoundTripsThroughCipher(t *testing.T) {
 	require.NoError(t, err)
 	svc, err := crypto.NewEncryptionService(key)
 	require.NoError(t, err)
-	cipher := crypto.SingleKey(svc)
+	cipher := cryptotest.SingleKey(svc)
 
 	ciphertext, keyVersion, err := encryptSecret(cipher, []byte("round trip"))
 	require.NoError(t, err)

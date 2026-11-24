@@ -36,6 +36,8 @@ type RestoreResult struct {
 	CaddyReloaded        bool   `json:"caddy_reloaded"`
 	PreRestoreBackup     string `json:"pre_restore_backup,omitempty"`
 	LegacyFormat         bool   `json:"legacy_format"`
+	// Warnings lists non-fatal problems found after the restore was applied.
+	Warnings []string `json:"warnings,omitempty"`
 }
 
 // BackupValidation is the response of the dry-run validate endpoint (spec
@@ -391,6 +393,18 @@ func (s *BackupService) restoreBackupSafeLockedWithProgress(filename, passphrase
 				}
 			}
 		}
+	}
+
+	// R0: the live rehydrate replaced the key registry. Re-register the keys and
+	// reload the version map before Caddy regenerates its config, because that
+	// config decrypts through the map. A failure is reported; the restore stands.
+	if s.encryptionRehydrator != nil && rehydrated {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if keyErr := s.encryptionRehydrator.Rehydrate(ctx); keyErr != nil {
+			logger.Log().WithError(keyErr).Error("Encryption keys could not be re-registered after the live restore")
+			result.Warnings = append(result.Warnings, "encryption keys could not be re-registered after restore; check the encryption page")
+		}
+		cancel()
 	}
 
 	// R1: reload Caddy — it has its own snapshot/rollback, so this runs

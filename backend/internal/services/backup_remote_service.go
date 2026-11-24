@@ -293,6 +293,7 @@ func (s *BackupRemoteService) Update(uuidStr string, name *string, enabled *bool
 		}
 		target.ConfigJSON = string(configJSON)
 	}
+	reencrypted := false
 	if secrets != nil && !secrets.isEmpty() {
 		if s.secrets == nil {
 			return nil, ErrEncryptionKeyMissing
@@ -307,9 +308,10 @@ func (s *BackupRemoteService) Update(uuidStr string, name *string, enabled *bool
 		}
 		target.SecretsEncrypted = encryptedSecrets
 		target.KeyVersion = keyVersion
+		reencrypted = true
 	}
 
-	if err := s.db.Save(target).Error; err != nil {
+	if err := saveFields(s.db, target, writeColumns(remoteTargetStore, reencrypted, "Name", "Enabled", "ConfigJSON")...); err != nil {
 		return nil, fmt.Errorf("update remote storage target: %w", err)
 	}
 
@@ -399,7 +401,8 @@ func (t *remoteTargetTokenSaver) SaveToken(_ context.Context, accessToken, refre
 
 	if err := t.svc.db.Model(&models.RemoteStorageTarget{}).
 		Where("uuid = ?", t.target.UUID).
-		Updates(map[string]any{"secrets_encrypted": encrypted, "key_version": keyVersion}).Error; err != nil {
+		Select(remoteTargetStore.Columns()).
+		Updates(models.RemoteStorageTarget{SecretsEncrypted: encrypted, KeyVersion: keyVersion}).Error; err != nil {
 		return fmt.Errorf("persist refreshed oauth token: %w", err)
 	}
 	t.target.SecretsEncrypted = encrypted
@@ -446,7 +449,7 @@ func (s *BackupRemoteService) recordTestOutcome(target *models.RemoteStorageTarg
 		target.LastTestStatus = "ok"
 		target.LastError = ""
 	}
-	if err := s.db.Save(target).Error; err != nil {
+	if err := saveFields(s.db, target, "LastTestAt", "LastTestStatus", "LastError"); err != nil {
 		logger.Log().WithError(err).WithField("target", util.SanitizeForLog(target.Name)).
 			Warn("failed to record remote target test outcome")
 	}
@@ -779,7 +782,7 @@ func (s *BackupRemoteService) CompleteOAuth(ctx context.Context, targetUUID, pro
 	target.KeyVersion = keyVersion
 	target.OAuthStatus = "connected"
 	target.OAuthConnectedAt = &now
-	if err := s.db.Save(target).Error; err != nil {
+	if err := saveFields(s.db, target, oauthWriteColumns(true)...); err != nil {
 		return fmt.Errorf("persist oauth token: %w", err)
 	}
 	return nil
@@ -799,6 +802,7 @@ func (s *BackupRemoteService) DisconnectOAuth(uuidStr string) (*models.RemoteSto
 		return nil, fmt.Errorf("oauth disconnect is only supported for dropbox/google_drive targets, got %q", target.Type)
 	}
 
+	reencrypted := false
 	if target.SecretsEncrypted != "" {
 		if s.secrets == nil {
 			return nil, ErrEncryptionKeyMissing
@@ -821,11 +825,12 @@ func (s *BackupRemoteService) DisconnectOAuth(uuidStr string) (*models.RemoteSto
 		}
 		target.SecretsEncrypted = encrypted
 		target.KeyVersion = keyVersion
+		reencrypted = true
 	}
 
 	target.OAuthStatus = "not_connected"
 	target.OAuthConnectedAt = nil
-	if err := s.db.Save(target).Error; err != nil {
+	if err := saveFields(s.db, target, oauthWriteColumns(reencrypted)...); err != nil {
 		return nil, fmt.Errorf("persist oauth disconnect: %w", err)
 	}
 	return target, nil

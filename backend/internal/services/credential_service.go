@@ -303,6 +303,7 @@ func (s *credentialService) Update(ctx context.Context, providerID, credentialID
 	}
 
 	// Handle credentials update
+	reencrypted := false
 	if len(req.Credentials) > 0 {
 		// Validate credentials
 		if err := validateCredentials(provider.ProviderType, req.Credentials); err != nil {
@@ -325,10 +326,11 @@ func (s *credentialService) Update(ctx context.Context, providerID, credentialID
 		changedFields["credentials"] = true
 		credential.CredentialsEncrypted = encryptedCreds
 		credential.KeyVersion = keyVersion
+		reencrypted = true
 	}
 
 	// Save updates
-	if err := s.db.WithContext(ctx).Save(credential).Error; err != nil {
+	if err := saveFields(s.db.WithContext(ctx), credential, writeColumns(dnsCredentialStore, reencrypted, "Label", "ZoneFilter", "PropagationTimeout", "PollingInterval", "Enabled")...); err != nil {
 		return nil, err
 	}
 
@@ -456,7 +458,7 @@ func (s *credentialService) Test(ctx context.Context, providerID, credentialID u
 		credential.FailureCount++
 		credential.LastError = result.Error
 	}
-	_ = s.db.WithContext(ctx).Save(credential)
+	_ = saveFields(s.db.WithContext(ctx), credential, "SuccessCount", "FailureCount", "LastError")
 
 	// Log audit event
 	detailsJSON, _ := json.Marshal(map[string]interface{}{

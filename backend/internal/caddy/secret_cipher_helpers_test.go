@@ -6,6 +6,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 )
 
 // testCaddyEncryptionKey is a valid base64 32-byte key used by test fixtures.
@@ -17,5 +18,5 @@ func testSecretCipher(t *testing.T, keyB64 string) crypto.VersionedCipher {
 	t.Helper()
 	svc, err := crypto.NewEncryptionService(keyB64)
 	require.NoError(t, err)
-	return crypto.SingleKey(svc)
+	return cryptotest.SingleKey(svc)
 }

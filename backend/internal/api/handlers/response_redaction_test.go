@@ -19,6 +19,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/testutil"
@@ -265,8 +266,8 @@ func setupCredentialRedactionRouter(t *testing.T, role string) (*gin.Engine, *go
 
 	encryptor, err := crypto.NewEncryptionService(redactionTestEncryptionKey)
 	require.NoError(t, err)
-	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
-	dnsService := services.NewDNSProviderService(db, crypto.SingleKey(encryptor))
+	credService := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
+	dnsService := services.NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 
 	provider := models.DNSProvider{
 		UUID:                 uuid.NewString(),

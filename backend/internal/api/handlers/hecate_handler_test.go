@@ -21,6 +21,7 @@ import (
 	glogger "gorm.io/gorm/logger"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/hecate"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
@@ -62,8 +63,8 @@ func newHecateTestSetup(t *testing.T) (*HecateHandler, *services.HecateService) 
 	t.Helper()
 	db := openHecateTestDB(t)
 	encSvc := newHecateEncSvc(t)
-	mgr := hecate.NewTunnelManager(db, crypto.SingleKey(encSvc))
-	svc := services.NewHecateService(db, crypto.SingleKey(encSvc), mgr)
+	mgr := hecate.NewTunnelManager(db, cryptotest.SingleKey(encSvc))
+	svc := services.NewHecateService(db, cryptotest.SingleKey(encSvc), mgr)
 	return NewHecateHandler(svc), svc
 }
 
@@ -618,8 +619,8 @@ func newHecateTestSetupWithDB(t *testing.T) (*HecateHandler, *services.HecateSer
 	t.Helper()
 	db := openHecateTestDB(t)
 	encSvc := newHecateEncSvc(t)
-	mgr := hecate.NewTunnelManager(db, crypto.SingleKey(encSvc))
-	svc := services.NewHecateService(db, crypto.SingleKey(encSvc), mgr)
+	mgr := hecate.NewTunnelManager(db, cryptotest.SingleKey(encSvc))
+	svc := services.NewHecateService(db, cryptotest.SingleKey(encSvc), mgr)
 	return NewHecateHandler(svc), svc, db
 }
 

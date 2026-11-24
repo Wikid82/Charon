@@ -142,8 +142,7 @@ func (m *TunnelManager) StartTunnel(uuid string) error {
 		return fmt.Errorf("hecate: tunnel %s not found: %w", uuid, err)
 	}
 
-	// The tunnel table has no key version column yet, so the row is untagged.
-	credBytes, err := m.secrets.DecryptWithVersion(cfg.EncryptedCredentials, 0)
+	credBytes, err := m.secrets.DecryptWithVersion(cfg.EncryptedCredentials, cfg.KeyVersion)
 	if err != nil {
 		return fmt.Errorf("hecate: decrypt credentials for %s: %w", uuid, err)
 	}

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	_ "github.com/Wikid82/charon/backend/pkg/dnsprovider/builtin" // Register built-in providers
@@ -74,7 +75,7 @@ func createTestProvider(t *testing.T, db *gorm.DB, encryptor *crypto.EncryptionS
 
 func TestCredentialService_Create(t *testing.T) {
 	db, encryptor := setupCredentialTestDB(t)
-	service := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	service := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create provider with multi-credential enabled
@@ -106,7 +107,7 @@ func TestCredentialService_Create(t *testing.T) {
 
 func TestCredentialService_Create_MultiCredentialNotEnabled(t *testing.T) {
 	db, encryptor := setupCredentialTestDB(t)
-	service := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	service := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create provider without multi-credential enabled
@@ -123,7 +124,7 @@ func TestCredentialService_Create_MultiCredentialNotEnabled(t *testing.T) {
 
 func TestCredentialService_Create_InvalidCredentials(t *testing.T) {
 	db, encryptor := setupCredentialTestDB(t)
-	service := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	service := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	provider := createTestProvider(t, db, encryptor, true)
@@ -139,7 +140,7 @@ func TestCredentialService_Create_InvalidCredentials(t *testing.T) {
 
 func TestCredentialService_List(t *testing.T) {
 	db, encryptor := setupCredentialTestDB(t)
-	service := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	service := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	provider := createTestProvider(t, db, encryptor, true)
@@ -165,7 +166,7 @@ func TestCredentialService_List(t *testing.T) {
 
 func TestCredentialService_Get(t *testing.T) {
 	db, encryptor := setupCredentialTestDB(t)
-	service := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	service := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	provider := createTestProvider(t, db, encryptor, true)
@@ -185,7 +186,7 @@ func TestCredentialService_Get(t *testing.T) {
 
 func TestCredentialService_Get_NotFound(t *testing.T) {
 	db, encryptor := setupCredentialTestDB(t)
-	service := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	service := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	provider := createTestProvider(t, db, encryptor, true)
@@ -196,7 +197,7 @@ func TestCredentialService_Get_NotFound(t *testing.T) {
 
 func TestCredentialService_Update(t *testing.T) {
 	db, encryptor := setupCredentialTestDB(t)
-	service := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	service := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	provider := createTestProvider(t, db, encryptor, true)
@@ -227,7 +228,7 @@ func TestCredentialService_Update(t *testing.T) {
 
 func TestCredentialService_Delete(t *testing.T) {
 	db, encryptor := setupCredentialTestDB(t)
-	service := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	service := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	provider := createTestProvider(t, db, encryptor, true)
@@ -248,7 +249,7 @@ func TestCredentialService_Delete(t *testing.T) {
 
 func TestCredentialService_Test(t *testing.T) {
 	db, encryptor := setupCredentialTestDB(t)
-	service := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	service := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	provider := createTestProvider(t, db, encryptor, true)
@@ -268,7 +269,7 @@ func TestCredentialService_Test(t *testing.T) {
 
 func TestCredentialService_GetCredentialForDomain_ExactMatch(t *testing.T) {
 	db, encryptor := setupCredentialTestDB(t)
-	service := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	service := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	provider := createTestProvider(t, db, encryptor, true)
@@ -300,7 +301,7 @@ func TestCredentialService_GetCredentialForDomain_ExactMatch(t *testing.T) {
 
 func TestCredentialService_GetCredentialForDomain_WildcardMatch(t *testing.T) {
 	db, encryptor := setupCredentialTestDB(t)
-	service := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	service := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	provider := createTestProvider(t, db, encryptor, true)
@@ -332,7 +333,7 @@ func TestCredentialService_GetCredentialForDomain_WildcardMatch(t *testing.T) {
 
 func TestCredentialService_GetCredentialForDomain_CatchAll(t *testing.T) {
 	db, encryptor := setupCredentialTestDB(t)
-	service := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	service := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	provider := createTestProvider(t, db, encryptor, true)
@@ -355,7 +356,7 @@ func TestCredentialService_GetCredentialForDomain_CatchAll(t *testing.T) {
 
 func TestCredentialService_GetCredentialForDomain_NoMatch(t *testing.T) {
 	db, encryptor := setupCredentialTestDB(t)
-	service := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	service := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	provider := createTestProvider(t, db, encryptor, true)
@@ -376,7 +377,7 @@ func TestCredentialService_GetCredentialForDomain_NoMatch(t *testing.T) {
 
 func TestCredentialService_GetCredentialForDomain_MultiCredNotEnabled(t *testing.T) {
 	db, encryptor := setupCredentialTestDB(t)
-	service := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	service := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create provider without multi-credential enabled
@@ -389,7 +390,7 @@ func TestCredentialService_GetCredentialForDomain_MultiCredNotEnabled(t *testing
 
 func TestCredentialService_GetCredentialForDomain_MultipleZones(t *testing.T) {
 	db, encryptor := setupCredentialTestDB(t)
-	service := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	service := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	provider := createTestProvider(t, db, encryptor, true)
@@ -416,7 +417,7 @@ func TestCredentialService_GetCredentialForDomain_MultipleZones(t *testing.T) {
 
 func TestCredentialService_EnableMultiCredentials(t *testing.T) {
 	db, encryptor := setupCredentialTestDB(t)
-	service := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	service := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create provider with credentials but multi-cred disabled
@@ -442,7 +443,7 @@ func TestCredentialService_EnableMultiCredentials(t *testing.T) {
 
 func TestCredentialService_EnableMultiCredentials_AlreadyEnabled(t *testing.T) {
 	db, encryptor := setupCredentialTestDB(t)
-	service := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	service := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create provider with multi-cred already enabled
@@ -454,7 +455,7 @@ func TestCredentialService_EnableMultiCredentials_AlreadyEnabled(t *testing.T) {
 
 func TestCredentialService_EnableMultiCredentials_NoCredentials(t *testing.T) {
 	db, encryptor := setupCredentialTestDB(t)
-	service := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	service := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create provider without credentials
@@ -476,7 +477,7 @@ func TestCredentialService_EnableMultiCredentials_NoCredentials(t *testing.T) {
 
 func TestCredentialService_GetCredentialForDomain_IDN(t *testing.T) {
 	db, encryptor := setupCredentialTestDB(t)
-	service := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	service := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	provider := createTestProvider(t, db, encryptor, true)
@@ -503,7 +504,7 @@ func TestCredentialService_GetCredentialForDomain_IDN(t *testing.T) {
 // provider is never resolved via this path.
 func TestCredentialService_ResolveID(t *testing.T) {
 	db, encryptor := setupCredentialTestDB(t)
-	service := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	service := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	provider := createTestProvider(t, db, encryptor, true)

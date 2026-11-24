@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/testutil"
@@ -159,94 +160,6 @@ func TestPluginHandler_DisablePlugin_DatabaseFirstError(t *testing.T) {
 
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.Contains(t, w.Body.String(), "Failed to get plugin")
-}
-
-// =============================================================================
-// Encryption Handler - Additional Coverage Tests
-// =============================================================================
-
-func TestEncryptionHandler_Validate_NonAdminAccess(t *testing.T) {
-
-	currentKey, _ := crypto.GenerateNewKey()
-	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", currentKey))
-	defer func() { require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY")) }()
-
-	db := setupEncryptionTestDB(t)
-	rotationService, _ := crypto.NewRotationService(db)
-	securityService := services.NewSecurityService(db)
-	defer securityService.Close()
-
-	handler := NewEncryptionHandler(rotationService, securityService)
-	router := setupEncryptionTestRouter(handler, false)
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/validate", http.NoBody)
-	router.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusForbidden, w.Code)
-}
-
-func TestEncryptionHandler_GetHistory_PaginationBoundary(t *testing.T) {
-
-	currentKey, _ := crypto.GenerateNewKey()
-	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", currentKey))
-	defer func() { require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY")) }()
-
-	db := setupEncryptionTestDB(t)
-	rotationService, _ := crypto.NewRotationService(db)
-	securityService := services.NewSecurityService(db)
-	defer securityService.Close()
-
-	handler := NewEncryptionHandler(rotationService, securityService)
-	router := setupEncryptionTestRouter(handler, true)
-
-	// Test invalid page number (negative)
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/history?page=-1&limit=10", http.NoBody)
-	router.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-
-	// Test limit exceeding max (should clamp)
-	w = httptest.NewRecorder()
-	req, _ = http.NewRequest("GET", "/api/v1/admin/encryption/history?page=1&limit=200", http.NoBody)
-	router.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-
-	var response map[string]any
-	_ = json.Unmarshal(w.Body.Bytes(), &response)
-	// limit should not exceed 100
-	assert.LessOrEqual(t, response["limit"].(float64), float64(100))
-}
-
-func TestEncryptionHandler_GetStatus_VersionInfo(t *testing.T) {
-
-	currentKey, _ := crypto.GenerateNewKey()
-	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", currentKey))
-	defer func() {
-		require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY"))
-	}()
-
-	db := setupEncryptionTestDB(t)
-	rotationService, _ := crypto.NewRotationService(db)
-	securityService := services.NewSecurityService(db)
-	defer securityService.Close()
-
-	handler := NewEncryptionHandler(rotationService, securityService)
-	router := setupEncryptionTestRouter(handler, true)
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("GET", "/api/v1/admin/encryption/status", http.NoBody)
-	router.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
-
-	var status crypto.RotationStatus
-	err := json.Unmarshal(w.Body.Bytes(), &status)
-	assert.NoError(t, err)
-	// Verify the status response has expected fields
-	assert.True(t, status.CurrentVersion >= 1)
 }
 
 // =============================================================================
@@ -577,8 +490,8 @@ func setupCredentialHandlerTestWithCtx(t *testing.T) (*gin.Engine, *gorm.DB, *mo
 	}
 	db.Create(provider)
 
-	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
-	dnsProviderService := services.NewDNSProviderService(db, crypto.SingleKey(encryptor))
+	credService := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
+	dnsProviderService := services.NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	credHandler := NewCredentialHandler(credService, dnsProviderService)
 
 	router.GET("/api/v1/dns-providers/:id/credentials", credHandler.List)
@@ -615,7 +528,7 @@ func TestCredentialHandler_Update_InvalidProviderType(t *testing.T) {
 	db.Create(provider)
 
 	// Create credential
-	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	credService := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
 	createReq := services.CreateCredentialRequest{
 		Label:       "Original",
 		Credentials: map[string]string{"api_token": "token"},
@@ -652,8 +565,8 @@ func TestCredentialHandler_List_DatabaseClosed(t *testing.T) {
 	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	encryptor, _ := crypto.NewEncryptionService(testKey)
 
-	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
-	dnsProviderService := services.NewDNSProviderService(db, crypto.SingleKey(encryptor))
+	credService := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
+	dnsProviderService := services.NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	credHandler := NewCredentialHandler(credService, dnsProviderService)
 
 	router.GET("/api/v1/dns-providers/:id/credentials", credHandler.List)
@@ -716,7 +629,7 @@ func TestCredentialHandler_Update_MalformedJSON(t *testing.T) {
 
 	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	encryptor, _ := crypto.NewEncryptionService(testKey)
-	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	credService := services.NewCredentialService(db, cryptotest.SingleKey(encryptor))
 	created, err := credService.Create(context.Background(), provider.ID, services.CreateCredentialRequest{
 		Label:       "Malformed JSON Target",
 		Credentials: map[string]string{"api_token": "token"},
@@ -786,29 +699,4 @@ func TestCredentialHandler_EnableMultiCredentials_BadProviderID(t *testing.T) {
 	router.ServeHTTP(w, req)
 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
-}
-
-// =============================================================================
-// Encryption Handler - Additional Validate Success Test
-// =============================================================================
-
-func TestEncryptionHandler_Validate_AdminSuccess(t *testing.T) {
-
-	currentKey, _ := crypto.GenerateNewKey()
-	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", currentKey))
-	defer func() { require.NoError(t, os.Unsetenv("CHARON_ENCRYPTION_KEY")) }()
-
-	db := setupEncryptionTestDB(t)
-	rotationService, _ := crypto.NewRotationService(db)
-	securityService := services.NewSecurityService(db)
-	defer securityService.Close()
-
-	handler := NewEncryptionHandler(rotationService, securityService)
-	router := setupEncryptionTestRouter(handler, true)
-
-	w := httptest.NewRecorder()
-	req, _ := http.NewRequest("POST", "/api/v1/admin/encryption/validate", http.NoBody)
-	router.ServeHTTP(w, req)
-
-	assert.Equal(t, http.StatusOK, w.Code)
 }

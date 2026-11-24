@@ -36,11 +36,12 @@ func (s *HecateService) List() ([]models.TunnelConfig, error) {
 // Create persists a new TunnelConfig. plainCredentials are encrypted before
 // storage. If the config is active, the tunnel is started immediately.
 func (s *HecateService) Create(cfg *models.TunnelConfig, plainCredentials string) error {
-	encrypted, _, err := s.secrets.EncryptWithCurrentKey([]byte(plainCredentials))
+	encrypted, keyVersion, err := s.secrets.EncryptWithCurrentKey([]byte(plainCredentials))
 	if err != nil {
 		return fmt.Errorf("hecate: encrypt credentials: %w", err)
 	}
 	cfg.EncryptedCredentials = encrypted
+	cfg.KeyVersion = keyVersion
 
 	if err := s.db.Create(cfg).Error; err != nil {
 		return fmt.Errorf("hecate: create config: %w", err)
@@ -71,12 +72,15 @@ func (s *HecateService) Update(uuid string, cfg *models.TunnelConfig, plainCrede
 		return err
 	}
 
+	reencrypted := false
 	if plainCredentials != nil {
-		encrypted, _, encErr := s.secrets.EncryptWithCurrentKey([]byte(*plainCredentials))
+		encrypted, keyVersion, encErr := s.secrets.EncryptWithCurrentKey([]byte(*plainCredentials))
 		if encErr != nil {
 			return fmt.Errorf("hecate: re-encrypt credentials: %w", encErr)
 		}
 		existing.EncryptedCredentials = encrypted
+		existing.KeyVersion = keyVersion
+		reencrypted = true
 	}
 
 	existing.Name = cfg.Name
@@ -84,7 +88,7 @@ func (s *HecateService) Update(uuid string, cfg *models.TunnelConfig, plainCrede
 	existing.Configuration = cfg.Configuration
 	existing.IsActive = cfg.IsActive
 
-	if err := s.db.Save(existing).Error; err != nil {
+	if err := saveFields(s.db, existing, writeColumns(tunnelStore, reencrypted, "Name", "Provider", "Configuration", "IsActive")...); err != nil {
 		return fmt.Errorf("hecate: update config %s: %w", uuid, err)
 	}
 	return nil
@@ -109,13 +113,14 @@ func (s *HecateService) RotateCredentials(uuid, plainCredentials string) error {
 		return err
 	}
 
-	encrypted, _, err := s.secrets.EncryptWithCurrentKey([]byte(plainCredentials))
+	encrypted, keyVersion, err := s.secrets.EncryptWithCurrentKey([]byte(plainCredentials))
 	if err != nil {
 		return fmt.Errorf("hecate: encrypt rotated credentials: %w", err)
 	}
 	existing.EncryptedCredentials = encrypted
+	existing.KeyVersion = keyVersion
 
-	if err := s.db.Save(existing).Error; err != nil {
+	if err := saveFields(s.db, existing, writeColumns(tunnelStore, true)...); err != nil {
 		return fmt.Errorf("hecate: save rotated credentials: %w", err)
 	}
 

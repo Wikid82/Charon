@@ -270,7 +270,7 @@ func (s *CertificateService) SyncFromDisk() error {
 					}
 					if updated {
 						existing.UpdatedAt = time.Now()
-						if err := s.db.Save(&existing).Error; err != nil {
+						if err := saveRow(s.db, certificateKeyStore, &existing, false); err != nil {
 							logger.Log().WithField("domain", util.SanitizeForLog(domain)).WithError(err).Error("CertificateService: failed to update DB cert")
 						}
 					} else {
@@ -945,7 +945,8 @@ func (s *CertificateService) UpdateCertificate(certUUID, name string) (*Certific
 	}
 
 	cert.Name = name
-	if err := s.db.Save(&cert).Error; err != nil {
+	cert.UpdatedAt = time.Now()
+	if err := saveFields(s.db, &cert, "Name", "UpdatedAt"); err != nil {
 		return nil, fmt.Errorf("failed to update certificate: %w", err)
 	}
 

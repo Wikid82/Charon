@@ -213,6 +213,10 @@ type BackupService struct {
 	// reports caddy_reloaded=false.
 	caddyReloader CaddyReloader
 
+	// encryptionRehydrator re-registers encryption keys after a live restore
+	// (see SetEncryptionRehydrator). Nilable when no key is configured.
+	encryptionRehydrator EncryptionRehydrator
+
 	// uptimeRehydrator re-seeds the uptime scheduler's in-memory schedule +
 	// debounce maps after a live DB restore so it does not wait ~30s for the
 	// rescan self-heal (spec §3.9 / S6). Nilable — satisfied by
@@ -259,6 +263,18 @@ func (s *BackupService) SetRemoteUploadHook(hook RemoteUploadHook) {
 // SetCaddyReloader wires the post-restore Caddy reload hook (spec §3.5 R1).
 func (s *BackupService) SetCaddyReloader(reloader CaddyReloader) {
 	s.caddyReloader = reloader
+}
+
+// EncryptionRehydrator re-registers the encryption keys after a live restore has
+// replaced the key registry, so the restored secrets stay readable without a restart.
+type EncryptionRehydrator interface {
+	Rehydrate(ctx context.Context) error
+}
+
+// SetEncryptionRehydrator wires the post-restore encryption key hook. It runs
+// only after a successful live rehydrate, before the Caddy reload.
+func (s *BackupService) SetEncryptionRehydrator(r EncryptionRehydrator) {
+	s.encryptionRehydrator = r
 }
 
 // UptimeRehydrator is the minimal interface RestoreBackupSafe needs from the
@@ -1288,14 +1304,18 @@ func (s *BackupService) computeEncryptionKeyRequired() bool {
 		return false
 	}
 
-	for _, table := range []string{"dns_provider_credentials", "tunnel_configs", "remote_storage_targets"} {
-		var count int64
-		if err := s.db.Table(table).Count(&count).Error; err != nil {
-			// Table may not exist yet on a fresh/partially migrated DB;
-			// that's not an error condition for this best-effort check.
+	// The encrypted stores come from the one registry shared with rotation, so a
+	// new encrypted column is covered here without a second list.
+	for _, store := range crypto.EncryptedStores {
+		if !s.db.Migrator().HasTable(store.Table) {
+			// Partially migrated DB: not an error for this best-effort check.
 			continue
 		}
-		if count > 0 {
+		has, err := store.HasRows(s.db)
+		if err != nil {
+			continue
+		}
+		if has {
 			return true
 		}
 	}

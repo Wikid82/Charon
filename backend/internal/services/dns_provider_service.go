@@ -338,6 +338,7 @@ func (s *dnsProviderService) Update(ctx context.Context, id uint, req UpdateDNSP
 	}
 
 	// Handle credentials update
+	reencrypted := false
 	if len(req.Credentials) > 0 {
 		// Validate credentials
 		if err := validateCredentials(provider.ProviderType, req.Credentials); err != nil {
@@ -360,6 +361,7 @@ func (s *dnsProviderService) Update(ctx context.Context, id uint, req UpdateDNSP
 		changedFields["credentials"] = true
 		provider.CredentialsEncrypted = encryptedCreds
 		provider.KeyVersion = keyVersion
+		reencrypted = true
 	}
 
 	// Handle default provider logic
@@ -380,7 +382,7 @@ func (s *dnsProviderService) Update(ctx context.Context, id uint, req UpdateDNSP
 	}
 
 	// Save updates
-	if err := s.db.WithContext(ctx).Save(provider).Error; err != nil {
+	if err := saveFields(s.db.WithContext(ctx), provider, writeColumns(dnsProviderStore, reencrypted, "Name", "PropagationTimeout", "PollingInterval", "Enabled", "IsDefault")...); err != nil {
 		return nil, err
 	}
 
@@ -463,7 +465,7 @@ func (s *dnsProviderService) Test(ctx context.Context, id uint) (*TestResult, er
 		provider.LastUsedAt = &now
 		provider.FailureCount++
 		provider.LastError = "Failed to decrypt credentials"
-		_ = s.db.WithContext(ctx).Save(provider)
+		_ = saveFields(s.db.WithContext(ctx), provider, "LastUsedAt", "FailureCount", "LastError")
 
 		return &TestResult{
 			Success: false,
@@ -488,7 +490,7 @@ func (s *dnsProviderService) Test(ctx context.Context, id uint) (*TestResult, er
 	}
 
 	// Save statistics (ignore errors to avoid failing the test operation)
-	_ = s.db.WithContext(ctx).Save(provider)
+	_ = saveFields(s.db.WithContext(ctx), provider, "LastUsedAt", "SuccessCount", "FailureCount", "LastError")
 
 	// Log audit event
 	detailsJSON, _ := json.Marshal(map[string]interface{}{
@@ -559,7 +561,7 @@ func (s *dnsProviderService) GetDecryptedCredentials(ctx context.Context, id uin
 	// Update last used timestamp
 	now := time.Now()
 	provider.LastUsedAt = &now
-	_ = s.db.WithContext(ctx).Save(provider)
+	_ = saveFields(s.db.WithContext(ctx), provider, "LastUsedAt")
 
 	// Log audit event
 	detailsJSON, _ := json.Marshal(map[string]interface{}{

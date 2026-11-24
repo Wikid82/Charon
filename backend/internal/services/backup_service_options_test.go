@@ -9,6 +9,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
@@ -63,7 +64,7 @@ func newOptionsTestService(t *testing.T, enc *crypto.EncryptionService) *BackupS
 	))
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	svc := NewBackupService(cfg, db, crypto.SingleKey(enc))
+	svc := NewBackupService(cfg, db, cryptotest.SingleKey(enc))
 	t.Cleanup(svc.Stop)
 	return svc
 }
