@@ -957,6 +957,14 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 			}
 		}
 
+		// A new password closes a pending invite, so its link cannot later replace the password.
+		// The account keeps its enabled state; only an explicit enabled change in this request applies.
+		if _, resetting := updates["password_hash"]; resetting && user.InviteStatus == models.InviteStatusPending {
+			updates["invite_token"] = ""
+			updates["invite_expires"] = nil
+			updates["invite_status"] = ""
+		}
+
 		if len(updates) > 0 {
 			if txErr := tx.Model(&user).Updates(updates).Error; txErr != nil {
 				return txErr
@@ -1067,36 +1075,23 @@ func (h *UserHandler) ResendInvite(c *gin.Context) {
 		return
 	}
 
-	var user models.User
-	if findErr := h.DB.First(&user, id).Error; findErr != nil {
+	user, inviteToken, inviteExpires, err := h.invites.Reissue(uint(id))
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
-	}
-
-	// Verify user has a pending invite
-	if user.InviteStatus != "pending" {
+	case errors.Is(err, services.ErrInviteClosed):
 		c.JSON(http.StatusBadRequest, gin.H{"error": "User does not have a pending invite"})
 		return
-	}
-
-	// Generate new invite token
-	inviteToken, err := generateSecureToken()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate invite token"})
-		return
-	}
-
-	// Set new invite expiration
-	inviteExpires := time.Now().Add(services.InviteTTL)
-
-	// Update user with new token
-	if err := h.DB.Model(&user).Updates(map[string]any{
-		"invite_token":   inviteToken,
-		"invite_expires": inviteExpires,
-	}).Error; err != nil {
+	case err != nil:
+		middleware.GetRequestLogger(c).WithError(err).Error("Failed to resend invite")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update invite token"})
 		return
 	}
+
+	h.logUserAudit(c, "user_invite_resend", user, map[string]any{
+		"target_email": user.Email,
+	})
 
 	// Try to send invite email
 	emailSent := false

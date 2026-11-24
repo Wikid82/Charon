@@ -121,6 +121,53 @@ func (s *InviteService) Accept(token, name, password, lastSeenVersion string) (*
 	return &accepted, nil
 }
 
+// Reissue replaces the token and expiry of a pending invite whose account has no password yet.
+// Any expiry qualifies, including one that has already passed, so a lapsed link can be renewed.
+// It returns gorm.ErrRecordNotFound (wrapped) for an unknown user and ErrInviteClosed when the invite
+// is no longer pending or the account has a password.
+func (s *InviteService) Reissue(userID uint) (*models.User, string, time.Time, error) {
+	// The token is generated before the lock: random reads do not belong in the write lock.
+	token, err := GenerateInviteToken()
+	if err != nil {
+		return nil, "", time.Time{}, fmt.Errorf("issue invite token: %w", err)
+	}
+	expires := s.now().Add(InviteTTL)
+
+	if s.beforeLock != nil {
+		s.beforeLock()
+	}
+
+	var user models.User
+	err = WithWriteLock(s.db, &models.User{}, func(tx *gorm.DB) error {
+		if readErr := tx.First(&user, userID).Error; readErr != nil {
+			return fmt.Errorf("read invite user: %w", readErr)
+		}
+		if user.InviteStatus != models.InviteStatusPending || user.PasswordHash != "" {
+			return ErrInviteClosed
+		}
+		res := tx.Model(&models.User{}).
+			Where("id = ? AND invite_status = ? AND COALESCE(password_hash, '') = ''", userID, models.InviteStatusPending).
+			Updates(map[string]any{
+				"invite_token":   token,
+				"invite_expires": expires,
+			})
+		if res.Error != nil {
+			return fmt.Errorf("store invite token: %w", res.Error)
+		}
+		if res.RowsAffected != 1 {
+			return ErrInviteClosed
+		}
+		if reloadErr := tx.First(&user, userID).Error; reloadErr != nil {
+			return fmt.Errorf("reload invite user: %w", reloadErr)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, "", time.Time{}, err
+	}
+	return &user, token, expires, nil
+}
+
 // consumeInvite writes the acceptance for row with a conditional update. It matches only while
 // the stored row still has the token, is pending and has no password, and returns ErrInviteClosed
 // when nothing matched. Callers must hold the write lock through tx.
