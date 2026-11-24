@@ -155,16 +155,31 @@ type SetupRequest struct {
 	SetupCode string `json:"setup_code,omitempty"`
 }
 
-func isSetupConflictError(err error) bool {
+// isUniqueConstraintError reports whether err is a unique-index violation. Lock errors never match.
+func isUniqueConstraintError(err error) bool {
 	if err == nil {
 		return false
 	}
 
 	errText := strings.ToLower(err.Error())
 	return strings.Contains(errText, "unique constraint failed") ||
-		strings.Contains(errText, "duplicate key") ||
-		strings.Contains(errText, "database is locked") ||
+		strings.Contains(errText, "duplicate key")
+}
+
+// isLockedError reports whether err is a SQLite lock timeout.
+func isLockedError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errText := strings.ToLower(err.Error())
+	return strings.Contains(errText, "database is locked") ||
 		strings.Contains(errText, "database table is locked")
+}
+
+// isSetupConflictError reports whether a first-run setup write lost a race: a unique violation or a lock timeout.
+func isSetupConflictError(err error) bool {
+	return isUniqueConstraintError(err) || isLockedError(err)
 }
 
 // errSetupAlreadyCompleted signals that a user already exists, detected inside
@@ -648,7 +663,13 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 	})
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user: " + err.Error()})
+		// A concurrent invite for the same address can pass the check above and lose at the unique index.
+		if isUniqueConstraintError(err) {
+			c.JSON(http.StatusConflict, gin.H{"error": "Email already in use"})
+			return
+		}
+		middleware.GetRequestLogger(c).WithError(err).Error("Failed to create invited user")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
 		return
 	}
 
@@ -674,11 +695,13 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 		userToken := inviteToken
 		appName := getAppName(h.DB)
 
+		// The request context is recycled once the handler returns, so the logger is taken here.
+		logger := middleware.GetRequestLogger(c)
 		go func() {
 			// userEmail validated as RFC 5321 format; rejectCRLF + net/mail.ParseAddress in mail_service.go cover this path.
 			if err := h.MailService.SendInvite(userEmail, userToken, appName, baseURL); err != nil {
 				// Log failure but don't block response
-				middleware.GetRequestLogger(c).WithField("user_email", sanitizeForLog(userEmail)).WithField("error", sanitizeForLog(err.Error())).Error("Failed to send invite email")
+				logger.WithField("user_email", sanitizeForLog(userEmail)).WithField("error", sanitizeForLog(err.Error())).Error("Failed to send invite email")
 			}
 		}()
 	}
