@@ -1,8 +1,6 @@
 package handlers
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -48,6 +46,7 @@ type UserHandler struct {
 	AuthService *services.AuthService
 	MailService *services.MailService
 	securitySvc *services.SecurityService
+	invites     *services.InviteService
 	// passwordGuard throttles password verification; nil allows every attempt.
 	passwordGuard PasswordAttemptGuard
 	// setupCode checks the first-run setup code; nil accepts no code.
@@ -74,6 +73,7 @@ func NewUserHandler(db *gorm.DB, authService *services.AuthService) *UserHandler
 		AuthService:  authService,
 		MailService:  services.NewMailService(db),
 		securitySvc:  services.NewSecurityService(db),
+		invites:      services.NewInviteService(db),
 		setupLimiter: ratelimit.MustNewKeyedLimiter(ratelimit.Config{Rate: rate, Burst: burst}),
 	}
 }
@@ -559,13 +559,9 @@ type InviteUserRequest struct {
 	PermittedHosts []uint `json:"permitted_hosts"`
 }
 
-// generateSecureToken creates a cryptographically secure random token.
+// generateSecureToken creates a cryptographically secure invite token.
 func generateSecureToken() (string, error) {
-	bytes := make([]byte, 32)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(bytes), nil
+	return services.GenerateInviteToken()
 }
 
 // InviteUser creates a new user with an invite token and sends an email (admin only).
@@ -613,8 +609,8 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 		return
 	}
 
-	// Set invite expiration (48 hours)
-	inviteExpires := time.Now().Add(48 * time.Hour)
+	// Set invite expiration
+	inviteExpires := time.Now().Add(services.InviteTTL)
 	invitedAt := time.Now()
 
 	user := models.User{
@@ -1090,8 +1086,8 @@ func (h *UserHandler) ResendInvite(c *gin.Context) {
 		return
 	}
 
-	// Set new invite expiration (48 hours)
-	inviteExpires := time.Now().Add(48 * time.Hour)
+	// Set new invite expiration
+	inviteExpires := time.Now().Add(services.InviteTTL)
 
 	// Update user with new token
 	if err := h.DB.Model(&user).Updates(map[string]any{
@@ -1203,21 +1199,9 @@ func (h *UserHandler) ValidateInvite(c *gin.Context) {
 		return
 	}
 
-	var user models.User
-	if err := h.DB.Where("invite_token = ?", token).First(&user).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Invalid or expired invite token"})
-		return
-	}
-
-	// Check if token is expired
-	if user.InviteExpires != nil && user.InviteExpires.Before(time.Now()) {
-		c.JSON(http.StatusGone, gin.H{"error": "Invite token has expired"})
-		return
-	}
-
-	// Check if already accepted
-	if user.InviteStatus != "pending" {
-		c.JSON(http.StatusConflict, gin.H{"error": "Invite has already been accepted"})
+	user, err := h.invites.Lookup(token)
+	if err != nil {
+		respondInviteError(c, err)
 		return
 	}
 
@@ -1225,6 +1209,22 @@ func (h *UserHandler) ValidateInvite(c *gin.Context) {
 		"valid": true,
 		"email": user.Email,
 	})
+}
+
+// respondInviteError writes the response for a failed invite lookup or acceptance.
+func respondInviteError(c *gin.Context, err error) {
+	switch {
+	case errors.Is(err, services.ErrInviteExpired):
+		c.JSON(http.StatusGone, gin.H{"error": "Invite token has expired"})
+	case errors.Is(err, services.ErrInviteClosed):
+		c.JSON(http.StatusConflict, gin.H{"error": "Invite has already been accepted"})
+	case errors.Is(err, services.ErrInviteNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "Invalid or expired invite token"})
+	case errors.Is(err, services.ErrInvitePasswordHash):
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to set password"})
+	default:
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to accept invite"})
+	}
 }
 
 // AcceptInviteRequest represents the request body for accepting an invite.
@@ -1241,46 +1241,13 @@ func (h *UserHandler) AcceptInvite(c *gin.Context) {
 		return
 	}
 
-	var user models.User
-	if err := h.DB.Where("invite_token = ?", req.Token).First(&user).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Invalid or expired invite token"})
+	user, err := h.invites.Accept(req.Token, req.Name, req.Password, seedLastSeenVersion())
+	if err != nil {
+		respondInviteError(c, err)
 		return
 	}
 
-	// Check if token is expired
-	if user.InviteExpires != nil && user.InviteExpires.Before(time.Now()) {
-		// Mark as expired
-		h.DB.Model(&user).Update("invite_status", "expired")
-		c.JSON(http.StatusGone, gin.H{"error": "Invite token has expired"})
-		return
-	}
-
-	// Check if already accepted
-	if user.InviteStatus != "pending" {
-		c.JSON(http.StatusConflict, gin.H{"error": "Invite has already been accepted"})
-		return
-	}
-
-	// Set password and activate user
-	if err := user.SetPassword(req.Password); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to set password"})
-		return
-	}
-
-	if err := h.DB.Model(&user).Updates(map[string]any{
-		"name":              req.Name,
-		"password_hash":     user.PasswordHash,
-		"enabled":           true,
-		"invite_token":      "",  // Clear token
-		"invite_expires":    nil, // Clear expiration
-		"invite_status":     "accepted",
-		"last_seen_version": seedLastSeenVersion(),
-	}).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to accept invite"})
-		return
-	}
-
-	h.logUserAudit(c, "user_invite_accept", &user, map[string]any{
+	h.logUserAudit(c, "user_invite_accept", user, map[string]any{
 		"target_email":  user.Email,
 		"invite_status": "accepted",
 	})

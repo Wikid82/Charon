@@ -2,6 +2,7 @@
 package models
 
 import (
+	"fmt"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -73,13 +74,34 @@ type User struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// Invite status values stored in User.InviteStatus.
+const (
+	InviteStatusPending  = "pending"
+	InviteStatusAccepted = "accepted"
+	InviteStatusExpired  = "expired"
+)
+
+// HashPassword returns the bcrypt hash of password at the default cost.
+func HashPassword(password string) (string, error) {
+	return HashPasswordCost(password, bcrypt.DefaultCost)
+}
+
+// HashPasswordCost returns the bcrypt hash of password at the given cost.
+func HashPasswordCost(password string, cost int) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), cost)
+	if err != nil {
+		return "", fmt.Errorf("bcrypt password: %w", err)
+	}
+	return string(hash), nil
+}
+
 // SetPassword hashes and sets the user's password.
 func (u *User) SetPassword(password string) error {
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := HashPassword(password)
 	if err != nil {
 		return err
 	}
-	u.PasswordHash = string(hash)
+	u.PasswordHash = hash
 	return nil
 }
 

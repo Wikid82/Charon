@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"golang.org/x/crypto/bcrypt"
 )
 
 func TestUser_SetPassword(t *testing.T) {
@@ -218,4 +219,21 @@ func TestUserRole_IsValid(t *testing.T) {
 // Helper function to create time pointers
 func timePtr(t time.Time) *time.Time {
 	return &t
+}
+
+func TestHashPasswordCost(t *testing.T) {
+	hash, err := HashPasswordCost("password123", bcrypt.MinCost)
+	assert.NoError(t, err)
+	assert.NoError(t, bcrypt.CompareHashAndPassword([]byte(hash), []byte("password123")))
+
+	_, err = HashPasswordCost("password123", bcrypt.MaxCost+1)
+	assert.Error(t, err)
+}
+
+func TestHashPassword_DefaultCost(t *testing.T) {
+	hash, err := HashPassword("password123")
+	assert.NoError(t, err)
+	cost, err := bcrypt.Cost([]byte(hash))
+	assert.NoError(t, err)
+	assert.Equal(t, bcrypt.DefaultCost, cost)
 }
