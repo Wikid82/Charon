@@ -194,10 +194,12 @@ func consumeInvite(tx *gorm.DB, row *models.User, name, passwordHash, lastSeenVe
 }
 
 // markExpired records an expired invite. The update is conditional on the token, so a resend that
-// replaced the token in the meantime is left alone. A failure is logged; the caller still answers 410.
+// replaced the token in the meantime is left alone, and on the account having no password, so an
+// account that already has one never takes the expired status. A failure is logged; the caller still answers 410.
 func (s *InviteService) markExpired(id uint, token string) {
 	res := s.db.Model(&models.User{}).
-		Where("id = ? AND invite_token = ? AND invite_status = ?", id, token, models.InviteStatusPending).
+		Where("id = ? AND invite_token = ? AND invite_status = ? AND COALESCE(password_hash, '') = ''",
+			id, token, models.InviteStatusPending).
 		Update("invite_status", models.InviteStatusExpired)
 	if res.Error != nil {
 		logrus.WithError(res.Error).WithField("user_id", id).Warn("failed to mark invite expired")

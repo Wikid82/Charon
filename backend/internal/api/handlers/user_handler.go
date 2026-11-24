@@ -883,6 +883,9 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	}
 
 	needsSessionInvalidation := false
+	// passwordHash is set when the request changes the password; the transaction applies it through
+	// services.ApplyPasswordChange, which also ends sessions and closes a pending invite.
+	passwordHash := ""
 
 	if req.Role != "" {
 		newRole := models.UserRole(req.Role)
@@ -922,11 +925,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
 			return
 		}
-		updates["password_hash"] = user.PasswordHash
-		updates["failed_login_attempts"] = 0
-		updates["locked_until"] = nil
-		// Advance the session version atomically with the new hash so existing sessions end.
-		updates["session_version"] = gorm.Expr("session_version + 1")
+		passwordHash = user.PasswordHash
 	}
 
 	if req.Enabled != nil && *req.Enabled != user.Enabled {
@@ -980,16 +979,14 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 			}
 		}
 
-		// A new password closes a pending invite, so its link cannot later replace the password.
-		// The account keeps its enabled state; only an explicit enabled change in this request applies.
-		if _, resetting := updates["password_hash"]; resetting && user.InviteStatus == models.InviteStatusPending {
-			updates["invite_token"] = ""
-			updates["invite_expires"] = nil
-			updates["invite_status"] = ""
-		}
-
 		if len(updates) > 0 {
 			if txErr := tx.Model(&user).Updates(updates).Error; txErr != nil {
+				return txErr
+			}
+		}
+
+		if passwordHash != "" {
+			if txErr := services.ApplyPasswordChange(tx, user.ID, passwordHash); txErr != nil {
 				return txErr
 			}
 		}
@@ -1007,7 +1004,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		return
 	}
 
-	if len(updates) > 0 {
+	if len(updates) > 0 || passwordHash != "" {
 		if needsSessionInvalidation && h.AuthService != nil {
 			if invErr := h.AuthService.InvalidateSessions(user.ID); invErr != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to invalidate sessions"})
@@ -1015,10 +1012,14 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 			}
 		}
 
+		fields := mapsKeys(updates)
+		if passwordHash != "" {
+			fields = append(fields, "password_hash")
+		}
 		h.logUserAudit(c, "user_update", &user, map[string]any{
 			"target_email": user.Email,
 			"target_role":  user.Role,
-			"fields":       mapsKeys(updates),
+			"fields":       fields,
 		})
 	}
 

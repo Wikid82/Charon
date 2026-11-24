@@ -206,3 +206,49 @@ func TestConsumeInviteReportsWriteFailure(t *testing.T) {
 	require.Error(t, err)
 	assert.NotErrorIs(t, err, ErrInviteClosed)
 }
+
+func TestApplyPasswordChange_ClosesPendingInviteOnly(t *testing.T) {
+	db := openInviteTestDB(t)
+	invitee := seedPendingInvite(t, db, "apply@example.com", "tok-apply")
+	require.NoError(t, db.Model(invitee).Update("enabled", true).Error)
+
+	require.NoError(t, db.Transaction(func(tx *gorm.DB) error {
+		return ApplyPasswordChange(tx, invitee.ID, "new-hash")
+	}))
+
+	stored := reloadInviteUser(t, db, invitee.ID)
+	assert.Equal(t, "new-hash", stored.PasswordHash)
+	assert.Empty(t, stored.InviteToken)
+	assert.Nil(t, stored.InviteExpires)
+	assert.Empty(t, stored.InviteStatus)
+	assert.True(t, stored.Enabled, "the password change must leave enabled as it was")
+}
+
+func TestApplyPasswordChange_LeavesOtherInviteStatusAlone(t *testing.T) {
+	db := openInviteTestDB(t)
+	accepted := seedPendingInvite(t, db, "accepted-apply@example.com", "tok-accepted-apply")
+	require.NoError(t, db.Model(accepted).Update("invite_status", models.InviteStatusAccepted).Error)
+
+	require.NoError(t, db.Transaction(func(tx *gorm.DB) error {
+		return ApplyPasswordChange(tx, accepted.ID, "new-hash")
+	}))
+
+	stored := reloadInviteUser(t, db, accepted.ID)
+	assert.Equal(t, models.InviteStatusAccepted, stored.InviteStatus)
+	assert.Equal(t, "tok-accepted-apply", stored.InviteToken)
+}
+
+func TestInviteService_ExpiredMarkSkipsAccountWithPassword(t *testing.T) {
+	db := openInviteTestDB(t)
+	svc := newTestInviteService(db)
+	invitee := seedPendingInvite(t, db, "haspw-expired@example.com", "tok-haspw")
+	require.NoError(t, db.Model(invitee).Updates(map[string]any{
+		"invite_expires": time.Now().Add(-time.Minute),
+		"password_hash":  "admin-set-hash",
+	}).Error)
+
+	_, err := svc.Accept("tok-haspw", "Late", "late-password", "")
+	assert.ErrorIs(t, err, ErrInviteExpired)
+	assert.Equal(t, models.InviteStatusPending, reloadInviteUser(t, db, invitee.ID).InviteStatus,
+		"an account that already has a password must not take the expired status")
+}
