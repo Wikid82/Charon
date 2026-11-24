@@ -63,7 +63,7 @@ func newOptionsTestService(t *testing.T, enc *crypto.EncryptionService) *BackupS
 	))
 
 	cfg := &config.Config{DatabasePath: dbPath}
-	svc := NewBackupService(cfg, db, enc)
+	svc := NewBackupService(cfg, db, crypto.SingleKey(enc))
 	t.Cleanup(svc.Stop)
 	return svc
 }

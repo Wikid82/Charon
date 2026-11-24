@@ -140,7 +140,7 @@ func setupCredentialStorageFixture(t *testing.T) (*gin.Engine, *gorm.DB, models.
 	}
 	require.NoError(t, db.Create(&provider).Error)
 
-	h := NewCredentialHandler(services.NewCredentialService(db, encryptor), services.NewDNSProviderService(db, encryptor))
+	h := NewCredentialHandler(services.NewCredentialService(db, crypto.SingleKey(encryptor)), services.NewDNSProviderService(db, crypto.SingleKey(encryptor)))
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.GET("/api/v1/dns-providers/:id/credentials", h.List)

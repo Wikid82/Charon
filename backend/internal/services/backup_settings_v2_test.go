@@ -23,7 +23,7 @@ func newSettingsTestService(t *testing.T, enc *crypto.EncryptionService) *Backup
 
 	tmpDir := t.TempDir()
 	cfg := &config.Config{DatabasePath: tmpDir + "/charon.db"}
-	svc := NewBackupService(cfg, db, enc)
+	svc := NewBackupService(cfg, db, crypto.SingleKey(enc))
 	t.Cleanup(svc.Stop)
 	return svc
 }

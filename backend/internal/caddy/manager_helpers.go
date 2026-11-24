@@ -3,10 +3,8 @@ package caddy
 import (
 	"encoding/json"
 	"fmt"
-	"os"
 	"strings"
 
-	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 )
@@ -72,26 +70,11 @@ func (m *Manager) getCredentialForDomain(providerID uint, domain string, provide
 		var decryptedData []byte
 		var err error
 
-		// Try to get encryption key from environment
-		encryptionKey := ""
-		for _, key := range []string{"CHARON_ENCRYPTION_KEY", "ENCRYPTION_KEY", "CERBERUS_ENCRYPTION_KEY"} {
-			if val := os.Getenv(key); val != "" {
-				encryptionKey = val
-				break
-			}
-		}
-
-		if encryptionKey == "" {
+		if m.secrets == nil {
 			return nil, fmt.Errorf("no encryption key available")
 		}
 
-		// Create encryptor inline
-		encryptor, err := crypto.NewEncryptionService(encryptionKey)
-		if err != nil {
-			return nil, fmt.Errorf("failed to create encryptor: %w", err)
-		}
-
-		decryptedData, err = encryptor.Decrypt(provider.CredentialsEncrypted)
+		decryptedData, err = m.secrets.DecryptWithVersion(provider.CredentialsEncrypted, provider.KeyVersion)
 		if err != nil {
 			return nil, fmt.Errorf("failed to decrypt credentials: %w", err)
 		}
@@ -150,24 +133,11 @@ func (m *Manager) getCredentialForDomain(providerID uint, domain string, provide
 	}
 
 	// Decrypt the matched credential
-	encryptionKey := ""
-	for _, key := range []string{"CHARON_ENCRYPTION_KEY", "ENCRYPTION_KEY", "CERBERUS_ENCRYPTION_KEY"} {
-		if val := os.Getenv(key); val != "" {
-			encryptionKey = val
-			break
-		}
-	}
-
-	if encryptionKey == "" {
+	if m.secrets == nil {
 		return nil, fmt.Errorf("no encryption key available")
 	}
 
-	encryptor, err := crypto.NewEncryptionService(encryptionKey)
-	if err != nil {
-		return nil, fmt.Errorf("failed to create encryptor: %w", err)
-	}
-
-	decryptedData, err := encryptor.Decrypt(bestMatch.CredentialsEncrypted)
+	decryptedData, err := m.secrets.DecryptWithVersion(bestMatch.CredentialsEncrypted, bestMatch.KeyVersion)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decrypt credential %s: %w", bestMatch.UUID, err)
 	}

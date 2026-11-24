@@ -152,13 +152,13 @@ type BackupService struct {
 	// Commit 3; this commit only threads the field through the constructor.
 	CrowdSecDir string
 
-	// db and encryption are threaded through so Commit 3's manifest
+	// db and secrets are threaded through so Commit 3's manifest
 	// (EncryptionKeyRequired), settings-driven reschedule, and
 	// remote-upload/BackupRecord persistence have what they need without a
-	// second constructor-signature change. encryption is nilable — backups
+	// second constructor-signature change. secrets is nilable — backups
 	// are unencrypted by default and when CHARON_ENCRYPTION_KEY is unset.
-	db         *gorm.DB
-	encryption *crypto.EncryptionService
+	db      *gorm.DB
+	secrets crypto.VersionedCipher
 
 	// scheduleEntry identifies the cron.Cron entry created at construction so
 	// a future Reschedule (Commit 3) can cron.Remove it before re-adding.
@@ -371,7 +371,7 @@ type BackupFile struct {
 // legacy backup.interval/backup.retention Setting rows are translated to the
 // canonical backup.* keys and removed (see migrateLegacyBackupSettings); this
 // is best-effort and logged, never fatal to construction.
-func NewBackupService(cfg *config.Config, db *gorm.DB, enc *crypto.EncryptionService) *BackupService {
+func NewBackupService(cfg *config.Config, db *gorm.DB, secrets crypto.VersionedCipher) *BackupService {
 	// Ensure backup directory exists
 	backupDir := filepath.Join(filepath.Dir(cfg.DatabasePath), "backups")
 	// Use 0700 for backup directory (contains complete database dumps with sensitive data)
@@ -388,7 +388,7 @@ func NewBackupService(cfg *config.Config, db *gorm.DB, enc *crypto.EncryptionSer
 		CrowdSecDir:  cfg.Security.CrowdSecConfigDir,
 		Cron:         cron.New(),
 		db:           db,
-		encryption:   enc,
+		secrets:      secrets,
 		uploadCtx:    uploadCtx,
 		uploadCancel: uploadCancel,
 	}
@@ -728,14 +728,15 @@ func (s *BackupService) resolveBackupPassphrase(opts BackupOptions) (BackupOptio
 	if !opts.Encrypt || strings.TrimSpace(opts.Passphrase) != "" {
 		return opts, nil
 	}
-	if s.db == nil || s.encryption == nil {
+	if s.db == nil || s.secrets == nil {
 		return opts, nil
 	}
 	stored, ok := readBackupSettingString(s.db, SettingKeyBackupEncryptionPassphraseEnc)
 	if !ok || strings.TrimSpace(stored) == "" {
 		return opts, nil
 	}
-	plaintext, err := s.encryption.Decrypt(stored)
+	// The passphrase setting has no key version column, so it is read untagged.
+	plaintext, err := s.secrets.DecryptWithVersion(stored, 0)
 	if err != nil {
 		return opts, fmt.Errorf("decrypt stored backup passphrase: %w", err)
 	}

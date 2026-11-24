@@ -35,7 +35,7 @@ func newTestCertServiceWithEnc(t *testing.T, dataDir string, db *gorm.DB) *Certi
 	return &CertificateService{
 		dataDir: dataDir,
 		db:      db,
-		encSvc:  encSvc,
+		secrets: crypto.SingleKey(encSvc),
 		scanTTL: 5 * time.Minute,
 	}
 }
@@ -362,7 +362,7 @@ func TestCertificateService_GetDecryptedPrivateKey(t *testing.T) {
 	encSvc := newTestEncryptionService(t)
 
 	t.Run("no encrypted key", func(t *testing.T) {
-		cs := &CertificateService{encSvc: encSvc}
+		cs := &CertificateService{secrets: crypto.SingleKey(encSvc)}
 		cert := &models.SSLCertificate{PrivateKeyEncrypted: ""}
 		_, err := cs.GetDecryptedPrivateKey(cert)
 		assert.Error(t, err)
@@ -370,7 +370,7 @@ func TestCertificateService_GetDecryptedPrivateKey(t *testing.T) {
 	})
 
 	t.Run("no encryption service", func(t *testing.T) {
-		cs := &CertificateService{encSvc: nil}
+		cs := &CertificateService{secrets: nil}
 		cert := &models.SSLCertificate{PrivateKeyEncrypted: "some-data"}
 		_, err := cs.GetDecryptedPrivateKey(cert)
 		assert.Error(t, err)
@@ -378,7 +378,7 @@ func TestCertificateService_GetDecryptedPrivateKey(t *testing.T) {
 	})
 
 	t.Run("successful decryption", func(t *testing.T) {
-		cs := &CertificateService{encSvc: encSvc}
+		cs := &CertificateService{secrets: crypto.SingleKey(encSvc)}
 		plaintext := "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----" //nolint:gosec // test data, not real credentials
 		encrypted, err := encSvc.Encrypt([]byte(plaintext))
 		require.NoError(t, err)
@@ -467,7 +467,7 @@ func TestCertificateService_CheckExpiry(t *testing.T) {
 
 func TestCertificateService_MigratePrivateKeys(t *testing.T) {
 	t.Run("no encryption service", func(t *testing.T) {
-		cs := &CertificateService{encSvc: nil}
+		cs := &CertificateService{secrets: nil}
 		err := cs.MigratePrivateKeys()
 		require.NoError(t, err)
 	})
@@ -481,7 +481,7 @@ func TestCertificateService_MigratePrivateKeys(t *testing.T) {
 		require.NoError(t, db.Exec("ALTER TABLE ssl_certificates ADD COLUMN private_key TEXT DEFAULT ''").Error)
 
 		encSvc := newTestEncryptionService(t)
-		cs := &CertificateService{db: db, encSvc: encSvc}
+		cs := &CertificateService{db: db, secrets: crypto.SingleKey(encSvc)}
 
 		err = cs.MigratePrivateKeys()
 		require.NoError(t, err)
@@ -502,7 +502,7 @@ func TestCertificateService_MigratePrivateKeys(t *testing.T) {
 		).Error)
 
 		encSvc := newTestEncryptionService(t)
-		cs := &CertificateService{db: db, encSvc: encSvc}
+		cs := &CertificateService{db: db, secrets: crypto.SingleKey(encSvc)}
 
 		err = cs.MigratePrivateKeys()
 		require.NoError(t, err)

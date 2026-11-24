@@ -577,8 +577,8 @@ func setupCredentialHandlerTestWithCtx(t *testing.T) (*gin.Engine, *gorm.DB, *mo
 	}
 	db.Create(provider)
 
-	credService := services.NewCredentialService(db, encryptor)
-	dnsProviderService := services.NewDNSProviderService(db, encryptor)
+	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	dnsProviderService := services.NewDNSProviderService(db, crypto.SingleKey(encryptor))
 	credHandler := NewCredentialHandler(credService, dnsProviderService)
 
 	router.GET("/api/v1/dns-providers/:id/credentials", credHandler.List)
@@ -615,7 +615,7 @@ func TestCredentialHandler_Update_InvalidProviderType(t *testing.T) {
 	db.Create(provider)
 
 	// Create credential
-	credService := services.NewCredentialService(db, encryptor)
+	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
 	createReq := services.CreateCredentialRequest{
 		Label:       "Original",
 		Credentials: map[string]string{"api_token": "token"},
@@ -652,8 +652,8 @@ func TestCredentialHandler_List_DatabaseClosed(t *testing.T) {
 	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	encryptor, _ := crypto.NewEncryptionService(testKey)
 
-	credService := services.NewCredentialService(db, encryptor)
-	dnsProviderService := services.NewDNSProviderService(db, encryptor)
+	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	dnsProviderService := services.NewDNSProviderService(db, crypto.SingleKey(encryptor))
 	credHandler := NewCredentialHandler(credService, dnsProviderService)
 
 	router.GET("/api/v1/dns-providers/:id/credentials", credHandler.List)
@@ -716,7 +716,7 @@ func TestCredentialHandler_Update_MalformedJSON(t *testing.T) {
 
 	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	encryptor, _ := crypto.NewEncryptionService(testKey)
-	credService := services.NewCredentialService(db, encryptor)
+	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
 	created, err := credService.Create(context.Background(), provider.ID, services.CreateCredentialRequest{
 		Label:       "Malformed JSON Target",
 		Credentials: map[string]string{"api_token": "token"},

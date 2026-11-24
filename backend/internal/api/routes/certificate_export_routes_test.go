@@ -54,7 +54,7 @@ func (a *throttledApp) seedExportCert() string {
 
 	enc, err := crypto.NewEncryptionService(exportRouteTestKey)
 	require.NoError(a.t, err)
-	info, err := services.NewCertificateService(a.t.TempDir(), a.db, enc).UploadCertificate("route-export", certPEM, keyPEM, "")
+	info, err := services.NewCertificateService(a.t.TempDir(), a.db, crypto.SingleKey(enc)).UploadCertificate("route-export", certPEM, keyPEM, "")
 	require.NoError(a.t, err)
 	return info.UUID
 }

@@ -32,7 +32,7 @@ func setupBackupRemoteHandlerTest(t *testing.T, enc *crypto.EncryptionService) (
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.RemoteStorageTarget{}, &models.BackupRecord{}, &models.BackupRemoteCopy{}, &models.Setting{}))
 
-	svc := services.NewBackupRemoteService(db, enc, t.TempDir())
+	svc := services.NewBackupRemoteService(db, crypto.SingleKey(enc), t.TempDir())
 	h := NewBackupRemoteHandler(svc)
 
 	router := gin.New()

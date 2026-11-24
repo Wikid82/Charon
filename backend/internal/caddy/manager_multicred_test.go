@@ -235,6 +235,7 @@ func TestManager_GetCredentialForDomain_DecryptionFailure(t *testing.T) {
 	require.NoError(t, db.Create(&provider).Error)
 
 	manager := NewManager(nil, db, t.TempDir(), "", false, config.SecurityConfig{})
+	manager.SetSecretCipher(testSecretCipher(t, encryptionKey))
 
 	_, err = manager.getCredentialForDomain(provider.ID, "example.com", &provider)
 	assert.Error(t, err)
@@ -271,6 +272,7 @@ func TestManager_GetCredentialForDomain_InvalidJSON(t *testing.T) {
 	require.NoError(t, db.Create(&provider).Error)
 
 	manager := NewManager(nil, db, t.TempDir(), "", false, config.SecurityConfig{})
+	manager.SetSecretCipher(testSecretCipher(t, encryptionKey))
 
 	_, err = manager.getCredentialForDomain(provider.ID, "example.com", &provider)
 	assert.Error(t, err)
@@ -336,6 +338,7 @@ func TestManager_GetCredentialForDomain_SkipsDisabledCredentials(t *testing.T) {
 	require.NoError(t, err)
 
 	manager := NewManager(nil, db, t.TempDir(), "", false, config.SecurityConfig{})
+	manager.SetSecretCipher(testSecretCipher(t, encryptionKey))
 
 	creds, err := manager.getCredentialForDomain(provider.ID, "example.com", &provider)
 	require.NoError(t, err)
@@ -373,6 +376,7 @@ func TestManager_GetCredentialForDomain_MultiCredential_DecryptionFailure(t *tes
 	require.NoError(t, db.Create(&provider).Error)
 
 	manager := NewManager(nil, db, t.TempDir(), "", false, config.SecurityConfig{})
+	manager.SetSecretCipher(testSecretCipher(t, encryptionKey))
 
 	_, err = manager.getCredentialForDomain(provider.ID, "example.com", &provider)
 	assert.Error(t, err)
@@ -417,6 +421,7 @@ func TestManager_GetCredentialForDomain_MultiCredential_InvalidJSON(t *testing.T
 	require.NoError(t, db.Create(&provider).Error)
 
 	manager := NewManager(nil, db, t.TempDir(), "", false, config.SecurityConfig{})
+	manager.SetSecretCipher(testSecretCipher(t, encryptionKey))
 
 	_, err = manager.getCredentialForDomain(provider.ID, "example.com", &provider)
 	assert.Error(t, err)

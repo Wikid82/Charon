@@ -265,8 +265,8 @@ func setupCredentialRedactionRouter(t *testing.T, role string) (*gin.Engine, *go
 
 	encryptor, err := crypto.NewEncryptionService(redactionTestEncryptionKey)
 	require.NoError(t, err)
-	credService := services.NewCredentialService(db, encryptor)
-	dnsService := services.NewDNSProviderService(db, encryptor)
+	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	dnsService := services.NewDNSProviderService(db, crypto.SingleKey(encryptor))
 
 	provider := models.DNSProvider{
 		UUID:                 uuid.NewString(),

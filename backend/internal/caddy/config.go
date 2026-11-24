@@ -389,16 +389,16 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 	}
 
 	if len(customCerts) > 0 {
-		// Resolve encryption service from GenerateConfigOption(s)
-		certEncSvc := resolvedOpts.encSvc
+		// Resolve the secret cipher from GenerateConfigOption(s)
+		certSecrets := resolvedOpts.secrets
 
 		var loadPEM []LoadPEMConfig
 		for _, cert := range customCerts {
 			// Determine private key: prefer encrypted, fall back to plaintext for migration
 			var keyPEM string
 			switch {
-			case cert.PrivateKeyEncrypted != "" && certEncSvc != nil:
-				decrypted, err := certEncSvc.Decrypt(cert.PrivateKeyEncrypted)
+			case cert.PrivateKeyEncrypted != "" && certSecrets != nil:
+				decrypted, err := certSecrets.DecryptWithVersion(cert.PrivateKeyEncrypted, cert.KeyVersion)
 				if err != nil {
 					logger.Log().WithField("cert", cert.Name).WithError(err).Warn("Failed to decrypt private key, skipping certificate")
 					continue

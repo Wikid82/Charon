@@ -13,15 +13,15 @@ import (
 // HecateService provides CRUD operations for TunnelConfig records and
 // delegates lifecycle management to the TunnelManager.
 type HecateService struct {
-	db     *gorm.DB
-	encSvc *crypto.EncryptionService
-	mgr    *hecate.TunnelManager
+	db      *gorm.DB
+	secrets crypto.VersionedCipher
+	mgr     *hecate.TunnelManager
 }
 
 // NewHecateService creates a HecateService and registers all supported provider factories.
-func NewHecateService(db *gorm.DB, encSvc *crypto.EncryptionService, mgr *hecate.TunnelManager) *HecateService {
+func NewHecateService(db *gorm.DB, secrets crypto.VersionedCipher, mgr *hecate.TunnelManager) *HecateService {
 	mgr.RegisterFactory(models.ProviderNetBird, netbird.Factory)
-	return &HecateService{db: db, encSvc: encSvc, mgr: mgr}
+	return &HecateService{db: db, secrets: secrets, mgr: mgr}
 }
 
 // List returns all TunnelConfig records.
@@ -36,7 +36,7 @@ func (s *HecateService) List() ([]models.TunnelConfig, error) {
 // Create persists a new TunnelConfig. plainCredentials are encrypted before
 // storage. If the config is active, the tunnel is started immediately.
 func (s *HecateService) Create(cfg *models.TunnelConfig, plainCredentials string) error {
-	encrypted, err := s.encSvc.Encrypt([]byte(plainCredentials))
+	encrypted, _, err := s.secrets.EncryptWithCurrentKey([]byte(plainCredentials))
 	if err != nil {
 		return fmt.Errorf("hecate: encrypt credentials: %w", err)
 	}
@@ -72,7 +72,7 @@ func (s *HecateService) Update(uuid string, cfg *models.TunnelConfig, plainCrede
 	}
 
 	if plainCredentials != nil {
-		encrypted, encErr := s.encSvc.Encrypt([]byte(*plainCredentials))
+		encrypted, _, encErr := s.secrets.EncryptWithCurrentKey([]byte(*plainCredentials))
 		if encErr != nil {
 			return fmt.Errorf("hecate: re-encrypt credentials: %w", encErr)
 		}
@@ -109,7 +109,7 @@ func (s *HecateService) RotateCredentials(uuid, plainCredentials string) error {
 		return err
 	}
 
-	encrypted, err := s.encSvc.Encrypt([]byte(plainCredentials))
+	encrypted, _, err := s.secrets.EncryptWithCurrentKey([]byte(plainCredentials))
 	if err != nil {
 		return fmt.Errorf("hecate: encrypt rotated credentials: %w", err)
 	}

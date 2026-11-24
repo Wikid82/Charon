@@ -3,7 +3,6 @@ package caddy
 import (
 	"context"
 	"encoding/json"
-	"os"
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/config"
@@ -25,8 +24,7 @@ func encryptCredentials(t *testing.T, credentials map[string]string) string {
 	// Always use a valid 32-byte base64-encoded key (decodes to exactly 32 bytes)
 	// base64.StdEncoding.EncodeToString([]byte("12345678901234567890123456789012"))
 	// = "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
-	encryptionKey := "MTIzNDU2Nzg5MDEyMzQ1Njc4OTAxMjM0NTY3ODkwMTI="
-	require.NoError(t, os.Setenv("CHARON_ENCRYPTION_KEY", encryptionKey))
+	encryptionKey := testCaddyEncryptionKey
 
 	encryptor, err := crypto.NewEncryptionService(encryptionKey)
 	require.NoError(t, err)
@@ -101,6 +99,7 @@ func TestApplyConfig_SingleCredential_BackwardCompatibility(t *testing.T) {
 	// Create manager with mock client
 	mockClient := &MockClient{}
 	manager := NewManager(mockClient, db, t.TempDir(), "", false, config.SecurityConfig{})
+	manager.SetSecretCipher(testSecretCipher(t, testCaddyEncryptionKey))
 
 	// Apply config
 	err := manager.ApplyConfig(context.Background())
@@ -209,6 +208,7 @@ func TestApplyConfig_MultiCredential_ExactMatch(t *testing.T) {
 	// Create manager with mock client
 	mockClient := &MockClient{}
 	manager := NewManager(mockClient, db, t.TempDir(), "", false, config.SecurityConfig{})
+	manager.SetSecretCipher(testSecretCipher(t, testCaddyEncryptionKey))
 
 	// Apply config
 	err := manager.ApplyConfig(context.Background())
@@ -290,6 +290,7 @@ func TestApplyConfig_MultiCredential_WildcardMatch(t *testing.T) {
 	// Create manager with mock client
 	mockClient := &MockClient{}
 	manager := NewManager(mockClient, db, t.TempDir(), "", false, config.SecurityConfig{})
+	manager.SetSecretCipher(testSecretCipher(t, testCaddyEncryptionKey))
 
 	// Apply config
 	err := manager.ApplyConfig(context.Background())
@@ -361,6 +362,7 @@ func TestApplyConfig_MultiCredential_CatchAll(t *testing.T) {
 	// Create manager with mock client
 	mockClient := &MockClient{}
 	manager := NewManager(mockClient, db, t.TempDir(), "", false, config.SecurityConfig{})
+	manager.SetSecretCipher(testSecretCipher(t, testCaddyEncryptionKey))
 
 	// Apply config
 	err := manager.ApplyConfig(context.Background())

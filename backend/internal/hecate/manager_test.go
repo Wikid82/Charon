@@ -80,7 +80,7 @@ func (m *mockProvider) GetAddress() string { return "127.0.0.1:9999" }
 
 func TestTunnelManager_RegisterProvider_StoresProvider(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, crypto.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	p := newMockProvider("test-tunnel")
@@ -95,7 +95,7 @@ func TestTunnelManager_RegisterProvider_StoresProvider(t *testing.T) {
 
 func TestTunnelManager_GetStatus_ReflectsState(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, crypto.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	p := newMockProvider("my-tunnel")
@@ -110,7 +110,7 @@ func TestTunnelManager_GetStatus_ReflectsState(t *testing.T) {
 
 func TestTunnelManager_StopTunnel_CallsStop(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, crypto.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	p := newMockProvider("stop-test")
@@ -128,7 +128,7 @@ func TestTunnelManager_StopTunnel_CallsStop(t *testing.T) {
 
 func TestTunnelManager_StopTunnel_NotFound_ReturnsNil(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, crypto.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	err := mgr.StopTunnel("nonexistent")
@@ -137,7 +137,7 @@ func TestTunnelManager_StopTunnel_NotFound_ReturnsNil(t *testing.T) {
 
 func TestTunnelManager_GetLogBuffer_Found(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, crypto.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	mgr.RegisterProvider("uuid-4", newMockProvider("buf-test"))
@@ -149,7 +149,7 @@ func TestTunnelManager_GetLogBuffer_Found(t *testing.T) {
 
 func TestTunnelManager_GetLogBuffer_NotFound_ReturnsError(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, crypto.SingleKey(encSvc))
 
 	_, err := mgr.GetLogBuffer("missing")
 	assert.Error(t, err)
@@ -157,7 +157,7 @@ func TestTunnelManager_GetLogBuffer_NotFound_ReturnsError(t *testing.T) {
 
 func TestTunnelManager_StartTunnel_NoFactory_LogsWarning(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, crypto.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	// Create a TunnelConfig in DB with encrypted credentials.
@@ -179,7 +179,7 @@ func TestTunnelManager_StartTunnel_NoFactory_LogsWarning(t *testing.T) {
 
 func TestTunnelManager_StartTunnel_WithFactory_StartsProvider(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, crypto.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	p := newMockProvider("factory-provider")
@@ -205,7 +205,7 @@ func TestTunnelManager_StartTunnel_WithFactory_StartsProvider(t *testing.T) {
 
 func TestTunnelManager_Start_LoadsActiveConfigs(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, crypto.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	// Register a mock factory.
@@ -243,7 +243,7 @@ func TestTunnelManager_Start_LoadsActiveConfigs(t *testing.T) {
 
 func TestTunnelManager_GetStatus_UptimeOnlyForConnected(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, crypto.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	connected := newMockProvider("connected")
@@ -278,7 +278,7 @@ func TestEncKeyValid(t *testing.T) {
 
 func TestTunnelManager_GetProviderByType_Found(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, crypto.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	p := newMockProvider("cloudflare")
@@ -291,7 +291,7 @@ func TestTunnelManager_GetProviderByType_Found(t *testing.T) {
 
 func TestTunnelManager_GetProviderByType_NotFound(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, crypto.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	got, ok := mgr.GetProviderByType(models.ProviderTailscale)

@@ -137,7 +137,7 @@ type CertificateDetail struct {
 type CertificateService struct {
 	dataDir     string
 	db          *gorm.DB
-	encSvc      *crypto.EncryptionService
+	secrets     crypto.VersionedCipher
 	cache       []CertificateInfo
 	cacheMu     sync.RWMutex
 	lastScan    time.Time
@@ -146,11 +146,11 @@ type CertificateService struct {
 }
 
 // NewCertificateService creates a new certificate service.
-func NewCertificateService(dataDir string, db *gorm.DB, encSvc *crypto.EncryptionService) *CertificateService {
+func NewCertificateService(dataDir string, db *gorm.DB, secrets crypto.VersionedCipher) *CertificateService {
 	svc := &CertificateService{
 		dataDir: dataDir,
 		db:      db,
-		encSvc:  encSvc,
+		secrets: secrets,
 		scanTTL: 5 * time.Minute,
 	}
 	return svc
@@ -520,12 +520,13 @@ func (s *CertificateService) UploadCertificate(name, certPEM, keyPEM, chainPEM s
 	}
 
 	// Encrypt private key at rest
-	if parsed.KeyPEM != "" && s.encSvc != nil {
-		encrypted, err := s.encSvc.Encrypt([]byte(parsed.KeyPEM))
+	if parsed.KeyPEM != "" && s.secrets != nil {
+		encrypted, keyVersion, err := s.secrets.EncryptWithCurrentKey([]byte(parsed.KeyPEM))
 		if err != nil {
 			return nil, fmt.Errorf("failed to encrypt private key: %w", err)
 		}
 		sslCert.PrivateKeyEncrypted = encrypted
+		sslCert.KeyVersion = keyVersion
 	}
 
 	if err := s.db.Create(sslCert).Error; err != nil {
@@ -864,11 +865,11 @@ func (s *CertificateService) GetDecryptedPrivateKey(cert *models.SSLCertificate)
 	if cert.PrivateKeyEncrypted == "" {
 		return "", fmt.Errorf("no encrypted private key stored")
 	}
-	if s.encSvc == nil {
+	if s.secrets == nil {
 		return "", fmt.Errorf("encryption service not configured")
 	}
 
-	decrypted, err := s.encSvc.Decrypt(cert.PrivateKeyEncrypted)
+	decrypted, err := s.secrets.DecryptWithVersion(cert.PrivateKeyEncrypted, cert.KeyVersion)
 	if err != nil {
 		return "", fmt.Errorf("failed to decrypt private key: %w", err)
 	}
@@ -879,7 +880,7 @@ func (s *CertificateService) GetDecryptedPrivateKey(cert *models.SSLCertificate)
 // MigratePrivateKeys encrypts existing plaintext private keys.
 // Idempotent — skips already-migrated rows.
 func (s *CertificateService) MigratePrivateKeys() error {
-	if s.encSvc == nil {
+	if s.secrets == nil {
 		logger.Log().Warn("CertificateService: encryption service not configured, skipping key migration")
 		return nil
 	}
@@ -904,13 +905,13 @@ func (s *CertificateService) MigratePrivateKeys() error {
 	logger.Log().WithField("count", len(certs)).Info("CertificateService: migrating plaintext private keys")
 
 	for _, c := range certs {
-		encrypted, err := s.encSvc.Encrypt([]byte(c.PrivateKey))
+		encrypted, keyVersion, err := s.secrets.EncryptWithCurrentKey([]byte(c.PrivateKey))
 		if err != nil {
 			logger.Log().WithField("cert_id", c.ID).WithError(err).Error("CertificateService: failed to encrypt key during migration")
 			continue
 		}
 
-		if err := s.db.Exec("UPDATE ssl_certificates SET private_key_enc = ?, key_version = 1, private_key = '' WHERE id = ?", encrypted, c.ID).Error; err != nil {
+		if err := s.db.Exec("UPDATE ssl_certificates SET private_key_enc = ?, key_version = ?, private_key = '' WHERE id = ?", encrypted, keyVersion, c.ID).Error; err != nil {
 			logger.Log().WithField("cert_id", c.ID).WithError(err).Error("CertificateService: failed to update migrated key")
 			continue
 		}

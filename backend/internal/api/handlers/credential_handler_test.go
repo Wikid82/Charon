@@ -82,8 +82,8 @@ func setupCredentialHandlerTest(t *testing.T) (*gin.Engine, *gorm.DB, *models.DN
 	err = db.Create(provider).Error
 	require.NoError(t, err)
 
-	credService := services.NewCredentialService(db, encryptor)
-	dnsProviderService := services.NewDNSProviderService(db, encryptor)
+	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
+	dnsProviderService := services.NewDNSProviderService(db, crypto.SingleKey(encryptor))
 	credHandler := handlers.NewCredentialHandler(credService, dnsProviderService)
 
 	router.GET("/api/v1/dns-providers/:id/credentials", credHandler.List)
@@ -175,7 +175,7 @@ func TestCredentialHandler_List_ByProviderUUID(t *testing.T) {
 
 	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	encryptor, _ := crypto.NewEncryptionService(testKey)
-	credService := services.NewCredentialService(db, encryptor)
+	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
 
 	_, err := credService.Create(testContext(), provider.ID, services.CreateCredentialRequest{
 		Label:       "Credential A",
@@ -248,7 +248,7 @@ func TestCredentialHandler_List(t *testing.T) {
 	// Create test credentials
 	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	encryptor, _ := crypto.NewEncryptionService(testKey)
-	credService := services.NewCredentialService(db, encryptor)
+	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
 
 	for i := 0; i < 3; i++ {
 		req := services.CreateCredentialRequest{
@@ -282,7 +282,7 @@ func TestCredentialHandler_Get(t *testing.T) {
 
 	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	encryptor, _ := crypto.NewEncryptionService(testKey)
-	credService := services.NewCredentialService(db, encryptor)
+	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
 
 	createReq := services.CreateCredentialRequest{
 		Label:       "Test Credential",
@@ -324,7 +324,7 @@ func TestCredentialHandler_Update(t *testing.T) {
 
 	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	encryptor, _ := crypto.NewEncryptionService(testKey)
-	credService := services.NewCredentialService(db, encryptor)
+	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
 
 	createReq := services.CreateCredentialRequest{
 		Label:       "Original",
@@ -364,7 +364,7 @@ func TestCredentialHandler_Delete(t *testing.T) {
 
 	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	encryptor, _ := crypto.NewEncryptionService(testKey)
-	credService := services.NewCredentialService(db, encryptor)
+	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
 
 	createReq := services.CreateCredentialRequest{
 		Label:       "To Delete",
@@ -390,7 +390,7 @@ func TestCredentialHandler_Test(t *testing.T) {
 
 	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	encryptor, _ := crypto.NewEncryptionService(testKey)
-	credService := services.NewCredentialService(db, encryptor)
+	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
 
 	createReq := services.CreateCredentialRequest{
 		Label:       "Test",
@@ -704,7 +704,7 @@ func TestCredentialHandler_Update_InvalidJSON(t *testing.T) {
 
 	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	encryptor, _ := crypto.NewEncryptionService(testKey)
-	credService := services.NewCredentialService(db, encryptor)
+	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
 	created, err := credService.Create(testContext(), provider.ID, services.CreateCredentialRequest{
 		Label:       "Invalid JSON Target",
 		Credentials: map[string]string{"api_token": "token"},
@@ -857,7 +857,7 @@ func TestCredentialHandler_Update_EncryptionError(t *testing.T) {
 
 	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	encryptor, _ := crypto.NewEncryptionService(testKey)
-	credService := services.NewCredentialService(db, encryptor)
+	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
 
 	createReq := services.CreateCredentialRequest{
 		Label:       "Original",
@@ -1018,7 +1018,7 @@ func TestCredentialHandler_Update_WithZoneFilter(t *testing.T) {
 
 	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	encryptor, _ := crypto.NewEncryptionService(testKey)
-	credService := services.NewCredentialService(db, encryptor)
+	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
 
 	createReq := services.CreateCredentialRequest{
 		Label:       "Test Credential",
@@ -1088,7 +1088,7 @@ func TestCredentialHandler_Get_ByCredentialUUID(t *testing.T) {
 
 	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	encryptor, _ := crypto.NewEncryptionService(testKey)
-	credService := services.NewCredentialService(db, encryptor)
+	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
 
 	created, err := credService.Create(testContext(), provider.ID, services.CreateCredentialRequest{
 		Label:       "UUID Resolved Credential",
@@ -1131,7 +1131,7 @@ func TestCredentialHandler_Get_CredentialUUID_WrongProvider(t *testing.T) {
 
 	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	encryptor, _ := crypto.NewEncryptionService(testKey)
-	credService := services.NewCredentialService(db, encryptor)
+	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
 
 	// A second, unrelated provider with its own credential.
 	creds := map[string]string{"api_token": "test-token"}
@@ -1184,7 +1184,7 @@ func TestCredentialHandler_Update_ByCredentialUUID(t *testing.T) {
 
 	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	encryptor, _ := crypto.NewEncryptionService(testKey)
-	credService := services.NewCredentialService(db, encryptor)
+	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
 
 	created, err := credService.Create(testContext(), provider.ID, services.CreateCredentialRequest{
 		Label:       "Original",
@@ -1216,7 +1216,7 @@ func TestCredentialHandler_Delete_ByCredentialUUID(t *testing.T) {
 
 	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	encryptor, _ := crypto.NewEncryptionService(testKey)
-	credService := services.NewCredentialService(db, encryptor)
+	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
 
 	created, err := credService.Create(testContext(), provider.ID, services.CreateCredentialRequest{
 		Label:       "To Delete via UUID",
@@ -1242,7 +1242,7 @@ func TestCredentialHandler_Test_ByCredentialUUID(t *testing.T) {
 
 	testKey := "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
 	encryptor, _ := crypto.NewEncryptionService(testKey)
-	credService := services.NewCredentialService(db, encryptor)
+	credService := services.NewCredentialService(db, crypto.SingleKey(encryptor))
 
 	created, err := credService.Create(testContext(), provider.ID, services.CreateCredentialRequest{
 		Label:       "Test via UUID",

@@ -62,8 +62,8 @@ func newHecateTestSetup(t *testing.T) (*HecateHandler, *services.HecateService) 
 	t.Helper()
 	db := openHecateTestDB(t)
 	encSvc := newHecateEncSvc(t)
-	mgr := hecate.NewTunnelManager(db, encSvc)
-	svc := services.NewHecateService(db, encSvc, mgr)
+	mgr := hecate.NewTunnelManager(db, crypto.SingleKey(encSvc))
+	svc := services.NewHecateService(db, crypto.SingleKey(encSvc), mgr)
 	return NewHecateHandler(svc), svc
 }
 
@@ -618,8 +618,8 @@ func newHecateTestSetupWithDB(t *testing.T) (*HecateHandler, *services.HecateSer
 	t.Helper()
 	db := openHecateTestDB(t)
 	encSvc := newHecateEncSvc(t)
-	mgr := hecate.NewTunnelManager(db, encSvc)
-	svc := services.NewHecateService(db, encSvc, mgr)
+	mgr := hecate.NewTunnelManager(db, crypto.SingleKey(encSvc))
+	svc := services.NewHecateService(db, crypto.SingleKey(encSvc), mgr)
 	return NewHecateHandler(svc), svc, db
 }
 

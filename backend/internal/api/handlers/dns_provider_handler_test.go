@@ -1195,7 +1195,7 @@ func TestDNSProviderHandler_TestCredentials_EndpointPolicyAndRoleGate(t *testing
 	require.NoError(t, dnsprovider.Global().Register(endpointPolicyFakeProvider{ProviderPlugin: base}))
 	t.Cleanup(func() { dnsprovider.Global().Unregister("endpoint_policy_handler_fake") })
 
-	handler := NewDNSProviderHandler(services.NewDNSProviderService(db, encryptor))
+	handler := NewDNSProviderHandler(services.NewDNSProviderService(db, crypto.SingleKey(encryptor)))
 
 	var role atomic.Value
 	router := gin.New()

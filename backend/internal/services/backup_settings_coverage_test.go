@@ -245,7 +245,7 @@ func TestUpdateSettings_EachFieldUpsertFailure_PropagatesFromTransaction(t *test
 			sqlDB.SetMaxOpenConns(1)
 			require.NoError(t, db.Exec("PRAGMA query_only = ON").Error)
 
-			svc := &BackupService{db: db, encryption: enc}
+			svc := &BackupService{db: db, secrets: crypto.SingleKey(enc)}
 			err := svc.UpdateSettings(tc.update)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "update backup setting")

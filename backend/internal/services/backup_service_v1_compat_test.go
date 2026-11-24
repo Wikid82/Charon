@@ -54,7 +54,7 @@ func TestCreateBackup_V2Format_IncludesManifestAndCrowdsec(t *testing.T) {
 	cfg := &config.Config{DatabasePath: dbPath}
 	cfg.Security.CrowdSecConfigDir = crowdsecDir
 
-	svc := NewBackupService(cfg, settingsDB, encSvc)
+	svc := NewBackupService(cfg, settingsDB, crypto.SingleKey(encSvc))
 	defer svc.Stop()
 
 	filename, err := svc.CreateBackup()
