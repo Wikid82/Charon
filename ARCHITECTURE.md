@@ -1194,6 +1194,10 @@ users; every subsequent account is created by an existing admin — directly
 (`POST /api/v1/users`) or via the email-invite flow
 (`POST /api/v1/users/invite` → `GET /api/v1/invite/validate` →
 `POST /api/v1/invite/accept`). `/setup` refuses once any user exists.
+Invite tokens are single-use: `services.InviteService` re-reads the token and
+consumes it under the write lock with a conditional update, so concurrent accepts
+produce exactly one account. The accept route draws on the password-attempt budget
+before any lookup and caps its request body at 64 KiB.
 
 **First-run setup code:** on startup with an empty users table, the server
 generates a one-time setup code and logs it once. `POST /api/v1/setup` requires

@@ -2,6 +2,7 @@
 package models
 
 import (
+	"fmt"
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
@@ -73,13 +74,34 @@ type User struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
+// Invite status values stored in User.InviteStatus.
+const (
+	InviteStatusPending  = "pending"
+	InviteStatusAccepted = "accepted"
+	InviteStatusExpired  = "expired"
+)
+
+// HashPassword returns the bcrypt hash of password at the default cost.
+func HashPassword(password string) (string, error) {
+	return HashPasswordCost(password, bcrypt.DefaultCost)
+}
+
+// HashPasswordCost returns the bcrypt hash of password at the given cost.
+func HashPasswordCost(password string, cost int) (string, error) {
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), cost)
+	if err != nil {
+		return "", fmt.Errorf("bcrypt password: %w", err)
+	}
+	return string(hash), nil
+}
+
 // SetPassword hashes and sets the user's password.
 func (u *User) SetPassword(password string) error {
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	hash, err := HashPassword(password)
 	if err != nil {
 		return err
 	}
-	u.PasswordHash = string(hash)
+	u.PasswordHash = hash
 	return nil
 }
 
@@ -89,12 +111,43 @@ func (u *User) CheckPassword(password string) bool {
 	return err == nil
 }
 
-// HasPendingInvite returns true if the user has a pending invite that hasn't expired.
-func (u *User) HasPendingInvite() bool {
-	if u.InviteToken == "" || u.InviteExpires == nil {
-		return false
+// InviteState is where a user's invite stands at a given moment.
+type InviteState int
+
+const (
+	// InviteNone means there is no invite token.
+	InviteNone InviteState = iota
+	// InviteExpired means a token is present but its expiry is unset or has passed.
+	InviteExpired
+	// InviteClosed means the invite was accepted, is no longer pending, or the account already has a password.
+	InviteClosed
+	// InviteOpen means the invite can be accepted.
+	InviteOpen
+)
+
+// InviteStateAt classifies the invite at now. Accept, validate and the pending check share this rule.
+// An account with a password is never an open invite, whatever its enabled flag says. The order keeps
+// today's responses: a passed expiry is reported first, and only a pending invite with no expiry at
+// all fails closed as expired.
+func (u *User) InviteStateAt(now time.Time) InviteState {
+	if u.InviteToken == "" {
+		return InviteNone
 	}
-	return u.InviteExpires.After(time.Now()) && u.InviteStatus == "pending"
+	if u.InviteExpires != nil && !u.InviteExpires.After(now) {
+		return InviteExpired
+	}
+	if u.InviteStatus != InviteStatusPending || u.PasswordHash != "" {
+		return InviteClosed
+	}
+	if u.InviteExpires == nil {
+		return InviteExpired
+	}
+	return InviteOpen
+}
+
+// HasPendingInvite reports whether the invite can be accepted now.
+func (u *User) HasPendingInvite() bool {
+	return u.InviteStateAt(time.Now()) == InviteOpen
 }
 
 // CanAccessHost determines if the user can access a given proxy host based on their permission mode.

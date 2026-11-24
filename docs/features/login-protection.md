@@ -29,8 +29,10 @@ Wait for the time shown, then try again. That's it.
 
 | Action | Allowance |
 | --- | --- |
-| Sign in, change your password, change your email, export a certificate key | 10 tries, then about 1 more per minute |
+| Sign in, change your password, change your email, export a certificate key, accept an invite | 10 tries, then about 1 more per minute |
 | Refreshing your session | 60 per minute |
+
+Every invite acceptance counts, including ones that fail because the link is wrong, used or expired. A request that leaves out a required field (the name, the link or a password of at least 8 characters) is refused before it counts.
 
 Loading pages while already signed in is never counted.
 

@@ -87,6 +87,22 @@ New accounts are always created by an existing administrator, in
 Either way, the admin chooses whether the new person is an administrator or a
 standard user.
 
+**Invite links**
+
+- An invite link works once. The first successful use creates the account. Any
+  later use of the same link is refused, even when several people try at the
+  same moment.
+- An invite link expires after 48 hours.
+- Sending an invite again replaces the old link, so the old link stops working
+  straight away.
+- A pending invite can be sent again, including after its link has run out.
+- If an administrator sets a password for someone who has not accepted their
+  invite yet, that invite link stops working. The person signs in with the
+  password the administrator set, once an administrator turns the account on.
+  Setting the password does not turn the account on.
+- Accepting an invite counts toward the same sign-in allowance per address as
+  signing in. See [Login Protection](./login-protection.md).
+
 ---
 
 ## Passwords and Sign-In

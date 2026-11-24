@@ -1,8 +1,6 @@
 package handlers
 
 import (
-	"crypto/rand"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -48,6 +46,7 @@ type UserHandler struct {
 	AuthService *services.AuthService
 	MailService *services.MailService
 	securitySvc *services.SecurityService
+	invites     *services.InviteService
 	// passwordGuard throttles password verification; nil allows every attempt.
 	passwordGuard PasswordAttemptGuard
 	// setupCode checks the first-run setup code; nil accepts no code.
@@ -74,6 +73,7 @@ func NewUserHandler(db *gorm.DB, authService *services.AuthService) *UserHandler
 		AuthService:  authService,
 		MailService:  services.NewMailService(db),
 		securitySvc:  services.NewSecurityService(db),
+		invites:      services.NewInviteService(db),
 		setupLimiter: ratelimit.MustNewKeyedLimiter(ratelimit.Config{Rate: rate, Burst: burst}),
 	}
 }
@@ -155,16 +155,31 @@ type SetupRequest struct {
 	SetupCode string `json:"setup_code,omitempty"`
 }
 
-func isSetupConflictError(err error) bool {
+// isUniqueConstraintError reports whether err is a unique-index violation. Lock errors never match.
+func isUniqueConstraintError(err error) bool {
 	if err == nil {
 		return false
 	}
 
 	errText := strings.ToLower(err.Error())
 	return strings.Contains(errText, "unique constraint failed") ||
-		strings.Contains(errText, "duplicate key") ||
-		strings.Contains(errText, "database is locked") ||
+		strings.Contains(errText, "duplicate key")
+}
+
+// isLockedError reports whether err is a SQLite lock timeout.
+func isLockedError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	errText := strings.ToLower(err.Error())
+	return strings.Contains(errText, "database is locked") ||
 		strings.Contains(errText, "database table is locked")
+}
+
+// isSetupConflictError reports whether a first-run setup write lost a race: a unique violation or a lock timeout.
+func isSetupConflictError(err error) bool {
+	return isUniqueConstraintError(err) || isLockedError(err)
 }
 
 // errSetupAlreadyCompleted signals that a user already exists, detected inside
@@ -533,7 +548,13 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	})
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user: " + err.Error()})
+		// The email check above runs outside the transaction, so a concurrent create can lose at the unique index.
+		if isUniqueConstraintError(err) {
+			c.JSON(http.StatusConflict, gin.H{"error": "Email already in use"})
+			return
+		}
+		middleware.GetRequestLogger(c).WithError(err).Error("Failed to create user")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
 		return
 	}
 
@@ -559,13 +580,9 @@ type InviteUserRequest struct {
 	PermittedHosts []uint `json:"permitted_hosts"`
 }
 
-// generateSecureToken creates a cryptographically secure random token.
+// generateSecureToken creates a cryptographically secure invite token.
 func generateSecureToken() (string, error) {
-	bytes := make([]byte, 32)
-	if _, err := rand.Read(bytes); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(bytes), nil
+	return services.GenerateInviteToken()
 }
 
 // InviteUser creates a new user with an invite token and sends an email (admin only).
@@ -613,8 +630,8 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 		return
 	}
 
-	// Set invite expiration (48 hours)
-	inviteExpires := time.Now().Add(48 * time.Hour)
+	// Set invite expiration
+	inviteExpires := time.Now().Add(services.InviteTTL)
 	invitedAt := time.Now()
 
 	user := models.User{
@@ -652,7 +669,13 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 	})
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user: " + err.Error()})
+		// A concurrent invite for the same address can pass the check above and lose at the unique index.
+		if isUniqueConstraintError(err) {
+			c.JSON(http.StatusConflict, gin.H{"error": "Email already in use"})
+			return
+		}
+		middleware.GetRequestLogger(c).WithError(err).Error("Failed to create invited user")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
 		return
 	}
 
@@ -678,11 +701,13 @@ func (h *UserHandler) InviteUser(c *gin.Context) {
 		userToken := inviteToken
 		appName := getAppName(h.DB)
 
+		// The request context is recycled once the handler returns, so the logger is taken here.
+		logger := middleware.GetRequestLogger(c)
 		go func() {
 			// userEmail validated as RFC 5321 format; rejectCRLF + net/mail.ParseAddress in mail_service.go cover this path.
 			if err := h.MailService.SendInvite(userEmail, userToken, appName, baseURL); err != nil {
 				// Log failure but don't block response
-				middleware.GetRequestLogger(c).WithField("user_email", sanitizeForLog(userEmail)).WithField("error", sanitizeForLog(err.Error())).Error("Failed to send invite email")
+				logger.WithField("user_email", sanitizeForLog(userEmail)).WithField("error", sanitizeForLog(err.Error())).Error("Failed to send invite email")
 			}
 		}()
 	}
@@ -864,6 +889,9 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 	}
 
 	needsSessionInvalidation := false
+	// passwordHash is set when the request changes the password; the transaction applies it through
+	// services.ApplyPasswordChange, which also ends sessions and closes a pending invite.
+	passwordHash := ""
 
 	if req.Role != "" {
 		newRole := models.UserRole(req.Role)
@@ -903,11 +931,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to hash password"})
 			return
 		}
-		updates["password_hash"] = user.PasswordHash
-		updates["failed_login_attempts"] = 0
-		updates["locked_until"] = nil
-		// Advance the session version atomically with the new hash so existing sessions end.
-		updates["session_version"] = gorm.Expr("session_version + 1")
+		passwordHash = user.PasswordHash
 	}
 
 	if req.Enabled != nil && *req.Enabled != user.Enabled {
@@ -967,6 +991,12 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 			}
 		}
 
+		if passwordHash != "" {
+			if txErr := services.ApplyPasswordChange(tx, user.ID, passwordHash); txErr != nil {
+				return txErr
+			}
+		}
+
 		return nil
 	})
 
@@ -980,7 +1010,7 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 		return
 	}
 
-	if len(updates) > 0 {
+	if len(updates) > 0 || passwordHash != "" {
 		if needsSessionInvalidation && h.AuthService != nil {
 			if invErr := h.AuthService.InvalidateSessions(user.ID); invErr != nil {
 				c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to invalidate sessions"})
@@ -988,10 +1018,14 @@ func (h *UserHandler) UpdateUser(c *gin.Context) {
 			}
 		}
 
+		fields := mapsKeys(updates)
+		if passwordHash != "" {
+			fields = append(fields, "password_hash")
+		}
 		h.logUserAudit(c, "user_update", &user, map[string]any{
 			"target_email": user.Email,
 			"target_role":  user.Role,
-			"fields":       mapsKeys(updates),
+			"fields":       fields,
 		})
 	}
 
@@ -1071,36 +1105,23 @@ func (h *UserHandler) ResendInvite(c *gin.Context) {
 		return
 	}
 
-	var user models.User
-	if findErr := h.DB.First(&user, id).Error; findErr != nil {
+	user, inviteToken, inviteExpires, err := h.invites.Reissue(uint(id))
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
 		c.JSON(http.StatusNotFound, gin.H{"error": "User not found"})
 		return
-	}
-
-	// Verify user has a pending invite
-	if user.InviteStatus != "pending" {
+	case errors.Is(err, services.ErrInviteClosed):
 		c.JSON(http.StatusBadRequest, gin.H{"error": "User does not have a pending invite"})
 		return
-	}
-
-	// Generate new invite token
-	inviteToken, err := generateSecureToken()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate invite token"})
-		return
-	}
-
-	// Set new invite expiration (48 hours)
-	inviteExpires := time.Now().Add(48 * time.Hour)
-
-	// Update user with new token
-	if err := h.DB.Model(&user).Updates(map[string]any{
-		"invite_token":   inviteToken,
-		"invite_expires": inviteExpires,
-	}).Error; err != nil {
+	case err != nil:
+		middleware.GetRequestLogger(c).WithError(err).Error("Failed to resend invite")
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to update invite token"})
 		return
 	}
+
+	h.logUserAudit(c, "user_invite_resend", user, map[string]any{
+		"target_email": user.Email,
+	})
 
 	// Try to send invite email
 	emailSent := false
@@ -1203,21 +1224,9 @@ func (h *UserHandler) ValidateInvite(c *gin.Context) {
 		return
 	}
 
-	var user models.User
-	if err := h.DB.Where("invite_token = ?", token).First(&user).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Invalid or expired invite token"})
-		return
-	}
-
-	// Check if token is expired
-	if user.InviteExpires != nil && user.InviteExpires.Before(time.Now()) {
-		c.JSON(http.StatusGone, gin.H{"error": "Invite token has expired"})
-		return
-	}
-
-	// Check if already accepted
-	if user.InviteStatus != "pending" {
-		c.JSON(http.StatusConflict, gin.H{"error": "Invite has already been accepted"})
+	user, err := h.invites.Lookup(token)
+	if err != nil {
+		respondInviteError(c, err, "Failed to validate invite token")
 		return
 	}
 
@@ -1225,6 +1234,24 @@ func (h *UserHandler) ValidateInvite(c *gin.Context) {
 		"valid": true,
 		"email": user.Email,
 	})
+}
+
+// respondInviteError writes the response for a failed invite lookup or acceptance. Storage and
+// hashing detail is written to the request log only; the client gets fallback.
+func respondInviteError(c *gin.Context, err error, fallback string) {
+	switch {
+	case errors.Is(err, services.ErrInviteExpired):
+		c.JSON(http.StatusGone, gin.H{"error": "Invite token has expired"})
+	case errors.Is(err, services.ErrInviteClosed):
+		c.JSON(http.StatusConflict, gin.H{"error": "Invite has already been accepted"})
+	case errors.Is(err, services.ErrInviteNotFound):
+		c.JSON(http.StatusNotFound, gin.H{"error": "Invalid or expired invite token"})
+	case errors.Is(err, services.ErrInvitePasswordHash):
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to set password"})
+	default:
+		middleware.GetRequestLogger(c).WithError(err).Error(fallback)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fallback})
+	}
 }
 
 // AcceptInviteRequest represents the request body for accepting an invite.
@@ -1241,46 +1268,18 @@ func (h *UserHandler) AcceptInvite(c *gin.Context) {
 		return
 	}
 
-	var user models.User
-	if err := h.DB.Where("invite_token = ?", req.Token).First(&user).Error; err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "Invalid or expired invite token"})
+	// The token is a credential: every attempt draws on the sign-in budget before any lookup.
+	if !allowPasswordAttempt(h.passwordGuard, c) {
 		return
 	}
 
-	// Check if token is expired
-	if user.InviteExpires != nil && user.InviteExpires.Before(time.Now()) {
-		// Mark as expired
-		h.DB.Model(&user).Update("invite_status", "expired")
-		c.JSON(http.StatusGone, gin.H{"error": "Invite token has expired"})
+	user, err := h.invites.Accept(req.Token, req.Name, req.Password, seedLastSeenVersion())
+	if err != nil {
+		respondInviteError(c, err, "Failed to accept invite")
 		return
 	}
 
-	// Check if already accepted
-	if user.InviteStatus != "pending" {
-		c.JSON(http.StatusConflict, gin.H{"error": "Invite has already been accepted"})
-		return
-	}
-
-	// Set password and activate user
-	if err := user.SetPassword(req.Password); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to set password"})
-		return
-	}
-
-	if err := h.DB.Model(&user).Updates(map[string]any{
-		"name":              req.Name,
-		"password_hash":     user.PasswordHash,
-		"enabled":           true,
-		"invite_token":      "",  // Clear token
-		"invite_expires":    nil, // Clear expiration
-		"invite_status":     "accepted",
-		"last_seen_version": seedLastSeenVersion(),
-	}).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to accept invite"})
-		return
-	}
-
-	h.logUserAudit(c, "user_invite_accept", &user, map[string]any{
+	h.logUserAudit(c, "user_invite_accept", user, map[string]any{
 		"target_email":  user.Email,
 		"invite_status": "accepted",
 	})
