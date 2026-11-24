@@ -192,12 +192,24 @@ func TestInviteService_AcceptReportsWriteFailure(t *testing.T) {
 	assert.NotErrorIs(t, err, ErrInviteNotFound)
 }
 
-func TestInviteService_LookupReportsStorageFailureAsNotFound(t *testing.T) {
+func TestInviteService_LookupReportsStorageFailure(t *testing.T) {
 	db := openInviteTestDB(t)
 	svc := newTestInviteService(db)
 	require.NoError(t, db.Migrator().DropTable(&models.User{}))
 
 	user, err := svc.Lookup("any-token")
+	require.Error(t, err)
+	assert.NotErrorIs(t, err, ErrInviteNotFound)
+	assert.Nil(t, user)
+}
+
+func TestInviteService_LookupEmptyTokenIsNotFound(t *testing.T) {
+	db := openInviteTestDB(t)
+	svc := newTestInviteService(db)
+	// An account with no invite has an empty token; it must never match an empty lookup.
+	require.NoError(t, CreateKeepingSent(db, &models.User{UUID: uuid.New().String(), APIKey: uuid.New().String(), Email: "plain@example.com"}, []string{"enabled"}))
+
+	user, err := svc.Lookup("")
 	assert.ErrorIs(t, err, ErrInviteNotFound)
 	assert.Nil(t, user)
 }

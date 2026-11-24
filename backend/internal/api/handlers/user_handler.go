@@ -1201,7 +1201,7 @@ func (h *UserHandler) ValidateInvite(c *gin.Context) {
 
 	user, err := h.invites.Lookup(token)
 	if err != nil {
-		respondInviteError(c, err)
+		respondInviteError(c, err, "Failed to validate invite token")
 		return
 	}
 
@@ -1211,8 +1211,9 @@ func (h *UserHandler) ValidateInvite(c *gin.Context) {
 	})
 }
 
-// respondInviteError writes the response for a failed invite lookup or acceptance.
-func respondInviteError(c *gin.Context, err error) {
+// respondInviteError writes the response for a failed invite lookup or acceptance. Storage and
+// hashing detail is written to the request log only; the client gets fallback.
+func respondInviteError(c *gin.Context, err error, fallback string) {
 	switch {
 	case errors.Is(err, services.ErrInviteExpired):
 		c.JSON(http.StatusGone, gin.H{"error": "Invite token has expired"})
@@ -1223,7 +1224,8 @@ func respondInviteError(c *gin.Context, err error) {
 	case errors.Is(err, services.ErrInvitePasswordHash):
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to set password"})
 	default:
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to accept invite"})
+		middleware.GetRequestLogger(c).WithError(err).Error(fallback)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": fallback})
 	}
 }
 
@@ -1243,7 +1245,7 @@ func (h *UserHandler) AcceptInvite(c *gin.Context) {
 
 	user, err := h.invites.Accept(req.Token, req.Name, req.Password, seedLastSeenVersion())
 	if err != nil {
-		respondInviteError(c, err)
+		respondInviteError(c, err, "Failed to accept invite")
 		return
 	}
 

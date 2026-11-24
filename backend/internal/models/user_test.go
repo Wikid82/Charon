@@ -237,3 +237,40 @@ func TestHashPassword_DefaultCost(t *testing.T) {
 	assert.NoError(t, err)
 	assert.Equal(t, bcrypt.DefaultCost, cost)
 }
+
+func TestUser_InviteStateAt(t *testing.T) {
+	now := time.Date(2026, 11, 24, 12, 0, 0, 0, time.UTC)
+	future := now.Add(time.Hour)
+	past := now.Add(-time.Minute)
+
+	tests := []struct {
+		name string
+		user User
+		want InviteState
+	}{
+		{name: "no token", user: User{InviteStatus: InviteStatusPending, InviteExpires: &future}, want: InviteNone},
+		{name: "pending with future expiry", user: User{InviteToken: "t", InviteStatus: InviteStatusPending, InviteExpires: &future}, want: InviteOpen},
+		{name: "pending with expiry in the past", user: User{InviteToken: "t", InviteStatus: InviteStatusPending, InviteExpires: &past}, want: InviteExpired},
+		{name: "pending with expiry equal to now", user: User{InviteToken: "t", InviteStatus: InviteStatusPending, InviteExpires: &now}, want: InviteExpired},
+		{name: "pending with expiry unset fails closed", user: User{InviteToken: "t", InviteStatus: InviteStatusPending}, want: InviteExpired},
+		{name: "accepted", user: User{InviteToken: "t", InviteStatus: InviteStatusAccepted, InviteExpires: &future}, want: InviteClosed},
+		{name: "accepted with expiry unset stays closed", user: User{InviteToken: "t", InviteStatus: InviteStatusAccepted}, want: InviteClosed},
+		{name: "expired status with passed expiry reports expired", user: User{InviteToken: "t", InviteStatus: InviteStatusExpired, InviteExpires: &past}, want: InviteExpired},
+		{name: "expired status with future expiry", user: User{InviteToken: "t", InviteStatus: InviteStatusExpired, InviteExpires: &future}, want: InviteClosed},
+		{name: "empty status", user: User{InviteToken: "t", InviteExpires: &future}, want: InviteClosed},
+		{name: "pending but password already set", user: User{InviteToken: "t", InviteStatus: InviteStatusPending, InviteExpires: &future, PasswordHash: "hash"}, want: InviteClosed},
+		{name: "legacy enabled pending invite still open", user: User{InviteToken: "t", InviteStatus: InviteStatusPending, InviteExpires: &future, Enabled: true}, want: InviteOpen},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.user.InviteStateAt(now))
+		})
+	}
+}
+
+func TestUser_HasPendingInvite_RefusesPasswordSet(t *testing.T) {
+	future := time.Now().Add(time.Hour)
+	withPassword := &User{InviteToken: "t", InviteStatus: InviteStatusPending, InviteExpires: &future, PasswordHash: "hash"}
+	assert.False(t, withPassword.HasPendingInvite())
+}
