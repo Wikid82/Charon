@@ -1,5 +1,5 @@
 window.BENCHMARK_DATA = {
-  "lastUpdate": 1795444104380,
+  "lastUpdate": 1795484331360,
   "repoUrl": "https://github.com/Wikid82/Charon",
   "entries": {
     "Go Benchmark": [
@@ -7896,6 +7896,606 @@ window.BENCHMARK_DATA = {
             "value": 0,
             "unit": "allocs/op",
             "extra": "10670972 times\n4 procs"
+          }
+        ]
+      },
+      {
+        "commit": {
+          "author": {
+            "email": "jhatfield82@gmail.com",
+            "name": "Jeremy",
+            "username": "Wikid82"
+          },
+          "committer": {
+            "email": "noreply@github.com",
+            "name": "GitHub",
+            "username": "web-flow"
+          },
+          "distinct": true,
+          "id": "b5ba1120611e26a0eca8afc618785eb0f91e22e9",
+          "message": "chore: promote nightly to main (2026-11-24) (#2027)",
+          "timestamp": "2026-11-23T20:34:37-05:00",
+          "tree_id": "635693bb37042eb7b97f54cacffb8809b31bf877",
+          "url": "https://github.com/Wikid82/Charon/commit/b5ba1120611e26a0eca8afc618785eb0f91e22e9"
+        },
+        "date": 1795484330820,
+        "tool": "go",
+        "benches": [
+          {
+            "name": "BenchmarkSecurityHandler_GetStatus (github.com/Wikid82/charon/backend/internal/api/handlers)",
+            "value": 235563,
+            "unit": "ns/op\t   47181 B/op\t     670 allocs/op",
+            "extra": "4447 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_GetStatus (github.com/Wikid82/charon/backend/internal/api/handlers) - ns/op",
+            "value": 235563,
+            "unit": "ns/op",
+            "extra": "4447 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_GetStatus (github.com/Wikid82/charon/backend/internal/api/handlers) - B/op",
+            "value": 47181,
+            "unit": "B/op",
+            "extra": "4447 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_GetStatus (github.com/Wikid82/charon/backend/internal/api/handlers) - allocs/op",
+            "value": 670,
+            "unit": "allocs/op",
+            "extra": "4447 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_GetStatus_NoSettings (github.com/Wikid82/charon/backend/internal/api/handlers)",
+            "value": 179067,
+            "unit": "ns/op\t   42616 B/op\t     519 allocs/op",
+            "extra": "7472 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_GetStatus_NoSettings (github.com/Wikid82/charon/backend/internal/api/handlers) - ns/op",
+            "value": 179067,
+            "unit": "ns/op",
+            "extra": "7472 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_GetStatus_NoSettings (github.com/Wikid82/charon/backend/internal/api/handlers) - B/op",
+            "value": 42616,
+            "unit": "B/op",
+            "extra": "7472 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_GetStatus_NoSettings (github.com/Wikid82/charon/backend/internal/api/handlers) - allocs/op",
+            "value": 519,
+            "unit": "allocs/op",
+            "extra": "7472 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_ListDecisions (github.com/Wikid82/charon/backend/internal/api/handlers)",
+            "value": 285108,
+            "unit": "ns/op\t   86787 B/op\t    1261 allocs/op",
+            "extra": "4099 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_ListDecisions (github.com/Wikid82/charon/backend/internal/api/handlers) - ns/op",
+            "value": 285108,
+            "unit": "ns/op",
+            "extra": "4099 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_ListDecisions (github.com/Wikid82/charon/backend/internal/api/handlers) - B/op",
+            "value": 86787,
+            "unit": "B/op",
+            "extra": "4099 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_ListDecisions (github.com/Wikid82/charon/backend/internal/api/handlers) - allocs/op",
+            "value": 1261,
+            "unit": "allocs/op",
+            "extra": "4099 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_ListRuleSets (github.com/Wikid82/charon/backend/internal/api/handlers)",
+            "value": 153837,
+            "unit": "ns/op\t   47650 B/op\t     789 allocs/op",
+            "extra": "7706 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_ListRuleSets (github.com/Wikid82/charon/backend/internal/api/handlers) - ns/op",
+            "value": 153837,
+            "unit": "ns/op",
+            "extra": "7706 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_ListRuleSets (github.com/Wikid82/charon/backend/internal/api/handlers) - B/op",
+            "value": 47650,
+            "unit": "B/op",
+            "extra": "7706 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_ListRuleSets (github.com/Wikid82/charon/backend/internal/api/handlers) - allocs/op",
+            "value": 789,
+            "unit": "allocs/op",
+            "extra": "7706 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_GetConfig (github.com/Wikid82/charon/backend/internal/api/handlers)",
+            "value": 93114,
+            "unit": "ns/op\t   20627 B/op\t     236 allocs/op",
+            "extra": "12721 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_GetConfig (github.com/Wikid82/charon/backend/internal/api/handlers) - ns/op",
+            "value": 93114,
+            "unit": "ns/op",
+            "extra": "12721 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_GetConfig (github.com/Wikid82/charon/backend/internal/api/handlers) - B/op",
+            "value": 20627,
+            "unit": "B/op",
+            "extra": "12721 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_GetConfig (github.com/Wikid82/charon/backend/internal/api/handlers) - allocs/op",
+            "value": 236,
+            "unit": "allocs/op",
+            "extra": "12721 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_ListDecisions_Parallel (github.com/Wikid82/charon/backend/internal/api/handlers)",
+            "value": 286940,
+            "unit": "ns/op\t   86267 B/op\t    1264 allocs/op",
+            "extra": "4108 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_ListDecisions_Parallel (github.com/Wikid82/charon/backend/internal/api/handlers) - ns/op",
+            "value": 286940,
+            "unit": "ns/op",
+            "extra": "4108 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_ListDecisions_Parallel (github.com/Wikid82/charon/backend/internal/api/handlers) - B/op",
+            "value": 86267,
+            "unit": "B/op",
+            "extra": "4108 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_ListDecisions_Parallel (github.com/Wikid82/charon/backend/internal/api/handlers) - allocs/op",
+            "value": 1264,
+            "unit": "allocs/op",
+            "extra": "4108 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_ManySettingsLookups (github.com/Wikid82/charon/backend/internal/api/handlers)",
+            "value": 258310,
+            "unit": "ns/op\t   47158 B/op\t     675 allocs/op",
+            "extra": "4526 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_ManySettingsLookups (github.com/Wikid82/charon/backend/internal/api/handlers) - ns/op",
+            "value": 258310,
+            "unit": "ns/op",
+            "extra": "4526 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_ManySettingsLookups (github.com/Wikid82/charon/backend/internal/api/handlers) - B/op",
+            "value": 47158,
+            "unit": "B/op",
+            "extra": "4526 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkSecurityHandler_ManySettingsLookups (github.com/Wikid82/charon/backend/internal/api/handlers) - allocs/op",
+            "value": 675,
+            "unit": "allocs/op",
+            "extra": "4526 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncrypt (github.com/Wikid82/charon/backend/internal/crypto)",
+            "value": 868.8,
+            "unit": "ns/op\t    1696 B/op\t       6 allocs/op",
+            "extra": "1370314 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncrypt (github.com/Wikid82/charon/backend/internal/crypto) - ns/op",
+            "value": 868.8,
+            "unit": "ns/op",
+            "extra": "1370314 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncrypt (github.com/Wikid82/charon/backend/internal/crypto) - B/op",
+            "value": 1696,
+            "unit": "B/op",
+            "extra": "1370314 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkEncrypt (github.com/Wikid82/charon/backend/internal/crypto) - allocs/op",
+            "value": 6,
+            "unit": "allocs/op",
+            "extra": "1370314 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecrypt (github.com/Wikid82/charon/backend/internal/crypto)",
+            "value": 741.9,
+            "unit": "ns/op\t    1472 B/op\t       4 allocs/op",
+            "extra": "1584582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecrypt (github.com/Wikid82/charon/backend/internal/crypto) - ns/op",
+            "value": 741.9,
+            "unit": "ns/op",
+            "extra": "1584582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecrypt (github.com/Wikid82/charon/backend/internal/crypto) - B/op",
+            "value": 1472,
+            "unit": "B/op",
+            "extra": "1584582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkDecrypt (github.com/Wikid82/charon/backend/internal/crypto) - allocs/op",
+            "value": 4,
+            "unit": "allocs/op",
+            "extra": "1584582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewInternalServiceHTTPClient (github.com/Wikid82/charon/backend/internal/network)",
+            "value": 9.672,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "123925477 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewInternalServiceHTTPClient (github.com/Wikid82/charon/backend/internal/network) - ns/op",
+            "value": 9.672,
+            "unit": "ns/op",
+            "extra": "123925477 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewInternalServiceHTTPClient (github.com/Wikid82/charon/backend/internal/network) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "123925477 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewInternalServiceHTTPClient (github.com/Wikid82/charon/backend/internal/network) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "123925477 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewInternalServiceHTTPClient_Request (github.com/Wikid82/charon/backend/internal/network)",
+            "value": 333608,
+            "unit": "ns/op\t   17877 B/op\t     126 allocs/op",
+            "extra": "3566 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewInternalServiceHTTPClient_Request (github.com/Wikid82/charon/backend/internal/network) - ns/op",
+            "value": 333608,
+            "unit": "ns/op",
+            "extra": "3566 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewInternalServiceHTTPClient_Request (github.com/Wikid82/charon/backend/internal/network) - B/op",
+            "value": 17877,
+            "unit": "B/op",
+            "extra": "3566 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewInternalServiceHTTPClient_Request (github.com/Wikid82/charon/backend/internal/network) - allocs/op",
+            "value": 126,
+            "unit": "allocs/op",
+            "extra": "3566 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIsPrivateIP_IPv4Private (github.com/Wikid82/charon/backend/internal/network)",
+            "value": 93.45,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "12821890 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIsPrivateIP_IPv4Private (github.com/Wikid82/charon/backend/internal/network) - ns/op",
+            "value": 93.45,
+            "unit": "ns/op",
+            "extra": "12821890 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIsPrivateIP_IPv4Private (github.com/Wikid82/charon/backend/internal/network) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "12821890 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIsPrivateIP_IPv4Private (github.com/Wikid82/charon/backend/internal/network) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "12821890 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIsPrivateIP_IPv4Public (github.com/Wikid82/charon/backend/internal/network)",
+            "value": 140.8,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "8531856 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIsPrivateIP_IPv4Public (github.com/Wikid82/charon/backend/internal/network) - ns/op",
+            "value": 140.8,
+            "unit": "ns/op",
+            "extra": "8531856 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIsPrivateIP_IPv4Public (github.com/Wikid82/charon/backend/internal/network) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "8531856 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIsPrivateIP_IPv4Public (github.com/Wikid82/charon/backend/internal/network) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "8531856 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIsPrivateIP_IPv6 (github.com/Wikid82/charon/backend/internal/network)",
+            "value": 144.8,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "8179399 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIsPrivateIP_IPv6 (github.com/Wikid82/charon/backend/internal/network) - ns/op",
+            "value": 144.8,
+            "unit": "ns/op",
+            "extra": "8179399 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIsPrivateIP_IPv6 (github.com/Wikid82/charon/backend/internal/network) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "8179399 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIsPrivateIP_IPv6 (github.com/Wikid82/charon/backend/internal/network) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "8179399 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewSafeHTTPClient (github.com/Wikid82/charon/backend/internal/network)",
+            "value": 289,
+            "unit": "ns/op\t     856 B/op\t       8 allocs/op",
+            "extra": "4217949 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewSafeHTTPClient (github.com/Wikid82/charon/backend/internal/network) - ns/op",
+            "value": 289,
+            "unit": "ns/op",
+            "extra": "4217949 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewSafeHTTPClient (github.com/Wikid82/charon/backend/internal/network) - B/op",
+            "value": 856,
+            "unit": "B/op",
+            "extra": "4217949 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkNewSafeHTTPClient (github.com/Wikid82/charon/backend/internal/network) - allocs/op",
+            "value": 8,
+            "unit": "allocs/op",
+            "extra": "4217949 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkFormatDuration (github.com/Wikid82/charon/backend/internal/services)",
+            "value": 159.3,
+            "unit": "ns/op\t       8 B/op\t       1 allocs/op",
+            "extra": "7489711 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkFormatDuration (github.com/Wikid82/charon/backend/internal/services) - ns/op",
+            "value": 159.3,
+            "unit": "ns/op",
+            "extra": "7489711 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkFormatDuration (github.com/Wikid82/charon/backend/internal/services) - B/op",
+            "value": 8,
+            "unit": "B/op",
+            "extra": "7489711 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkFormatDuration (github.com/Wikid82/charon/backend/internal/services) - allocs/op",
+            "value": 1,
+            "unit": "allocs/op",
+            "extra": "7489711 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkExtractPort (github.com/Wikid82/charon/backend/internal/services)",
+            "value": 533.6,
+            "unit": "ns/op\t     204 B/op\t       9 allocs/op",
+            "extra": "2264582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkExtractPort (github.com/Wikid82/charon/backend/internal/services) - ns/op",
+            "value": 533.6,
+            "unit": "ns/op",
+            "extra": "2264582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkExtractPort (github.com/Wikid82/charon/backend/internal/services) - B/op",
+            "value": 204,
+            "unit": "B/op",
+            "extra": "2264582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkExtractPort (github.com/Wikid82/charon/backend/internal/services) - allocs/op",
+            "value": 9,
+            "unit": "allocs/op",
+            "extra": "2264582 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMailService_IsConfigured (github.com/Wikid82/charon/backend/internal/services)",
+            "value": 36978,
+            "unit": "ns/op\t    8234 B/op\t     165 allocs/op",
+            "extra": "32997 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMailService_IsConfigured (github.com/Wikid82/charon/backend/internal/services) - ns/op",
+            "value": 36978,
+            "unit": "ns/op",
+            "extra": "32997 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMailService_IsConfigured (github.com/Wikid82/charon/backend/internal/services) - B/op",
+            "value": 8234,
+            "unit": "B/op",
+            "extra": "32997 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMailService_IsConfigured (github.com/Wikid82/charon/backend/internal/services) - allocs/op",
+            "value": 165,
+            "unit": "allocs/op",
+            "extra": "32997 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMailService_BuildEmail (github.com/Wikid82/charon/backend/internal/services)",
+            "value": 686.8,
+            "unit": "ns/op\t     488 B/op\t       5 allocs/op",
+            "extra": "1644913 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMailService_BuildEmail (github.com/Wikid82/charon/backend/internal/services) - ns/op",
+            "value": 686.8,
+            "unit": "ns/op",
+            "extra": "1644913 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMailService_BuildEmail (github.com/Wikid82/charon/backend/internal/services) - B/op",
+            "value": 488,
+            "unit": "B/op",
+            "extra": "1644913 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMailService_BuildEmail (github.com/Wikid82/charon/backend/internal/services) - allocs/op",
+            "value": 5,
+            "unit": "allocs/op",
+            "extra": "1644913 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryDSN_AcceptsB (github.com/Wikid82/charon/backend/internal/testutil)",
+            "value": 0.0002316,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "1000000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryDSN_AcceptsB (github.com/Wikid82/charon/backend/internal/testutil) - ns/op",
+            "value": 0.0002316,
+            "unit": "ns/op",
+            "extra": "1000000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryDSN_AcceptsB (github.com/Wikid82/charon/backend/internal/testutil) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "1000000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkMemoryDSN_AcceptsB (github.com/Wikid82/charon/backend/internal/testutil) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "1000000000 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkConstantTimeCompare/equal (github.com/Wikid82/charon/backend/internal/util)",
+            "value": 12.49,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "91544806 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkConstantTimeCompare/equal (github.com/Wikid82/charon/backend/internal/util) - ns/op",
+            "value": 12.49,
+            "unit": "ns/op",
+            "extra": "91544806 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkConstantTimeCompare/equal (github.com/Wikid82/charon/backend/internal/util) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "91544806 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkConstantTimeCompare/equal (github.com/Wikid82/charon/backend/internal/util) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "91544806 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkConstantTimeCompare/different_first_char (github.com/Wikid82/charon/backend/internal/util)",
+            "value": 12.5,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "96088470 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkConstantTimeCompare/different_first_char (github.com/Wikid82/charon/backend/internal/util) - ns/op",
+            "value": 12.5,
+            "unit": "ns/op",
+            "extra": "96088470 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkConstantTimeCompare/different_first_char (github.com/Wikid82/charon/backend/internal/util) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "96088470 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkConstantTimeCompare/different_first_char (github.com/Wikid82/charon/backend/internal/util) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "96088470 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkConstantTimeCompare/different_last_char (github.com/Wikid82/charon/backend/internal/util)",
+            "value": 12.48,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "96099420 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkConstantTimeCompare/different_last_char (github.com/Wikid82/charon/backend/internal/util) - ns/op",
+            "value": 12.48,
+            "unit": "ns/op",
+            "extra": "96099420 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkConstantTimeCompare/different_last_char (github.com/Wikid82/charon/backend/internal/util) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "96099420 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkConstantTimeCompare/different_last_char (github.com/Wikid82/charon/backend/internal/util) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "96099420 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIsPrivateIP (github.com/Wikid82/charon/backend/internal/utils)",
+            "value": 91.83,
+            "unit": "ns/op\t       0 B/op\t       0 allocs/op",
+            "extra": "13305228 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIsPrivateIP (github.com/Wikid82/charon/backend/internal/utils) - ns/op",
+            "value": 91.83,
+            "unit": "ns/op",
+            "extra": "13305228 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIsPrivateIP (github.com/Wikid82/charon/backend/internal/utils) - B/op",
+            "value": 0,
+            "unit": "B/op",
+            "extra": "13305228 times\n4 procs"
+          },
+          {
+            "name": "BenchmarkIsPrivateIP (github.com/Wikid82/charon/backend/internal/utils) - allocs/op",
+            "value": 0,
+            "unit": "allocs/op",
+            "extra": "13305228 times\n4 procs"
           }
         ]
       }
