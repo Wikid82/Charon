@@ -39,20 +39,20 @@ func openInviteHTTPDB(t *testing.T) *gorm.DB {
 	return db
 }
 
-// newInviteHTTPRouter mounts the public invite routes on a gin engine.
-func newInviteHTTPRouter(db *gorm.DB) *gin.Engine {
+// newInviteHTTPRouter mounts the public invite routes on a gin engine and returns the handler too.
+func newInviteHTTPRouter(db *gorm.DB) (*gin.Engine, *UserHandler) {
 	return newInviteHTTPRouterWithGuard(db, nil)
 }
 
 // newInviteHTTPRouterWithGuard is newInviteHTTPRouter with a password attempt guard (nil allows all).
-func newInviteHTTPRouterWithGuard(db *gorm.DB, guard PasswordAttemptGuard) *gin.Engine {
+func newInviteHTTPRouterWithGuard(db *gorm.DB, guard PasswordAttemptGuard) (*gin.Engine, *UserHandler) {
 	gin.SetMode(gin.TestMode)
 	h := NewUserHandler(db, nil)
 	h.SetPasswordAttemptGuard(guard)
 	r := gin.New()
 	r.GET("/invite/validate", h.ValidateInvite)
 	r.POST("/invite/accept", h.AcceptInvite)
-	return r
+	return r, h
 }
 
 // seedInviteHTTPUser stores an invitee with the given token and expiry (nil expiry allowed).
@@ -81,16 +81,27 @@ func pastExpiry() *time.Time {
 	return &t
 }
 
-func postInviteAccept(t *testing.T, r *gin.Engine, body map[string]string, remoteAddr string) *httptest.ResponseRecorder {
+// inviteAcceptBody marshals an accept request body. Call it outside goroutines, where require is safe.
+func inviteAcceptBody(t *testing.T, body map[string]string) []byte {
 	t.Helper()
 	raw, err := json.Marshal(body)
 	require.NoError(t, err)
+	return raw
+}
+
+// serveInviteAccept posts a pre-marshalled accept body. It never calls require, so goroutines may use it.
+func serveInviteAccept(r *gin.Engine, raw []byte, remoteAddr string) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(http.MethodPost, "/invite/accept", bytes.NewReader(raw))
 	req.Header.Set("Content-Type", "application/json")
 	req.RemoteAddr = remoteAddr
 	w := httptest.NewRecorder()
 	r.ServeHTTP(w, req)
 	return w
+}
+
+func postInviteAccept(t *testing.T, r *gin.Engine, body map[string]string, remoteAddr string) *httptest.ResponseRecorder {
+	t.Helper()
+	return serveInviteAccept(r, inviteAcceptBody(t, body), remoteAddr)
 }
 
 func errorBody(t *testing.T, w *httptest.ResponseRecorder) string {
@@ -111,9 +122,19 @@ func TestAcceptInvite_ConcurrentRequestsOneSucceeds(t *testing.T) {
 
 	for round := 0; round < rounds; round++ {
 		db := openInviteHTTPDB(t)
-		r := newInviteHTTPRouter(db)
+		r, handler := newInviteHTTPRouter(db)
 		token := fmt.Sprintf("handler-race-token-%d", round)
 		invitee := seedInviteHTTPUser(t, db, fmt.Sprintf("handler-race-%d@example.com", round), token, futureExpiry())
+
+		// Bodies are built here, outside the goroutines.
+		bodies := make([][]byte, concurrency)
+		for i := 0; i < concurrency; i++ {
+			bodies[i] = inviteAcceptBody(t, map[string]string{
+				"token":    token,
+				"name":     fmt.Sprintf("Racer %d", i),
+				"password": fmt.Sprintf("handler-password-%02d", i),
+			})
+		}
 
 		type result struct {
 			index int
@@ -128,11 +149,7 @@ func TestAcceptInvite_ConcurrentRequestsOneSucceeds(t *testing.T) {
 			go func(i int) {
 				defer wg.Done()
 				<-start
-				w := postInviteAccept(t, r, map[string]string{
-					"token":    token,
-					"name":     fmt.Sprintf("Racer %d", i),
-					"password": fmt.Sprintf("handler-password-%02d", i),
-				}, fmt.Sprintf("198.51.100.%d:1000", i+1))
+				w := serveInviteAccept(r, bodies[i], fmt.Sprintf("198.51.100.%d:1000", i+1))
 				results[i] = result{index: i, code: w.Code, body: w.Body.String()}
 			}(i)
 		}
@@ -158,6 +175,8 @@ func TestAcceptInvite_ConcurrentRequestsOneSucceeds(t *testing.T) {
 		assert.Empty(t, stored.InviteToken)
 		assert.Equal(t, models.InviteStatusAccepted, stored.InviteStatus)
 
+		// Audit entries are written asynchronously; wait for the queue before counting.
+		handler.securitySvc.Flush()
 		var audits int64
 		require.NoError(t, db.Model(&models.SecurityAudit{}).Where("action = ?", "user_invite_accept").Count(&audits).Error)
 		assert.Equal(t, int64(1), audits, "round %d: one accept audit entry for the winner", round)
@@ -166,7 +185,7 @@ func TestAcceptInvite_ConcurrentRequestsOneSucceeds(t *testing.T) {
 
 func TestAcceptInvite_ReplayIsNotFound(t *testing.T) {
 	db := openInviteHTTPDB(t)
-	r := newInviteHTTPRouter(db)
+	r, _ := newInviteHTTPRouter(db)
 	seedInviteHTTPUser(t, db, "replay@example.com", "handler-replay", futureExpiry())
 
 	first := postInviteAccept(t, r, map[string]string{"token": "handler-replay", "name": "First", "password": "first-password"}, "192.0.2.10:1")
@@ -179,7 +198,7 @@ func TestAcceptInvite_ReplayIsNotFound(t *testing.T) {
 
 func TestAcceptInvite_ExpiredReturnsGoneAndMarks(t *testing.T) {
 	db := openInviteHTTPDB(t)
-	r := newInviteHTTPRouter(db)
+	r, _ := newInviteHTTPRouter(db)
 	invitee := seedInviteHTTPUser(t, db, "gone@example.com", "handler-gone", pastExpiry())
 
 	w := postInviteAccept(t, r, map[string]string{"token": "handler-gone", "name": "Gone", "password": "gone-password"}, "192.0.2.11:1")
@@ -193,7 +212,7 @@ func TestAcceptInvite_ExpiredReturnsGoneAndMarks(t *testing.T) {
 
 func TestAcceptInvite_NilExpiryReturnsGone(t *testing.T) {
 	db := openInviteHTTPDB(t)
-	r := newInviteHTTPRouter(db)
+	r, _ := newInviteHTTPRouter(db)
 	seedInviteHTTPUser(t, db, "unset@example.com", "handler-unset", nil)
 
 	w := postInviteAccept(t, r, map[string]string{"token": "handler-unset", "name": "Unset", "password": "unset-password"}, "192.0.2.12:1")
@@ -202,7 +221,7 @@ func TestAcceptInvite_NilExpiryReturnsGone(t *testing.T) {
 
 func TestAcceptInvite_AccountWithPasswordReturnsConflict(t *testing.T) {
 	db := openInviteHTTPDB(t)
-	r := newInviteHTTPRouter(db)
+	r, _ := newInviteHTTPRouter(db)
 	invitee := seedInviteHTTPUser(t, db, "claimed@example.com", "handler-claimed", futureExpiry())
 	require.NoError(t, db.Model(invitee).Update("password_hash", "admin-set-hash").Error)
 
@@ -217,7 +236,7 @@ func TestAcceptInvite_AccountWithPasswordReturnsConflict(t *testing.T) {
 
 func TestAcceptInvite_LegacyEnabledInviteAccepts(t *testing.T) {
 	db := openInviteHTTPDB(t)
-	r := newInviteHTTPRouter(db)
+	r, _ := newInviteHTTPRouter(db)
 	invitee := seedInviteHTTPUser(t, db, "legacyhttp@example.com", "handler-legacy", futureExpiry())
 	require.NoError(t, db.Model(invitee).Update("enabled", true).Error)
 
@@ -227,7 +246,7 @@ func TestAcceptInvite_LegacyEnabledInviteAccepts(t *testing.T) {
 
 func TestAcceptInvite_PasswordOverLimitReportsSetPasswordFailure(t *testing.T) {
 	db := openInviteHTTPDB(t)
-	r := newInviteHTTPRouter(db)
+	r, _ := newInviteHTTPRouter(db)
 	seedInviteHTTPUser(t, db, "longpw@example.com", "handler-longpw", futureExpiry())
 
 	// bcrypt refuses more than 72 bytes; the response text is unchanged from before the service split.
@@ -238,7 +257,7 @@ func TestAcceptInvite_PasswordOverLimitReportsSetPasswordFailure(t *testing.T) {
 
 func TestAcceptInvite_StorageFailureHidesDetail(t *testing.T) {
 	db := openInviteHTTPDB(t)
-	r := newInviteHTTPRouter(db)
+	r, _ := newInviteHTTPRouter(db)
 	require.NoError(t, db.Migrator().DropTable(&models.User{}))
 
 	w := postInviteAccept(t, r, map[string]string{"token": "handler-storage", "name": "Storage", "password": "storage-password"}, "192.0.2.16:1")
@@ -249,7 +268,7 @@ func TestAcceptInvite_StorageFailureHidesDetail(t *testing.T) {
 
 func TestValidateInvite_ReportsStateParity(t *testing.T) {
 	db := openInviteHTTPDB(t)
-	r := newInviteHTTPRouter(db)
+	r, _ := newInviteHTTPRouter(db)
 
 	seedInviteHTTPUser(t, db, "valid@example.com", "validate-open", futureExpiry())
 	seedInviteHTTPUser(t, db, "lapsed@example.com", "validate-lapsed", pastExpiry())
@@ -290,7 +309,7 @@ func TestValidateInvite_ReportsStateParity(t *testing.T) {
 
 func TestValidateInvite_StorageFailureReturnsServerError(t *testing.T) {
 	db := openInviteHTTPDB(t)
-	r := newInviteHTTPRouter(db)
+	r, _ := newInviteHTTPRouter(db)
 	require.NoError(t, db.Migrator().DropTable(&models.User{}))
 
 	req := httptest.NewRequest(http.MethodGet, "/invite/validate?token=anything", http.NoBody)
@@ -303,7 +322,7 @@ func TestValidateInvite_StorageFailureReturnsServerError(t *testing.T) {
 func TestAcceptInvite_GuardDenialStopsBeforeLookup(t *testing.T) {
 	db := openInviteHTTPDB(t)
 	guard := &fakePasswordGuard{allow: false}
-	r := newInviteHTTPRouterWithGuard(db, guard)
+	r, _ := newInviteHTTPRouterWithGuard(db, guard)
 	seedInviteHTTPUser(t, db, "budget@example.com", "handler-budget", futureExpiry())
 	// With the table gone, any lookup would answer 500. A 429 proves the budget is charged first.
 	require.NoError(t, db.Migrator().DropTable(&models.User{}))
@@ -316,7 +335,7 @@ func TestAcceptInvite_GuardDenialStopsBeforeLookup(t *testing.T) {
 func TestAcceptInvite_EveryAttemptIsCharged(t *testing.T) {
 	db := openInviteHTTPDB(t)
 	guard := &fakePasswordGuard{allow: true}
-	r := newInviteHTTPRouterWithGuard(db, guard)
+	r, _ := newInviteHTTPRouterWithGuard(db, guard)
 	seedInviteHTTPUser(t, db, "charged@example.com", "handler-charged", futureExpiry())
 
 	wrong := postInviteAccept(t, r, map[string]string{"token": "handler-wrong", "name": "Wrong", "password": "wrong-password"}, "192.0.2.21:1")
@@ -330,7 +349,7 @@ func TestAcceptInvite_EveryAttemptIsCharged(t *testing.T) {
 func TestAcceptInvite_MalformedBodyDoesNotChargeBudget(t *testing.T) {
 	db := openInviteHTTPDB(t)
 	guard := &fakePasswordGuard{allow: true}
-	r := newInviteHTTPRouterWithGuard(db, guard)
+	r, _ := newInviteHTTPRouterWithGuard(db, guard)
 
 	req := httptest.NewRequest(http.MethodPost, "/invite/accept", strings.NewReader(`{"token":`))
 	req.Header.Set("Content-Type", "application/json")

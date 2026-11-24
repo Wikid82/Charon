@@ -32,8 +32,8 @@ var (
 type InviteService struct {
 	db  *gorm.DB
 	now func() time.Time
-	// beforeLock is a test seam, nil in production. It runs after the pre-check and the
-	// password hash, immediately before the write lock is taken.
+	// beforeLock is a test seam, nil in production. It runs immediately before the write lock is taken:
+	// in Accept after the pre-check and the password hash, in Reissue after the token is generated.
 	beforeLock func()
 	// hashCost is the bcrypt cost for accepted passwords.
 	hashCost int

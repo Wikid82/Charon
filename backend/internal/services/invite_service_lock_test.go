@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -242,12 +243,14 @@ func TestInviteService_ExpiredMarkSkipsAccountWithPassword(t *testing.T) {
 	db := openInviteTestDB(t)
 	svc := newTestInviteService(db)
 	invitee := seedPendingInvite(t, db, "haspw-expired@example.com", "tok-haspw")
+	hashed, err := models.HashPasswordCost("admin-set-pw", bcrypt.MinCost)
+	require.NoError(t, err)
 	require.NoError(t, db.Model(invitee).Updates(map[string]any{
 		"invite_expires": time.Now().Add(-time.Minute),
-		"password_hash":  "admin-set-hash",
+		"password_hash":  hashed,
 	}).Error)
 
-	_, err := svc.Accept("tok-haspw", "Late", "late-password", "")
+	_, err = svc.Accept("tok-haspw", "Late", "late-password", "")
 	assert.ErrorIs(t, err, ErrInviteExpired)
 	assert.Equal(t, models.InviteStatusPending, reloadInviteUser(t, db, invitee.ID).InviteStatus,
 		"an account that already has a password must not take the expired status")

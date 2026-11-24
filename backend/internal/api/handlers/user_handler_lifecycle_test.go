@@ -145,7 +145,7 @@ func TestUpdateUser_AdminResetKeepsLegacyEnabledFlag(t *testing.T) {
 	invitee := seedLifecycleInvitee(t, db, "reset-legacy@example.com", "reset-legacy-token", &future, true)
 
 	r := lifecycleAdminRouter(handler)
-	body, err := json.Marshal(map[string]any{"password": "legacy-reset-pw"})
+	body, err := json.Marshal(map[string]any{"password": "admin-chosen-pw"})
 	require.NoError(t, err)
 	req := httptest.NewRequest(http.MethodPut, "/users/"+strconv.FormatUint(uint64(invitee.ID), 10), bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
@@ -165,7 +165,7 @@ func TestUpdateUser_AdminResetWithEnabledStillEnables(t *testing.T) {
 	invitee := seedLifecycleInvitee(t, db, "reset-enable@example.com", "reset-enable-token", &future, false)
 
 	r := lifecycleAdminRouter(handler)
-	body, err := json.Marshal(map[string]any{"password": "enable-reset-pw", "enabled": true})
+	body, err := json.Marshal(map[string]any{"password": "admin-chosen-pw", "enabled": true})
 	require.NoError(t, err)
 	req := httptest.NewRequest(http.MethodPut, "/users/"+strconv.FormatUint(uint64(invitee.ID), 10), bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

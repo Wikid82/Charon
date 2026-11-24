@@ -94,7 +94,7 @@ func TestInviteService_ReissueLosesToAcceptThatWinsFirst(t *testing.T) {
 	svc := newTestInviteService(db)
 	invitee := seedPendingInvite(t, db, "race-resend@example.com", "tok-race-resend")
 
-	// The invitee accepts between the resend's read and its lock.
+	// The invitee accepts after the resend has generated its token, just before the resend takes the lock.
 	svc.beforeLock = func() {
 		svc.beforeLock = nil
 		_, err := svc.Accept("tok-race-resend", "Racer", "racer-password", "")
