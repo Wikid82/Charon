@@ -517,6 +517,25 @@ func TestRegister_PublicRegistrationEndpointRemoved(t *testing.T) {
 	login := call(http.MethodPost, "/api/v1/auth/login",
 		`{"email":"invitee@example.com","password":"inviteepassword123"}`, "")
 	assert.Equal(t, http.StatusOK, login.Code, "invited user can log in after acceptance")
+
+	// A used link cannot set a second password; the first one keeps working.
+	replay := call(http.MethodPost, "/api/v1/invite/accept",
+		`{"token":"`+inviteeUser.InviteToken+`","name":"Intruder","password":"intruderpassword123"}`, "")
+	assert.Equal(t, http.StatusNotFound, replay.Code, "a used invite link must not be accepted again")
+
+	replayLogin := call(http.MethodPost, "/api/v1/auth/login",
+		`{"email":"invitee@example.com","password":"intruderpassword123"}`, "")
+	assert.Equal(t, http.StatusUnauthorized, replayLogin.Code, "the replayed password must not sign in")
+
+	stillLogin := call(http.MethodPost, "/api/v1/auth/login",
+		`{"email":"invitee@example.com","password":"inviteepassword123"}`, "")
+	assert.Equal(t, http.StatusOK, stillLogin.Code, "the first password still signs in after a replay")
+
+	// The public accept route refuses oversized bodies before it reads them.
+	oversized := call(http.MethodPost, "/api/v1/invite/accept",
+		`{"token":"`+strings.Repeat("a", 65*1024)+`","name":"Big","password":"bigpassword123"}`, "")
+	assert.Equal(t, http.StatusRequestEntityTooLarge, oversized.Code, "accept bodies are capped")
+	assert.Contains(t, oversized.Body.String(), "request_too_large")
 }
 
 func TestRegister_MiddlewareApplied(t *testing.T) {

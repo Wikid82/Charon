@@ -485,7 +485,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	api.GET("/setup", userHandler.GetSetupStatus)
 	api.POST("/setup", userHandler.Setup)
 	api.GET("/invite/validate", userHandler.ValidateInvite)
-	api.POST("/invite/accept", userHandler.AcceptInvite)
+	api.POST("/invite/accept", handlers.LimitSmallJSONBody(), userHandler.AcceptInvite)
 
 	// Dropbox/Google Drive OAuth2 callback (spec §3.3/§3.8, Issue #32 Phase 2
 	// Commit 3). Deliberately registered here, OUTSIDE both `protected` (auth
