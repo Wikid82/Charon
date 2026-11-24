@@ -16,7 +16,7 @@ import (
 // refuseSessionUpdates makes every UPDATE of an import session row fail, the way a storage error would.
 func refuseSessionUpdates(t *testing.T, db *gorm.DB) {
 	t.Helper()
-	require.NoError(t, db.Exec("CREATE TRIGGER refuse_session_update BEFORE UPDATE ON import_sessions" +
+	require.NoError(t, db.Exec("CREATE TRIGGER refuse_session_update BEFORE UPDATE ON import_sessions"+
 		" BEGIN SELECT RAISE(ABORT, 'refused by test'); END;").Error)
 }
 

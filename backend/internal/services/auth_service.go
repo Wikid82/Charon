@@ -200,7 +200,9 @@ func (s *AuthService) ChangePassword(userID uint, oldPassword, newPassword strin
 
 // ApplyPasswordChange stores a new password hash for the user and, in the same
 // statement, advances the session version and clears failed-attempt and lock state.
-// Every password change (self-service or administrative) goes through it.
+// A pending invite is closed as well, so its link cannot replace the new password later;
+// the account's enabled state is left alone. Every password change (self-service,
+// administrative or the recovery command) goes through it and must run inside a transaction.
 func ApplyPasswordChange(tx *gorm.DB, userID uint, passwordHash string) error {
 	res := tx.Model(&models.User{}).Where("id = ?", userID).Updates(map[string]any{
 		"password_hash":         passwordHash,
@@ -213,6 +215,16 @@ func ApplyPasswordChange(tx *gorm.DB, userID uint, passwordHash string) error {
 	}
 	if res.RowsAffected == 0 {
 		return errors.New("user not found")
+	}
+
+	if err := tx.Model(&models.User{}).
+		Where("id = ? AND invite_status = ?", userID, models.InviteStatusPending).
+		Updates(map[string]any{
+			"invite_token":   "",
+			"invite_expires": nil,
+			"invite_status":  "",
+		}).Error; err != nil {
+		return fmt.Errorf("close pending invite: %w", err)
 	}
 	return nil
 }

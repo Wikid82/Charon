@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/glebarez/sqlite"
@@ -67,4 +68,26 @@ func TestResetUserPassword_SaveFailureIsReturned(t *testing.T) {
 	var after models.User
 	require.NoError(t, db.First(&after, user.ID).Error)
 	require.Equal(t, uint(1), after.SessionVersion, "a failed reset must not move the session version")
+}
+
+func TestResetUserPassword_ClosesPendingInviteAndKeepsDisabled(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open("file:"+filepath.Join(t.TempDir(), "reset-invite.db")), &gorm.Config{})
+	require.NoError(t, err)
+	require.NoError(t, db.AutoMigrate(&models.User{}))
+
+	expires := time.Now().Add(time.Hour)
+	invitee := models.User{Email: "invitee@example.com", Name: "Invitee", Enabled: false,
+		InviteToken: "cli-invite-token", InviteExpires: &expires, InviteStatus: models.InviteStatusPending}
+	require.NoError(t, db.Create(&invitee).Error)
+	require.NoError(t, db.Model(&invitee).Update("enabled", false).Error)
+
+	require.NoError(t, resetUserPassword(db, "invitee@example.com", "cli-chosen-pw"))
+
+	var after models.User
+	require.NoError(t, db.First(&after, invitee.ID).Error)
+	require.Empty(t, after.InviteToken)
+	require.Nil(t, after.InviteExpires)
+	require.Empty(t, after.InviteStatus)
+	require.False(t, after.Enabled, "the recovery command must not switch the account on")
+	require.True(t, after.CheckPassword("cli-chosen-pw"))
 }
