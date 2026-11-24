@@ -35,7 +35,11 @@ func newEncryptionFixture(t *testing.T, keys config.EncryptionKeys) *encryptionF
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
 	sqlDB.SetMaxOpenConns(1)
+	// Cleanups run last-in first-out: the audit worker is closed (and drained)
+	// before the database it writes to is closed.
 	t.Cleanup(func() { _ = sqlDB.Close() })
+	security := services.NewSecurityService(db)
+	t.Cleanup(security.Close)
 	require.NoError(t, db.AutoMigrate(
 		&models.EncryptionKeyVersion{},
 		&models.DNSProvider{},
@@ -52,7 +56,7 @@ func newEncryptionFixture(t *testing.T, keys config.EncryptionKeys) *encryptionF
 	return &encryptionFixture{
 		t:       t,
 		db:      db,
-		handler: NewEncryptionHandler(rotation, services.NewSecurityService(db)),
+		handler: NewEncryptionHandler(rotation, security),
 	}
 }
 
@@ -113,6 +117,9 @@ func service(t *testing.T, k string) *crypto.EncryptionService {
 }
 
 // failingCallback makes every statement on table fail for the rest of the test.
+// The callback is never removed: it lives on the fixture's own database, which
+// is closed in cleanup after the audit worker has drained, so removing it could
+// race with a write still in flight.
 func failingCallback(t *testing.T, db *gorm.DB, table, op string) {
 	t.Helper()
 	fail := func(tx *gorm.DB) {
@@ -135,18 +142,6 @@ func failingCallback(t *testing.T, db *gorm.DB, table, op string) {
 		t.Fatalf("unknown operation %q", op)
 	}
 	require.NoError(t, err)
-	t.Cleanup(func() {
-		switch op {
-		case "update":
-			_ = db.Callback().Update().Remove(name)
-		case "create":
-			_ = db.Callback().Create().Remove(name)
-		case "row":
-			_ = db.Callback().Row().Remove(name)
-		case "query":
-			_ = db.Callback().Query().Remove(name)
-		}
-	})
 }
 
 // bodyError decodes the "error" field of a JSON response.
@@ -240,8 +235,6 @@ func TestEncryptionHandler_RotateSucceedsWhenAuditWritesFail(t *testing.T) {
 	f := newEncryptionFixture(t, config.EncryptionKeys{Current: current, Next: next})
 	f.seedProvider(service(t, current))
 	failingCallback(t, f.db, "security_audits", "create")
-	// Drain the asynchronous audit worker before the callback is removed in cleanup.
-	defer f.handler.securityService.Flush()
 
 	w := f.do(true, http.MethodPost, "/api/v1/admin/encryption/rotate")
 	assert.Equal(t, http.StatusOK, w.Code)
@@ -297,8 +290,6 @@ func TestEncryptionHandler_HistoryHidesReadErrors(t *testing.T) {
 func TestEncryptionHandler_ValidateSucceedsWhenAuditWriteFails(t *testing.T) {
 	f := newEncryptionFixture(t, config.EncryptionKeys{Current: keyB64(t)})
 	failingCallback(t, f.db, "security_audits", "create")
-	// Drain the asynchronous audit worker before the callback is removed in cleanup.
-	defer f.handler.securityService.Flush()
 
 	w := f.do(true, http.MethodPost, "/api/v1/admin/encryption/validate")
 	assert.Equal(t, http.StatusOK, w.Code)
