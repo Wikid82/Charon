@@ -14,6 +14,6 @@ for MODULE in "${NPM_MODULES[@]}"; do
 
     cd "$MODULE" || exit 1
     rm -rf node_modules package-lock.json
-    npm install react react-dom
+    npm install react react-dom @types/react
 
 done
