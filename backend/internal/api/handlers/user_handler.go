@@ -548,7 +548,13 @@ func (h *UserHandler) CreateUser(c *gin.Context) {
 	})
 
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user: " + err.Error()})
+		// The email check above runs outside the transaction, so a concurrent create can lose at the unique index.
+		if isUniqueConstraintError(err) {
+			c.JSON(http.StatusConflict, gin.H{"error": "Email already in use"})
+			return
+		}
+		middleware.GetRequestLogger(c).WithError(err).Error("Failed to create user")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to create user"})
 		return
 	}
 
