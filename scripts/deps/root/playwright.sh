@@ -24,7 +24,7 @@ for MODULE in "${NPM_MODULES[@]}"; do
 
     cd "$MODULE" || exit 1
     rm -rf node_modules package-lock.json
-    npm install "playwright@${PW_VERSION}" "@playwright/test@${PW_VERSION}" --save-dev
+    npm install "playwright@${PW_VERSION}" "@playwright/test@${PW_VERSION}" @axe-core/playwright --save-dev
 done
 
 echo "Reminder: PLAYWRIGHT_IMAGE in .github/workflows/e2e-tests-split.yml must be v${PW_VERSION}-<distro>."
