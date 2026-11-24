@@ -8,12 +8,15 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
-	"os"
 	"sort"
 	"time"
 
-	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
+
+	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/logger"
+	"github.com/Wikid82/charon/backend/internal/models"
 )
 
 // RotationService manages encryption key rotation with multi-key version support.
@@ -59,16 +62,24 @@ type RotationStatus struct {
 	ProvidersByVersion        map[int]int `json:"providers_by_version"`
 }
 
-// NewRotationService creates a new key rotation service.
-// It loads the current key and any legacy/next keys from environment variables.
+// NewRotationService creates a new key rotation service from the process
+// environment. It is a thin wrapper over NewRotationServiceWithKeys.
 func NewRotationService(db *gorm.DB) (*RotationService, error) {
+	return NewRotationServiceWithKeys(db, config.LoadEncryptionKeys())
+}
+
+// NewRotationServiceWithKeys creates a key rotation service from keys already
+// loaded from the server configuration. The current key is required. Next and
+// legacy keys are optional; a legacy key that fails to load is logged and
+// skipped so the remaining keys still work.
+func NewRotationServiceWithKeys(db *gorm.DB, keys config.EncryptionKeys) (*RotationService, error) {
 	rs := &RotationService{
 		db:         db,
 		legacyKeys: make(map[int]*EncryptionService),
 	}
 
 	// Load current key (required)
-	currentKeyB64 := os.Getenv("CHARON_ENCRYPTION_KEY")
+	currentKeyB64 := keys.Current
 	if currentKeyB64 == "" {
 		return nil, fmt.Errorf("CHARON_ENCRYPTION_KEY is required")
 	}
@@ -80,7 +91,7 @@ func NewRotationService(db *gorm.DB) (*RotationService, error) {
 	rs.currentKey = currentKey
 
 	// Load next key (optional, used during rotation)
-	nextKeyB64 := os.Getenv("CHARON_ENCRYPTION_KEY_NEXT")
+	nextKeyB64 := keys.Next
 	if nextKeyB64 != "" {
 		nextKey, err := NewEncryptionService(nextKeyB64)
 		if err != nil {
@@ -90,9 +101,8 @@ func NewRotationService(db *gorm.DB) (*RotationService, error) {
 	}
 
 	// Load legacy keys V1 through V10 (optional, for backward compatibility)
-	for i := 1; i <= 10; i++ {
-		envKey := fmt.Sprintf("CHARON_ENCRYPTION_KEY_V%d", i)
-		keyB64 := os.Getenv(envKey)
+	for slot := 1; slot <= maxLegacySlot; slot++ {
+		keyB64 := keys.Legacy[slot]
 		if keyB64 == "" {
 			continue
 		}
@@ -100,10 +110,10 @@ func NewRotationService(db *gorm.DB) (*RotationService, error) {
 		legacyKey, err := NewEncryptionService(keyB64)
 		if err != nil {
 			// Log warning but continue - this allows partial key configurations
-			fmt.Printf("Warning: failed to load legacy key %s: %v\n", envKey, err)
+			logger.Log().WithError(err).WithField("slot", slot).Warn("Skipping invalid legacy encryption key")
 			continue
 		}
-		rs.legacyKeys[i] = legacyKey
+		rs.legacyKeys[slot] = legacyKey
 	}
 
 	// Build sorted list of available key versions
@@ -115,6 +125,9 @@ func NewRotationService(db *gorm.DB) (*RotationService, error) {
 
 	return rs, nil
 }
+
+// maxLegacySlot is the highest legacy key slot (CHARON_ENCRYPTION_KEY_V<n>).
+const maxLegacySlot = 10
 
 // DecryptWithVersion decrypts ciphertext using the specified key version.
 // It automatically falls back to older versions if the specified version fails.
@@ -135,7 +148,7 @@ func (rs *RotationService) DecryptWithVersion(ciphertextB64 string, version int)
 		if err == nil {
 			// Successfully decrypted with a different version
 			// Log this for audit purposes
-			fmt.Printf("Warning: credential decrypted with version %d but was tagged as version %d\n", v, version)
+			logger.Log().Warnf("credential decrypted with version %d but was tagged as version %d", v, version)
 			return plaintext, nil
 		}
 	}
@@ -206,7 +219,7 @@ func (rs *RotationService) RotateAllCredentials(ctx context.Context) (*RotationR
 		if err := rs.rotateProviderCredentials(ctx, &provider); err != nil {
 			result.FailureCount++
 			result.FailedProviders = append(result.FailedProviders, provider.ID)
-			fmt.Printf("Failed to rotate provider %d (%s): %v\n", provider.ID, provider.Name, err)
+			logger.Log().WithError(err).WithFields(logrus.Fields{"provider_id": provider.ID, "provider_name": provider.Name}).Error("Failed to rotate DNS provider credentials")
 			continue
 		}
 		result.SuccessCount++
