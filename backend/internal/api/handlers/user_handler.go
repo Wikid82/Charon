@@ -1243,6 +1243,11 @@ func (h *UserHandler) AcceptInvite(c *gin.Context) {
 		return
 	}
 
+	// The token is a credential: every attempt draws on the sign-in budget before any lookup.
+	if !allowPasswordAttempt(h.passwordGuard, c) {
+		return
+	}
+
 	user, err := h.invites.Accept(req.Token, req.Name, req.Password, seedLastSeenVersion())
 	if err != nil {
 		respondInviteError(c, err, "Failed to accept invite")

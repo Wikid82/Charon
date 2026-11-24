@@ -530,6 +530,12 @@ func TestRegister_PublicRegistrationEndpointRemoved(t *testing.T) {
 	stillLogin := call(http.MethodPost, "/api/v1/auth/login",
 		`{"email":"invitee@example.com","password":"inviteepassword123"}`, "")
 	assert.Equal(t, http.StatusOK, stillLogin.Code, "the first password still signs in after a replay")
+
+	// The public accept route refuses oversized bodies before it reads them.
+	oversized := call(http.MethodPost, "/api/v1/invite/accept",
+		`{"token":"`+strings.Repeat("a", 65*1024)+`","name":"Big","password":"bigpassword123"}`, "")
+	assert.Equal(t, http.StatusRequestEntityTooLarge, oversized.Code, "accept bodies are capped")
+	assert.Contains(t, oversized.Body.String(), "request_too_large")
 }
 
 func TestRegister_MiddlewareApplied(t *testing.T) {

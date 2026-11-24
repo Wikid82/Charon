@@ -41,8 +41,14 @@ func openInviteHTTPDB(t *testing.T) *gorm.DB {
 
 // newInviteHTTPRouter mounts the public invite routes on a gin engine.
 func newInviteHTTPRouter(db *gorm.DB) *gin.Engine {
+	return newInviteHTTPRouterWithGuard(db, nil)
+}
+
+// newInviteHTTPRouterWithGuard is newInviteHTTPRouter with a password attempt guard (nil allows all).
+func newInviteHTTPRouterWithGuard(db *gorm.DB, guard PasswordAttemptGuard) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	h := NewUserHandler(db, nil)
+	h.SetPasswordAttemptGuard(guard)
 	r := gin.New()
 	r.GET("/invite/validate", h.ValidateInvite)
 	r.POST("/invite/accept", h.AcceptInvite)
@@ -292,4 +298,46 @@ func TestValidateInvite_StorageFailureReturnsServerError(t *testing.T) {
 	r.ServeHTTP(w, req)
 	assert.Equal(t, http.StatusInternalServerError, w.Code)
 	assert.Equal(t, "Failed to validate invite token", errorBody(t, w))
+}
+
+func TestAcceptInvite_GuardDenialStopsBeforeLookup(t *testing.T) {
+	db := openInviteHTTPDB(t)
+	guard := &fakePasswordGuard{allow: false}
+	r := newInviteHTTPRouterWithGuard(db, guard)
+	seedInviteHTTPUser(t, db, "budget@example.com", "handler-budget", futureExpiry())
+	// With the table gone, any lookup would answer 500. A 429 proves the budget is charged first.
+	require.NoError(t, db.Migrator().DropTable(&models.User{}))
+
+	w := postInviteAccept(t, r, map[string]string{"token": "handler-budget", "name": "Budget", "password": "budget-password"}, "192.0.2.20:1")
+	assert.Equal(t, http.StatusTooManyRequests, w.Code)
+	assert.Equal(t, 1, guard.calls)
+}
+
+func TestAcceptInvite_EveryAttemptIsCharged(t *testing.T) {
+	db := openInviteHTTPDB(t)
+	guard := &fakePasswordGuard{allow: true}
+	r := newInviteHTTPRouterWithGuard(db, guard)
+	seedInviteHTTPUser(t, db, "charged@example.com", "handler-charged", futureExpiry())
+
+	wrong := postInviteAccept(t, r, map[string]string{"token": "handler-wrong", "name": "Wrong", "password": "wrong-password"}, "192.0.2.21:1")
+	assert.Equal(t, http.StatusNotFound, wrong.Code)
+
+	ok := postInviteAccept(t, r, map[string]string{"token": "handler-charged", "name": "Charged", "password": "charged-password"}, "192.0.2.21:1")
+	assert.Equal(t, http.StatusOK, ok.Code)
+	assert.Equal(t, 2, guard.calls)
+}
+
+func TestAcceptInvite_MalformedBodyDoesNotChargeBudget(t *testing.T) {
+	db := openInviteHTTPDB(t)
+	guard := &fakePasswordGuard{allow: true}
+	r := newInviteHTTPRouterWithGuard(db, guard)
+
+	req := httptest.NewRequest(http.MethodPost, "/invite/accept", strings.NewReader(`{"token":`))
+	req.Header.Set("Content-Type", "application/json")
+	req.RemoteAddr = "192.0.2.22:1"
+	w := httptest.NewRecorder()
+	r.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusBadRequest, w.Code)
+	assert.Equal(t, 0, guard.calls)
 }
