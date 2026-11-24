@@ -278,11 +278,25 @@ func TestStartApply_ApplyRunsAfterClientDisconnect(t *testing.T) {
 
 func TestNilIfTypedNil(t *testing.T) {
 	var typedNil *recordingApplier
-	assert.Nil(t, nilIfTypedNil(nil))
+	assert.Nil(t, nilIfTypedNil[CaddyConfigManager](nil))
 	assert.Nil(t, nilIfTypedNil(typedNil), "a typed nil pointer must count as not wired")
 
 	applier := &recordingApplier{}
 	assert.NotNil(t, nilIfTypedNil(applier))
+}
+
+// An interface-typed argument holding a typed nil pointer becomes a nil interface, not a non-nil interface.
+func TestNilIfTypedNilReturnsNilInterfaceForTypedNil(t *testing.T) {
+	t.Parallel()
+	var typedNil *recordingApplier
+	var wired CaddyConfigManager = typedNil
+
+	assert.True(t, nilIfTypedNil(wired) == nil)
+
+	var unwired CaddyConfigManager
+	assert.True(t, nilIfTypedNil(unwired) == nil)
+	live := &recordingApplier{}
+	assert.Same(t, live, nilIfTypedNil[CaddyConfigManager](live))
 }
 
 func TestNewCrowdsecHandler_ReportsProxyApplierWiring(t *testing.T) {

@@ -36,8 +36,7 @@ func (h *DomainHandler) Create(c *gin.Context) {
 		Name string `json:"name" binding:"required"`
 	}
 
-	if err := c.ShouldBindJSON(&input); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &input) {
 		return
 	}
 

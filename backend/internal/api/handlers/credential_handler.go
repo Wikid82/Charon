@@ -38,7 +38,7 @@ func (h *CredentialHandler) resolveProviderID(c *gin.Context) (uint, bool) {
 		case errors.Is(err, services.ErrInvalidDNSProviderIdentifier):
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid provider ID"})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondInternalError(c, "Could not look up the DNS provider.", err)
 		}
 		return 0, false
 	}
@@ -63,7 +63,7 @@ func (h *CredentialHandler) resolveCredentialID(c *gin.Context, providerID uint)
 		case errors.Is(err, services.ErrInvalidCredentialIdentifier):
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid credential ID"})
 		default:
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+			respondInternalError(c, "Could not look up the credential.", err)
 		}
 		return 0, false
 	}
@@ -87,7 +87,7 @@ func (h *CredentialHandler) List(c *gin.Context) {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "Multi-credential mode not enabled for this provider"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondInternalError(c, "Could not load the credentials.", err)
 		return
 	}
 
@@ -102,8 +102,7 @@ func (h *CredentialHandler) Create(c *gin.Context) {
 	}
 
 	var req services.CreateCredentialRequest
-	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -125,7 +124,7 @@ func (h *CredentialHandler) Create(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to encrypt credentials"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondInternalError(c, "Could not create the credential.", err)
 		return
 	}
 
@@ -150,7 +149,7 @@ func (h *CredentialHandler) Get(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Credential not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondInternalError(c, "Could not load the credential.", err)
 		return
 	}
 
@@ -170,8 +169,7 @@ func (h *CredentialHandler) Update(c *gin.Context) {
 	}
 
 	var req services.UpdateCredentialRequest
-	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -189,7 +187,7 @@ func (h *CredentialHandler) Update(c *gin.Context) {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to encrypt credentials"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondInternalError(c, "Could not update the credential.", err)
 		return
 	}
 
@@ -213,7 +211,7 @@ func (h *CredentialHandler) Delete(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Credential not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondInternalError(c, "Could not delete the credential.", err)
 		return
 	}
 
@@ -238,7 +236,7 @@ func (h *CredentialHandler) Test(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "Credential not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondInternalError(c, "Could not test the credential.", err)
 		return
 	}
 
@@ -257,7 +255,7 @@ func (h *CredentialHandler) EnableMultiCredentials(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "DNS provider not found"})
 			return
 		}
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		respondInternalError(c, "Could not enable multiple credentials.", err)
 		return
 	}
 

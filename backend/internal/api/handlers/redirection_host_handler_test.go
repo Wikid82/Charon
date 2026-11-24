@@ -512,7 +512,8 @@ func TestRedirectionHostHandler_Create_StatusCodeTypeMismatch_400(t *testing.T) 
 	assert.Equal(t, http.StatusBadRequest, w.Code)
 	var result map[string]any
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
-	assert.Contains(t, result["error"], "cannot unmarshal string")
+	assert.Equal(t, "The request is not valid. Check: status_code.", result["error"])
+	assert.Equal(t, "invalid_request", result["error_code"])
 }
 
 // --- Create: ApplyConfig failure / rollback coverage ---
@@ -753,9 +754,9 @@ func TestRedirectionHostHandler_Delete_ApplyConfigFailure_500(t *testing.T) {
 	require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
 	assert.Contains(t, result["error"], "Failed to apply configuration")
 
-	// Delete's own DB deletion is not rolled back on ApplyConfig failure
-	// (unlike Create) — matches the handler's existing Delete semantics.
-	var count int64
-	db.Model(&models.RedirectionHost{}).Count(&count)
-	assert.Equal(t, int64(0), count)
+	// A refused delete keeps the host: it is put back with its id and UUID.
+	var restored models.RedirectionHost
+	require.NoError(t, db.Where("uuid = ?", host.UUID).First(&restored).Error)
+	assert.Equal(t, host.ID, restored.ID)
+	assert.Equal(t, host.DomainNames, restored.DomainNames)
 }

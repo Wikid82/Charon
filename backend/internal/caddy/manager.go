@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,6 +25,10 @@ import (
 	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/security/selfhop"
 )
+
+// ErrRollbackFailed is wrapped into the ApplyConfig error when Caddy keeps its previous configuration after a failed
+// load and the rollback to the last good snapshot fails too.
+var ErrRollbackFailed = errors.New("rollback also failed")
 
 // Test hooks to allow overriding OS and JSON functions
 var (
@@ -587,7 +592,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 		if rollbackErr := m.rollback(ctx); rollbackErr != nil {
 			// If rollback fails, we still want to record the failure
 			m.recordConfigChange(configHash, false, err.Error())
-			return fmt.Errorf("apply failed: %w, rollback also failed: %v", err, rollbackErr)
+			return fmt.Errorf("apply failed: %w, %w: %v", err, ErrRollbackFailed, rollbackErr)
 		}
 
 		// Record failed attempt

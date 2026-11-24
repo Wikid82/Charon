@@ -51,6 +51,8 @@ Creating a new proxy host takes seconds:
 4. Toggle SSL certificate option
 5. Click **Save**
 
+If the proxy cannot apply a change to a proxy host, Charon keeps the previous settings and shows the error. The advanced Caddy configuration box accepts up to 256 KB of text.
+
 ### Bulk Operations
 
 Manage multiple hosts efficiently:

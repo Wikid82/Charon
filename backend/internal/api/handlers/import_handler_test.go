@@ -83,7 +83,7 @@ func setupImportTestDB(t *testing.T) *gorm.DB {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 
-	err = db.AutoMigrate(&models.ImportSession{}, &models.ProxyHost{})
+	err = db.AutoMigrate(&models.ImportSession{}, &models.ProxyHost{}, &models.Location{})
 	require.NoError(t, err)
 
 	return db
@@ -428,6 +428,8 @@ func TestCommit_TransientToImport(t *testing.T) {
 		}
 		body, _ := json.Marshal(reqBody)
 
+		seedUploadSession(t, handler, "test-session", tmpFile)
+
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/import/commit", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
@@ -471,6 +473,8 @@ func TestCommit_RollbackOnError(t *testing.T) {
 			"resolutions":  map[string]string{"example.com": "create"},
 		}
 		body, _ := json.Marshal(reqBody)
+
+		seedUploadSession(t, handler, "test-session", tmpFile)
 
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/import/commit", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
@@ -947,6 +951,8 @@ func TestImportHandler_Commit_OverwriteAndRenameFlows(t *testing.T) {
 		}
 		body, _ := json.Marshal(commitBody)
 
+		seedUploadSession(t, handler, "overwrite-rename", uploadPath)
+
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/import/commit", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
@@ -1058,6 +1064,8 @@ func TestImportHandler_Commit_RejectsOverlappingDomainWithoutResolution(t *testi
 		require.NoError(t, os.WriteFile(uploadPath, []byte("placeholder"), 0o600))
 
 		body, _ := json.Marshal(map[string]any{"session_uuid": "overlap", "resolutions": map[string]string{}})
+		seedUploadSession(t, handler, "overlap", uploadPath)
+
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/import/commit", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
@@ -1108,6 +1116,8 @@ func TestImportHandler_Commit_OverwriteMatchesCaseVariant(t *testing.T) {
 			"session_uuid": "overwrite-case",
 			"resolutions":  map[string]string{"Site.Example.com": "overwrite"},
 		})
+		seedUploadSession(t, handler, "overwrite-case", uploadPath)
+
 		req := httptest.NewRequest(http.MethodPost, "/api/v1/import/commit", bytes.NewBuffer(body))
 		req.Header.Set("Content-Type", "application/json")
 		w := httptest.NewRecorder()
@@ -1133,4 +1143,18 @@ func (m *mockProxyHostService) CreateImported(_ *services.ImportNameBudget, host
 
 func (m *mockProxyHostService) UpdateImported(_ *services.ImportNameBudget, host *models.ProxyHost) error {
 	return m.Update(host)
+}
+
+// seedUploadSession stores the session row that Upload leaves next to an uploaded Caddyfile at path, with the preview
+// parsed by the handler's importer. Commit reads an upload only through such a row.
+func seedUploadSession(t *testing.T, h *ImportHandler, sid, path string) {
+	t.Helper()
+	result, err := h.importerservice.ImportFile(path)
+	require.NoError(t, err)
+	require.NoError(t, h.db.Create(&models.ImportSession{
+		UUID:       sid,
+		SourceFile: path,
+		Status:     "pending",
+		ParsedData: string(mustMarshal(result)),
+	}).Error)
 }

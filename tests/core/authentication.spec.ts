@@ -205,6 +205,32 @@ test.describe('Authentication Flows', () => {
     });
   });
 
+  test.describe('Login Request Validation', () => {
+    /**
+     * Test: An empty sign-in body is refused as a malformed request
+     * The request is refused before any account is checked, so it does not
+     * count as a failed sign-in against an account.
+     */
+    test('should refuse an empty login body as an invalid request', async ({ page }) => {
+      let status = 0;
+      let body: { error_code?: string } = {};
+
+      await test.step('Send a login request with an empty JSON object', async () => {
+        const response = await page.request.post('/api/v1/auth/login', {
+          headers: { 'Content-Type': 'application/json' },
+          data: {},
+        });
+        status = response.status();
+        body = await response.json();
+      });
+
+      await test.step('Verify the request is refused as invalid', async () => {
+        expect(status).toBe(400);
+        expect(body).toHaveProperty('error_code', 'invalid_request');
+      });
+    });
+  });
+
   test.describe('Logout Functionality', () => {
     /**
      * Test: Logout redirects to login page and clears session

@@ -546,8 +546,7 @@ func (h *BackupHandler) UpdateSettings(c *gin.Context) {
 	}
 
 	var req updateBackupSettingsRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 

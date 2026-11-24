@@ -360,6 +360,9 @@ fork/offline fallback.
 - **Request origin:** The `SelfHop` middleware is first in the engine's chain. For proxy hosts whose upstream is Charon itself, Caddy attaches an authenticated per-boot header (`internal/caddy/self_upstream.go`); the middleware verifies it and records the client address, scheme and host (`RequestOrigin`) for later handlers. Shared helpers live in `internal/security/selfhop`.
 - **Caddy admin API:** Caddy serves its admin API on a unix socket (`CHARON_CADDY_ADMIN_API`, default `data/run/caddy-admin.sock`; `/app/data/run/caddy-admin.sock` in the container), created with mode 0600 inside a 0700 directory. No TCP admin listener exists by default, so traffic proxied through a host cannot reach it. The Go client dials the socket (`internal/caddy/client.go`); `charon caddy-admin listen|prepare|get <path>` is the in-container diagnostic. Loopback TCP URLs from older configs are ignored with a startup warning.
 - **Caller identity:** Handlers read the signed-in caller through shared accessors in `backend/internal/api/middleware/ctxkeys.go`, enforced by a guard test
+- **Request body limits:** Each route group caps its request body (`limitRequestBody` in `handlers/request_body.go`): 1 MiB for proxy and redirection hosts, 64 KiB for small JSON routes (`LimitSmallJSONBody`), 4 MiB for Caddyfile imports, 8 MiB for JSON and NPM imports. A read past the cap answers 413 `request_too_large`.
+- **Validation answers:** `bindJSON` (`handlers/request_errors.go`) answers a bad body with a generic 400 `invalid_request`. The response names the failing fields by their public names only; the raw decoder error text is never returned to the client.
+- **Import session retention:** Previews for JSON and NPM imports live in a bounded store (`import_session_store.go`: 1 hour, at most 4). Caddyfile uploads are kept on disk for 24 hours (`import_upload_cleanup.go`), and a sweep removes expired or orphaned files at startup and before each upload.
 - **Routes:** Route registration and grouping (public, authenticated, and admin-only — see [Management API Authentication & Authorization](#management-api-authentication--authorization))
 
 **Example Endpoints:**
@@ -600,6 +603,8 @@ Key behaviour:
 3. Trigger Caddy reload via JSON API
 4. Handle rollback on configuration errors
 5. Integrate security layers (WAF, ACL, Rate Limiting)
+
+**Host writes and refused applies:** A proxy or redirection host write (create, update, delete, bulk edit) is applied to Caddy before it is kept. If Caddy refuses the config, `applyOrRestore` (`internal/api/handlers/proxy_apply.go`) puts the database back to its pre-write state through `internal/services/host_restore.go` (row, IDs and locations, guarded so a newer edit by another writer is not overwritten), then answers 500 `proxy_apply_failed`. When Caddy's own rollback also failed, Charon makes one best-effort re-apply after the restore.
 
 **RedirectionHost (peer resource to ProxyHost):** `internal/models/redirection_host.go`
 is a separate, sibling model (same pattern as `ProxyGroup`) — not a mode flag

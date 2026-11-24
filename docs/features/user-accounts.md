@@ -36,6 +36,7 @@ Here is what a standard user can and cannot do:
 
 - **Can:** add, edit and delete proxy hosts and redirection hosts.
 - **Can:** run **Test Connection** on a proxy host to check its forward target.
+- **Can:** see a plain message when the proxy refuses a change. Administrators also see the proxy's technical detail.
 - **Cannot:** choose a DNS provider or turn on the DNS challenge for a host. Those
   fields are greyed out with a short note. A standard user can still save a host
   as long as those two settings stay as they are.

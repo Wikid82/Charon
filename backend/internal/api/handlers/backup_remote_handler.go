@@ -89,8 +89,7 @@ func (h *BackupRemoteHandler) Create(c *gin.Context) {
 	}
 
 	var req remoteTargetRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -118,8 +117,7 @@ func (h *BackupRemoteHandler) Update(c *gin.Context) {
 	}
 
 	var req remoteTargetRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -199,8 +197,7 @@ func (h *BackupRemoteHandler) TestDraft(c *gin.Context) {
 	}
 
 	var req testDraftRequest
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 

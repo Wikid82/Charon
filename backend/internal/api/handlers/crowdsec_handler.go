@@ -754,13 +754,13 @@ func setDefaultSecurityConfigState(db *gorm.DB, updates map[string]any) (models.
 // errCaddyNotWired is returned when the handler has no Caddy manager to apply the proxy configuration with.
 var errCaddyNotWired = errors.New("caddy manager is not wired to the CrowdSec handler")
 
-// nilIfTypedNil returns nil for a nil interface or a nil pointer stored in one, so a missing manager is always detectable.
-func nilIfTypedNil(m CaddyConfigManager) CaddyConfigManager {
-	if m == nil {
-		return nil
-	}
-	if v := reflect.ValueOf(m); v.Kind() == reflect.Pointer && v.IsNil() {
-		return nil
+// nilIfTypedNil returns the zero value of T for a nil interface or a nil pointer stored in one, so a missing
+// manager is always detectable. Callers pass an interface-typed argument, so T is the interface type.
+func nilIfTypedNil[T any](m T) T {
+	v := reflect.ValueOf(m)
+	var zero T
+	if !v.IsValid() || (v.Kind() == reflect.Pointer && v.IsNil()) {
+		return zero
 	}
 	return m
 }

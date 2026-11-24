@@ -84,13 +84,14 @@ func NewImportHandlerWithService(db *gorm.DB, proxyHostSvc ProxyHostServiceInter
 
 // RegisterRoutes registers import-related routes.
 func (h *ImportHandler) RegisterRoutes(router *gin.RouterGroup) {
+	body := limitRequestBody(maxImportBodyBytes)
 	router.GET("/import/status", h.GetStatus)
 	router.GET("/import/preview", h.GetPreview)
-	router.POST("/import/upload", h.Upload)
-	router.POST("/import/upload-multi", h.UploadMulti)
-	router.POST("/import/detect-imports", h.DetectImports)
-	router.POST("/import/commit", h.Commit)
-	router.DELETE("/import/cancel", h.Cancel)
+	router.POST("/import/upload", body, h.Upload)
+	router.POST("/import/upload-multi", body, h.UploadMulti)
+	router.POST("/import/detect-imports", body, h.DetectImports)
+	router.POST("/import/commit", body, h.Commit)
+	router.DELETE("/import/cancel", body, h.Cancel)
 }
 
 // GetStatus returns current import session status.
@@ -270,6 +271,7 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 	if !requireAdmin(c) {
 		return
 	}
+	h.sweepUploadsFirst(c)
 
 	var req struct {
 		Content  string `json:"content" binding:"required"`
@@ -277,15 +279,7 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 	}
 
 	// Capture raw request for better diagnostics in tests
-	if err := c.ShouldBindJSON(&req); err != nil {
-		// Try to include raw body preview when binding fails
-		entry := middleware.GetRequestLogger(c)
-		if raw, _ := c.GetRawData(); len(raw) > 0 {
-			entry.WithError(err).WithField("raw_body_preview", util.SanitizeForLog(string(raw))).Error("Import Upload: failed to bind JSON")
-		} else {
-			entry.WithError(err).Error("Import Upload: failed to bind JSON")
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -320,6 +314,8 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid temp path"})
 		return
 	}
+	keep := false
+	defer h.discardUnlessKept(c, tempPath, &keep)
 	// #nosec G306 -- Caddyfile uploads need group readability for Caddy validation
 	if writeErr := os.WriteFile(tempPath, []byte(normalizedContent), 0o644); writeErr != nil {
 		middleware.GetRequestLogger(c).WithField("tempPath", util.SanitizeForLog(filepath.Base(tempPath))).WithError(writeErr).Error("Import Upload: failed to write temp file")
@@ -333,17 +329,7 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 	// Parse uploaded file transiently
 	result, err := h.importerservice.ImportFile(tempPath)
 	if err != nil {
-		// Read a small preview of the uploaded file for diagnostics
-		preview := ""
-		// #nosec G304 -- tempPath is the validated temporary file from Gin SaveUploadedFile
-		if b, rerr := os.ReadFile(tempPath); rerr == nil {
-			if len(b) > 200 {
-				preview = string(b[:200])
-			} else {
-				preview = string(b)
-			}
-		}
-		middleware.GetRequestLogger(c).WithError(err).WithField("tempPath", util.SanitizeForLog(filepath.Base(tempPath))).WithField("content_preview", util.SanitizeForLog(preview)).Error("Import Upload: import failed")
+		middleware.GetRequestLogger(c).WithError(err).WithField("tempPath", util.SanitizeForLog(filepath.Base(tempPath))).WithField("content_len", len(normalizedContent)).Error("Import Upload: import failed")
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("import failed: %v", err)})
 		return
 	}
@@ -419,8 +405,12 @@ func (h *ImportHandler) Upload(c *gin.Context) {
 		if respondPermissionError(c, h.securityService, "import_upload_failed", err, h.importDir) {
 			return
 		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": msgImportSessionNotStored})
+		return
 	}
+	h.supersedeAfterStore(c, sid)
 
+	keep = true
 	c.JSON(http.StatusOK, gin.H{
 		"session":          gin.H{"id": sid, "state": "transient", "source_file": tempPath},
 		"conflict_details": conflictDetails,
@@ -434,14 +424,7 @@ func (h *ImportHandler) DetectImports(c *gin.Context) {
 		Content string `json:"content" binding:"required"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		entry := middleware.GetRequestLogger(c)
-		if raw, _ := c.GetRawData(); len(raw) > 0 {
-			entry.WithError(err).WithField("raw_body_preview", util.SanitizeForLog(string(raw))).Error("Import UploadMulti: failed to bind JSON")
-		} else {
-			entry.WithError(err).Error("Import UploadMulti: failed to bind JSON")
-		}
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -465,10 +448,14 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 		} `json:"files" binding:"required,min=1"`
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
+	if len(req.Files) > maxImportFiles {
+		respondCoded(c, http.StatusBadRequest, codeImportTooManyFiles, msgImportTooManyFiles, nil)
+		return
+	}
+	h.sweepUploadsFirst(c)
 
 	// Validate: at least one file must be named "Caddyfile" or have no path separator
 	hasCaddyfile := false
@@ -490,6 +477,8 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "invalid session directory"})
 		return
 	}
+	keep := false
+	defer h.discardUnlessKept(c, sessionDir, &keep)
 	// #nosec G301 -- Session directory with standard permissions for import processing
 	if mkdirErr := os.MkdirAll(sessionDir, 0o755); mkdirErr != nil {
 		if respondPermissionError(c, h.securityService, "import_upload_failed", mkdirErr, h.importDir) {
@@ -546,15 +535,7 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 	result, err := h.importerservice.ImportFile(mainCaddyfile)
 	if err != nil {
 		// Provide diagnostics
-		preview := ""
-		if b, rerr := os.ReadFile(mainCaddyfile); rerr == nil {
-			if len(b) > 200 {
-				preview = string(b[:200])
-			} else {
-				preview = string(b)
-			}
-		}
-		middleware.GetRequestLogger(c).WithError(err).WithField("mainCaddyfile", util.SanitizeForLog(filepath.Base(mainCaddyfile))).WithField("preview", util.SanitizeForLog(preview)).Error("Import UploadMulti: import failed")
+		middleware.GetRequestLogger(c).WithError(err).WithField("mainCaddyfile", util.SanitizeForLog(filepath.Base(mainCaddyfile))).Error("Import UploadMulti: import failed")
 		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("import failed: %v", err)})
 		return
 	}
@@ -659,12 +640,59 @@ func (h *ImportHandler) UploadMulti(c *gin.Context) {
 		if respondPermissionError(c, h.securityService, "import_upload_failed", err, h.importDir) {
 			return
 		}
+		c.JSON(http.StatusInternalServerError, gin.H{"error": msgImportSessionNotStored})
+		return
 	}
+	h.supersedeAfterStore(c, sid)
 
+	keep = true
 	c.JSON(http.StatusOK, gin.H{
 		"session": gin.H{"id": sid, "state": "transient", "source_file": mainCaddyfile},
 		"preview": result,
 	})
+}
+
+// Import upload answers and limits (see import_upload_cleanup.go).
+const (
+	codeImportTooManyFiles    = "import_too_many_files"
+	msgImportTooManyFiles     = "The upload has too many files (limit 64)."
+	msgImportSessionNotStored = "Could not store the import session."
+)
+
+// sweepUploadsFirst applies the upload retention rules before a new upload writes anything. A failed sweep is logged
+// and does not refuse the upload.
+func (h *ImportHandler) sweepUploadsFirst(c *gin.Context) {
+	if err := sweepImportUploads(h.db, h.importDir, h.mountPath, time.Now()); err != nil {
+		middleware.GetRequestLogger(c).WithError(err).Warn("Import: could not apply upload retention")
+	}
+}
+
+// discardUnlessKept removes the upload entry at sourceFile unless the answer kept it (keep is set just before a 200).
+// It runs as a deferred call, so every failure path leaves no file behind.
+func (h *ImportHandler) discardUnlessKept(c *gin.Context, sourceFile string, keep *bool) {
+	if *keep {
+		return
+	}
+	h.discardUploadFile(c, sourceFile)
+}
+
+// discardUploadFile removes the upload entry that sourceFile points into, logging a failure.
+func (h *ImportHandler) discardUploadFile(c *gin.Context, sourceFile string) {
+	if err := removeUploadArtifact(h.importDir, sourceFile); err != nil {
+		middleware.GetRequestLogger(c).WithError(err).Warn("Import: could not remove an upload file")
+	}
+}
+
+// supersedeAfterStore expires the older pending uploads once the new session row is stored.
+func (h *ImportHandler) supersedeAfterStore(c *gin.Context, keepUUID string) {
+	if err := supersedeUploadSessions(h.db, h.importDir, keepUUID); err != nil {
+		middleware.GetRequestLogger(c).WithError(err).Warn("Import: could not expire older uploads")
+	}
+}
+
+// SweepUploads applies the upload retention rules once; the server calls it at start-up.
+func (h *ImportHandler) SweepUploads() error {
+	return sweepImportUploads(h.db, h.importDir, h.mountPath, time.Now())
 }
 
 // detectImportDirectives scans Caddyfile content for import directives.
@@ -772,8 +800,7 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 		Names       map[string]string `json:"names"`       // domain -> custom name
 	}
 
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 
@@ -793,21 +820,8 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 			return
 		}
 	} else {
-		// No DB session: check for uploaded temp file
+		// No DB session: check the mounted Caddyfile. Upload files are only read while their session row exists.
 		var parseErr error
-		uploadsPath, err := safeJoin(h.importDir, filepath.Join("uploads", fmt.Sprintf("%s.caddyfile", sid)))
-		if err == nil {
-			if _, err := os.Stat(uploadsPath); err == nil {
-				r, err := h.importerservice.ImportFile(uploadsPath)
-				if err != nil {
-					c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to parse uploaded file"})
-					return
-				}
-				result = r
-				// We'll create a committed DB session after applying
-				session = models.ImportSession{UUID: sid, SourceFile: uploadsPath}
-			}
-		}
 		// If not found yet, check mounted Caddyfile
 		if result == nil && h.mountPath != "" {
 			if _, err := os.Stat(h.mountPath); err == nil {
@@ -873,7 +887,7 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 				host.CreatedAt = existing.CreatedAt
 
 				if err := h.proxyHostSvc.UpdateImported(budget, &host); err != nil {
-					errMsg := fmt.Sprintf("%s: %s", host.DomainNames, err.Error())
+					errMsg := fmt.Sprintf("%s: %s", host.DomainNames, importErrorText(err))
 					errors = append(errors, errMsg)
 					middleware.GetRequestLogger(c).WithField("host", util.SanitizeForLog(host.DomainNames)).WithField("error", util.SanitizeForLog(errMsg)).Error("Import Commit Error (update)")
 				} else {
@@ -888,7 +902,7 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 		// Create new host
 		host.UUID = uuid.NewString()
 		if err := h.proxyHostSvc.CreateImported(budget, &host); err != nil {
-			errMsg := fmt.Sprintf("%s: %s", host.DomainNames, err.Error())
+			errMsg := fmt.Sprintf("%s: %s", host.DomainNames, importErrorText(err))
 			errors = append(errors, errMsg)
 			middleware.GetRequestLogger(c).WithField("host", util.SanitizeForLog(host.DomainNames)).WithField("error", util.SanitizeForLog(errMsg)).Error("Import Commit Error")
 		} else {
@@ -915,6 +929,7 @@ func (h *ImportHandler) Commit(c *gin.Context) {
 			return
 		}
 	}
+	h.discardUploadFile(c, session.SourceFile)
 
 	c.JSON(http.StatusOK, gin.H{
 		"created": created,
@@ -950,6 +965,7 @@ func (h *ImportHandler) Cancel(c *gin.Context) {
 				return
 			}
 		}
+		h.discardUploadFile(c, session.SourceFile)
 		c.JSON(http.StatusOK, gin.H{"message": "import cancelled"})
 		return
 	}

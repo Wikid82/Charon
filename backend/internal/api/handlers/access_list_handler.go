@@ -98,8 +98,7 @@ func (h *AccessListHandler) resolveAccessList(idOrUUID string) (*models.AccessLi
 // Create handles POST /api/v1/access-lists
 func (h *AccessListHandler) Create(c *gin.Context) {
 	var acl models.AccessList
-	if err := c.ShouldBindJSON(&acl); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &acl) {
 		return
 	}
 
@@ -156,9 +155,7 @@ func (h *AccessListHandler) Update(c *gin.Context) {
 	}
 
 	var updates models.AccessList
-	err = c.ShouldBindJSON(&updates)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &updates) {
 		return
 	}
 
@@ -247,8 +244,7 @@ func (h *AccessListHandler) TestIP(c *gin.Context) {
 	var req struct {
 		IPAddress string `json:"ip_address" binding:"required"`
 	}
-	if bindErr := c.ShouldBindJSON(&req); bindErr != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": bindErr.Error()})
+	if !bindJSON(c, &req) {
 		return
 	}
 

@@ -2,6 +2,7 @@ package services
 
 import (
 	"errors"
+	"fmt"
 	"net/url"
 	"strings"
 
@@ -104,12 +105,8 @@ func (s *RedirectionHostService) Create(host *models.RedirectionHost) error {
 // transaction. The lock is database wide, so it also serializes against
 // concurrent ProxyHostService writes (see WithWriteLock).
 func (s *RedirectionHostService) CreateAs(host *models.RedirectionHost, admin bool) error {
-	return WithWriteLock(s.db, &models.RedirectionHost{}, func(tx *gorm.DB) error {
-		if err := s.checkHostWrite(tx, host, 0, admin); err != nil {
-			return err
-		}
-		return tx.Create(host).Error
-	})
+	_, err := s.CreateAsSnapshot(host, admin)
+	return err
 }
 
 // Update validates and updates an existing redirection host. It is the trusted
@@ -124,22 +121,32 @@ func (s *RedirectionHostService) Update(host *models.RedirectionHost) error {
 // uniqueness checks and the write run in one write-locked transaction (see
 // WithWriteLock).
 func (s *RedirectionHostService) UpdateAs(host *models.RedirectionHost, admin bool) error {
-	return WithWriteLock(s.db, &models.RedirectionHost{}, func(tx *gorm.DB) error {
-		if err := s.checkHostWrite(tx, host, host.ID, admin); err != nil {
-			return err
-		}
-		// Use Updates+Select("*") to handle nullable foreign keys properly,
-		// mirroring ProxyHostService.Update.
-		return tx.Model(&models.RedirectionHost{}).
-			Where("id = ?", host.ID).
-			Select("*").
-			Updates(host).Error
-	})
+	_, _, err := s.UpdateAsSnapshot(host, admin)
+	return err
 }
 
 // Delete removes a redirection host.
 func (s *RedirectionHostService) Delete(id uint) error {
-	return s.db.Delete(&models.RedirectionHost{}, id).Error
+	_, err := s.DeleteSnapshot(id)
+	return err
+}
+
+// DeleteSnapshot removes a redirection host and returns the stored state it had, read in the same write-locked
+// transaction as the delete.
+func (s *RedirectionHostService) DeleteSnapshot(id uint) (models.RedirectionHost, error) {
+	var before models.RedirectionHost
+	err := WithWriteLock(s.db, &models.RedirectionHost{}, func(tx *gorm.DB) error {
+		snap, err := readRedirectionHost(tx, id)
+		if err != nil {
+			return err
+		}
+		if err := tx.Delete(&models.RedirectionHost{}, id).Error; err != nil {
+			return fmt.Errorf("delete redirection host %d: %w", id, err)
+		}
+		before = snap
+		return nil
+	})
+	return before, err
 }
 
 // GetByID retrieves a redirection host by numeric ID.

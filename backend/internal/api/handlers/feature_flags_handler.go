@@ -144,8 +144,7 @@ func (h *FeatureFlagsHandler) UpdateFlags(c *gin.Context) {
 	}()
 
 	var payload map[string]bool
-	if err := c.ShouldBindJSON(&payload); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if !bindJSON(c, &payload) {
 		return
 	}
 
