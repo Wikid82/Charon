@@ -546,7 +546,7 @@ Format-v2 backup archives, a validated safe-restore pipeline, optional archive e
 
 - **OAuth token subsystem** (`internal/services/remotestorage/oauthtoken.go`, `internal/services/oauth_state_store.go`): Dropbox and Google Drive targets connect via a browser-based OAuth2 authorization flow (`golang.org/x/oauth2`) instead of a static credential, so the admin never pastes a Dropbox/Google password into Charon. `OAuthStateStore` is an in-memory, single-use, 10-minute-TTL CSRF-state store guarding the callback route (which cannot require a Charon session, since the browser arrives there directly from the provider). Access/refresh tokens are encrypted and stored in the target's existing `SecretsEncrypted` blob; a `persistingTokenSource` wraps `oauth2.Config.TokenSource` so a transparent refresh is re-encrypted and saved back automatically. The `redirect_uri` is built from the existing `app.public_url` `Setting` (the same value already used for invite-email links) — no new config surface.
 
-- **Archive encryption:** optional age/scrypt passphrase encryption of the whole finished archive (`backup_<ts>.zip.age`), off by default. Reuses the existing `crypto.EncryptionService` (`CHARON_ENCRYPTION_KEY`) only to store a *scheduled* backup's passphrase at rest — the archive encryption itself is a separate, unrelated layer with no recovery path if the passphrase is lost.
+- **Archive encryption:** optional age/scrypt passphrase encryption of the whole finished archive (`backup_<ts>.zip.age`), off by default. Uses the shared secret cipher (`crypto.RotationService`, the single key service behind every encrypted store, keyed by `CHARON_ENCRYPTION_KEY`) only to store a *scheduled* backup's passphrase at rest — the archive encryption itself is a separate, unrelated layer with no recovery path if the passphrase is lost.
 
 **API Endpoints** (mounted under the existing `management` group in `internal/api/routes/routes.go`; mutating routes additionally require admin):
 
@@ -1103,7 +1103,7 @@ pin (the stage already carries ~40 such pins).
 - **Input Validation:** Server-side validation for all user inputs
 - **SQL Injection Prevention:** Parameterized queries with GORM
 - **XSS Prevention:** React's built-in escaping + Content Security Policy
-- **Credential Encryption:** AES-GCM with key rotation for stored credentials
+- **Credential Encryption:** AES-GCM with key rotation for stored secrets. One `crypto.RotationService` is built from `config.EncryptionKeys` (`CHARON_ENCRYPTION_KEY`, `_NEXT`, `_V1`-`_V10`) and injected into every writer and reader. The six encrypted stores are listed once in `crypto.EncryptedStores` (with `crypto.EncryptedSettingKeys` for settings); each row stores a cipher and a `key_version`. Versions live in `encryption_key_versions`, keyed by an HMAC of the decoded key bytes, so a key keeps its version when it moves between slots. Decryption tries the tagged version first, then the other loaded keys (AES-GCM authentication makes trial decryption safe). `RotateAll` re-encrypts every store in one `database.WithWriteLock` transaction and rolls back on any error; rows no loaded key can open are skipped and counted. Startup and post-restore `Reconcile` are read-only for store rows (they only update `encryption_key_versions`). Writers that do not re-encrypt omit the cipher and version columns from their updates, so a stale full-row save cannot undo a rotation. After a live restore, `RestoreBackupSafe` calls the encryption rehydrator before the Caddy reload. Pre-release backups fall back to the restart-required path (`TunnelConfig.KeyVersion` is the last column for positional copies).
 - **Password Hashing:** bcrypt at the library's default cost (`bcrypt.DefaultCost`)
 
 ### Management API Authentication & Authorization
@@ -1569,7 +1569,9 @@ Operator runbook: `docs/ci/toolchain-image.md`.
 | Variable | Purpose | Default | Required |
 | ---------- | --------- | --------- | ---------- |
 | `CHARON_ENV` | Environment (production/development) | `production` | No |
-| `CHARON_ENCRYPTION_KEY` | 32-byte base64 key for credential encryption | Auto-generated | No |
+| `CHARON_ENCRYPTION_KEY` | 32-byte base64 key for credential encryption (current key; required to store encrypted secrets) | None | No |
+| `CHARON_ENCRYPTION_KEY_NEXT` | 32-byte base64 key that rotation re-encrypts to; remove after promotion | None | No |
+| `CHARON_ENCRYPTION_KEY_V1` to `CHARON_ENCRYPTION_KEY_V10` | 32-byte base64 old keys kept for decrypting older rows and backups; any slot may hold any old key | None | No |
 | `CHARON_EMERGENCY_TOKEN` | 64-char hex for break-glass access | None | Optional |
 | `CHARON_TRUSTED_PROXIES` | Comma-separated IPs/CIDRs of reverse proxies whose forwarded headers are honored (see `docs/configuration/trusted-proxies.md`) | Empty (trust none) | No |
 | `CHARON_AUTH_RATELIMIT_ENABLED` | `false` disables login protection; any other value keeps it on | `true` | No |
