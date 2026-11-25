@@ -869,10 +869,9 @@ test.describe('Backups Page - Remote Targets', () => {
 
   // WebDAV addresses must be https unless the operator opts in (plan E46).
   // Mocked API: the server decides, the form only forwards the opt-in flag.
-  // Enabled in a later commit once the backend rule and the form option exist.
   test.describe('Creating a WebDAV target with an http:// address', () => {
     const httpUrl = 'http://nas.lan/remote.php/dav/files/charon/';
-    const serverMessage = 'WebDAV addresses must use https:// unless plain HTTP is allowed';
+    const serverMessage = 'Use an https:// address, or turn on "Allow unencrypted HTTP" for this destination.';
 
     async function fillHttpWebDAVForm(page: import('@playwright/test').Page) {
       await page.getByRole('button', { name: /add remote target/i }).first().click();
@@ -885,7 +884,7 @@ test.describe('Backups Page - Remote Targets', () => {
       return dialog;
     }
 
-    test.fixme(
+    test(
       'should show the server message when an http:// address is saved without the option ticked',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -904,17 +903,17 @@ test.describe('Backups Page - Remote Targets', () => {
 
         await test.step('Fill the form with an http:// address and leave the option unticked', async () => {
           const dialog = await fillHttpWebDAVForm(page);
-          await expect(dialog.getByLabel(/plain http|allow insecure http/i)).not.toBeChecked();
+          await expect(dialog.getByLabel(/allow unencrypted http/i)).not.toBeChecked();
           await dialog.getByRole('button', { name: /save|create/i }).click();
         });
 
         await test.step('Show the server message in an error toast', async () => {
-          await waitForToast(page, /must use https/i, { type: 'error' });
+          await waitForToast(page, /use an https:\/\/ address/i, { type: 'error' });
         });
       }
     );
 
-    test.fixme(
+    test(
       'should show the warning and send allow_insecure_http when the option is ticked',
       async ({ page, adminUser }) => {
         await loginUser(page, adminUser);
@@ -947,8 +946,8 @@ test.describe('Backups Page - Remote Targets', () => {
 
         await test.step('Tick the option and see the warning', async () => {
           const dialog = await fillHttpWebDAVForm(page);
-          await dialog.getByLabel(/plain http|allow insecure http/i).check();
-          await expect(dialog.getByText(/unencrypted|not encrypted/i)).toBeVisible();
+          await dialog.getByLabel(/allow unencrypted http/i).check();
+          await expect(dialog.getByText(/sent without encryption/i)).toBeVisible();
         });
 
         await test.step('Submit and send the flag with the http:// address', async () => {
