@@ -956,6 +956,7 @@
     "loadError": "Erreur lors du chargement des domaines"
   },
   "remoteServers": {
+    "directConnectionUnencrypted": "Direct connections are not encrypted. Orthrus is recommended for other machines.",
     "title": "Serveurs Distants",
     "description": "Gérez les serveurs backend pour vos hôtes proxy",
     "addServer": "Ajouter un Serveur",

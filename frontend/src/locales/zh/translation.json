@@ -956,6 +956,7 @@
     "loadError": "加载域名错误"
   },
   "remoteServers": {
+    "directConnectionUnencrypted": "Direct connections are not encrypted. Orthrus is recommended for other machines.",
     "title": "远程服务器",
     "description": "管理代理主机的后端服务器",
     "addServer": "添加服务器",

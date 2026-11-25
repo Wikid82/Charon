@@ -917,6 +917,7 @@
     "loadError": "Error loading domains"
   },
   "remoteServers": {
+    "directConnectionUnencrypted": "Direct connections are not encrypted. Orthrus is recommended for other machines.",
     "title": "Remote Servers",
     "description": "Manage backend servers for your proxy hosts",
     "addServer": "Add Server",

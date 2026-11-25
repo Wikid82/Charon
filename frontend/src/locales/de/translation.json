@@ -956,6 +956,7 @@
     "loadError": "Fehler beim Laden der Domänen"
   },
   "remoteServers": {
+    "directConnectionUnencrypted": "Direct connections are not encrypted. Orthrus is recommended for other machines.",
     "title": "Remote-Server",
     "description": "Backend-Server für Ihre Proxy-Hosts verwalten",
     "addServer": "Server hinzufügen",

@@ -5,6 +5,7 @@ import { AxiosError, type AxiosResponse } from 'axios'
 import { MemoryRouter } from 'react-router'
 import { describe, it, expect, vi, afterEach } from 'vitest'
 
+import { missingLocaleKeys } from '../../__tests__/utils/localeKeys'
 import * as remoteServersApi from '../../api/remoteServers'
 import * as useOrthrusHook from '../../hooks/useOrthrus'
 import RemoteServerForm from '../RemoteServerForm'
@@ -619,4 +620,72 @@ describe('RemoteServerForm re-seeding', () => {
     expect(screen.queryByDisplayValue('Server A')).not.toBeInTheDocument()
   })
 
+})
+
+describe('RemoteServerForm direct Docker encryption note', () => {
+  const NOTE = 'Direct connections are not encrypted. Orthrus is recommended for other machines.'
+
+  function renderDirectForm(provider: string, connectionType?: string) {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    return render(
+      <MemoryRouter>
+        <QueryClientProvider client={qc}>
+          <RemoteServerForm
+            onSubmit={vi.fn(() => Promise.resolve())}
+            onCancel={vi.fn()}
+            server={{
+              uuid: 'u-1',
+              name: 'Docker Source',
+              provider,
+              host: '192.168.1.10',
+              port: 2375,
+              enabled: true,
+              reachable: true,
+              created_at: '2025-11-18T10:00:00Z',
+              updated_at: '2025-11-18T10:00:00Z',
+              ...(connectionType ? { connection_type: connectionType } : {}),
+            } as Parameters<typeof RemoteServerForm>[0]['server']}
+          />
+        </QueryClientProvider>
+      </MemoryRouter>
+    )
+  }
+
+  it('shows the unencrypted note for a direct Docker source', () => {
+    renderDirectForm('docker')
+
+    expect(screen.getByText(NOTE)).toBeInTheDocument()
+  })
+
+  it('shows the note after switching a new source to Docker in direct mode', async () => {
+    const qc = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+    render(
+      <MemoryRouter>
+        <QueryClientProvider client={qc}>
+          <RemoteServerForm onSubmit={vi.fn(() => Promise.resolve())} onCancel={vi.fn()} />
+        </QueryClientProvider>
+      </MemoryRouter>
+    )
+
+    expect(screen.queryByText(NOTE)).not.toBeInTheDocument()
+    await userEvent.selectOptions(screen.getByDisplayValue('Generic'), 'docker')
+
+    expect(screen.getByText(NOTE)).toBeInTheDocument()
+  })
+
+  it('hides the note for a direct source that is not Docker', () => {
+    renderDirectForm('generic')
+
+    expect(screen.queryByText(NOTE)).not.toBeInTheDocument()
+  })
+
+  it('hides the note when the Docker source uses the agent connection', () => {
+    renderDirectForm('docker', 'orthrus')
+
+    expect(screen.queryByText(NOTE)).not.toBeInTheDocument()
+  })
+
+  it('has the note text in every bundled locale', () => {
+    expect(missingLocaleKeys(['remoteServers.directConnectionUnencrypted'])).toEqual([])
+  })
 })
