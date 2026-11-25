@@ -49,3 +49,29 @@ func OpenMemoryDB(t testing.TB) *gorm.DB {
 	})
 	return db
 }
+
+// OpenMemoryDBWithForeignKeys opens like OpenMemoryDB with SQLite reference enforcement on for every connection.
+// The driver applies the parameter silently when it does not know it, so the pragma is read back and the test fails
+// unless it reads 1.
+func OpenMemoryDBWithForeignKeys(t testing.TB) *gorm.DB {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(MemoryDSN(t, "_busy_timeout=5000", "_foreign_keys=1")), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatalf("failed to open in-memory db: %v", err)
+	}
+	t.Cleanup(func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	})
+	var enforced int
+	if err := db.Raw("PRAGMA foreign_keys").Scan(&enforced).Error; err != nil {
+		t.Fatalf("read PRAGMA foreign_keys: %v", err)
+	}
+	if enforced != 1 {
+		t.Fatalf("PRAGMA foreign_keys = %d, want 1: the driver did not enable reference enforcement", enforced)
+	}
+	return db
+}

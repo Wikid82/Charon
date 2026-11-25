@@ -319,8 +319,27 @@ func (s *BackupRemoteService) Update(uuidStr string, name *string, enabled *bool
 }
 
 // Delete removes a remote target.
+// Delete removes a remote target and the upload history rows that point at it, in one transaction. An unknown UUID
+// is not an error.
 func (s *BackupRemoteService) Delete(uuidStr string) error {
-	if err := s.db.Where("uuid = ?", uuidStr).Delete(&models.RemoteStorageTarget{}).Error; err != nil {
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var target models.RemoteStorageTarget
+		err := tx.Select("id").Where("uuid = ?", uuidStr).First(&target).Error
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("find remote storage target: %w", err)
+		}
+		if err := tx.Where("remote_target_id = ?", target.ID).Delete(&models.BackupRemoteCopy{}).Error; err != nil {
+			return fmt.Errorf("delete upload history of remote storage target: %w", err)
+		}
+		if err := tx.Delete(&models.RemoteStorageTarget{}, target.ID).Error; err != nil {
+			return fmt.Errorf("delete remote storage target: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
 		return fmt.Errorf("delete remote storage target: %w", err)
 	}
 	return nil

@@ -220,10 +220,17 @@ func (h *BackupHandler) Delete(c *gin.Context) {
 	if h.db != nil {
 		var record models.BackupRecord
 		if err := h.db.Where("filename = ?", filename).First(&record).Error; err == nil {
-			if err := h.db.Where("backup_record_id = ?", record.ID).Delete(&models.BackupRemoteCopy{}).Error; err != nil {
-				logger.Log().WithError(err).Warn("failed to delete backup remote copy rows")
-			}
-			if err := h.db.Delete(&record).Error; err != nil {
+			// The copy rows and the record go together, so a failure leaves neither half behind.
+			err := h.db.Transaction(func(tx *gorm.DB) error {
+				if err := tx.Where("backup_record_id = ?", record.ID).Delete(&models.BackupRemoteCopy{}).Error; err != nil {
+					return fmt.Errorf("delete backup remote copy rows: %w", err)
+				}
+				if err := tx.Delete(&record).Error; err != nil {
+					return fmt.Errorf("delete backup record: %w", err)
+				}
+				return nil
+			})
+			if err != nil {
 				logger.Log().WithError(err).Warn("failed to delete backup record")
 			}
 		}
