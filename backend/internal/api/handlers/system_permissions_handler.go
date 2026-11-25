@@ -13,6 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/util"
@@ -61,12 +62,25 @@ type permissionsRepairResult struct {
 // guard). No new error code or message shape versus before this helper
 // existed -- purely a shared constructor for an already-identical literal.
 func outsideAllowlistResult(path string) permissionsRepairResult {
+	return repairError(path, "permissions_outside_allowlist", "path outside allowlist")
+}
+
+// repairError builds a failed repair result with a stable error code and a
+// message that is safe to show to the admin.
+func repairError(path, code, msg string) permissionsRepairResult {
 	return permissionsRepairResult{
 		Path:      path,
 		Status:    "error",
-		ErrorCode: "permissions_outside_allowlist",
-		Message:   "path outside allowlist",
+		ErrorCode: code,
+		Message:   msg,
 	}
+}
+
+// repairFailure builds a failed repair result for an unexpected system error.
+// The admin sees only the fixed message; the underlying error is logged.
+func repairFailure(path, code, msg string, err error) permissionsRepairResult {
+	logger.Log().WithError(err).WithField("error_code", code).Warn("permission repair failed")
+	return repairError(path, code, msg)
 }
 
 func NewSystemPermissionsHandler(cfg config.Config, securityService *services.SecurityService, checker PermissionChecker) *SystemPermissionsHandler {
@@ -141,12 +155,7 @@ func (h *SystemPermissionsHandler) RepairPermissions(c *gin.Context) {
 func (h *SystemPermissionsHandler) repairPath(rawPath string, groupMode bool, allowlist []string) permissionsRepairResult {
 	cleanPath, invalidCode := normalizePath(rawPath)
 	if invalidCode != "" {
-		return permissionsRepairResult{
-			Path:      rawPath,
-			Status:    "error",
-			ErrorCode: invalidCode,
-			Message:   "invalid path",
-		}
+		return repairError(rawPath, invalidCode, "invalid path")
 	}
 
 	normalizedAllowlist := normalizeAllowlist(allowlist)
@@ -184,83 +193,32 @@ func (h *SystemPermissionsHandler) repairPath(rawPath string, groupMode bool, al
 
 	info, err := os.Lstat(cleanPath)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return permissionsRepairResult{
-				Path:      cleanPath,
-				Status:    "error",
-				ErrorCode: "permissions_missing_path",
-				Message:   "path does not exist",
-			}
-		}
-		return permissionsRepairResult{
-			Path:      cleanPath,
-			Status:    "error",
-			ErrorCode: "permissions_repair_failed",
-			Message:   err.Error(),
-		}
+		return lstatRepairError(cleanPath, err)
 	}
 
 	if info.Mode()&os.ModeSymlink != 0 {
-		return permissionsRepairResult{
-			Path:      cleanPath,
-			Status:    "error",
-			ErrorCode: "permissions_symlink_rejected",
-			Message:   "symlink not allowed",
-		}
+		return symlinkRejectedResult(cleanPath)
 	}
 
 	hasSymlinkComponent, symlinkErr := pathHasSymlink(cleanPath, normalizedAllowlist)
 	if symlinkErr != nil {
-		if os.IsNotExist(symlinkErr) {
-			return permissionsRepairResult{
-				Path:      cleanPath,
-				Status:    "error",
-				ErrorCode: "permissions_missing_path",
-				Message:   "path does not exist",
-			}
-		}
-		return permissionsRepairResult{
-			Path:      cleanPath,
-			Status:    "error",
-			ErrorCode: "permissions_repair_failed",
-			Message:   symlinkErr.Error(),
-		}
+		return lstatRepairError(cleanPath, symlinkErr)
 	}
 	if hasSymlinkComponent {
-		return permissionsRepairResult{
-			Path:      cleanPath,
-			Status:    "error",
-			ErrorCode: "permissions_symlink_rejected",
-			Message:   "symlink not allowed",
-		}
+		return symlinkRejectedResult(cleanPath)
 	}
 
 	resolved, err := filepath.EvalSymlinks(cleanPath)
 	if err != nil {
-		return permissionsRepairResult{
-			Path:      cleanPath,
-			Status:    "error",
-			ErrorCode: "permissions_repair_failed",
-			Message:   err.Error(),
-		}
+		return repairFailure(cleanPath, "permissions_repair_failed", "could not read the path", err)
 	}
 
 	if !isWithinAllowlist(resolved, normalizedAllowlist) {
-		return permissionsRepairResult{
-			Path:      cleanPath,
-			Status:    "error",
-			ErrorCode: "permissions_outside_allowlist",
-			Message:   "path outside allowlist",
-		}
+		return outsideAllowlistResult(cleanPath)
 	}
 
 	if !info.IsDir() && !info.Mode().IsRegular() {
-		return permissionsRepairResult{
-			Path:      cleanPath,
-			Status:    "error",
-			ErrorCode: "permissions_unsupported_type",
-			Message:   "unsupported path type",
-		}
+		return repairError(cleanPath, "permissions_unsupported_type", "unsupported path type")
 	}
 
 	uid := os.Geteuid()
@@ -284,31 +242,16 @@ func (h *SystemPermissionsHandler) repairPath(rawPath string, groupMode bool, al
 	}
 
 	if err := os.Chown(cleanPath, uid, gid); err != nil {
-		return permissionsRepairResult{
-			Path:      cleanPath,
-			Status:    "error",
-			ErrorCode: mapRepairErrorCode(err),
-			Message:   err.Error(),
-		}
+		return repairFailure(cleanPath, mapRepairErrorCode(err), "could not change ownership", err)
 	}
 
 	parsedMode, parseErr := parseMode(modeAfter)
 	if parseErr != nil {
-		return permissionsRepairResult{
-			Path:      cleanPath,
-			Status:    "error",
-			ErrorCode: "permissions_repair_failed",
-			Message:   parseErr.Error(),
-		}
+		return repairFailure(cleanPath, "permissions_repair_failed", "could not change the mode", parseErr)
 	}
 
 	if err := os.Chmod(cleanPath, parsedMode); err != nil {
-		return permissionsRepairResult{
-			Path:      cleanPath,
-			Status:    "error",
-			ErrorCode: mapRepairErrorCode(err),
-			Message:   err.Error(),
-		}
+		return repairFailure(cleanPath, mapRepairErrorCode(err), "could not change the mode", err)
 	}
 
 	return permissionsRepairResult{
@@ -320,6 +263,19 @@ func (h *SystemPermissionsHandler) repairPath(rawPath string, groupMode bool, al
 		ModeAfter:  modeAfter,
 		Message:    "ownership and mode updated",
 	}
+}
+
+func symlinkRejectedResult(path string) permissionsRepairResult {
+	return repairError(path, "permissions_symlink_rejected", "symlink not allowed")
+}
+
+// lstatRepairError maps a failed Lstat (or the symlink walk that uses it) to a
+// result: a missing path gets its own code, anything else is a read failure.
+func lstatRepairError(path string, err error) permissionsRepairResult {
+	if os.IsNotExist(err) {
+		return repairError(path, "permissions_missing_path", "path does not exist")
+	}
+	return repairFailure(path, "permissions_repair_failed", "could not read the path", err)
 }
 
 func (h *SystemPermissionsHandler) defaultPaths() []permissionsPathSpec {
