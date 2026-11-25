@@ -235,3 +235,44 @@ func TestDropRefusedForwardTargets_StoredAgentNameRowIsSkipped(t *testing.T) {
 	require.Len(t, got, 1)
 	assert.Equal(t, "fine", got[0].UUID)
 }
+
+// advancedFakeGuard refuses the dials in refusedDials and implements AdvancedDialGuard.
+type advancedFakeGuard struct {
+	refusedDials map[string]bool
+}
+
+func (g advancedFakeGuard) RefusesForwardTarget(string, int) (bool, error) { return false, nil }
+
+func (g advancedFakeGuard) RefusesAdvancedDial(dial string) (bool, error) {
+	return g.refusedDials[dial], nil
+}
+
+func TestAdvancedConfigRefused_TransportAndHealthCheckTargets(t *testing.T) {
+	t.Parallel()
+	guard := advancedFakeGuard{refusedDials: map[string]bool{"probe.lan:8081": true, "10.0.0.1:8085": true}}
+	tests := map[string]struct {
+		raw  string
+		want bool
+	}{
+		"name behind fastcgi": {
+			`{"handler":"reverse_proxy","transport":{"protocol":"fastcgi"},"upstreams":[{"dial":"app.lan:9000"}]}`, true,
+		},
+		"refused health check upstream": {
+			`{"handler":"reverse_proxy","upstreams":[{"dial":"10.0.0.1:8080"}],"health_checks":{"active":{"upstream":"probe.lan:8081"}}}`, true,
+		},
+		"refused health check port pair": {
+			`{"handler":"reverse_proxy","upstreams":[{"dial":"10.0.0.1:8080"}],"health_checks":{"active":{"port":8085}}}`, true,
+		},
+		"accepted health check port pair": {
+			`{"handler":"reverse_proxy","upstreams":[{"dial":"10.0.0.1:8080"}],"health_checks":{"active":{"port":9000}}}`, false,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			refused, err := advancedConfigRefused(guard, tc.raw)
+			assert.NoError(t, err)
+			assert.Equal(t, tc.want, refused)
+		})
+	}
+}
