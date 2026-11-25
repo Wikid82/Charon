@@ -209,7 +209,7 @@ func TestGatewayCarveOut_FromHostsFileOnlyForExactAddresses(t *testing.T) {
 	hosts := filepath.Join(dir, "hosts")
 	content := "# comment line\n" +
 		"169.254.1.2 host.containers.internal # Podman pasta\n" +
-		"0.250.250.254 host.docker.internal gateway.docker.internal\n" +
+		"0.250.250.254 host.docker.internal gateway.docker.internal host.orb.internal\n" +
 		"169.254.169.254 gateway.docker.internal\n" +
 		"10.9.9.9 unrelated.example\n" +
 		"not-an-ip host.containers.internal\n"

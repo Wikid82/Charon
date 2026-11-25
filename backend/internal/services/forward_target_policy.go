@@ -46,10 +46,16 @@ var lookupForwardHost = func(ctx context.Context, name string) ([]net.IPAddr, er
 }
 
 // gatewayNames are names that reach the container host: Docker Desktop and OrbStack
-// (host.docker.internal, gateway.docker.internal) and Podman (host.containers.internal).
-// A listener port can be reached through them, so they count as this machine whatever
-// they resolve to. Their exact addresses are also allowed (see gatewayAllowAddrs).
-var gatewayNames = []string{"host.docker.internal", "host.containers.internal", "gateway.docker.internal"}
+// (host.docker.internal, gateway.docker.internal, host.orb.internal) and Podman
+// (host.containers.internal). A listener port can be reached through them, so they
+// count as this machine whatever they resolve to. Their exact addresses are also
+// allowed (see gatewayAllowAddrs).
+var gatewayNames = []string{
+	"host.docker.internal",
+	"host.containers.internal",
+	"gateway.docker.internal",
+	"host.orb.internal",
+}
 
 // hostSideAddrs lists the host-side addresses of this container's networks. Tests replace it.
 var hostSideAddrs = orthrus.HostSideAddrs

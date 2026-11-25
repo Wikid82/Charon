@@ -398,7 +398,7 @@ The registry check needs a note. Read-only means the proxy can't change anything
 When you save a proxy host or a location, Charon checks its forward target. It refuses the save if the target is:
 
 - A link-local address (`169.254.0.0/16` or `fe80::/10`), a cloud instance service address such as `169.254.169.254`, or another reserved address such as multicast or broadcast
-- This machine on a port Charon uses for itself: the agent proxy ports and the internal ports opened for connected agents, the internal admin port (2019), the bundled CrowdSec port (8085), and the emergency server port while that server is turned on. This applies to `localhost`, `127.0.0.1`, the machine's own addresses, and the Docker and Podman host names (`host.docker.internal`, `host.containers.internal`, `gateway.docker.internal`).
+- This machine on a port Charon uses for itself: the agent proxy ports and the internal ports opened for connected agents, the internal admin port (2019), the bundled CrowdSec port (8085), and the emergency server port while that server is turned on. This applies to `localhost`, `127.0.0.1`, the machine's own addresses, and the Docker, OrbStack and Podman host names (`host.docker.internal`, `host.containers.internal`, `gateway.docker.internal`, `host.orb.internal`).
 - The agent-name form (`orthrus:<agent>`). It is not accepted as a forward target at all.
 
 Everything else is allowed, including private network addresses, loopback on ports Charon does not use, Tailscale-style addresses (`100.64.0.0/10`), IPv6 private addresses, and the fake-IP range `198.18.0.0/15`. The IPv4 address `0.0.0.0` counts as loopback: it is allowed on ports Charon does not use and refused on the ports above, like `127.0.0.1`.
