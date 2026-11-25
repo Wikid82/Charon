@@ -398,6 +398,27 @@ describe('RemoteTargetFormDialog', () => {
     expect(onClose).not.toHaveBeenCalled()
   })
 
+  it('shows an error toast, skips OAuth and keeps the dialog open when creating an OAuth target fails', async () => {
+    const { toast } = await import('../../../utils/toast')
+    mockCreateMutate.mockImplementationOnce((_payload, { onError }) => onError(new Error('create failed')))
+    const onClose = vi.fn()
+    const user = userEvent.setup()
+    render(<RemoteTargetFormDialog open target={null} onClose={onClose} />)
+    const dialog = screen.getByRole('dialog')
+    await user.click(within(dialog).getByRole('radio', { name: /dropbox/i }))
+    await user.type(within(dialog).getByLabelText(/app key/i), 'abc123')
+    await user.type(within(dialog).getByLabelText(/app secret/i), 'dropbox-app-secret')
+    await user.type(within(dialog).getByLabelText(/folder path/i), '/charon-backups')
+
+    await user.click(within(dialog).getByRole('button', { name: /save & connect/i }))
+
+    expect(mockCreateMutate).toHaveBeenCalledTimes(1)
+    expect(toast.error).toHaveBeenCalledWith('create failed')
+    expect(mockStartOAuthMutate).not.toHaveBeenCalled()
+    expect(window.location.href).toBe('')
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
   it('submits a Google Drive target with client_id/client_secret/folder_path and starts OAuth', async () => {
     mockStartOAuthMutate.mockImplementation((_uuid, { onSuccess }) => {
       onSuccess({ authorize_url: 'https://accounts.google.com/o/oauth2/v2/auth?client_id=xyz' })
