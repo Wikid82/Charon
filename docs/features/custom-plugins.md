@@ -29,21 +29,19 @@ Custom plugins run directly within the Charon process with full access to:
 1. **Verify Plugin Source:** Only download plugins from official repositories or trusted developers
 2. **Check Signatures:** Use signature verification (see Configuration section)
 3. **Review Code:** If possible, review plugin source code before building
-4. **Secure Permissions:** Plugin directory must not be world-writable (enforced automatically)
+4. **Secure Permissions:** The plugin folder and its files must not be writable by group or others (checked automatically; see [Plugin Security](plugin-security.md))
 5. **Isolate Environment:** Consider running Charon in a container with restricted permissions
 6. **Regular Updates:** Keep plugins updated to receive security patches
 
 ### Signature Verification
 
-Configure signature verification in your Charon configuration:
+Set the `CHARON_PLUGIN_SIGNATURES` environment variable to list the plugins you allow, with their hashes:
 
-```yaml
-plugins:
-  directory: /path/to/plugins
-  allowed_signatures:
-    powerdns: "sha256:abc123def456..."
-    custom-provider: "sha256:789xyz..."
+```bash
+export CHARON_PLUGIN_SIGNATURES='{"powerdns": "sha256:abc123def456...", "custom-provider": "sha256:789xyz..."}'
 ```
+
+The list is checked at start-up, when you reload plugins, and when you enable a plugin. A plugin that is not listed, or whose hash does not match, is not loaded.
 
 To generate a signature for a plugin:
 
@@ -90,14 +88,11 @@ sha256sum powerdns.so
 
 4. **Configure Charon**
 
-   Edit your Charon configuration file:
+   Set the plugin folder and (recommended) the allowed list in the environment of your Charon container or service:
 
-   ```yaml
-   plugins:
-     directory: /etc/charon/plugins
-     # Optional: Enable signature verification
-     allowed_signatures:
-       powerdns: "sha256:your-signature-here"
+   ```bash
+   CHARON_PLUGINS_DIR=/etc/charon/plugins
+   CHARON_PLUGIN_SIGNATURES='{"powerdns": "sha256:your-signature-here"}'
    ```
 
 5. **Restart Charon**
@@ -339,7 +334,7 @@ go version
 
 ```bash
 ls -la /etc/charon/plugins/
-# Should be 755 or 644, not world-writable
+# Folder should be 755; files should be 644 (no group or other write)
 ```
 
 **Check Charon Logs:**
@@ -382,14 +377,14 @@ sudo journalctl -u charon -n 100 | grep -i plugin
 
 ### Directory Permission Errors
 
-If Charon reports "directory has insecure permissions":
+If Charon reports "plugin folder is group- or world-writable", set the folder to mode `755`:
 
 ```bash
-# Fix directory permissions
+# Fix folder permissions
 sudo chmod 755 /etc/charon/plugins
 
-# Ensure not world-writable
-sudo chmod -R o-w /etc/charon/plugins
+# Remove group and other write access from the plugin files
+sudo chmod -R go-w /etc/charon/plugins
 ```
 
 ## Performance Considerations

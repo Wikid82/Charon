@@ -12,7 +12,7 @@ This guide explains how to:
 
 - Configure signature-based allowlisting
 - Deploy plugins securely in containers
-- Mitigate common attack vectors
+- Understand how Charon checks and loads plugin files
 
 ---
 
@@ -28,6 +28,8 @@ CHARON_PLUGIN_SIGNATURES='{"pluginname": "sha256:..."}'
 
 **Key format**: Plugin name **without** the `.so` extension.
 
+The same list is used at start-up, when you reload plugins, and when you enable a plugin.
+
 ### Behavior Matrix
 
 | `CHARON_PLUGIN_SIGNATURES` Value | Behavior |
@@ -35,6 +37,17 @@ CHARON_PLUGIN_SIGNATURES='{"pluginname": "sha256:..."}'
 | Unset or empty (`""`) | **Permissive mode** — All plugins are loaded (backward compatible) |
 | Set to `{}` | **Strict block-all** — No external plugins are loaded |
 | Set with entries | **Allowlist mode** — Only listed plugins with matching signatures are loaded |
+| Set, but not valid JSON, or a value does not start with `sha256:` | **Block-all** — No external plugins are loaded until you fix the value and restart. The log shows an error |
+
+### Private Plugin Cache
+
+When a plugin passes the checks, Charon copies the verified file into a private folder and loads that copy. By default the folder is `plugin-cache` inside your data folder (`/app/data/plugin-cache` in the container). Each copy can only be read and run by its owner, and the folder is kept private to the Charon user.
+
+| Variable | What it does | Default |
+| --- | --- | --- |
+| `CHARON_PLUGIN_CACHE_DIR` | Folder for those private copies. Use it if the data folder does not allow running program files | `<data folder>/plugin-cache` |
+
+If the cache folder is mounted with `noexec` (it does not allow running program files), the plugin does not load. The status and the log name `CHARON_PLUGIN_CACHE_DIR`. Point that variable at a folder that allows it, then restart Charon. Charon never loads the original file as a fallback.
 
 ### Examples
 
@@ -111,10 +124,7 @@ services:
       - CHARON_PLUGIN_SIGNATURES={"powerdns": "sha256:..."}
 ```
 
-This prevents runtime modification of plugin files, mitigating:
-
-- Time-of-check to time-of-use (TOCTOU) attacks
-- Malicious plugin replacement after signature verification
+This keeps plugin files from being changed while Charon runs. Charon also loads its own verified copy (see [Private Plugin Cache](#private-plugin-cache)), so a changed original is not loaded until it is checked again at the next start-up, reload or enable.
 
 ### Non-Root Execution
 
@@ -138,18 +148,21 @@ USER charon
 
 ### Directory Permissions
 
-Plugin directories must **not** be world-writable. Charon enforces this at startup.
+Plugin folders must **not** be writable by group or others. Charon checks this at start-up, on reload and on enable.
 
-| Permission | Result |
-| --- | --- |
-| `0755` or stricter | ✅ Allowed |
-| `0777` (world-writable) | ❌ Rejected — plugin loading disabled |
+| Item | Permission | Result |
+| --- | --- | --- |
+| Plugin folder | `755` or stricter | ✅ Allowed |
+| Plugin folder | Writable by group or others (for example `775` or `777`) | ❌ Refused. The message asks you to set the folder to mode `755` |
+| Plugin file | `644`, `444` or stricter | ✅ Allowed |
+| Plugin file | Writable by group or others (for example `664` or `666`) | ❌ Refused, and the status says why |
+| Plugin file | A symbolic link, or larger than 256 MiB | ❌ Refused |
 
 **Set secure permissions**:
 
 ```bash
 chmod 755 /path/to/plugins
-chmod 644 /path/to/plugins/*.so  # Or 755 for executable
+chmod 644 /path/to/plugins/*.so
 ```
 
 ### Complete Secure Deployment Example
@@ -175,13 +188,13 @@ services:
 
 ---
 
-## TOCTOU Mitigation
+## Keeping Plugin Files Trustworthy
 
-Time-of-check to time-of-use (TOCTOU) vulnerabilities occur when a file is modified between signature verification and loading. Mitigate with:
+Charon reads each plugin file once, checks it, and loads the verified copy. To keep your setup simple and predictable:
 
-### 1. Read-Only Mounts (Primary Defense)
+### 1. Read-Only Mounts (Recommended)
 
-Mount the plugin directory as read-only (`:ro`). This prevents modification after startup.
+Mount the plugin directory as read-only (`:ro`). Nothing inside the container can then replace a plugin file.
 
 ### 2. Atomic File Replacement for Updates
 
@@ -198,15 +211,15 @@ mv /tmp/plugin.so.new /app/plugins/plugin.so
 docker compose restart charon
 ```
 
-> **⚠️ Warning**: `cp` followed by direct write to the plugin directory is **not atomic** and creates a window for exploitation.
+> **⚠️ Warning**: `cp` writes straight into the plugin folder, so a half-written file can be picked up. Use `mv` as shown above.
 
 ### Bundled PowerDNS Plugin Was Rebuilt
 
 The bundled PowerDNS plugin has been rebuilt. If you pin plugin signatures with `CHARON_PLUGIN_SIGNATURES`, recompute the SHA-256 (`sha256sum powerdns.so`) and update the allowlist. Until you do, the PowerDNS provider will not load.
 
-### 3. Signature Re-Verification on Reload
+### 3. Update Signatures After Each Plugin Change
 
-After updating plugins, always update your `CHARON_PLUGIN_SIGNATURES` with the new hash before restarting.
+After updating plugins, update your `CHARON_PLUGIN_SIGNATURES` with the new hash before restarting, reloading or enabling the plugin.
 
 ---
 
@@ -266,22 +279,22 @@ export CHARON_PLUGIN_SIGNATURES='{"powerdns": "sha256:YOUR_HASH_HERE"}'
 2. Re-compute the signature: `sha256sum plugin.so`
 3. Update `CHARON_PLUGIN_SIGNATURES` with the correct hash
 
-#### `plugin directory has insecure permissions`
+#### `plugin folder is group- or world-writable`
 
-**Cause**: The plugin directory is world-writable (mode `0777` or similar).
+**Cause**: The plugin folder can be changed by people other than its owner (mode `775`, `777` or similar). No plugin loads from it.
 
-**Solution**:
+**Solution**: Set the folder to mode `755` and the plugin files to `644`, then reload plugins or restart Charon:
 
 ```bash
 chmod 755 /path/to/plugins
 chmod 644 /path/to/plugins/*.so
 ```
 
-#### `invalid CHARON_PLUGIN_SIGNATURES JSON`
+#### `CHARON_PLUGIN_SIGNATURES is not valid`
 
-**Cause**: Malformed JSON in the environment variable.
+**Cause**: The environment variable is not valid JSON, or one of its values does not start with `sha256:`. **No external plugin loads** while this is wrong, so the built-in providers keep working and the log shows an error.
 
-**Solution**: Validate your JSON:
+**Solution**: Fix the value, then restart Charon. Validate your JSON:
 
 ```bash
 echo '{"powerdns": "sha256:abc123"}' | jq .
@@ -292,6 +305,12 @@ Common issues:
 - Missing quotes around keys or values
 - Trailing commas
 - Single quotes instead of double quotes
+
+#### `Could not load the plugin from ... set CHARON_PLUGIN_CACHE_DIR`
+
+**Cause**: The private plugin folder does not allow running program files (for example, a `noexec` mount).
+
+**Solution**: Set `CHARON_PLUGIN_CACHE_DIR` to a folder that allows it, then restart Charon. See [Private Plugin Cache](#private-plugin-cache).
 
 #### Permission denied when loading plugin
 

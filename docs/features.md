@@ -56,7 +56,7 @@ Need to secure `*.example.com` with a single certificate? Charon now supports DN
 
 Charon checks the addresses you enter for DNS providers and refuses ones that point back at the Charon host itself or at cloud-internal addresses.
 
-Your credentials are stored securely with encryption and key rotation, which you start yourself from the Encryption page. More providers are on the roadmap — see the [DNS Providers Guide](guides/dns-providers.md) for details.
+Your credentials are stored securely with encryption and key rotation, which you start yourself from the Encryption page. External DNS provider plugins can be limited to a signature list you set, and they run from a verified private copy. More providers are on the roadmap — see the [DNS Providers Guide](guides/dns-providers.md) for details.
 
 → [Learn More](features/dns-challenge.md)
 
@@ -368,7 +368,7 @@ Charon has administrators, who can change anything, and standard users, who mana
 
 ### 💾 Backup & Restore
 
-Your configuration is valuable. Charon makes it easy to backup your entire setup and restore it when needed—whether you're migrating to new hardware or recovering from a problem. Backups include a validated, checksummed archive format, configurable scheduling, optional passphrase encryption, and automatic copies to S3, SFTP, WebDAV, Dropbox, or Google Drive.
+Your configuration is valuable. Charon makes it easy to backup your entire setup and restore it when needed—whether you're migrating to new hardware or recovering from a problem. Backups include a validated, checksummed archive format, configurable scheduling, optional passphrase encryption, and automatic copies to S3, SFTP, WebDAV, Dropbox, or Google Drive. WebDAV destinations use `https://` unless you allow plain HTTP for that one destination.
 
 → [Learn More](features/backup-restore.md) • [Connecting Dropbox/Google Drive](features/backup-remote-oauth-setup.md) • [Disaster Recovery Guide](features/disaster-recovery.md)
 
