@@ -5,6 +5,7 @@ import (
 
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/database"
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
@@ -14,8 +15,16 @@ import (
 //
 // It is idempotent: on an up-to-date schema it only inspects the tables and issues no DDL, which the
 // migrate_idempotent tests pin for both empty and previous-release databases.
+// MigrateSchema runs migrateModels with reference enforcement paused on one pinned connection, then repairs stored rows
+// that break a declared reference and turns enforcement back on (see database.MigrateWithIntegrity).
 func MigrateSchema(db *gorm.DB) error {
-	if err := db.AutoMigrate(
+	return database.MigrateWithIntegrity(db, migrateModels)
+}
+
+// migrateModels creates or updates every table and index. It must use only conn: the pool has one connection, and the
+// connection is pinned for the duration of the migration.
+func migrateModels(conn *gorm.DB) error {
+	if err := conn.AutoMigrate(
 		&models.ProxyGroup{}, // must precede ProxyHost (FK dependency)
 		&models.ProxyHost{},
 		&models.Location{},
@@ -68,7 +77,7 @@ func MigrateSchema(db *gorm.DB) error {
 	// Enforce the Web Push provider singleton invariant at the database level — a service-layer COUNT-then-INSERT
 	// check alone is not atomic under concurrent requests (see docs/plans/current_spec.md §3.1).
 	// IF NOT EXISTS makes this idempotent across restarts.
-	if err := db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_webpush_singleton
+	if err := conn.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_webpush_singleton
 		ON notification_providers(type) WHERE type = 'webpush'`).Error; err != nil {
 		return fmt.Errorf("create webpush singleton index: %w", err)
 	}

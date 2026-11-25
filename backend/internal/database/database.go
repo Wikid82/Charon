@@ -3,9 +3,12 @@ package database
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -19,6 +22,46 @@ import (
 // this size at the next WAL reset after a checkpoint. Steady-state WALs are far
 // smaller and are never touched.
 const journalSizeLimitBytes = 64 << 20
+
+// connectionPragmas are settings that belong to every connection. They are
+// passed in the DSN, so SQLite applies them each time the pool opens a
+// connection, not only to the first one.
+var connectionPragmas = []string{
+	"foreign_keys(1)",     // Reference enforcement; the migration pauses it on its own connection
+	"busy_timeout(5000)",  // Wait up to 5s instead of failing immediately on lock
+	"synchronous(NORMAL)", // Good balance of safety and speed
+	"cache_size(-64000)",  // 64MB cache for better performance
+	fmt.Sprintf("journal_size_limit(%d)", journalSizeLimitBytes), // Trim a WAL that a burst grew past the limit
+}
+
+// buildDSN returns the modernc-compatible connection string for path with the
+// given pragmas added as _pragma parameters. The glebarez driver only reads
+// query parameters from a "file:" URI, so plain paths are converted to one.
+// Paths containing '?' are refused because the query separator would be
+// ambiguous.
+func buildDSN(path string, pragmas []string) (string, error) {
+	base := path
+	if !strings.HasPrefix(path, "file:") {
+		if strings.Contains(path, "?") {
+			return "", errors.New("database path must not contain '?'")
+		}
+		base = "file:" + pathURIEscaper.Replace(path)
+	}
+
+	params := make([]string, 0, len(pragmas))
+	for _, pragma := range pragmas {
+		params = append(params, "_pragma="+url.QueryEscape(pragma))
+	}
+	separator := "?"
+	if strings.Contains(base, "?") {
+		separator = "&"
+	}
+	return base + separator + strings.Join(params, "&"), nil
+}
+
+// pathURIEscaper escapes the characters that SQLite would otherwise read as
+// URI syntax inside a plain file path.
+var pathURIEscaper = strings.NewReplacer("%", "%25", "#", "%23")
 
 // launchQuickCheck is called by Connect to run the integrity check goroutine.
 // Tests override this with a synchronous version to avoid cleanup races.
@@ -55,9 +98,12 @@ func SyncIntegrityCheckForTesting() {
 // Connect opens a SQLite database connection with optimized settings.
 // Uses WAL mode for better concurrent read/write performance.
 func Connect(dbPath string) (*gorm.DB, error) {
-	// Open the database connection
-	// Note: PRAGMA settings are applied after connection for modernc.org/sqlite compatibility
-	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{
+	dsn, err := buildDSN(dbPath, connectionPragmas)
+	if err != nil {
+		return nil, fmt.Errorf("build database connection string: %w", err)
+	}
+
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		// Skip default transaction for single operations (faster)
 		SkipDefaultTransaction: true,
 		// Prepare statements for reuse
@@ -88,21 +134,10 @@ func Connect(dbPath string) (*gorm.DB, error) {
 		return nil, err
 	}
 
-	// Set SQLite performance pragmas via SQL execution
-	// This is required for modernc.org/sqlite (pure-Go driver) which doesn't
-	// support DSN-based pragma parameters like mattn/go-sqlite3
-	pragmas := []string{
-		"PRAGMA journal_mode=WAL",   // Better concurrent access, faster writes
-		"PRAGMA busy_timeout=5000",  // Wait up to 5s instead of failing immediately on lock
-		"PRAGMA synchronous=NORMAL", // Good balance of safety and speed
-		"PRAGMA cache_size=-64000",  // 64MB cache for better performance
-		// Trim a WAL that a burst grew past the limit at the next WAL reset
-		fmt.Sprintf("PRAGMA journal_size_limit=%d", journalSizeLimitBytes),
-	}
-	for _, pragma := range pragmas {
-		if _, err := sqlDB.Exec(pragma); err != nil {
-			return nil, fmt.Errorf("failed to execute %s: %w", pragma, err)
-		}
+	// The journal mode is a file property, so it is set once on this
+	// connection. Per-connection settings come from the DSN (connectionPragmas).
+	if _, err := sqlDB.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		return nil, fmt.Errorf("failed to execute PRAGMA journal_mode=WAL: %w", err)
 	}
 
 	// Verify WAL mode is enabled and log confirmation

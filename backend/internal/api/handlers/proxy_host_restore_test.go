@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -264,6 +265,7 @@ func TestProxyHostDeleteRefusedSkipsReinsertWhenDomainIsTaken(t *testing.T) {
 
 func TestProxyHostBulkACLRefusedRestoresTheColumn(t *testing.T) {
 	db := openHostRestoreDB(t)
+	seedAccessListsForBulk(t, db, 7)
 	first := seedHost(t, db, "bulk-acl-1")
 	second := seedHost(t, db, "bulk-acl-2")
 	f := newHostRestoreFixture(t, db, string(models.RoleAdmin), &refusingApplier{err: errRefused})
@@ -283,6 +285,7 @@ func TestProxyHostBulkACLRefusedRestoresTheColumn(t *testing.T) {
 
 func TestProxyHostBulkACLRefusedKeepsTheNewerValueOfOneHost(t *testing.T) {
 	db := openHostRestoreDB(t)
+	seedAccessListsForBulk(t, db, 7)
 	first := seedHost(t, db, "bulk-acl-keep-1")
 	second := seedHost(t, db, "bulk-acl-keep-2")
 
@@ -363,4 +366,15 @@ func TestProxyHostListAndGetWithoutAManagerDoNotPanic(t *testing.T) {
 	get := httptest.NewRecorder()
 	r.ServeHTTP(get, httptest.NewRequest(http.MethodGet, "/api/v1/proxy-hosts/"+host.UUID, http.NoBody))
 	assert.Equal(t, http.StatusOK, get.Code)
+}
+
+// seedAccessListsForBulk creates the access lists a bulk ACL test assigns, with the ids it sends. A bulk assignment
+// refuses a list that does not exist.
+func seedAccessListsForBulk(t *testing.T, db *gorm.DB, ids ...uint) {
+	t.Helper()
+	for _, id := range ids {
+		require.NoError(t, db.Create(&models.AccessList{
+			ID: id, UUID: uuid.NewString(), Name: fmt.Sprintf("bulk-acl-%d", id), Type: "ip", Enabled: true,
+		}).Error)
+	}
 }

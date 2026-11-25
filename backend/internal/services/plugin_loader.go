@@ -1,8 +1,7 @@
 package services
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"crypto/subtle"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,19 +20,31 @@ import (
 // PluginLoaderService manages loading and unloading of DNS provider plugins.
 type PluginLoaderService struct {
 	pluginDir     string
+	cacheDir      string            // private folder for verified copies (made absolute by prepareCacheDir)
 	allowedSigs   map[string]string // plugin name -> expected signature
 	loadedPlugins map[string]string // plugin type -> file path
 	db            *gorm.DB
 	mu            sync.RWMutex
+
+	// cacheOnce runs prepareCacheDir once per loader; cacheErr keeps its result.
+	cacheOnce sync.Once
+	cacheErr  error
+	// openPluginFile is plugin.Open; tests replace it to avoid loading code.
+	openPluginFile func(path string) (*plugin.Plugin, error)
+	// afterReadHook runs after a plugin file is read and before it is verified (tests only).
+	afterReadHook func(path string)
 }
 
-// NewPluginLoaderService creates a new plugin loader.
-func NewPluginLoaderService(db *gorm.DB, pluginDir string, allowedSignatures map[string]string) *PluginLoaderService {
+// NewPluginLoaderService creates a new plugin loader. pluginDir holds the plugin files, cacheDir holds their
+// verified copies, and allowedSignatures is the allowlist (nil = permissive).
+func NewPluginLoaderService(db *gorm.DB, pluginDir, cacheDir string, allowedSignatures map[string]string) *PluginLoaderService {
 	return &PluginLoaderService{
-		pluginDir:     pluginDir,
-		allowedSigs:   allowedSignatures,
-		loadedPlugins: make(map[string]string),
-		db:            db,
+		pluginDir:      pluginDir,
+		cacheDir:       cacheDir,
+		allowedSigs:    allowedSignatures,
+		loadedPlugins:  make(map[string]string),
+		db:             db,
+		openPluginFile: plugin.Open,
 	}
 }
 
@@ -91,28 +102,41 @@ func (s *PluginLoaderService) LoadAllPlugins() error {
 
 // LoadPlugin loads a single plugin from the specified path.
 func (s *PluginLoaderService) LoadPlugin(path string) error {
-	// Verify signature if allowlist is configured (nil = permissive, non-nil = strict)
+	if err := s.checkInPluginDirectory(path); err != nil {
+		return err
+	}
+
+	// The allowlist is checked by name before the file is read (nil = permissive, non-nil = strict).
+	pluginName := strings.TrimSuffix(filepath.Base(path), ".so")
+	var expectedSig string
 	if s.allowedSigs != nil {
-		pluginName := strings.TrimSuffix(filepath.Base(path), ".so")
-		expectedSig, ok := s.allowedSigs[pluginName]
+		sig, ok := s.allowedSigs[pluginName]
 		if !ok {
 			return fmt.Errorf("%w: %s", dnsprovider.ErrPluginNotInAllowlist, pluginName)
 		}
-
-		actualSig, err := s.computeSignature(path)
-		if err != nil {
-			return fmt.Errorf("failed to compute signature: %w", err)
-		}
-
-		if actualSig != expectedSig {
-			return fmt.Errorf("%w: expected %s, got %s", dnsprovider.ErrSignatureMismatch, expectedSig, actualSig)
-		}
+		expectedSig = sig
 	}
 
-	// Load the plugin
-	p, err := plugin.Open(path)
+	// The bytes read here are the bytes hashed, cached and loaded, so a change to the original after this point
+	// cannot reach the loaded code.
+	data, actualSig, err := readPluginFile(path)
 	if err != nil {
-		return fmt.Errorf("%w: %v", dnsprovider.ErrPluginLoadFailed, err)
+		return fmt.Errorf("failed to read plugin: %w", err)
+	}
+	if s.afterReadHook != nil {
+		s.afterReadHook(path)
+	}
+	if s.allowedSigs != nil && subtle.ConstantTimeCompare([]byte(actualSig), []byte(expectedSig)) != 1 {
+		return fmt.Errorf("%w: expected %s, got %s", dnsprovider.ErrSignatureMismatch, expectedSig, actualSig)
+	}
+
+	cachedPath, err := s.cacheVerifiedCopy(actualSig, data)
+	if err != nil {
+		return err
+	}
+	p, err := s.openCachedCopy(cachedPath)
+	if err != nil {
+		return err
 	}
 
 	// Look up the Plugin symbol (support both T and *T)
@@ -183,29 +207,18 @@ func (s *PluginLoaderService) LoadPlugin(path string) error {
 	return nil
 }
 
-// computeSignature calculates SHA-256 hash of plugin file.
-func (s *PluginLoaderService) computeSignature(path string) (string, error) {
-	// #nosec G304 -- path is from ReadDir iteration within pluginDir
-	data, err := os.ReadFile(path)
-	if err != nil {
-		return "", err
-	}
-	hash := sha256.Sum256(data)
-	return "sha256:" + hex.EncodeToString(hash[:]), nil
-}
-
-// verifyDirectoryPermissions checks that the plugin directory has secure permissions.
+// verifyDirectoryPermissions refuses a plugin folder that group or other users can write.
 func (s *PluginLoaderService) verifyDirectoryPermissions(dir string) error {
 	info, err := os.Stat(dir)
 	if err != nil {
 		return err
 	}
 
-	// On Unix-like systems, check that directory is not world-writable
+	// On Unix-like systems, the folder must not be writable by group or others.
 	if runtime.GOOS != "windows" {
 		mode := info.Mode().Perm()
-		if mode&0o002 != 0 { // Check if world-writable bit is set
-			return fmt.Errorf("directory is world-writable (mode: %o) - this is a security risk", mode)
+		if mode&0o022 != 0 {
+			return fmt.Errorf("plugin folder is group- or world-writable (mode %o): set the plugin folder to mode 755", mode)
 		}
 	}
 

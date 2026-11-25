@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/Wikid82/charon/backend/internal/database"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/google/uuid"
 	"gorm.io/gorm"
@@ -230,8 +231,12 @@ func (s *AccessListService) Delete(id uint) error {
 	}
 
 	result := s.db.Delete(&models.AccessList{}, id)
+	// A host that was assigned the list after the checks above still refuses the delete.
+	if database.IsForeignKeyViolation(result.Error) {
+		return ErrAccessListInUse
+	}
 	if result.Error != nil {
-		return result.Error
+		return fmt.Errorf("delete access list %d: %w", id, result.Error)
 	}
 	if result.RowsAffected == 0 {
 		return ErrAccessListNotFound

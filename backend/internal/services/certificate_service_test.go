@@ -744,7 +744,7 @@ func TestCertificateService_StaleCertCleanup(t *testing.T) {
 		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
 		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
 		require.NoError(t, err)
-		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
 		cs := newTestCertificateService(tmpDir, db)
 

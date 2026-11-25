@@ -1247,3 +1247,23 @@ func TestDNSProviderHandler_TestCredentials_EndpointPolicyAndRoleGate(t *testing
 	assert.NotContains(t, w.Body.String(), marker)
 	assert.Zero(t, hits.Load(), "the endpoint must not be contacted")
 }
+
+func TestDNSProviderHandler_DeleteInUseIsConflict(t *testing.T) {
+	mockService := new(MockDNSProviderService)
+	handler := NewDNSProviderHandler(mockService)
+	router := gin.New()
+	router.DELETE("/dns-providers/:id", handler.Delete)
+
+	existingProvider := &models.DNSProvider{ID: 1, UUID: "uuid-1", Name: "Test Provider", ProviderType: "cloudflare"}
+	mockService.On("Get", mock.Anything, uint(1)).Return(existingProvider, nil)
+	mockService.On("Delete", mock.Anything, uint(1)).Return(&services.DNSProviderInUseError{HostCount: 3})
+
+	w := httptest.NewRecorder()
+	req, _ := http.NewRequest("DELETE", "/dns-providers/1", http.NoBody)
+	router.ServeHTTP(w, req)
+
+	assert.Equal(t, http.StatusConflict, w.Code)
+	assert.Contains(t, w.Body.String(), `"error_code":"dns_provider_in_use"`)
+	assert.Contains(t, w.Body.String(), "used by 3 host(s)")
+	mockService.AssertExpectations(t)
+}

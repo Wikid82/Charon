@@ -66,3 +66,11 @@ func TestMemoryDSN_AcceptsTB(t *testing.T) {
 	})
 	require.NotNil(t, res)
 }
+
+func TestOpenMemoryDBWithForeignKeys_EnforcesReferences(t *testing.T) {
+	db := OpenMemoryDBWithForeignKeys(t)
+	require.NoError(t, db.Exec("CREATE TABLE parents (id INTEGER PRIMARY KEY)").Error)
+	require.NoError(t, db.Exec("CREATE TABLE children (id INTEGER PRIMARY KEY, parent_id INTEGER REFERENCES parents(id))").Error)
+	err := db.Exec("INSERT INTO children (id, parent_id) VALUES (1, 99)").Error
+	require.Error(t, err, "a reference to a missing parent must be refused")
+}

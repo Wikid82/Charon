@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/caddy"
+	"github.com/Wikid82/charon/backend/internal/database"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/gin-gonic/gin"
@@ -212,7 +214,13 @@ func (h *SecurityHeadersHandler) DeleteProfile(c *gin.Context) {
 	}
 
 	if err := h.db.Delete(&profile).Error; err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		// A host assigned the profile after the count above still holds it.
+		if database.IsForeignKeyViolation(err) {
+			c.JSON(http.StatusConflict, gin.H{"error": "profile is in use by one or more proxy hosts"})
+			return
+		}
+		logger.Log().WithError(err).Error("failed to delete security header profile")
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Could not delete the profile."})
 		return
 	}
 

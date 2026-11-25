@@ -104,6 +104,7 @@ async function globalSetup(): Promise<void> {
 
     if (
       cleanupResults.proxyHosts > 0 ||
+      cleanupResults.redirectionHosts > 0 ||
       cleanupResults.accessLists > 0 ||
       cleanupResults.dnsProviders > 0 ||
       cleanupResults.certificates > 0
@@ -111,6 +112,9 @@ async function globalSetup(): Promise<void> {
       console.log('   Cleaned up:');
       if (cleanupResults.proxyHosts > 0) {
         console.log(`   - ${cleanupResults.proxyHosts} proxy hosts`);
+      }
+      if (cleanupResults.redirectionHosts > 0) {
+        console.log(`   - ${cleanupResults.redirectionHosts} redirection hosts`);
       }
       if (cleanupResults.accessLists > 0) {
         console.log(`   - ${cleanupResults.accessLists} access lists`);

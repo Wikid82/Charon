@@ -318,6 +318,12 @@ export default function RemoteServerForm({ server, onSubmit, onCancel }: Props) 
           </div>
           )}
 
+          {formData.connection_mode === 'direct' && formData.provider === 'docker' && (
+            <p className="text-xs text-content-secondary">
+              {t('remoteServers.directConnectionUnencrypted')}
+            </p>
+          )}
+
           <label className="flex items-center gap-3">
             <input
               type="checkbox"

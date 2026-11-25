@@ -24,6 +24,9 @@ type WebDAVConfig struct {
 	Username           string `json:"username,omitempty"`
 	BasePath           string `json:"base_path,omitempty"`
 	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"`
+	// AllowInsecureHTTP records the per-target opt-in for http:// addresses. The save path enforces it; the uploader
+	// accepts http:// either way so an already-saved target keeps working.
+	AllowInsecureHTTP bool `json:"allow_insecure_http,omitempty"`
 }
 
 // WebDAVSecrets is the secret credential material for a webdav-type target:
@@ -64,6 +67,9 @@ func newWebDAVUploader(cfg WebDAVConfig, secrets WebDAVSecrets) (Uploader, error
 	host := parsed.Hostname()
 	if host == "" {
 		return nil, fmt.Errorf("webdav: url must include a host")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return nil, fmt.Errorf("webdav: url must use http or https")
 	}
 	if err := ssrfValidateHost(host); err != nil {
 		return nil, fmt.Errorf("webdav url failed SSRF validation: %w", err)

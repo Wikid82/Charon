@@ -154,6 +154,20 @@ export function accessListDeleteErrorMessage(err: unknown, t: TFunction): string
 }
 
 /**
+ * Text for a refused remote-target save. A 400 response carries the reason in its `error` text (for example an http://
+ * WebDAV address without the unencrypted option), so that text is shown; any other failure keeps its own message.
+ * @param err - The error thrown by the save request
+ * @returns The text to show
+ */
+export function remoteTargetSaveErrorMessage(err: Error): string {
+  if (isAxiosError<{ error?: unknown }>(err) && err.response?.status === 400) {
+    const message = err.response.data?.error
+    if (typeof message === 'string' && message !== '') return message
+  }
+  return err.message
+}
+
+/**
  * Coded redirection-host save refusals with a translated text of their own, keyed by the server's `error_code`.
  * Every other code keeps the form's fallback text.
  */

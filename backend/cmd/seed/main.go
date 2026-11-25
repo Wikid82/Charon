@@ -2,19 +2,17 @@ package main
 
 import (
 	"io"
-	"log"
 	"os"
-	"time"
 
-	"github.com/Wikid82/charon/backend/internal/logger"
-	"github.com/Wikid82/charon/backend/internal/util"
-	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"gorm.io/gorm"
-	gormlogger "gorm.io/gorm/logger"
 
+	"github.com/Wikid82/charon/backend/internal/api/routes"
+	"github.com/Wikid82/charon/backend/internal/database"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/util"
 )
 
 func logSeedResult(entry *logrus.Entry, result *gorm.DB, errorMessage string, logCreated func(), existsMessage string) {
@@ -34,36 +32,13 @@ func main() {
 	mw := io.MultiWriter(os.Stdout)
 	logger.Init(false, mw)
 
-	// Configure GORM logger to ignore "record not found" errors
-	// These are expected during seed operations when checking if records exist
-	gormLog := gormlogger.New(
-		log.New(os.Stdout, "\r\n", log.LstdFlags),
-		gormlogger.Config{
-			SlowThreshold:             200 * time.Millisecond,
-			LogLevel:                  gormlogger.Warn,
-			IgnoreRecordNotFoundError: true,
-			Colorful:                  false,
-		},
-	)
-
-	db, err := gorm.Open(sqlite.Open("./data/charon.db"), &gorm.Config{
-		Logger: gormLog,
-	})
+	// Same connection settings and schema as the server, so the seeded data matches a real install.
+	db, err := database.Connect("./data/charon.db")
 	if err != nil {
 		logger.Log().WithError(err).Fatal("Failed to connect to database")
 	}
 
-	// Auto migrate
-	if err := db.AutoMigrate(
-		&models.User{},
-		&models.ProxyHost{},
-		&models.CaddyConfig{},
-		&models.RemoteServer{},
-		&models.SSLCertificate{},
-		&models.AccessList{},
-		&models.Setting{},
-		&models.ImportSession{},
-	); err != nil {
+	if err := routes.MigrateSchema(db); err != nil {
 		logger.Log().WithError(err).Fatal("Failed to migrate database")
 	}
 

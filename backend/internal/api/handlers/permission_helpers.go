@@ -11,6 +11,7 @@ import (
 	"github.com/gin-gonic/gin"
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
+	"github.com/Wikid82/charon/backend/internal/database"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/util"
@@ -81,6 +82,8 @@ func respondForwardTargetRefused(c *gin.Context, err error) bool {
 const (
 	codeAdvancedConfigTooLarge = "advanced_config_too_large"
 	msgAdvancedConfigTooLarge  = "The advanced configuration is too large (limit 256 KiB)."
+	codeReferenceMissing       = "reference_missing"
+	msgReferenceMissing        = "An item selected for this host was deleted. Reload the page and try again."
 )
 
 // respondHostWriteError writes the response for a rejected proxy or redirection
@@ -94,6 +97,10 @@ func respondHostWriteError(c *gin.Context, err error) {
 	}
 	if errors.Is(err, services.ErrAdvancedConfigTooLarge) {
 		respondCoded(c, http.StatusBadRequest, codeAdvancedConfigTooLarge, msgAdvancedConfigTooLarge, nil)
+		return
+	}
+	if database.IsForeignKeyViolation(err) {
+		respondCoded(c, http.StatusConflict, codeReferenceMissing, msgReferenceMissing, nil)
 		return
 	}
 	c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})

@@ -11,10 +11,10 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
-	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sys/unix"
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -26,15 +26,6 @@ import (
 )
 
 type stubPermissionChecker struct{}
-
-type fakeNoStatFileInfo struct{}
-
-func (fakeNoStatFileInfo) Name() string       { return "fake" }
-func (fakeNoStatFileInfo) Size() int64        { return 0 }
-func (fakeNoStatFileInfo) Mode() os.FileMode  { return 0 }
-func (fakeNoStatFileInfo) ModTime() time.Time { return time.Time{} }
-func (fakeNoStatFileInfo) IsDir() bool        { return false }
-func (fakeNoStatFileInfo) Sys() any           { return nil }
 
 func (stubPermissionChecker) Check(path, required string) util.PermissionCheck {
 	return util.PermissionCheck{
@@ -390,9 +381,10 @@ func TestSystemPermissionsHandler_DefaultPathsAndAllowlistRoots(t *testing.T) {
 	require.Equal(t, []string{"/app/data", "/app/config", "/var/log/caddy", "/var/log/crowdsec"}, roots)
 }
 
-func TestSystemPermissionsHandler_IsOwnedByFalseWhenSysNotStat(t *testing.T) {
-	owned := isOwnedBy(fakeNoStatFileInfo{}, os.Geteuid(), os.Getegid())
-	require.False(t, owned)
+func TestSystemPermissionsHandler_IsOwnedByStat(t *testing.T) {
+	st := &unix.Stat_t{Uid: uint32(os.Geteuid()), Gid: uint32(os.Getegid())} //nolint:gosec // test values come from the process ids
+	require.True(t, isOwnedByStat(st, os.Geteuid(), os.Getegid()))
+	require.False(t, isOwnedByStat(st, os.Geteuid()+1, os.Getegid()))
 }
 
 func TestSystemPermissionsHandler_IsWithinAllowlist_RelErrorBranch(t *testing.T) {

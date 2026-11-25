@@ -235,7 +235,7 @@ func TestConversion_ProxyStaysUpWhilePoolIsPinnedByTheRunner(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	_, err = RegisterWithDeps(ctx, router, db, cfg, caddyManager, cerb, gate)
+	_, err = RegisterWithDeps(ctx, router, db, cfg, caddyManager, cerb, gate, nil)
 	require.NoError(t, err)
 
 	// The production runner with the real Convert, held at the start of the

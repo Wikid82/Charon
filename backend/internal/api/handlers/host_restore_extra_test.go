@@ -94,6 +94,7 @@ func TestRedirectionHostCreateRefusedLeavesNoRow(t *testing.T) {
 
 func TestProxyHostBulkDuplicateUUIDsAreChangedOnce(t *testing.T) {
 	db := openHostRestoreDB(t)
+	seedAccessListsForBulk(t, db, 7)
 	first := seedHost(t, db, "bulk-dup-1")
 	second := seedHost(t, db, "bulk-dup-2")
 	f := newHostRestoreFixture(t, db, string(models.RoleAdmin), &refusingApplier{})
@@ -109,6 +110,7 @@ func TestProxyHostBulkDuplicateUUIDsAreChangedOnce(t *testing.T) {
 
 func TestProxyHostBulkDuplicateUUIDsRestoreEveryHost(t *testing.T) {
 	db := openHostRestoreDB(t)
+	seedAccessListsForBulk(t, db, 7)
 	first := seedHost(t, db, "bulk-dup-restore-1")
 	second := seedHost(t, db, "bulk-dup-restore-2")
 	f := newHostRestoreFixture(t, db, string(models.RoleAdmin), &refusingApplier{err: errRefused})
@@ -132,6 +134,7 @@ func TestUniqueHostUUIDsKeepsTheFirstOccurrence(t *testing.T) {
 // is a refusal or a success, and the race detector sees the restores and the snapshots of both writers.
 func TestProxyHostBulkWritersRaceFree(t *testing.T) {
 	db := openHostRestoreDB(t)
+	seedAccessListsForBulk(t, db, 7, 8)
 	first := seedHost(t, db, "bulk-race-1")
 	second := seedHost(t, db, "bulk-race-2")
 	f := newHostRestoreFixture(t, db, string(models.RoleAdmin), &refusingApplier{err: errRefused})

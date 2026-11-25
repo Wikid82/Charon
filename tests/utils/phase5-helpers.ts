@@ -334,6 +334,8 @@ export interface WebDAVTargetConfig {
   username?: string;
   base_path?: string;
   insecure_skip_verify?: boolean;
+  /** Opt-in for plain http:// addresses. */
+  allow_insecure_http?: boolean;
 }
 
 /** Mirrors backend `DropboxConfig` (spec §3.2) — `app_key` is not secret. */

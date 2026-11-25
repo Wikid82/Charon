@@ -476,3 +476,47 @@ describe('RemoteTargetsCard', () => {
     })
   })
 })
+
+describe('RemoteTargetsCard unencrypted WebDAV note', () => {
+  const NOTE = 'Unencrypted connection'
+
+  const webdavAt = (url: string): RemoteTarget => ({
+    ...nas,
+    uuid: 'w1',
+    name: 'Office WebDAV',
+    type: 'webdav',
+    config: { webdav: { url, username: 'charon' } },
+  })
+
+  beforeEach(() => {
+    isLoading = false
+  })
+
+  it('shows a passive note for a WebDAV target on http://', () => {
+    targets = [webdavAt('http://nas.lan/dav/')]
+    render(<RemoteTargetsCard />)
+
+    expect(screen.getByTestId('backup-remote-target-unencrypted-note')).toHaveTextContent(NOTE)
+  })
+
+  it('matches the http:// scheme regardless of case', () => {
+    targets = [webdavAt('HTTP://nas.lan/dav/')]
+    render(<RemoteTargetsCard />)
+
+    expect(screen.getByText(NOTE)).toBeInTheDocument()
+  })
+
+  it('omits the note for a WebDAV target on https://', () => {
+    targets = [webdavAt('https://nas.lan/dav/')]
+    render(<RemoteTargetsCard />)
+
+    expect(screen.queryByText(NOTE)).not.toBeInTheDocument()
+  })
+
+  it('omits the note for targets of other types', () => {
+    targets = [nas, b2]
+    render(<RemoteTargetsCard />)
+
+    expect(screen.queryByText(NOTE)).not.toBeInTheDocument()
+  })
+})

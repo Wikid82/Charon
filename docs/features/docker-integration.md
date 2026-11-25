@@ -95,7 +95,7 @@ For a Docker machine other than the one Charon runs on, the easiest and safest c
 3. Enter a **Name**, set **Provider** to **Docker**, and fill in the host and port
 4. Click **Save**
 
-> **Heads up**: Docker's network port is unencrypted unless you set up TLS on that machine. Keep it on a private network only.
+> **Heads up**: Charon connects to this Docker port without encryption, and Charon cannot use a TLS-protected Docker port yet (tracked in #1923). Keep the port on a private network or inside a tunnel, or use Orthrus instead.
 
 ## Container Selection Workflow
 
@@ -173,7 +173,7 @@ Both names work for forward targets and uptime monitors. Charon still refuses th
 ## Security Considerations
 
 - **Socket Access**: The Docker socket grants broad system access. The `:ro` flag stops the socket file from being deleted, but does **not** limit which Docker actions can be taken. The safest choice is [Orthrus](orthrus.md), so Charon never holds the socket. If you mount it directly, that is still supported; a socket proxy (below) narrows what is allowed.
-- **Remote Connections**: Prefer Orthrus for other machines. If you connect straight to a remote Docker address, keep it on a private network and use TLS.
+- **Remote Connections**: Prefer Orthrus for other machines. A direct remote Docker address is reached over unencrypted `tcp://` connections, so keep it on a private network or inside a tunnel.
 - **Network Isolation**: Use Docker networks to segment container communication.
 
 ### Limiting Socket Access with a Proxy

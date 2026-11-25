@@ -538,7 +538,7 @@ Format-v2 backup archives, a validated safe-restore pipeline, optional archive e
 
 **Components:**
 
-- **`BackupService`** (`internal/services/backup_service.go`): Creates format-v2 `.zip` archives containing the SQLite snapshot, `caddy/`, `crowdsec/`, and a `manifest.json` (SHA-256 checksum per entry, written last since checksums accumulate while each preceding entry streams into the archive). Runs the configurable `robfig/cron/v3` schedule, count-based local/remote retention pruning, and the `RestoreBackupSafe` pipeline: **validate** (manifest/checksum verification, `PRAGMA integrity_check` on a temp copy) → **safety backup** (`pre_restore`-type backup of current state, exempt from retention pruning) → **apply** (extract + `RehydrateLiveDatabase` live rehydrate via `ATTACH DATABASE`) → **reconcile** (Caddy `ApplyConfig` reload). v1 archives (no manifest) and v0 raw `.db` files (upload-only, magic-byte detected) remain restorable through the same code path. Backup creation and restore both run this way: as a tracked background goroutine (`BackupJob` model, `jobWG`, mirroring the remote-upload `sync.WaitGroup` pattern above) rather than inline on the request goroutine, with any job left `running`/`pending` at a prior crash reconciled to `failed` by `reconcileStuckBackupJobs` at the next startup. Clients get an immediate `202 Accepted` with a `job_id` and poll `GET /api/v1/backups/jobs/:job_id` for progress and the final result, instead of blocking on the original request for the archive/restore's full duration.
+- **`BackupService`** (`internal/services/backup_service.go`): Creates format-v2 `.zip` archives containing the SQLite snapshot, `caddy/`, `crowdsec/`, and a `manifest.json` (SHA-256 checksum per entry, written last since checksums accumulate while each preceding entry streams into the archive). Runs the configurable `robfig/cron/v3` schedule, count-based local/remote retention pruning, and the `RestoreBackupSafe` pipeline: **validate** (manifest/checksum verification, `PRAGMA integrity_check` on a temp copy) → **safety backup** (`pre_restore`-type backup of current state, exempt from retention pruning) → **apply** (extract + `RehydrateLiveDatabase` live rehydrate via `ATTACH DATABASE`; the same reference repair as start-up runs inside that rehydrate transaction, and a repair error falls back to the restart-required path) → **reconcile** (Caddy `ApplyConfig` reload). v1 archives (no manifest) and v0 raw `.db` files (upload-only, magic-byte detected) remain restorable through the same code path. Backup creation and restore both run this way: as a tracked background goroutine (`BackupJob` model, `jobWG`, mirroring the remote-upload `sync.WaitGroup` pattern above) rather than inline on the request goroutine, with any job left `running`/`pending` at a prior crash reconciled to `failed` by `reconcileStuckBackupJobs` at the next startup. Clients get an immediate `202 Accepted` with a `job_id` and poll `GET /api/v1/backups/jobs/:job_id` for progress and the final result, instead of blocking on the original request for the archive/restore's full duration.
 
 - **Pending-restore boot-swap** (`internal/database/pending_restore.go`, `ApplyPendingRestore`): When live rehydrate can't complete after its retry budget, the already-validated restored database is written to a durable `<DatabaseName>.pending-restore` file (fsync'd, survives a container restart — unlike the OS temp dir the old code relied on). `ApplyPendingRestore` is wired into `cmd/api/main.go` immediately **before** `database.Connect`, so it runs before GORM opens any WAL pool: it re-verifies integrity, then swaps the pending file over the live database file, or renames it to `.pending-restore.failed` and leaves the old database untouched if the second integrity check fails. **Not** wired into the `migrate`/`reset-password` CLI subcommand paths — only the running-server boot path. Because Caddy/CrowdSec files are written to disk during the "apply" step regardless of whether the database rehydrate succeeded, there is a bounded window after a fallback restore where Caddy/CrowdSec already reflect the restored state while the database itself is still pre-restore, until the next process start completes the swap — see `docs/features/disaster-recovery.md`.
 
@@ -805,7 +805,7 @@ Caddy processes routes in order, so the recovery route (when present) is evaluat
 **Configuration:**
 
 - **WAL Mode:** Allows concurrent reads during writes
-- **Foreign Keys:** Enforced referential integrity
+- **Referential Integrity:** Enforced on every connection (the setting is part of the connection string, so a replacement connection gets it too). Start-up runs in this order: `database.Connect` (enforcement and pragmas on) → `routes.MigrateSchema` (enforcement paused on one pinned connection, schema created or updated, rows that break a rule repaired in one transaction, a check, enforcement turned back on) → plugin loader → route registration. Repair rules are listed in `database.ReferenceRules`; a rule covers a reference that clears the field or deletes the dependent row. If enforcement cannot be paused, start-up stops with a clear message. Remaining violations are logged as warnings and Charon keeps running. Deletes are checked in the services layer, so a DNS provider used by a host is refused with a 409 that names the host count.
 - **Pragma Settings:** Performance optimizations
 - **Single Writer:** `SetMaxOpenConns(1)` serializes all writes through one
   connection. The high-volume stats and uptime write paths are both funnelled
@@ -1561,7 +1561,7 @@ Operator runbook: `docs/ci/toolchain-image.md`.
 
 | Container Path | Purpose | Required |
 | --- | --- | --- |
-| `/app/data` | Database, certificates, backups | **Yes** |
+| `/app/data` | Database, certificates, backups, and the private copies of plugins in `plugin-cache/` | **Yes** |
 | `/var/run/docker.sock` | Docker container discovery | Optional; Orthrus recommended |
 
 ### Environment Variables
@@ -1583,6 +1583,7 @@ Operator runbook: `docs/ci/toolchain-image.md`.
 | `CHARON_CADDY_LOG_DIR` | Caddy log directory | `/var/log/caddy` | No |
 | `CHARON_CROWDSEC_LOG_DIR` | CrowdSec log directory | `/var/log/crowdsec` | No |
 | `CHARON_PLUGINS_DIR` | DNS provider plugin directory | `/app/plugins` | No |
+| `CHARON_PLUGIN_CACHE_DIR` | Private folder for verified copies of DNS provider plugins; must allow running program files | `<data folder>/plugin-cache` | No |
 | `CHARON_SINGLE_CONTAINER_MODE` | Enables permission repair endpoints | `true` | No |
 | `CROWDSEC_API_KEY` | CrowdSec bouncer key (fallback; the saved key file wins). Not a CrowdSec cloud/console key. See "CrowdSec bouncer key precedence" in the Security Architecture section | None | Optional |
 | `SMTP_HOST` | SMTP server for notifications | None | Optional |
@@ -2238,16 +2239,22 @@ curl -X POST https://your-charon-instance/api/v1/backups/backup_2026-01-27_03-00
 
 ## Extensibility
 
-### Plugin Architecture (Future)
+### Plugin Architecture
 
-**Current State:** Monolithic design (no plugin system)
+**Current State:** Built-in DNS providers, plus optional external DNS provider plugins (`.so` files in `CHARON_PLUGINS_DIR`).
+
+**Plugin load flow (start-up, reload and enable all use it):**
+
+1. Only a `.so` file sitting directly in the plugin folder is considered. The folder must be mode `755` or stricter and the file must not be writable by group or others (refused otherwise, with a message naming the mode to set). Files larger than 256 MiB are refused.
+2. The file is read once and its SHA-256 hash is checked against the `CHARON_PLUGIN_SIGNATURES` list when that variable is set. A malformed value loads no external plugin until it is fixed.
+3. The verified bytes are written to a private copy in `plugin-cache/` inside the data folder (mode `0500`, folder `0700`), and Charon loads that copy. Set `CHARON_PLUGIN_CACHE_DIR` to use another folder. If the cache folder does not allow running program files (for example a `noexec` mount), the load fails with a message that names `CHARON_PLUGIN_CACHE_DIR`; Charon never falls back to loading the original file.
 
 **Planned Extensibility Points:**
 
 1. **DNS Providers:**
    - Interface-based design for DNS-01 challenge providers
    - Current: 15+ built-in providers (Cloudflare, Route53, etc.)
-   - Future: Dynamic plugin loading for custom providers
+   - External plugins: loaded as described above
 
 2. **Notification Channels:**
     - Current rollout is Discord-only for notifications

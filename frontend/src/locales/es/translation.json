@@ -956,6 +956,7 @@
     "loadError": "Error al cargar dominios"
   },
   "remoteServers": {
+    "directConnectionUnencrypted": "Direct connections are not encrypted. Orthrus is recommended for other machines.",
     "title": "Servidores Remotos",
     "description": "Administra servidores backend para tus proxy hosts",
     "addServer": "Agregar Servidor",
@@ -1321,6 +1322,9 @@
       "body": "La base de datos de Charon no superó una comprobación de integridad. Las copias de seguridad fallarán hasta que la base de datos se repare o se restaure desde una copia de seguridad anterior."
     },
     "remoteTargets": {
+      "allowInsecureHttp": "Allow unencrypted HTTP",
+      "allowInsecureHttpWarning": "Backups and the password for this destination are sent without encryption. Use this only on a network you trust.",
+      "unencryptedConnection": "Unencrypted connection",
       "title": "Destinos de almacenamiento remoto",
       "add": "Añadir destino remoto",
       "editTitle": "Editar destino remoto",
