@@ -12,6 +12,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 )
@@ -27,7 +28,7 @@ func setupBackupRemoteHandlerNonAdminTest(t *testing.T) *gin.Engine {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.RemoteStorageTarget{}, &models.BackupRecord{}, &models.BackupRemoteCopy{}, &models.Setting{}))
 
-	svc := services.NewBackupRemoteService(db, testEncryptionService(t), t.TempDir())
+	svc := services.NewBackupRemoteService(db, cryptotest.SingleKey(testEncryptionService(t)), t.TempDir())
 	h := NewBackupRemoteHandler(svc)
 
 	router := gin.New()

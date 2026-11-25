@@ -39,8 +39,12 @@ type Config struct {
 	JWTSecret       string
 	// SetupToken is CHARON_SETUP_TOKEN: an operator-chosen first-run setup code
 	// for automation. Empty means the setup code is generated at startup.
-	SetupToken            string
-	EncryptionKey         string
+	SetupToken string
+	// EncryptionKey is the current key, the same value as EncryptionKeys.Current.
+	// It is kept for callers that only need the current key.
+	EncryptionKey string
+	// EncryptionKeys holds every configured encryption key (current, next and legacy slots).
+	EncryptionKeys        EncryptionKeys
 	ACMEStaging           bool
 	SingleContainer       bool
 	PluginsDir            string
@@ -119,8 +123,38 @@ type EmergencyConfig struct {
 	BasicAuthPassword string `env:"CHARON_EMERGENCY_PASSWORD" envDefault:""`
 }
 
+// EncryptionKeys holds the base64 encryption keys read from the environment.
+// Current comes from CHARON_ENCRYPTION_KEY, Next from CHARON_ENCRYPTION_KEY_NEXT
+// and Legacy from CHARON_ENCRYPTION_KEY_V1 through CHARON_ENCRYPTION_KEY_V10.
+type EncryptionKeys struct {
+	Current string
+	Next    string
+	// Legacy maps a slot number (1-10) to its key. Blank slots are absent.
+	Legacy map[int]string
+}
+
+// maxLegacyEncryptionKeySlot is the highest CHARON_ENCRYPTION_KEY_V<n> slot.
+const maxLegacyEncryptionKeySlot = 10
+
+// LoadEncryptionKeys reads the encryption key variables from the environment.
+// Only the CHARON_ names are read. Blank values are treated as unset.
+func LoadEncryptionKeys() EncryptionKeys {
+	keys := EncryptionKeys{
+		Current: getEnvAny("", "CHARON_ENCRYPTION_KEY"),
+		Next:    getEnvAny("", "CHARON_ENCRYPTION_KEY_NEXT"),
+		Legacy:  make(map[int]string),
+	}
+	for slot := 1; slot <= maxLegacyEncryptionKeySlot; slot++ {
+		if value := getEnvAny("", fmt.Sprintf("CHARON_ENCRYPTION_KEY_V%d", slot)); value != "" {
+			keys.Legacy[slot] = value
+		}
+	}
+	return keys
+}
+
 // Load reads env vars and falls back to defaults so the server can boot with zero configuration.
 func Load() (Config, error) {
+	encryptionKeys := LoadEncryptionKeys()
 	cfg := Config{
 		Environment:     getEnvAny("development", "CHARON_ENV", "CPM_ENV"),
 		HTTPPort:        getEnvAny("8080", "CHARON_HTTP_PORT", "CPM_HTTP_PORT"),
@@ -132,7 +166,8 @@ func Load() (Config, error) {
 		CaddyBinary:     getEnvAny("caddy", "CHARON_CADDY_BINARY", "CPM_CADDY_BINARY"),
 		ImportCaddyfile: getEnvAny("/import/Caddyfile", "CHARON_IMPORT_CADDYFILE", "CPM_IMPORT_CADDYFILE"),
 		ImportDir:       getEnvAny(filepath.Join("data", "imports"), "CHARON_IMPORT_DIR", "CPM_IMPORT_DIR"),
-		EncryptionKey:   getEnvAny("", "CHARON_ENCRYPTION_KEY"),
+		EncryptionKey:   encryptionKeys.Current,
+		EncryptionKeys:  encryptionKeys,
 		ACMEStaging:     getEnvAny("", "CHARON_ACME_STAGING", "CPM_ACME_STAGING") == "true",
 		SingleContainer: strings.EqualFold(getEnvAny("true", "CHARON_SINGLE_CONTAINER_MODE"), "true"),
 		PluginsDir:      getEnvAny("/app/plugins", "CHARON_PLUGINS_DIR"),

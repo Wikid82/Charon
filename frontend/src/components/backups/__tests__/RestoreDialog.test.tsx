@@ -36,7 +36,7 @@ vi.mock('../../../hooks/useBackups', async () => {
 })
 
 vi.mock('../../../utils/toast', () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
 }))
 
 const plainBackup: BackupFile = {
@@ -176,6 +176,51 @@ describe('RestoreDialog', () => {
     await user.click(screen.getByRole('button', { name: /validate/i }))
 
     expect(toast.error).toHaveBeenCalledWith('corrupt archive')
+  })
+
+  it('shows each restore warning as a plain-text warning toast and still closes on success', async () => {
+    const { toast } = await import('../../../utils/toast')
+    const onClose = vi.fn()
+    mockRestoreMutate.mockImplementation((_vars, { onSuccess }) => {
+      onSuccess({
+        message: 'ok',
+        restart_required: false,
+        database_swap_pending: false,
+        live_rehydrate_applied: true,
+        caddy_reloaded: true,
+        legacy_format: false,
+        warnings: ['archive app_version is older than running version', 'skipped one optional table'],
+      })
+    })
+    const user = userEvent.setup()
+
+    render(<RestoreDialog backup={plainBackup} onClose={onClose} />)
+    await user.click(screen.getByRole('button', { name: /^restore$/i }))
+
+    expect(toast.warning).toHaveBeenCalledTimes(2)
+    expect(toast.warning).toHaveBeenCalledWith('archive app_version is older than running version')
+    expect(toast.warning).toHaveBeenCalledWith('skipped one optional table')
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it('shows no warning toast when the restore result has no warnings', async () => {
+    const { toast } = await import('../../../utils/toast')
+    mockRestoreMutate.mockImplementation((_vars, { onSuccess }) => {
+      onSuccess({
+        message: 'ok',
+        restart_required: false,
+        database_swap_pending: false,
+        live_rehydrate_applied: true,
+        caddy_reloaded: true,
+        legacy_format: false,
+      })
+    })
+    const user = userEvent.setup()
+
+    render(<RestoreDialog backup={plainBackup} onClose={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: /^restore$/i }))
+
+    expect(toast.warning).not.toHaveBeenCalled()
   })
 
   it('shows a restart-required success message when the restore result reports it', async () => {

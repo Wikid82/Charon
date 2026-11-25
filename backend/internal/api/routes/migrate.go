@@ -60,6 +60,7 @@ func MigrateSchema(db *gorm.DB) error {
 		&models.BackupRecord{},          // Issue #32: backup history (must precede BackupRemoteCopy FK)
 		&models.BackupRemoteCopy{},      // Issue #32: per-target remote upload status
 		&models.BackupJob{},             // Async Backup/Restore Jobs: tracks in-flight create/restore jobs
+		&models.EncryptionKeyVersion{},  // Encryption key registry: stable version per configured key
 	); err != nil {
 		return fmt.Errorf("auto migrate: %w", err)
 	}

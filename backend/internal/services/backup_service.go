@@ -152,13 +152,13 @@ type BackupService struct {
 	// Commit 3; this commit only threads the field through the constructor.
 	CrowdSecDir string
 
-	// db and encryption are threaded through so Commit 3's manifest
+	// db and secrets are threaded through so Commit 3's manifest
 	// (EncryptionKeyRequired), settings-driven reschedule, and
 	// remote-upload/BackupRecord persistence have what they need without a
-	// second constructor-signature change. encryption is nilable — backups
+	// second constructor-signature change. secrets is nilable — backups
 	// are unencrypted by default and when CHARON_ENCRYPTION_KEY is unset.
-	db         *gorm.DB
-	encryption *crypto.EncryptionService
+	db      *gorm.DB
+	secrets crypto.VersionedCipher
 
 	// scheduleEntry identifies the cron.Cron entry created at construction so
 	// a future Reschedule (Commit 3) can cron.Remove it before re-adding.
@@ -213,6 +213,10 @@ type BackupService struct {
 	// reports caddy_reloaded=false.
 	caddyReloader CaddyReloader
 
+	// encryptionRehydrator re-registers encryption keys after a live restore
+	// (see SetEncryptionRehydrator). Nilable when no key is configured.
+	encryptionRehydrator EncryptionRehydrator
+
 	// uptimeRehydrator re-seeds the uptime scheduler's in-memory schedule +
 	// debounce maps after a live DB restore so it does not wait ~30s for the
 	// rescan self-heal (spec §3.9 / S6). Nilable — satisfied by
@@ -259,6 +263,18 @@ func (s *BackupService) SetRemoteUploadHook(hook RemoteUploadHook) {
 // SetCaddyReloader wires the post-restore Caddy reload hook (spec §3.5 R1).
 func (s *BackupService) SetCaddyReloader(reloader CaddyReloader) {
 	s.caddyReloader = reloader
+}
+
+// EncryptionRehydrator re-registers the encryption keys after a live restore has
+// replaced the key registry, so the restored secrets stay readable without a restart.
+type EncryptionRehydrator interface {
+	Rehydrate(ctx context.Context) error
+}
+
+// SetEncryptionRehydrator wires the post-restore encryption key hook. It runs
+// only after a successful live rehydrate, before the Caddy reload.
+func (s *BackupService) SetEncryptionRehydrator(r EncryptionRehydrator) {
+	s.encryptionRehydrator = r
 }
 
 // UptimeRehydrator is the minimal interface RestoreBackupSafe needs from the
@@ -371,7 +387,7 @@ type BackupFile struct {
 // legacy backup.interval/backup.retention Setting rows are translated to the
 // canonical backup.* keys and removed (see migrateLegacyBackupSettings); this
 // is best-effort and logged, never fatal to construction.
-func NewBackupService(cfg *config.Config, db *gorm.DB, enc *crypto.EncryptionService) *BackupService {
+func NewBackupService(cfg *config.Config, db *gorm.DB, secrets crypto.VersionedCipher) *BackupService {
 	// Ensure backup directory exists
 	backupDir := filepath.Join(filepath.Dir(cfg.DatabasePath), "backups")
 	// Use 0700 for backup directory (contains complete database dumps with sensitive data)
@@ -388,7 +404,7 @@ func NewBackupService(cfg *config.Config, db *gorm.DB, enc *crypto.EncryptionSer
 		CrowdSecDir:  cfg.Security.CrowdSecConfigDir,
 		Cron:         cron.New(),
 		db:           db,
-		encryption:   enc,
+		secrets:      secrets,
 		uploadCtx:    uploadCtx,
 		uploadCancel: uploadCancel,
 	}
@@ -728,14 +744,15 @@ func (s *BackupService) resolveBackupPassphrase(opts BackupOptions) (BackupOptio
 	if !opts.Encrypt || strings.TrimSpace(opts.Passphrase) != "" {
 		return opts, nil
 	}
-	if s.db == nil || s.encryption == nil {
+	if s.db == nil || s.secrets == nil {
 		return opts, nil
 	}
 	stored, ok := readBackupSettingString(s.db, SettingKeyBackupEncryptionPassphraseEnc)
 	if !ok || strings.TrimSpace(stored) == "" {
 		return opts, nil
 	}
-	plaintext, err := s.encryption.Decrypt(stored)
+	// The passphrase setting has no key version column, so it is read untagged.
+	plaintext, err := s.secrets.DecryptWithVersion(stored, 0)
 	if err != nil {
 		return opts, fmt.Errorf("decrypt stored backup passphrase: %w", err)
 	}
@@ -1287,14 +1304,18 @@ func (s *BackupService) computeEncryptionKeyRequired() bool {
 		return false
 	}
 
-	for _, table := range []string{"dns_provider_credentials", "tunnel_configs", "remote_storage_targets"} {
-		var count int64
-		if err := s.db.Table(table).Count(&count).Error; err != nil {
-			// Table may not exist yet on a fresh/partially migrated DB;
-			// that's not an error condition for this best-effort check.
+	// The encrypted stores come from the one registry shared with rotation, so a
+	// new encrypted column is covered here without a second list.
+	for _, store := range crypto.EncryptedStores {
+		if !s.db.Migrator().HasTable(store.Table) {
+			// Partially migrated DB: not an error for this best-effort check.
 			continue
 		}
-		if count > 0 {
+		has, err := store.HasRows(s.db)
+		if err != nil {
+			continue
+		}
+		if has {
 			return true
 		}
 	}

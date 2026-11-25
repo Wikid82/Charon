@@ -14,8 +14,43 @@
  * @see /projects/Charon/docs/plans/phase4-settings-plan.md Section 3.5
  */
 
+import type { APIRequestContext } from '@playwright/test';
 import { test, expect, loginUser } from '../../fixtures/auth-fixtures';
 import { waitForLoadingComplete } from '../../utils/wait-helpers';
+
+/** Fields of GET /api/v1/admin/encryption/status that these tests read. */
+interface KeyUsageStatus {
+  slot: string;
+  version: number;
+  loaded: boolean;
+  removable: boolean;
+}
+
+interface StoreUsageStatus {
+  store: string;
+  total: number;
+  by_version: Record<string, number>;
+  unreadable: number;
+}
+
+interface EncryptionUsageStatus {
+  current_version: number;
+  next_key_configured: boolean;
+  keys: KeyUsageStatus[];
+  stores: StoreUsageStatus[];
+}
+
+async function fetchEncryptionUsage(request: APIRequestContext): Promise<EncryptionUsageStatus> {
+  const response = await request.get('/api/v1/admin/encryption/status');
+  expect(response.ok()).toBeTruthy();
+  return (await response.json()) as EncryptionUsageStatus;
+}
+
+/** Status text the Keys table shows for a key (mirrors keyStateOf in EncryptionManagement.tsx). */
+function expectedKeyStatusLabel(key: KeyUsageStatus): string {
+  if (!key.loaded) return 'Could not be loaded';
+  return key.removable ? 'No longer needed' : 'Still needed';
+}
 
 test.describe('Encryption Management', () => {
   test.beforeEach(async ({ page, adminUser }) => {
@@ -135,6 +170,123 @@ test.describe('Encryption Management', () => {
         if (isVisible) {
           await expect(configuredBadge.first()).toBeVisible();
         }
+      });
+    });
+  });
+
+  test.describe('Key Usage', () => {
+    /**
+     * Test: Keys table shows which keys are still needed
+     * Priority: P0
+     */
+    test('shows which keys are still needed', async ({ page }) => {
+      const usage = await fetchEncryptionUsage(page.request);
+
+      await test.step('Keys table lists every configured key slot', async () => {
+        const keysTable = page.getByTestId('encryption-keys-table');
+        await expect(keysTable).toBeVisible();
+        await expect(keysTable.locator('tbody tr')).toHaveCount(usage.keys.length);
+      });
+
+      await test.step('Current key is marked as still needed', async () => {
+        const keysTable = page.getByTestId('encryption-keys-table');
+        const currentRow = keysTable
+          .getByRole('row')
+          .filter({ has: page.getByText('Current', { exact: true }) });
+        await expect(currentRow).toHaveCount(1);
+        await expect(currentRow).toContainText('Still needed');
+      });
+
+      await test.step('Each key shows the status the API reports', async () => {
+        for (const key of usage.keys) {
+          await expect(page.getByTestId(`encryption-key-row-${key.slot}`)).toContainText(
+            expectedKeyStatusLabel(key),
+          );
+        }
+      });
+    });
+
+    /**
+     * Test: Stored secrets table has one row per store
+     * Priority: P0
+     */
+    test('lists one stored secrets row per store', async ({ page }) => {
+      const usage = await fetchEncryptionUsage(page.request);
+
+      await test.step('Stored secrets table has one row per store', async () => {
+        const storesTable = page.getByTestId('encryption-stores-table');
+        await expect(storesTable).toBeVisible();
+        await expect(storesTable.locator('tbody tr')).toHaveCount(usage.stores.length);
+
+        for (const store of usage.stores) {
+          await expect(page.getByTestId(`encryption-store-row-${store.store}`)).toBeVisible();
+        }
+      });
+
+      await test.step('Row totals and unreadable counts match the API status', async () => {
+        for (const store of usage.stores) {
+          const cells = page.getByTestId(`encryption-store-row-${store.store}`).getByRole('cell');
+          await expect(cells.nth(1)).toHaveText(String(store.total));
+          await expect(cells.nth(3)).toHaveText(String(store.unreadable));
+        }
+      });
+    });
+
+    /**
+     * Test: A new DNS provider is counted on the current key version
+     * Priority: P1
+     */
+    test('counts a new DNS provider on the current version', async ({ page }) => {
+      const before = await fetchEncryptionUsage(page.request);
+      const providersBefore = before.stores.find((s) => s.store === 'dns_providers');
+      const countBefore = providersBefore?.by_version[String(before.current_version)] ?? 0;
+      // DNS provider responses are keyed by `uuid` (DNSProviderResponse has no numeric id).
+      let providerUUID: string | undefined;
+
+      try {
+        await test.step('Create a DNS provider through the API', async () => {
+          const response = await page.request.post('/api/v1/dns-providers', {
+            data: {
+              name: `Encryption usage ${Date.now()}`,
+              provider_type: 'manual',
+              credentials: {},
+            },
+          });
+          expect(response.ok()).toBeTruthy();
+          const created = (await response.json()) as { uuid?: unknown };
+          expect(typeof created.uuid).toBe('string');
+          expect(created.uuid).not.toBe('');
+          providerUUID = created.uuid as string;
+        });
+
+        await test.step('Reload the page and read the DNS providers row', async () => {
+          const after = await fetchEncryptionUsage(page.request);
+          await page.reload();
+          await waitForLoadingComplete(page);
+
+          const row = page.getByTestId('encryption-store-row-dns_providers');
+          const versionCell = row.getByRole('cell').nth(2);
+          const expected = new RegExp(`Version ${after.current_version}: ${countBefore + 1}(?!\\d)`);
+          await expect(versionCell).toContainText(expected);
+        });
+      } finally {
+        if (providerUUID !== undefined) {
+          const deleted = await page.request.delete(`/api/v1/dns-providers/${providerUUID}`);
+          expect(deleted.ok()).toBeTruthy();
+        }
+      }
+    });
+
+    /**
+     * Test: Rotation stays disabled while only the current key is configured
+     * Priority: P0
+     */
+    test('disables rotation when only the current key is configured', async ({ page }) => {
+      const usage = await fetchEncryptionUsage(page.request);
+      test.skip(usage.next_key_configured, 'Next key is configured in this environment');
+
+      await test.step('Rotate button is disabled', async () => {
+        await expect(page.getByTestId('rotate-key-btn')).toBeDisabled();
       });
     });
   });
@@ -406,9 +558,8 @@ test.describe('Encryption Management', () => {
         // If rotation is disabled, verify warning message
         const isDisabled = await rotateButton.isDisabled().catch(() => false);
         if (isDisabled) {
-          const warningAlert = page.getByText(/next.*key.*required|configure.*key|not.*configured/i);
-          const hasWarning = await warningAlert.first().isVisible().catch(() => false);
-          expect(hasWarning).toBe(true);
+          const actionsCard = page.getByTestId('encryption-actions-card');
+          await expect(actionsCard).toContainText('CHARON_ENCRYPTION_KEY_NEXT');
         }
       });
 
@@ -455,14 +606,19 @@ test.describe('Encryption Management', () => {
      * Priority: P1
      */
     test('should show validation success message', async ({ page }) => {
+      const validateResponse = page.waitForResponse(
+        (response) =>
+          response.url().includes('/admin/encryption/validate') && response.request().method() === 'POST',
+      );
+
       await test.step('Click validate button', async () => {
         const validateButton = page.getByTestId('validate-config-btn');
         await validateButton.click();
       });
 
       await test.step('Check for success message', async () => {
-        // Wait for any toast/alert to appear
-        await page.waitForTimeout(2000);
+        // Wait for the validation request to settle, then for any toast/alert to render.
+        expect((await validateResponse).ok()).toBeTruthy();
 
         const successToast = page
           .locator('[data-testid="toast-success"]')
@@ -491,11 +647,15 @@ test.describe('Encryption Management', () => {
         // In a properly configured system, validation should succeed
         // but we verify the error handling UI exists
 
+        const validateResponse = page.waitForResponse(
+          (response) =>
+            response.url().includes('/admin/encryption/validate') && response.request().method() === 'POST',
+        );
         const validateButton = page.getByTestId('validate-config-btn');
         await validateButton.click();
 
-        // Wait for validation to complete
-        await page.waitForTimeout(3000);
+        // Wait for validation to complete before asserting on its result
+        expect((await validateResponse).ok()).toBeTruthy();
 
         // Check that result is displayed (success or error)
         const resultMessage = page

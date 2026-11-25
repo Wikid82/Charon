@@ -141,9 +141,9 @@ var oauthProviderTypes = map[string]bool{"dropbox": true, "google_drive": true}
 // and the upload/retention orchestration triggered after each backup is
 // created (spec §3.7).
 type BackupRemoteService struct {
-	db         *gorm.DB
-	encryption *crypto.EncryptionService
-	backupDir  string
+	db        *gorm.DB
+	secrets   crypto.VersionedCipher
+	backupDir string
 
 	// uploaderFactory defaults to remotestorage.New; overridden by tests in
 	// this package (a fake Uploader — required test #10) so upload/retention
@@ -157,13 +157,13 @@ type BackupRemoteService struct {
 	states *OAuthStateStore
 }
 
-// NewBackupRemoteService constructs a BackupRemoteService. encryption is
+// NewBackupRemoteService constructs a BackupRemoteService. secrets is
 // nilable: without CHARON_ENCRYPTION_KEY, remote-target secret storage is
 // unavailable and Create/Update return ErrEncryptionKeyMissing (spec R9).
-func NewBackupRemoteService(db *gorm.DB, encryption *crypto.EncryptionService, backupDir string) *BackupRemoteService {
+func NewBackupRemoteService(db *gorm.DB, secrets crypto.VersionedCipher, backupDir string) *BackupRemoteService {
 	return &BackupRemoteService{
 		db:              db,
-		encryption:      encryption,
+		secrets:         secrets,
 		backupDir:       backupDir,
 		uploaderFactory: remotestorage.New,
 		states:          NewOAuthStateStore(),
@@ -208,7 +208,7 @@ func (s *BackupRemoteService) Get(uuid string) (*models.RemoteStorageTarget, err
 // Create persists a new remote storage target. Config is validated against
 // the SSRF policy (spec §3.7) before the target is ever saved.
 func (s *BackupRemoteService) Create(name, targetType string, enabled bool, config RemoteTargetConfig, secrets RemoteTargetSecrets) (*models.RemoteStorageTarget, error) {
-	if s.encryption == nil {
+	if s.secrets == nil {
 		return nil, ErrEncryptionKeyMissing
 	}
 
@@ -221,11 +221,11 @@ func (s *BackupRemoteService) Create(name, targetType string, enabled bool, conf
 		return nil, fmt.Errorf("marshal remote target config: %w", err)
 	}
 
-	secretsJSON, err := json.Marshal(secrets) //nolint:gosec // G117: secrets are encrypted via s.encryption.Encrypt before persisting
+	secretsJSON, err := json.Marshal(secrets) //nolint:gosec // G117: secrets are encrypted via s.secrets.EncryptWithCurrentKey before persisting
 	if err != nil {
 		return nil, fmt.Errorf("marshal remote target secrets: %w", err)
 	}
-	encryptedSecrets, err := s.encryption.Encrypt(secretsJSON)
+	encryptedSecrets, keyVersion, err := s.secrets.EncryptWithCurrentKey(secretsJSON)
 	if err != nil {
 		return nil, fmt.Errorf("encrypt remote target secrets: %w", err)
 	}
@@ -236,7 +236,7 @@ func (s *BackupRemoteService) Create(name, targetType string, enabled bool, conf
 		Enabled:          enabled,
 		ConfigJSON:       string(configJSON),
 		SecretsEncrypted: encryptedSecrets,
-		KeyVersion:       1,
+		KeyVersion:       keyVersion,
 		LastTestStatus:   "never",
 	}
 	if oauthProviderTypes[targetType] {
@@ -293,22 +293,25 @@ func (s *BackupRemoteService) Update(uuidStr string, name *string, enabled *bool
 		}
 		target.ConfigJSON = string(configJSON)
 	}
+	reencrypted := false
 	if secrets != nil && !secrets.isEmpty() {
-		if s.encryption == nil {
+		if s.secrets == nil {
 			return nil, ErrEncryptionKeyMissing
 		}
-		secretsJSON, err := json.Marshal(*secrets) //nolint:gosec // G117: secrets are encrypted via s.encryption.Encrypt before persisting
+		secretsJSON, err := json.Marshal(*secrets) //nolint:gosec // G117: secrets are encrypted via s.secrets.EncryptWithCurrentKey before persisting
 		if err != nil {
 			return nil, fmt.Errorf("marshal remote target secrets: %w", err)
 		}
-		encryptedSecrets, err := s.encryption.Encrypt(secretsJSON)
+		encryptedSecrets, keyVersion, err := s.secrets.EncryptWithCurrentKey(secretsJSON)
 		if err != nil {
 			return nil, fmt.Errorf("encrypt remote target secrets: %w", err)
 		}
 		target.SecretsEncrypted = encryptedSecrets
+		target.KeyVersion = keyVersion
+		reencrypted = true
 	}
 
-	if err := s.db.Save(target).Error; err != nil {
+	if err := saveFields(s.db, target, writeColumns(remoteTargetStore, reencrypted, "Name", "Enabled", "ConfigJSON")...); err != nil {
 		return nil, fmt.Errorf("update remote storage target: %w", err)
 	}
 
@@ -329,10 +332,10 @@ func (s *BackupRemoteService) decryptSecrets(target *models.RemoteStorageTarget)
 	if target.SecretsEncrypted == "" {
 		return secrets, nil
 	}
-	if s.encryption == nil {
+	if s.secrets == nil {
 		return secrets, ErrEncryptionKeyMissing
 	}
-	raw, err := s.encryption.Decrypt(target.SecretsEncrypted)
+	raw, err := s.secrets.DecryptWithVersion(target.SecretsEncrypted, target.KeyVersion)
 	if err != nil {
 		return secrets, fmt.Errorf("decrypt remote target secrets: %w", err)
 	}
@@ -375,7 +378,7 @@ type remoteTargetTokenSaver struct {
 
 // SaveToken implements remotestorage.TokenSaver.
 func (t *remoteTargetTokenSaver) SaveToken(_ context.Context, accessToken, refreshToken string, expiresAt time.Time) error {
-	if t.svc.encryption == nil {
+	if t.svc.secrets == nil {
 		return ErrEncryptionKeyMissing
 	}
 
@@ -387,18 +390,19 @@ func (t *remoteTargetTokenSaver) SaveToken(_ context.Context, accessToken, refre
 	secrets.OAuthRefreshToken = refreshToken
 	secrets.OAuthExpiresAt = expiresAt.UTC().Format(time.RFC3339)
 
-	secretsJSON, err := json.Marshal(secrets) //nolint:gosec // G117: secrets are encrypted via s.encryption.Encrypt before persisting
+	secretsJSON, err := json.Marshal(secrets) //nolint:gosec // G117: secrets are encrypted via s.secrets.EncryptWithCurrentKey before persisting
 	if err != nil {
 		return fmt.Errorf("marshal refreshed oauth secrets: %w", err)
 	}
-	encrypted, err := t.svc.encryption.Encrypt(secretsJSON)
+	encrypted, keyVersion, err := t.svc.secrets.EncryptWithCurrentKey(secretsJSON)
 	if err != nil {
 		return fmt.Errorf("encrypt refreshed oauth secrets: %w", err)
 	}
 
 	if err := t.svc.db.Model(&models.RemoteStorageTarget{}).
 		Where("uuid = ?", t.target.UUID).
-		Update("secrets_encrypted", encrypted).Error; err != nil {
+		Select(remoteTargetStore.Columns()).
+		Updates(models.RemoteStorageTarget{SecretsEncrypted: encrypted, KeyVersion: keyVersion}).Error; err != nil {
 		return fmt.Errorf("persist refreshed oauth token: %w", err)
 	}
 	t.target.SecretsEncrypted = encrypted
@@ -445,7 +449,7 @@ func (s *BackupRemoteService) recordTestOutcome(target *models.RemoteStorageTarg
 		target.LastTestStatus = "ok"
 		target.LastError = ""
 	}
-	if err := s.db.Save(target).Error; err != nil {
+	if err := saveFields(s.db, target, "LastTestAt", "LastTestStatus", "LastError"); err != nil {
 		logger.Log().WithError(err).WithField("target", util.SanitizeForLog(target.Name)).
 			Warn("failed to record remote target test outcome")
 	}
@@ -721,7 +725,7 @@ func (s *BackupRemoteService) CompleteOAuth(ctx context.Context, targetUUID, pro
 	if target.Type != provider {
 		return fmt.Errorf("oauth callback provider %q does not match target type %q", provider, target.Type)
 	}
-	if s.encryption == nil {
+	if s.secrets == nil {
 		return ErrEncryptionKeyMissing
 	}
 
@@ -764,20 +768,21 @@ func (s *BackupRemoteService) CompleteOAuth(ctx context.Context, targetUUID, pro
 	secrets.OAuthRefreshToken = tok.RefreshToken
 	secrets.OAuthExpiresAt = tok.Expiry.UTC().Format(time.RFC3339)
 
-	secretsJSON, err := json.Marshal(secrets) //nolint:gosec // G117: secrets are encrypted via s.encryption.Encrypt before persisting
+	secretsJSON, err := json.Marshal(secrets) //nolint:gosec // G117: secrets are encrypted via s.secrets.EncryptWithCurrentKey before persisting
 	if err != nil {
 		return fmt.Errorf("marshal oauth secrets: %w", err)
 	}
-	encrypted, err := s.encryption.Encrypt(secretsJSON)
+	encrypted, keyVersion, err := s.secrets.EncryptWithCurrentKey(secretsJSON)
 	if err != nil {
 		return fmt.Errorf("encrypt oauth secrets: %w", err)
 	}
 
 	now := time.Now().UTC()
 	target.SecretsEncrypted = encrypted
+	target.KeyVersion = keyVersion
 	target.OAuthStatus = "connected"
 	target.OAuthConnectedAt = &now
-	if err := s.db.Save(target).Error; err != nil {
+	if err := saveFields(s.db, target, oauthWriteColumns(true)...); err != nil {
 		return fmt.Errorf("persist oauth token: %w", err)
 	}
 	return nil
@@ -797,8 +802,9 @@ func (s *BackupRemoteService) DisconnectOAuth(uuidStr string) (*models.RemoteSto
 		return nil, fmt.Errorf("oauth disconnect is only supported for dropbox/google_drive targets, got %q", target.Type)
 	}
 
+	reencrypted := false
 	if target.SecretsEncrypted != "" {
-		if s.encryption == nil {
+		if s.secrets == nil {
 			return nil, ErrEncryptionKeyMissing
 		}
 		secrets, err := s.decryptSecrets(target)
@@ -809,20 +815,22 @@ func (s *BackupRemoteService) DisconnectOAuth(uuidStr string) (*models.RemoteSto
 		secrets.OAuthRefreshToken = ""
 		secrets.OAuthExpiresAt = ""
 
-		secretsJSON, err := json.Marshal(secrets) //nolint:gosec // G117: secrets are encrypted via s.encryption.Encrypt before persisting
+		secretsJSON, err := json.Marshal(secrets) //nolint:gosec // G117: secrets are encrypted via s.secrets.EncryptWithCurrentKey before persisting
 		if err != nil {
 			return nil, fmt.Errorf("marshal oauth secrets: %w", err)
 		}
-		encrypted, err := s.encryption.Encrypt(secretsJSON)
+		encrypted, keyVersion, err := s.secrets.EncryptWithCurrentKey(secretsJSON)
 		if err != nil {
 			return nil, fmt.Errorf("encrypt oauth secrets: %w", err)
 		}
 		target.SecretsEncrypted = encrypted
+		target.KeyVersion = keyVersion
+		reencrypted = true
 	}
 
 	target.OAuthStatus = "not_connected"
 	target.OAuthConnectedAt = nil
-	if err := s.db.Save(target).Error; err != nil {
+	if err := saveFields(s.db, target, oauthWriteColumns(reencrypted)...); err != nil {
 		return nil, fmt.Errorf("persist oauth disconnect: %w", err)
 	}
 	return target, nil

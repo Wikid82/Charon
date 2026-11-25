@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -78,7 +79,7 @@ func newFakeTokenExchangeErrorServer(t *testing.T) *httptest.Server {
 func TestStartOAuth_PublicURLNotConfigured(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
 	enc := newRemoteServiceCoverageEncryption(t)
-	svc := NewBackupRemoteService(db, enc, t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(enc), t.TempDir())
 
 	target, err := svc.Create("Dropbox", "dropbox", true,
 		RemoteTargetConfig{Dropbox: &DropboxConfig{AppKey: "app-key"}},
@@ -91,7 +92,7 @@ func TestStartOAuth_PublicURLNotConfigured(t *testing.T) {
 
 func TestStartOAuth_TargetNotFound(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
-	svc := NewBackupRemoteService(db, newRemoteServiceCoverageEncryption(t), t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(newRemoteServiceCoverageEncryption(t)), t.TempDir())
 
 	_, err := svc.StartOAuth("does-not-exist")
 	require.Error(t, err)
@@ -100,7 +101,7 @@ func TestStartOAuth_TargetNotFound(t *testing.T) {
 func TestStartOAuth_UnsupportedType(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
 	enc := newRemoteServiceCoverageEncryption(t)
-	svc := NewBackupRemoteService(db, enc, t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(enc), t.TempDir())
 	require.NoError(t, db.Create(&models.Setting{Key: "app.public_url", Value: "https://charon.example.com", Type: "string", Category: "general"}).Error)
 
 	target, err := svc.Create("NAS", "sftp", true, RemoteTargetConfig{Host: "203.0.113.5"}, RemoteTargetSecrets{Password: "x"})
@@ -114,7 +115,7 @@ func TestStartOAuth_UnsupportedType(t *testing.T) {
 func TestStartOAuth_Dropbox_Success(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
 	enc := newRemoteServiceCoverageEncryption(t)
-	svc := NewBackupRemoteService(db, enc, t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(enc), t.TempDir())
 	require.NoError(t, db.Create(&models.Setting{Key: "app.public_url", Value: "https://charon.example.com", Type: "string", Category: "general"}).Error)
 
 	target, err := svc.Create("Dropbox", "dropbox", true,
@@ -136,7 +137,7 @@ func TestStartOAuth_Dropbox_Success(t *testing.T) {
 func TestStartOAuth_GoogleDrive_Success(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
 	enc := newRemoteServiceCoverageEncryption(t)
-	svc := NewBackupRemoteService(db, enc, t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(enc), t.TempDir())
 	require.NoError(t, db.Create(&models.Setting{Key: "app.public_url", Value: "https://charon.example.com", Type: "string", Category: "general"}).Error)
 
 	target, err := svc.Create("Google Drive", "google_drive", true,
@@ -158,7 +159,7 @@ func TestStartOAuth_GoogleDrive_Success(t *testing.T) {
 func TestCompleteOAuth_Success_Dropbox_PersistsTokensAndConnectedStatus(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
 	enc := newRemoteServiceCoverageEncryption(t)
-	svc := NewBackupRemoteService(db, enc, t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(enc), t.TempDir())
 
 	target, err := svc.Create("Dropbox", "dropbox", true,
 		RemoteTargetConfig{Dropbox: &DropboxConfig{AppKey: "app-key"}},
@@ -189,7 +190,7 @@ func TestCompleteOAuth_Success_Dropbox_PersistsTokensAndConnectedStatus(t *testi
 func TestCompleteOAuth_Success_GoogleDrive_PersistsTokensAndConnectedStatus(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
 	enc := newRemoteServiceCoverageEncryption(t)
-	svc := NewBackupRemoteService(db, enc, t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(enc), t.TempDir())
 
 	target, err := svc.Create("Google Drive", "google_drive", true,
 		RemoteTargetConfig{GoogleDrive: &GoogleDriveConfig{ClientID: "client-id"}},
@@ -215,7 +216,7 @@ func TestCompleteOAuth_Success_GoogleDrive_PersistsTokensAndConnectedStatus(t *t
 func TestCompleteOAuth_ProviderMismatch(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
 	enc := newRemoteServiceCoverageEncryption(t)
-	svc := NewBackupRemoteService(db, enc, t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(enc), t.TempDir())
 
 	target, err := svc.Create("Dropbox", "dropbox", true,
 		RemoteTargetConfig{Dropbox: &DropboxConfig{AppKey: "app-key"}},
@@ -229,7 +230,7 @@ func TestCompleteOAuth_ProviderMismatch(t *testing.T) {
 
 func TestCompleteOAuth_TargetNotFound(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
-	svc := NewBackupRemoteService(db, newRemoteServiceCoverageEncryption(t), t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(newRemoteServiceCoverageEncryption(t)), t.TempDir())
 
 	err := svc.CompleteOAuth(context.Background(), "does-not-exist", "dropbox", "code", "https://charon.example.com")
 	require.Error(t, err)
@@ -238,14 +239,14 @@ func TestCompleteOAuth_TargetNotFound(t *testing.T) {
 func TestCompleteOAuth_EncryptionKeyMissing(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
 	enc := newRemoteServiceCoverageEncryption(t)
-	svc := NewBackupRemoteService(db, enc, t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(enc), t.TempDir())
 
 	target, err := svc.Create("Dropbox", "dropbox", true,
 		RemoteTargetConfig{Dropbox: &DropboxConfig{AppKey: "app-key"}},
 		RemoteTargetSecrets{OAuthClientSecret: "app-secret"})
 	require.NoError(t, err)
 
-	svc.encryption = nil
+	svc.secrets = nil
 	err = svc.CompleteOAuth(context.Background(), target.UUID, "dropbox", "code", "https://charon.example.com")
 	require.ErrorIs(t, err, ErrEncryptionKeyMissing)
 }
@@ -253,7 +254,7 @@ func TestCompleteOAuth_EncryptionKeyMissing(t *testing.T) {
 func TestCompleteOAuth_ExchangeFailure_PropagatesError(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
 	enc := newRemoteServiceCoverageEncryption(t)
-	svc := NewBackupRemoteService(db, enc, t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(enc), t.TempDir())
 
 	target, err := svc.Create("Dropbox", "dropbox", true,
 		RemoteTargetConfig{Dropbox: &DropboxConfig{AppKey: "app-key"}},
@@ -276,7 +277,7 @@ func TestCompleteOAuth_ExchangeFailure_PropagatesError(t *testing.T) {
 func TestDisconnectOAuth_ClearsTokensAndStatus(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
 	enc := newRemoteServiceCoverageEncryption(t)
-	svc := NewBackupRemoteService(db, enc, t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(enc), t.TempDir())
 
 	target, err := svc.Create("Dropbox", "dropbox", true,
 		RemoteTargetConfig{Dropbox: &DropboxConfig{AppKey: "app-key"}},
@@ -302,7 +303,7 @@ func TestDisconnectOAuth_ClearsTokensAndStatus(t *testing.T) {
 func TestDisconnectOAuth_UnsupportedType(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
 	enc := newRemoteServiceCoverageEncryption(t)
-	svc := NewBackupRemoteService(db, enc, t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(enc), t.TempDir())
 
 	target, err := svc.Create("NAS", "sftp", true, RemoteTargetConfig{Host: "203.0.113.5"}, RemoteTargetSecrets{Password: "x"})
 	require.NoError(t, err)
@@ -314,7 +315,7 @@ func TestDisconnectOAuth_UnsupportedType(t *testing.T) {
 func TestDisconnectOAuth_NeverConnected_NoOp(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
 	enc := newRemoteServiceCoverageEncryption(t)
-	svc := NewBackupRemoteService(db, enc, t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(enc), t.TempDir())
 
 	target, err := svc.Create("Dropbox", "dropbox", true,
 		RemoteTargetConfig{Dropbox: &DropboxConfig{AppKey: "app-key"}},
@@ -328,7 +329,7 @@ func TestDisconnectOAuth_NeverConnected_NoOp(t *testing.T) {
 
 func TestDisconnectOAuth_TargetNotFound(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
-	svc := NewBackupRemoteService(db, newRemoteServiceCoverageEncryption(t), t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(newRemoteServiceCoverageEncryption(t)), t.TempDir())
 
 	_, err := svc.DisconnectOAuth("does-not-exist")
 	require.Error(t, err)
@@ -338,7 +339,7 @@ func TestDisconnectOAuth_TargetNotFound(t *testing.T) {
 
 func TestConsumeOAuthState_DelegatesToStore(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
-	svc := NewBackupRemoteService(db, newRemoteServiceCoverageEncryption(t), t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(newRemoteServiceCoverageEncryption(t)), t.TempDir())
 
 	state, err := svc.states.Issue("target-uuid", "dropbox")
 	require.NoError(t, err)
@@ -351,7 +352,7 @@ func TestConsumeOAuthState_DelegatesToStore(t *testing.T) {
 
 func TestConfiguredPublicURL_DelegatesToUtils(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
-	svc := NewBackupRemoteService(db, newRemoteServiceCoverageEncryption(t), t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(newRemoteServiceCoverageEncryption(t)), t.TempDir())
 
 	_, ok := svc.ConfiguredPublicURL()
 	assert.False(t, ok)
@@ -372,7 +373,7 @@ func TestConfiguredPublicURL_DelegatesToUtils(t *testing.T) {
 func TestRemoteTargetTokenSaver_SaveToken_PersistsRefreshedTokenToDB(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
 	enc := newRemoteServiceCoverageEncryption(t)
-	svc := NewBackupRemoteService(db, enc, t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(enc), t.TempDir())
 
 	target, err := svc.Create("Dropbox", "dropbox", true,
 		RemoteTargetConfig{Dropbox: &DropboxConfig{AppKey: "app-key"}},
@@ -397,14 +398,14 @@ func TestRemoteTargetTokenSaver_SaveToken_PersistsRefreshedTokenToDB(t *testing.
 func TestRemoteTargetTokenSaver_SaveToken_EncryptionKeyMissing(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
 	enc := newRemoteServiceCoverageEncryption(t)
-	svc := NewBackupRemoteService(db, enc, t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(enc), t.TempDir())
 
 	target, err := svc.Create("Dropbox", "dropbox", true,
 		RemoteTargetConfig{Dropbox: &DropboxConfig{AppKey: "app-key"}},
 		RemoteTargetSecrets{OAuthClientSecret: "app-secret"})
 	require.NoError(t, err)
 
-	svc.encryption = nil
+	svc.secrets = nil
 	saver := &remoteTargetTokenSaver{svc: svc, target: target}
 	err = saver.SaveToken(context.Background(), "access", "refresh", time.Now())
 	require.ErrorIs(t, err, ErrEncryptionKeyMissing)

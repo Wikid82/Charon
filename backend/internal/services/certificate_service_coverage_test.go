@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
@@ -35,7 +36,7 @@ func newTestCertServiceWithEnc(t *testing.T, dataDir string, db *gorm.DB) *Certi
 	return &CertificateService{
 		dataDir: dataDir,
 		db:      db,
-		encSvc:  encSvc,
+		secrets: cryptotest.SingleKey(encSvc),
 		scanTTL: 5 * time.Minute,
 	}
 }
@@ -362,7 +363,7 @@ func TestCertificateService_GetDecryptedPrivateKey(t *testing.T) {
 	encSvc := newTestEncryptionService(t)
 
 	t.Run("no encrypted key", func(t *testing.T) {
-		cs := &CertificateService{encSvc: encSvc}
+		cs := &CertificateService{secrets: cryptotest.SingleKey(encSvc)}
 		cert := &models.SSLCertificate{PrivateKeyEncrypted: ""}
 		_, err := cs.GetDecryptedPrivateKey(cert)
 		assert.Error(t, err)
@@ -370,7 +371,7 @@ func TestCertificateService_GetDecryptedPrivateKey(t *testing.T) {
 	})
 
 	t.Run("no encryption service", func(t *testing.T) {
-		cs := &CertificateService{encSvc: nil}
+		cs := &CertificateService{secrets: nil}
 		cert := &models.SSLCertificate{PrivateKeyEncrypted: "some-data"}
 		_, err := cs.GetDecryptedPrivateKey(cert)
 		assert.Error(t, err)
@@ -378,7 +379,7 @@ func TestCertificateService_GetDecryptedPrivateKey(t *testing.T) {
 	})
 
 	t.Run("successful decryption", func(t *testing.T) {
-		cs := &CertificateService{encSvc: encSvc}
+		cs := &CertificateService{secrets: cryptotest.SingleKey(encSvc)}
 		plaintext := "-----BEGIN RSA PRIVATE KEY-----\ntest\n-----END RSA PRIVATE KEY-----" //nolint:gosec // test data, not real credentials
 		encrypted, err := encSvc.Encrypt([]byte(plaintext))
 		require.NoError(t, err)
@@ -467,8 +468,18 @@ func TestCertificateService_CheckExpiry(t *testing.T) {
 
 func TestCertificateService_MigratePrivateKeys(t *testing.T) {
 	t.Run("no encryption service", func(t *testing.T) {
-		cs := &CertificateService{encSvc: nil}
-		err := cs.MigratePrivateKeys()
+		dsn := fmt.Sprintf("file:%s?mode=memory&cache=shared", t.Name())
+		db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+		require.NoError(t, err)
+		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
+		require.NoError(t, db.Exec("ALTER TABLE ssl_certificates ADD COLUMN private_key TEXT DEFAULT ''").Error)
+		require.NoError(t, db.Exec(
+			"INSERT INTO ssl_certificates (uuid, name, provider, domains, private_key) VALUES (?, ?, ?, ?, ?)",
+			"no-key-1", "No Key", "custom", "nokey.example.com", "plaintext-key-data",
+		).Error)
+
+		cs := &CertificateService{db: db, secrets: nil}
+		err = cs.MigratePrivateKeys()
 		require.NoError(t, err)
 	})
 
@@ -481,7 +492,7 @@ func TestCertificateService_MigratePrivateKeys(t *testing.T) {
 		require.NoError(t, db.Exec("ALTER TABLE ssl_certificates ADD COLUMN private_key TEXT DEFAULT ''").Error)
 
 		encSvc := newTestEncryptionService(t)
-		cs := &CertificateService{db: db, encSvc: encSvc}
+		cs := &CertificateService{db: db, secrets: cryptotest.SingleKey(encSvc)}
 
 		err = cs.MigratePrivateKeys()
 		require.NoError(t, err)
@@ -502,7 +513,7 @@ func TestCertificateService_MigratePrivateKeys(t *testing.T) {
 		).Error)
 
 		encSvc := newTestEncryptionService(t)
-		cs := &CertificateService{db: db, encSvc: encSvc}
+		cs := &CertificateService{db: db, secrets: cryptotest.SingleKey(encSvc)}
 
 		err = cs.MigratePrivateKeys()
 		require.NoError(t, err)

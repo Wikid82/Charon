@@ -30,6 +30,11 @@ var ErrCertInUse = fmt.Errorf("certificate is in use by one or more proxy hosts"
 // ErrCertNotFound is returned when a certificate cannot be found by UUID.
 var ErrCertNotFound = fmt.Errorf("certificate not found")
 
+// ErrPrivateKeyStorageUnavailable is returned when an upload carries a private
+// key but no encryption key is configured. The key is never stored in
+// plaintext or dropped, so the upload is refused and nothing is saved.
+var ErrPrivateKeyStorageUnavailable = fmt.Errorf("private key storage requires a configured encryption key")
+
 // ErrKeyExportNotAuthorized is returned when an export that embeds the private
 // key arrives without an authorisation result from the caller.
 var ErrKeyExportNotAuthorized = fmt.Errorf("private key export requires authorisation")
@@ -137,7 +142,7 @@ type CertificateDetail struct {
 type CertificateService struct {
 	dataDir     string
 	db          *gorm.DB
-	encSvc      *crypto.EncryptionService
+	secrets     crypto.VersionedCipher
 	cache       []CertificateInfo
 	cacheMu     sync.RWMutex
 	lastScan    time.Time
@@ -146,11 +151,11 @@ type CertificateService struct {
 }
 
 // NewCertificateService creates a new certificate service.
-func NewCertificateService(dataDir string, db *gorm.DB, encSvc *crypto.EncryptionService) *CertificateService {
+func NewCertificateService(dataDir string, db *gorm.DB, secrets crypto.VersionedCipher) *CertificateService {
 	svc := &CertificateService{
 		dataDir: dataDir,
 		db:      db,
-		encSvc:  encSvc,
+		secrets: secrets,
 		scanTTL: 5 * time.Minute,
 	}
 	return svc
@@ -270,7 +275,7 @@ func (s *CertificateService) SyncFromDisk() error {
 					}
 					if updated {
 						existing.UpdatedAt = time.Now()
-						if err := s.db.Save(&existing).Error; err != nil {
+						if err := saveRow(s.db, certificateKeyStore, &existing, false); err != nil {
 							logger.Log().WithField("domain", util.SanitizeForLog(domain)).WithError(err).Error("CertificateService: failed to update DB cert")
 						}
 					} else {
@@ -489,6 +494,12 @@ func (s *CertificateService) UploadCertificate(name, certPEM, keyPEM, chainPEM s
 		}
 	}
 
+	// Refuse a key-bearing upload that cannot be encrypted. This runs after
+	// parsing because a PFX bundle carries its key inside the file.
+	if parsed.KeyPEM != "" && s.secrets == nil {
+		return nil, ErrPrivateKeyStorageUnavailable
+	}
+
 	// Extract metadata
 	meta := ExtractCertificateMetadata(parsed.Leaf)
 
@@ -514,18 +525,18 @@ func (s *CertificateService) UploadCertificate(name, certPEM, keyPEM, chainPEM s
 		KeyType:          meta.KeyType,
 		ExpiresAt:        &notAfter,
 		NotBefore:        &notBefore,
-		KeyVersion:       1,
 		CreatedAt:        time.Now(),
 		UpdatedAt:        time.Now(),
 	}
 
-	// Encrypt private key at rest
-	if parsed.KeyPEM != "" && s.encSvc != nil {
-		encrypted, err := s.encSvc.Encrypt([]byte(parsed.KeyPEM))
+	// Encrypt private key at rest; the version tag comes from the cipher.
+	if parsed.KeyPEM != "" {
+		encrypted, keyVersion, err := s.secrets.EncryptWithCurrentKey([]byte(parsed.KeyPEM))
 		if err != nil {
 			return nil, fmt.Errorf("failed to encrypt private key: %w", err)
 		}
 		sslCert.PrivateKeyEncrypted = encrypted
+		sslCert.KeyVersion = keyVersion
 	}
 
 	if err := s.db.Create(sslCert).Error; err != nil {
@@ -864,11 +875,11 @@ func (s *CertificateService) GetDecryptedPrivateKey(cert *models.SSLCertificate)
 	if cert.PrivateKeyEncrypted == "" {
 		return "", fmt.Errorf("no encrypted private key stored")
 	}
-	if s.encSvc == nil {
+	if s.secrets == nil {
 		return "", fmt.Errorf("encryption service not configured")
 	}
 
-	decrypted, err := s.encSvc.Decrypt(cert.PrivateKeyEncrypted)
+	decrypted, err := s.secrets.DecryptWithVersion(cert.PrivateKeyEncrypted, cert.KeyVersion)
 	if err != nil {
 		return "", fmt.Errorf("failed to decrypt private key: %w", err)
 	}
@@ -876,49 +887,126 @@ func (s *CertificateService) GetDecryptedPrivateKey(cert *models.SSLCertificate)
 	return string(decrypted), nil
 }
 
-// MigratePrivateKeys encrypts existing plaintext private keys.
-// Idempotent — skips already-migrated rows.
+// legacyPrivateKeyWhere selects certificate rows that still hold a plaintext
+// private key in the legacy private_key column.
+const legacyPrivateKeyWhere = "private_key != '' AND (private_key_enc = '' OR private_key_enc IS NULL)"
+
+// secureDeletePragmas maps the readable secure_delete modes (0 off, 1 on,
+// 2 fast) to the statement that sets them. PRAGMA cannot take bound values.
+var secureDeletePragmas = [...]string{
+	"PRAGMA secure_delete = 0",
+	"PRAGMA secure_delete = 1",
+	"PRAGMA secure_delete = 2",
+}
+
+// legacyPrivateKeyRow is one plaintext key read during migration.
+type legacyPrivateKeyRow struct {
+	ID         uint
+	PrivateKey string
+}
+
+// MigratePrivateKeys moves plaintext private keys from the legacy private_key
+// column into encrypted storage. It is idempotent and does nothing on installs
+// that never had the column. Without a configured key it only counts the
+// plaintext keys and warns, so the operator sees the problem on every start.
 func (s *CertificateService) MigratePrivateKeys() error {
-	if s.encSvc == nil {
-		logger.Log().Warn("CertificateService: encryption service not configured, skipping key migration")
+	if !s.db.Migrator().HasColumn(&models.SSLCertificate{}, "private_key") {
 		return nil
 	}
 
-	// Use raw SQL because PrivateKey has gorm:"-" tag
-	type rawCert struct {
-		ID            uint
-		PrivateKey    string
-		PrivateKeyEnc string `gorm:"column:private_key_enc"`
+	var pending int64
+	if err := s.db.Raw("SELECT COUNT(*) FROM ssl_certificates WHERE " + legacyPrivateKeyWhere).Scan(&pending).Error; err != nil {
+		return fmt.Errorf("counting plaintext certificate keys: %w", err)
 	}
-
-	var certs []rawCert
-	if err := s.db.Raw("SELECT id, private_key, private_key_enc FROM ssl_certificates WHERE private_key != '' AND (private_key_enc = '' OR private_key_enc IS NULL)").Scan(&certs).Error; err != nil {
-		return fmt.Errorf("failed to query certificates for migration: %w", err)
-	}
-
-	if len(certs) == 0 {
-		logger.Log().Info("CertificateService: no private keys to migrate")
+	if pending == 0 {
 		return nil
 	}
 
-	logger.Log().WithField("count", len(certs)).Info("CertificateService: migrating plaintext private keys")
-
-	for _, c := range certs {
-		encrypted, err := s.encSvc.Encrypt([]byte(c.PrivateKey))
-		if err != nil {
-			logger.Log().WithField("cert_id", c.ID).WithError(err).Error("CertificateService: failed to encrypt key during migration")
-			continue
-		}
-
-		if err := s.db.Exec("UPDATE ssl_certificates SET private_key_enc = ?, key_version = 1, private_key = '' WHERE id = ?", encrypted, c.ID).Error; err != nil {
-			logger.Log().WithField("cert_id", c.ID).WithError(err).Error("CertificateService: failed to update migrated key")
-			continue
-		}
-
-		logger.Log().WithField("cert_id", c.ID).Info("CertificateService: migrated private key")
+	if s.secrets == nil {
+		logger.Log().WithField("count", pending).Warn(fmt.Sprintf(
+			"%d certificate private keys are stored without encryption. Set CHARON_ENCRYPTION_KEY and restart to encrypt them.", pending))
+		return nil
 	}
 
+	migrated, err := s.encryptLegacyPrivateKeys()
+	if err != nil {
+		return fmt.Errorf("encrypting plaintext certificate keys: %w", err)
+	}
+	logger.Log().WithField("count", migrated).Info("CertificateService: encrypted plaintext private keys")
 	return nil
+}
+
+// encryptLegacyPrivateKeys encrypts every plaintext key in one write-locked
+// transaction on a pinned connection. secure_delete is switched on for the
+// duration so overwritten pages are scrubbed, and the WAL is checkpointed after
+// commit so the old bytes do not linger there. The previous secure_delete mode
+// is restored on every path, including errors.
+func (s *CertificateService) encryptLegacyPrivateKeys() (int, error) {
+	migrated := 0
+	err := s.db.Connection(func(conn *gorm.DB) (err error) {
+		var previous int
+		previous, err = readSecureDelete(conn)
+		if err != nil {
+			return err
+		}
+		if err = conn.Exec(secureDeletePragmas[1]).Error; err != nil {
+			return fmt.Errorf("enabling secure_delete: %w", err)
+		}
+		defer func() {
+			if restoreErr := conn.Exec(secureDeletePragmas[previous]).Error; restoreErr != nil && err == nil {
+				err = fmt.Errorf("restoring secure_delete: %w", restoreErr)
+			}
+		}()
+
+		err = WithWriteLock(conn, &models.SSLCertificate{}, func(tx *gorm.DB) error {
+			n, encErr := s.encryptLegacyRows(tx)
+			migrated = n
+			return encErr
+		})
+		if err != nil {
+			return err
+		}
+
+		if err = conn.Exec("PRAGMA wal_checkpoint(TRUNCATE)").Error; err != nil {
+			return fmt.Errorf("checkpointing WAL after key migration: %w", err)
+		}
+		return nil
+	})
+	return migrated, err
+}
+
+// readSecureDelete returns the connection's current secure_delete mode as an
+// index into secureDeletePragmas.
+func readSecureDelete(conn *gorm.DB) (int, error) {
+	var mode int
+	if err := conn.Raw("PRAGMA secure_delete").Scan(&mode).Error; err != nil {
+		return 0, fmt.Errorf("reading secure_delete: %w", err)
+	}
+	if mode < 0 || mode >= len(secureDeletePragmas) {
+		return 0, fmt.Errorf("unexpected secure_delete mode %d", mode)
+	}
+	return mode, nil
+}
+
+// encryptLegacyRows encrypts the plaintext keys visible through tx, tags each
+// row with the version the cipher reports and clears the plaintext column.
+// Any failure returns an error so the caller's transaction rolls back.
+func (s *CertificateService) encryptLegacyRows(tx *gorm.DB) (int, error) {
+	var rows []legacyPrivateKeyRow
+	if err := tx.Raw("SELECT id, private_key FROM ssl_certificates WHERE " + legacyPrivateKeyWhere).Scan(&rows).Error; err != nil {
+		return 0, fmt.Errorf("loading plaintext certificate keys: %w", err)
+	}
+
+	for _, row := range rows {
+		encrypted, keyVersion, err := s.secrets.EncryptWithCurrentKey([]byte(row.PrivateKey))
+		if err != nil {
+			return 0, fmt.Errorf("encrypting key for certificate %d: %w", row.ID, err)
+		}
+		if err := tx.Exec("UPDATE ssl_certificates SET private_key_enc = ?, key_version = ?, private_key = '' WHERE id = ?", encrypted, keyVersion, row.ID).Error; err != nil {
+			return 0, fmt.Errorf("storing encrypted key for certificate %d: %w", row.ID, err)
+		}
+	}
+	return len(rows), nil
 }
 
 // DeleteCertificateByID removes a certificate by numeric ID (legacy compatibility).
@@ -944,7 +1032,8 @@ func (s *CertificateService) UpdateCertificate(certUUID, name string) (*Certific
 	}
 
 	cert.Name = name
-	if err := s.db.Save(&cert).Error; err != nil {
+	cert.UpdatedAt = time.Now()
+	if err := saveFields(s.db, &cert, "Name", "UpdatedAt"); err != nil {
 		return nil, fmt.Errorf("failed to update certificate: %w", err)
 	}
 

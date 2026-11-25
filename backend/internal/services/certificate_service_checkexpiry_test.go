@@ -12,6 +12,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
@@ -140,7 +141,7 @@ func TestUploadCertificate_DBError(t *testing.T) {
 	require.NoError(t, err)
 	// No AutoMigrate → ssl_certificates table absent → db.Create fails
 
-	svc := NewCertificateService(t.TempDir(), db, nil)
+	svc := NewCertificateService(t.TempDir(), db, cryptotest.SingleKey(newTestEncryptionService(t)))
 
 	_, err = svc.UploadCertificate("db-error-test", string(certPEM), string(keyPEM), "")
 	require.Error(t, err)

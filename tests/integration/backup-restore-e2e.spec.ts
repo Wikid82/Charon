@@ -291,7 +291,8 @@ test.describe('Backup & Restore E2E', () => {
       await test.step('Verify access list exists', async () => {
         await page.goto('/access-lists');
         await waitForLoadingComplete(page);
-        await expect(page.getByText(acl.name)).toBeVisible();
+        // Scope to the table row: the Management Access card also lists access list names as labels.
+        await expect(page.getByRole('row').filter({ hasText: acl.name })).toBeVisible();
       });
 
       await test.step('Navigate to backups', async () => {

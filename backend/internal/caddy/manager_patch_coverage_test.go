@@ -12,6 +12,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -68,7 +69,7 @@ func TestManagerApplyConfig_DNSProviders_NoKey_SkipsDecryption(t *testing.T) {
 	require.Equal(t, 0, capturedLen)
 }
 
-func TestManagerApplyConfig_DNSProviders_UsesFallbackEnvKeys(t *testing.T) {
+func TestManagerApplyConfig_DNSProviders_IgnoresUnprefixedEnvKeys(t *testing.T) {
 	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/load" && r.Method == http.MethodPost {
 			w.WriteHeader(http.StatusOK)
@@ -117,13 +118,12 @@ func TestManagerApplyConfig_DNSProviders_UsesFallbackEnvKeys(t *testing.T) {
 	}
 	validateConfigFunc = func(_ *Config) error { return nil }
 
+	// No cipher is injected: the unprefixed ENCRYPTION_KEY variable is never
+	// read, so the provider cannot be decrypted and no DNS config is produced.
 	manager := NewManager(newTestClient(t, caddyServer.URL), db, t.TempDir(), "", false, config.SecurityConfig{CerberusEnabled: true})
 	require.NoError(t, manager.ApplyConfig(context.Background()))
 
-	require.Len(t, captured, 1)
-	require.Equal(t, uint(11), captured[0].ID)
-	require.Equal(t, "cloudflare", captured[0].ProviderType)
-	require.Equal(t, "tok", captured[0].Credentials["api_token"])
+	require.Empty(t, captured)
 }
 
 func TestManagerApplyConfig_DNSProviders_SkipsDecryptOrJSONFailures(t *testing.T) {
@@ -182,6 +182,7 @@ func TestManagerApplyConfig_DNSProviders_SkipsDecryptOrJSONFailures(t *testing.T
 	validateConfigFunc = func(_ *Config) error { return nil }
 
 	manager := NewManager(newTestClient(t, caddyServer.URL), db, t.TempDir(), "", false, config.SecurityConfig{CerberusEnabled: true})
+	manager.SetSecretCipher(testSecretCipher(t, keyB64))
 	require.NoError(t, manager.ApplyConfig(context.Background()))
 
 	require.Len(t, captured, 1)
@@ -277,11 +278,11 @@ func TestManagerApplyConfig_InvalidKeepaliveSettingsFallbackToDefaults(t *testin
 	require.False(t, bytes.Contains(loadBody, []byte(`"keepalive_idle"`)))
 	require.False(t, bytes.Contains(loadBody, []byte(`"keepalive_count"`)))
 }
-func TestManager_SetEncryptionService(t *testing.T) {
+func TestManager_SetSecretCipher(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open("file::memory:?cache=shared"), &gorm.Config{})
 	require.NoError(t, err)
 	m := NewManager(nil, db, t.TempDir(), "", false, config.SecurityConfig{})
 	key, err := crypto.NewEncryptionService("MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=")
 	require.NoError(t, err)
-	m.SetEncryptionService(key)
+	m.SetSecretCipher(cryptotest.SingleKey(key))
 }

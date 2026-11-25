@@ -6,6 +6,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/robfig/cron/v3"
 	"github.com/stretchr/testify/assert"
@@ -23,7 +24,7 @@ func newSettingsTestService(t *testing.T, enc *crypto.EncryptionService) *Backup
 
 	tmpDir := t.TempDir()
 	cfg := &config.Config{DatabasePath: tmpDir + "/charon.db"}
-	svc := NewBackupService(cfg, db, enc)
+	svc := NewBackupService(cfg, db, cryptotest.SingleKey(enc))
 	t.Cleanup(svc.Stop)
 	return svc
 }

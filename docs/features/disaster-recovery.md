@@ -70,8 +70,9 @@ run it before — a full migration, or rebuilding after the original disk is gon
    running before, or newer — restoring a backup made by an older version onto a
    newer Charon works; restoring a backup made by a *newer* version onto an *older*
    Charon is refused).
-2. **Set the same `CHARON_ENCRYPTION_KEY`** (and any `_V1`–`_V10` rotation keys) that
-   was configured on the original host, *before* you restore. See
+2. **Set the same `CHARON_ENCRYPTION_KEY`** (and any `_V1`–`_V10` old keys) that
+   was configured on the original host, *before* you restore. Keep every old key that
+   was in use when the backup was made. See
    [The Encryption Key Problem](#the-encryption-key-problem) — skipping this step
    doesn't break the restore, but it silently leaves some of your data unusable.
 3. Start Charon so it creates its default data directory. On a brand-new install, create
@@ -127,31 +128,31 @@ step 4 onward (place it in `data/backups/` or use **Upload Backup**).
 
 This is the single most common way an off-host restore "half-works."
 
-Charon encrypts a handful of sensitive database fields at rest — DNS provider API
-credentials, remote storage target secrets, and tunnel (Orthrus/Hecate) configs —
-using `CHARON_ENCRYPTION_KEY`. That key **lives in your environment variables, not
+Charon locks some sensitive saved data, such as DNS provider logins, remote backup
+settings, tunnel settings, backup passphrases, and uploaded certificate private keys,
+using `CHARON_ENCRYPTION_KEY`. That key **lives in your environment settings, not
 in the backup**. It is deliberately never bundled into the archive, because doing
 so would make the encryption pointless.
 
 What this means in practice:
 
 - If you restore a backup onto a host that has the **same** `CHARON_ENCRYPTION_KEY`
-  (and any rotation keys, `CHARON_ENCRYPTION_KEY_V1` through `_V10`, that were ever
-  used to encrypt data on the original host) — everything decrypts normally. Nothing
-  to do.
+  (and any old keys, `CHARON_ENCRYPTION_KEY_V1` through `_V10`, that were in use
+  when the backup was made) — everything opens normally. Nothing to do.
 - If you restore onto a host with a **different or missing** key, the restore itself
   still succeeds — your proxy hosts, certificates, and users all come back fine —
-  but those specific encrypted rows (DNS provider credentials, remote storage
-  secrets, tunnel configs) **silently fail to decrypt**. They won't error loudly;
-  they just won't work, and you'll need to re-enter them by hand.
+  but the locked items (DNS provider logins, remote backup settings, tunnel settings)
+  cannot be opened. The Encryption page lists them as **unreadable**, and Charon
+  writes a warning to its log. You'll need to re-enter them by hand, or set the
+  matching key and restore again.
 - Charon tries to warn you about this rather than let you find out the hard way.
   Every backup's manifest carries an `encryption_key_required` flag, and when it's
   set, both the **Validate** and **Restore** screens show a warning that the archive
   contains data that needs a specific encryption key to come back to life.
 
 **Bottom line:** before restoring onto a new host, copy over the exact
-`CHARON_ENCRYPTION_KEY` (and rotation keys) from the original host's environment.
-See [Encryption Key Rotation](key-rotation.md) for the full key-versioning model.
+`CHARON_ENCRYPTION_KEY` (and old keys) from the original host's environment.
+See [Encryption Key Rotation](key-rotation.md) for how old keys work.
 
 ## Lost Your Archive Passphrase? Read This First
 

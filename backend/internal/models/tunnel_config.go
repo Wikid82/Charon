@@ -34,6 +34,11 @@ type TunnelConfig struct {
 	IsActive  bool      `json:"is_active" gorm:"default:false;index"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+
+	// KeyVersion is the encryption key version EncryptedCredentials was written
+	// with (0 = untagged). It is the last field on purpose: live restore copies
+	// tables positionally, so the column order must match upgraded databases.
+	KeyVersion int `json:"-" gorm:"not null;default:0"`
 }
 
 func (tc *TunnelConfig) BeforeCreate(tx *gorm.DB) (err error) {

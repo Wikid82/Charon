@@ -18,6 +18,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/testutil"
@@ -140,7 +141,7 @@ func setupCredentialStorageFixture(t *testing.T) (*gin.Engine, *gorm.DB, models.
 	}
 	require.NoError(t, db.Create(&provider).Error)
 
-	h := NewCredentialHandler(services.NewCredentialService(db, encryptor), services.NewDNSProviderService(db, encryptor))
+	h := NewCredentialHandler(services.NewCredentialService(db, cryptotest.SingleKey(encryptor)), services.NewDNSProviderService(db, cryptotest.SingleKey(encryptor)))
 	gin.SetMode(gin.TestMode)
 	router := gin.New()
 	router.GET("/api/v1/dns-providers/:id/credentials", h.List)

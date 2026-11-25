@@ -23,7 +23,7 @@ func TestExportCertificate_DER(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
-	cs := newTestCertificateService(tmpDir, db)
+	cs := newTestCertServiceWithEnc(t, tmpDir, db)
 	certPEM, keyPEM := generateTestCertAndKey(t, "der-export.example.com", time.Now().Add(24*time.Hour))
 	info, err := cs.UploadCertificate("der-export", string(certPEM), string(keyPEM), "")
 	require.NoError(t, err)
@@ -79,7 +79,7 @@ func TestExportCertificate_UnsupportedFormat(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
-	cs := newTestCertificateService(tmpDir, db)
+	cs := newTestCertServiceWithEnc(t, tmpDir, db)
 	certPEM, keyPEM := generateTestCertAndKey(t, "unsupported.example.com", time.Now().Add(24*time.Hour))
 	info, err := cs.UploadCertificate("unsupported-fmt", string(certPEM), string(keyPEM), "")
 	require.NoError(t, err)
@@ -215,7 +215,7 @@ func TestDeleteCertificateByID_Success(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
-	cs := newTestCertificateService(tmpDir, db)
+	cs := newTestCertServiceWithEnc(t, tmpDir, db)
 	certPEM, keyPEM := generateTestCertAndKey(t, "byid.example.com", time.Now().Add(24*time.Hour))
 	info, err := cs.UploadCertificate("by-id-delete", string(certPEM), string(keyPEM), "")
 	require.NoError(t, err)
@@ -248,7 +248,7 @@ func TestUpdateCertificate_Success(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
-	cs := newTestCertificateService(tmpDir, db)
+	cs := newTestCertServiceWithEnc(t, tmpDir, db)
 	certPEM, keyPEM := generateTestCertAndKey(t, "update.example.com", time.Now().Add(24*time.Hour))
 	info, err := cs.UploadCertificate("old-name", string(certPEM), string(keyPEM), "")
 	require.NoError(t, err)
@@ -291,7 +291,7 @@ func TestIsCertificateInUseByUUID_NotInUse(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
-	cs := newTestCertificateService(tmpDir, db)
+	cs := newTestCertServiceWithEnc(t, tmpDir, db)
 	certPEM, keyPEM := generateTestCertAndKey(t, "inuse-uuid.example.com", time.Now().Add(24*time.Hour))
 	info, err := cs.UploadCertificate("uuid-inuse-test", string(certPEM), string(keyPEM), "")
 	require.NoError(t, err)

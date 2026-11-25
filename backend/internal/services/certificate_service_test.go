@@ -184,7 +184,7 @@ func TestCertificateService_UploadAndDelete(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
-	cs := newTestCertificateService(tmpDir, db)
+	cs := newTestCertServiceWithEnc(t, tmpDir, db)
 
 	// Generate Cert
 	domain := "custom.example.com"
@@ -312,7 +312,7 @@ func TestCertificateService_UploadCertificate_Errors(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
-	cs := newTestCertificateService(tmpDir, db)
+	cs := newTestCertServiceWithEnc(t, tmpDir, db)
 
 	t.Run("invalid PEM format", func(t *testing.T) {
 		cert, err := cs.UploadCertificate("Invalid", "not-a-valid-pem", "also-not-valid", "")
@@ -466,7 +466,7 @@ func TestCertificateService_DeleteCertificate_Errors(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}))
 
-	cs := newTestCertificateService(tmpDir, db)
+	cs := newTestCertServiceWithEnc(t, tmpDir, db)
 
 	t.Run("delete non-existent certificate", func(t *testing.T) {
 		// DeleteCertificate takes UUID string; non-existent UUID returns error
@@ -940,7 +940,7 @@ func TestCertificateService_CacheBehavior(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}))
 
-		cs := newTestCertificateService(tmpDir, db)
+		cs := newTestCertServiceWithEnc(t, tmpDir, db)
 
 		// Create a cert
 		domain := "cache.example.com"

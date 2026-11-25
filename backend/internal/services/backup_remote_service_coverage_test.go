@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services/remotestorage"
 	"github.com/stretchr/testify/assert"
@@ -150,7 +151,7 @@ func TestBackupRemoteService_Create_EncryptionKeyMissing(t *testing.T) {
 
 func TestBackupRemoteService_Create_InvalidConfig(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
-	svc := NewBackupRemoteService(db, newRemoteServiceCoverageEncryption(t), t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(newRemoteServiceCoverageEncryption(t)), t.TempDir())
 
 	target, err := svc.Create("NAS", "sftp", true, RemoteTargetConfig{}, RemoteTargetSecrets{Password: "x"})
 	require.Error(t, err)
@@ -160,7 +161,7 @@ func TestBackupRemoteService_Create_InvalidConfig(t *testing.T) {
 
 func TestBackupRemoteService_Create_Success(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
-	svc := NewBackupRemoteService(db, newRemoteServiceCoverageEncryption(t), t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(newRemoteServiceCoverageEncryption(t)), t.TempDir())
 
 	target, err := svc.Create("NAS", "sftp", true, RemoteTargetConfig{Host: "203.0.113.20"}, RemoteTargetSecrets{Password: "hunter2"})
 	require.NoError(t, err)
@@ -185,7 +186,7 @@ func TestBackupRemoteService_Create_Success(t *testing.T) {
 // into) to prove what actually landed in the database.
 func TestBackupRemoteService_Create_EnabledFalse_PersistsAsDisabled(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
-	svc := NewBackupRemoteService(db, newRemoteServiceCoverageEncryption(t), t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(newRemoteServiceCoverageEncryption(t)), t.TempDir())
 
 	target, err := svc.Create("NAS", "sftp", false, RemoteTargetConfig{Host: "203.0.113.20"}, RemoteTargetSecrets{Password: "x"})
 	require.NoError(t, err)
@@ -204,7 +205,7 @@ func TestBackupRemoteService_Create_EnabledFalse_PersistsAsDisabled(t *testing.T
 // companion case for the above: enabled:true must still persist correctly.
 func TestBackupRemoteService_Create_EnabledTrue_PersistsAsEnabled(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
-	svc := NewBackupRemoteService(db, newRemoteServiceCoverageEncryption(t), t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(newRemoteServiceCoverageEncryption(t)), t.TempDir())
 
 	target, err := svc.Create("NAS", "sftp", true, RemoteTargetConfig{Host: "203.0.113.20"}, RemoteTargetSecrets{Password: "x"})
 	require.NoError(t, err)
@@ -220,7 +221,7 @@ func TestBackupRemoteService_Create_EnabledTrue_PersistsAsEnabled(t *testing.T) 
 
 func TestBackupRemoteService_Update_NotFound(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
-	svc := NewBackupRemoteService(db, newRemoteServiceCoverageEncryption(t), t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(newRemoteServiceCoverageEncryption(t)), t.TempDir())
 
 	name := "New Name"
 	target, err := svc.Update("does-not-exist", &name, nil, nil, nil)
@@ -231,7 +232,7 @@ func TestBackupRemoteService_Update_NotFound(t *testing.T) {
 func TestBackupRemoteService_Update_InvalidConfig(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
 	enc := newRemoteServiceCoverageEncryption(t)
-	svc := NewBackupRemoteService(db, enc, t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(enc), t.TempDir())
 
 	created, err := svc.Create("NAS", "sftp", true, RemoteTargetConfig{Host: "203.0.113.20"}, RemoteTargetSecrets{Password: "x"})
 	require.NoError(t, err)
@@ -246,7 +247,7 @@ func TestBackupRemoteService_Update_InvalidConfig(t *testing.T) {
 func TestBackupRemoteService_Update_SecretsWithoutEncryption(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
 	enc := newRemoteServiceCoverageEncryption(t)
-	svc := NewBackupRemoteService(db, enc, t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(enc), t.TempDir())
 
 	created, err := svc.Create("NAS", "sftp", true, RemoteTargetConfig{Host: "203.0.113.20"}, RemoteTargetSecrets{Password: "x"})
 	require.NoError(t, err)
@@ -263,7 +264,7 @@ func TestBackupRemoteService_Update_SecretsWithoutEncryption(t *testing.T) {
 func TestBackupRemoteService_Update_Success(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
 	enc := newRemoteServiceCoverageEncryption(t)
-	svc := NewBackupRemoteService(db, enc, t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(enc), t.TempDir())
 
 	created, err := svc.Create("NAS", "sftp", true, RemoteTargetConfig{Host: "203.0.113.20"}, RemoteTargetSecrets{Password: "x"})
 	require.NoError(t, err)
@@ -293,7 +294,7 @@ func TestBackupRemoteService_Update_Success(t *testing.T) {
 func TestBackupRemoteService_Update_EnabledFalse_PersistsAsDisabled(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
 	enc := newRemoteServiceCoverageEncryption(t)
-	svc := NewBackupRemoteService(db, enc, t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(enc), t.TempDir())
 
 	created, err := svc.Create("NAS", "sftp", true, RemoteTargetConfig{Host: "203.0.113.20"}, RemoteTargetSecrets{Password: "x"})
 	require.NoError(t, err)
@@ -314,7 +315,7 @@ func TestBackupRemoteService_Update_EnabledFalse_PersistsAsDisabled(t *testing.T
 func TestBackupRemoteService_Update_EmptySecretsKeepsExisting(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
 	enc := newRemoteServiceCoverageEncryption(t)
-	svc := NewBackupRemoteService(db, enc, t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(enc), t.TempDir())
 
 	created, err := svc.Create("NAS", "sftp", true, RemoteTargetConfig{Host: "203.0.113.20"}, RemoteTargetSecrets{Password: "keep-me"})
 	require.NoError(t, err)
@@ -333,7 +334,7 @@ func TestBackupRemoteService_Update_EmptySecretsKeepsExisting(t *testing.T) {
 func TestBackupRemoteService_Delete_Success(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
 	enc := newRemoteServiceCoverageEncryption(t)
-	svc := NewBackupRemoteService(db, enc, t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(enc), t.TempDir())
 
 	created, err := svc.Create("NAS", "sftp", true, RemoteTargetConfig{Host: "203.0.113.20"}, RemoteTargetSecrets{Password: "x"})
 	require.NoError(t, err)
@@ -366,7 +367,7 @@ func TestDecryptSecrets_NoEncryptionService_ReturnsError(t *testing.T) {
 func TestDecryptSecrets_DecryptFailure(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
 	enc := newRemoteServiceCoverageEncryption(t)
-	svc := NewBackupRemoteService(db, enc, t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(enc), t.TempDir())
 
 	_, err := svc.decryptSecrets(&models.RemoteStorageTarget{SecretsEncrypted: "not-valid-base64-ciphertext!!"}) //nolint:gosec // G101: test fixture invalid ciphertext string
 	require.Error(t, err)
@@ -376,7 +377,7 @@ func TestDecryptSecrets_DecryptFailure(t *testing.T) {
 func TestDecryptSecrets_UnmarshalFailure(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
 	enc := newRemoteServiceCoverageEncryption(t)
-	svc := NewBackupRemoteService(db, enc, t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(enc), t.TempDir())
 
 	// Encrypt something that decrypts fine but isn't valid JSON.
 	ciphertext, err := enc.Encrypt([]byte("this is not json"))
@@ -581,7 +582,7 @@ func TestBackupRemoteService_List_DatabaseError(t *testing.T) {
 // and encryption both succeed here, only the final persist fails.
 func TestBackupRemoteService_Create_DatabaseWriteFails(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
-	svc := NewBackupRemoteService(db, newRemoteServiceCoverageEncryption(t), t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(newRemoteServiceCoverageEncryption(t)), t.TempDir())
 
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
@@ -602,7 +603,7 @@ func TestBackupRemoteService_Create_DatabaseWriteFails(t *testing.T) {
 // the UPDATE fails.
 func TestBackupRemoteService_Update_DatabaseWriteFails(t *testing.T) {
 	db := newRemoteServiceTestDB(t)
-	svc := NewBackupRemoteService(db, newRemoteServiceCoverageEncryption(t), t.TempDir())
+	svc := NewBackupRemoteService(db, cryptotest.SingleKey(newRemoteServiceCoverageEncryption(t)), t.TempDir())
 
 	target, err := svc.Create("NAS", "sftp", true, RemoteTargetConfig{Host: "203.0.113.20"}, RemoteTargetSecrets{Password: "hunter2"})
 	require.NoError(t, err)

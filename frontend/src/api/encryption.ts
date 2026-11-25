@@ -1,22 +1,68 @@
 import client from './client'
 
+/** Usage of one configured encryption key slot (CHARON_ENCRYPTION_KEY, _NEXT, _V<n>) */
+export interface KeyUsage {
+  slot: string
+  /** Zero when the slot could not be loaded */
+  version: number
+  /** First 8 hex chars of the key id; display only. Empty when not loaded. */
+  key_id: string
+  in_use: number
+  /** True when the key is not the current key and no stored secret uses it */
+  removable: boolean
+  loaded: boolean
+}
+
+/** How many stored secrets of one store are protected by each key version */
+export interface StoreUsage {
+  store: string
+  total: number
+  /** Keyed by version as a string (JSON object keys) */
+  by_version: Record<string, number>
+  unreadable: number
+}
+
 /** Rotation status for key management */
 export interface RotationStatus {
   current_version: number
   next_key_configured: boolean
+  next_version: number
   legacy_key_count: number
+  legacy_key_versions: number[]
+  keys: KeyUsage[]
+  stores: StoreUsage[]
+  unreadable_total: number
+  /** True when some stored secret is on a key other than the rotation target */
+  rotation_needed: boolean
+  /** DNS providers only; kept for existing scripts */
   providers_on_current_version: number
+  /** DNS providers only; kept for existing scripts */
   providers_on_older_versions: number
+  /** DNS providers only; kept for existing scripts */
+  providers_by_version: Record<string, number>
+}
+
+/** Per-store outcome of a rotation run */
+export interface StoreRotation {
+  store: string
+  total: number
+  rotated: number
+  already_current: number
+  unreadable: number
 }
 
 /** Result of a key rotation operation */
 export interface RotationResult {
-  total_providers: number
-  success_count: number
-  failure_count: number
-  failed_providers?: number[]
-  duration: string
+  target_version: number
+  stores: StoreRotation[]
+  total_records: number
+  rotated_count: number
+  already_current_count: number
+  unreadable_count: number
   new_key_version: number
+  duration: string
+  started_at: string
+  completed_at: string
 }
 
 /** Audit log entry for key rotation history */
@@ -55,8 +101,8 @@ export async function getEncryptionStatus(): Promise<RotationStatus> {
 }
 
 /**
- * Triggers rotation of all DNS provider credentials to a new encryption key.
- * @returns Promise resolving to rotation result
+ * Re-encrypts every stored secret to the rotation target key.
+ * @returns Promise resolving to the per-store rotation result
  * @throws {AxiosError} If rotation fails or request fails
  */
 export async function rotateEncryptionKey(): Promise<RotationResult> {

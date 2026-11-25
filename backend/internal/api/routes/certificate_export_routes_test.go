@@ -19,6 +19,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 )
@@ -54,7 +55,7 @@ func (a *throttledApp) seedExportCert() string {
 
 	enc, err := crypto.NewEncryptionService(exportRouteTestKey)
 	require.NoError(a.t, err)
-	info, err := services.NewCertificateService(a.t.TempDir(), a.db, enc).UploadCertificate("route-export", certPEM, keyPEM, "")
+	info, err := services.NewCertificateService(a.t.TempDir(), a.db, cryptotest.SingleKey(enc)).UploadCertificate("route-export", certPEM, keyPEM, "")
 	require.NoError(a.t, err)
 	return info.UUID
 }

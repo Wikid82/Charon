@@ -294,6 +294,7 @@ func TestGetCredentialForDomain_MultiCredential_CatchAllMatch(t *testing.T) {
 	require.NoError(t, err)
 
 	manager := NewManager(nil, db, "", "", false, config.SecurityConfig{})
+	manager.SetSecretCipher(testSecretCipher(t, testCaddyEncryptionKey))
 
 	provider := &models.DNSProvider{
 		UseMultiCredentials: true,

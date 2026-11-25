@@ -84,7 +84,7 @@ type Manager struct {
 	frontendDir string
 	acmeStaging bool
 	securityCfg config.SecurityConfig
-	encSvc      *crypto.EncryptionService
+	secrets     crypto.VersionedCipher
 	// forwardGuard refuses stored forward targets that reach an agent listener. It is checked before any host is generated.
 	forwardGuard ForwardTargetGuard
 	hopSecret    *selfhop.Secret
@@ -137,9 +137,9 @@ func NewManager(client CaddyClient, db *gorm.DB, configDir, frontendDir string, 
 	}
 }
 
-// SetEncryptionService configures the encryption service for decrypting private keys in Caddy config generation.
-func (m *Manager) SetEncryptionService(svc *crypto.EncryptionService) {
-	m.encSvc = svc
+// SetSecretCipher configures the cipher for decrypting DNS credentials and private keys in Caddy config generation.
+func (m *Manager) SetSecretCipher(secrets crypto.VersionedCipher) {
+	m.secrets = secrets
 }
 
 // SetForwardTargetGuard sets the guard that drops stored hosts whose forward target reaches an agent listener.
@@ -203,62 +203,44 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	// We need an encryption service to decrypt the credentials
 	var dnsProviderConfigs []DNSProviderConfig
 	if len(dnsProviders) > 0 {
-		// Try to get encryption key from environment
-		encryptionKey := os.Getenv("CHARON_ENCRYPTION_KEY")
-		if encryptionKey == "" {
-			// Try alternative env vars
-			for _, key := range []string{"ENCRYPTION_KEY", "CERBERUS_ENCRYPTION_KEY"} {
-				if val := os.Getenv(key); val != "" {
-					encryptionKey = val
-					break
-				}
-			}
-		}
-
-		if encryptionKey != "" {
-			// Import crypto package for inline decryption
-			encryptor, err := crypto.NewEncryptionService(encryptionKey)
-			if err != nil {
-				logger.Log().WithError(err).Warn("failed to initialize encryption service for DNS provider credentials")
-			} else {
-				// Decrypt each DNS provider's credentials
-				for _, provider := range dnsProviders {
-					// Skip if provider uses multi-credentials (will be handled in Phase 2)
-					if provider.UseMultiCredentials {
-						// Add to dnsProviderConfigs with empty Credentials for now
-						// Phase 2 will populate ZoneCredentials
-						dnsProviderConfigs = append(dnsProviderConfigs, DNSProviderConfig{
-							ID:                 provider.ID,
-							ProviderType:       provider.ProviderType,
-							PropagationTimeout: provider.PropagationTimeout,
-							Credentials:        nil, // Will be populated in Phase 2
-						})
-						continue
-					}
-
-					if provider.CredentialsEncrypted == "" {
-						continue
-					}
-
-					decryptedData, err := encryptor.Decrypt(provider.CredentialsEncrypted)
-					if err != nil {
-						logger.Log().WithError(err).WithField("provider_id", provider.ID).Warn("failed to decrypt DNS provider credentials")
-						continue
-					}
-
-					var credentials map[string]string
-					if err := json.Unmarshal(decryptedData, &credentials); err != nil {
-						logger.Log().WithError(err).WithField("provider_id", provider.ID).Warn("failed to parse DNS provider credentials")
-						continue
-					}
-
+		if m.secrets != nil {
+			// Decrypt each DNS provider's credentials
+			for _, provider := range dnsProviders {
+				// Skip if provider uses multi-credentials (will be handled in Phase 2)
+				if provider.UseMultiCredentials {
+					// Add to dnsProviderConfigs with empty Credentials for now
+					// Phase 2 will populate ZoneCredentials
 					dnsProviderConfigs = append(dnsProviderConfigs, DNSProviderConfig{
 						ID:                 provider.ID,
 						ProviderType:       provider.ProviderType,
 						PropagationTimeout: provider.PropagationTimeout,
-						Credentials:        credentials,
+						Credentials:        nil, // Will be populated in Phase 2
 					})
+					continue
 				}
+
+				if provider.CredentialsEncrypted == "" {
+					continue
+				}
+
+				decryptedData, err := m.secrets.DecryptWithVersion(provider.CredentialsEncrypted, provider.KeyVersion)
+				if err != nil {
+					logger.Log().WithError(err).WithField("provider_id", provider.ID).Warn("failed to decrypt DNS provider credentials")
+					continue
+				}
+
+				var credentials map[string]string
+				if err := json.Unmarshal(decryptedData, &credentials); err != nil {
+					logger.Log().WithError(err).WithField("provider_id", provider.ID).Warn("failed to parse DNS provider credentials")
+					continue
+				}
+
+				dnsProviderConfigs = append(dnsProviderConfigs, DNSProviderConfig{
+					ID:                 provider.ID,
+					ProviderType:       provider.ProviderType,
+					PropagationTimeout: provider.PropagationTimeout,
+					Credentials:        credentials,
+				})
 			}
 		} else {
 			logger.Log().Warn("CHARON_ENCRYPTION_KEY not set, DNS challenge configuration will be skipped")
@@ -524,7 +506,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 
 	var generatedReport *EnforcementReport
 	genOpts := []GenerateConfigOption{
-		WithEncryptionService(m.encSvc),
+		WithSecretCipher(m.secrets),
 		WithRedirectionHosts(redirectHosts),
 		WithBouncerKeyPath(bouncerkey.PathFor(m.securityCfg.CrowdSecConfigDir)),
 		WithEnforcementSink(func(report EnforcementReport) { generatedReport = &report }),
