@@ -155,9 +155,12 @@ Override the auto-detected port:
 If an app runs directly on the machine that runs Charon, point a proxy host or an uptime monitor at the name that reaches the host:
 
 - `host.docker.internal` with Docker Desktop and OrbStack
+- `host.orb.internal` with OrbStack, where the name resolves inside the container
 - `host.containers.internal` with Podman
 
 Both names work for forward targets and uptime monitors. Charon still refuses the ports it uses for itself at these names, such as the admin port (2019) and the bundled CrowdSec port (8085). See [Forward Targets](orthrus.md#forward-targets) for the full list.
+
+Container names and these host names are checked each time your proxy connects to them. If a name points to an address Charon does not allow, that connection is refused and the site shows an error, so the proxy never reaches it.
 
 ## Troubleshooting
 

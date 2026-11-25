@@ -122,6 +122,19 @@ services:
       - playwright-network
 
   # =============================================================================
+  # Upstream Echo - Proxy Host Name Test Service
+  # =============================================================================
+  # Upstream for tests/core/proxy-host-upstream-names.spec.ts. A proxy host forwards to this container by name
+  # (upstream-echo:8080) over playwright-network. Nothing is published to the host.
+  upstream-echo:
+    image: busybox:1.37@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
+    container_name: charon-playwright-upstream-echo
+    restart: "no"
+    command: ["sh", "-c", "mkdir -p /www && printf 'upstream-echo ok' > /www/index.html && exec httpd -f -p 8080 -h /www"]
+    networks:
+      - playwright-network
+
+  # =============================================================================
   # CrowdSec - Security Testing Service (Optional Profile)
   # =============================================================================
   crowdsec:

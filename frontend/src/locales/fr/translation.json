@@ -640,6 +640,9 @@
     },
     "settingUpdated": "Paramètre de sécurité mis à jour",
     "settingUpdateFailed": "Échec de la mise à jour du paramètre : {{error}}",
+    "upstreamNameChecks": {
+      "unavailable": "Upstream name checks are not running. Forward target names are checked when a host is saved."
+    },
     "enforcement": {
       "waf": {
         "no_ruleset": "Le WAF est activé, mais aucun jeu de règles n'est disponible pour inspecter les requêtes. Ajoutez un jeu de règles sur la page du WAF.",

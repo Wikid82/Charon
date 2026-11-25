@@ -147,14 +147,18 @@ func (c *Client) endpoint(path string) (string, error) {
 // Load atomically replaces Caddy's entire configuration.
 // This is the primary method for applying configuration changes.
 func (c *Client) Load(ctx context.Context, config *Config) error {
-	urlStr, err := c.endpoint("/load")
-	if err != nil {
-		return err
-	}
-
 	body, err := jsonMarshalClient(config)
 	if err != nil {
 		return fmt.Errorf("marshal config: %w", err)
+	}
+	return c.LoadJSON(ctx, body)
+}
+
+// LoadJSON posts an already encoded config to /load. Load marshals and calls it.
+func (c *Client) LoadJSON(ctx context.Context, body []byte) error {
+	urlStr, err := c.endpoint("/load")
+	if err != nil {
+		return err
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, urlStr, bytes.NewReader(body))

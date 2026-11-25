@@ -32,6 +32,8 @@ export interface SecurityStatus {
   acl: {
     enabled: boolean
   } & SecurityEnforcement
+  /** Whether forward target names are checked against the live resolver. Omitted by older backends. */
+  upstream_name_checks?: { available: boolean }
 }
 
 /**

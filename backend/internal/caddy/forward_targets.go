@@ -81,14 +81,14 @@ func advancedConfigRefused(guard ForwardTargetGuard, raw string) (bool, error) {
 	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
 		return true, nil
 	}
-	if HasDynamicUpstreams(doc) || HasTransportResolver(doc) {
+	if HasDynamicUpstreams(doc) || HasTransportResolver(doc) || NameUpstreamWithoutResolver(doc) {
 		return true, nil
 	}
 	adv, ok := guard.(AdvancedDialGuard)
 	if !ok {
 		return false, nil
 	}
-	err := WalkDials(doc, func(dial string) error {
+	err := WalkAdvancedDials(doc, func(dial string) error {
 		refused, checkErr := adv.RefusesAdvancedDial(dial)
 		if checkErr != nil {
 			return checkErr

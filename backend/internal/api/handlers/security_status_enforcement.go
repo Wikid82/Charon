@@ -190,3 +190,18 @@ func (h *SecurityHandler) GeoIPManagementAlertSource() alerts.Source {
 		}, true, nil
 	}
 }
+
+// upstreamNameChecker is implemented by the caddy manager. It reports whether the upstream name answerer is running.
+type upstreamNameChecker interface {
+	UpstreamNameChecksAvailable() bool
+}
+
+// upstreamNameChecksStatus returns the upstream_name_checks status object. ok is false when the manager does not
+// report the answerer, so the field is left out.
+func (h *SecurityHandler) upstreamNameChecksStatus() (status gin.H, ok bool) {
+	checker, isChecker := h.caddyManager.(upstreamNameChecker)
+	if !isChecker {
+		return nil, false
+	}
+	return gin.H{"available": checker.UpstreamNameChecksAvailable()}, true
+}

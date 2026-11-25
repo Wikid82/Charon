@@ -1,6 +1,7 @@
 package caddy
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/json"
@@ -100,6 +101,9 @@ type Manager struct {
 	lastApplied atomic.Pointer[EnforcementReport]
 	// leftOut holds the UUIDs of the enabled proxy hosts the last successful apply left out of the configuration.
 	leftOut atomic.Pointer[map[string]struct{}]
+	// upstreamResolver is the loopback answerer every reverse_proxy transport is pointed at when a config is loaded.
+	// Nil when the answerer is not running; the config is then loaded unchanged.
+	upstreamResolver atomic.Pointer[UpstreamResolver]
 }
 
 // EnforcementReport returns the enforcement report of the last successful apply. ok is false when no successful apply
@@ -145,6 +149,18 @@ func (m *Manager) SetSecretCipher(secrets crypto.VersionedCipher) {
 // SetForwardTargetGuard sets the guard that drops stored hosts whose forward target reaches an agent listener.
 func (m *Manager) SetForwardTargetGuard(g ForwardTargetGuard) {
 	m.forwardGuard = g
+}
+
+// SetUpstreamResolver sets the answerer that every loaded config points its name lookups at. It is set once at
+// startup, before the first apply.
+func (m *Manager) SetUpstreamResolver(r UpstreamResolver) {
+	m.upstreamResolver.Store(&r)
+}
+
+// UpstreamNameChecksAvailable reports whether the upstream resolver is set, so forward target names are checked at
+// every connection and not only when a host is saved.
+func (m *Manager) UpstreamNameChecksAvailable() bool {
+	return m.upstreamResolver.Load() != nil
 }
 
 // SetGeoIPState sets the source of the GeoIP database state. It is read at every apply, so a database loaded or
@@ -566,7 +582,7 @@ func (m *Manager) ApplyConfig(ctx context.Context) error {
 	configHash := fmt.Sprintf("%x", sha256.Sum256(configJSON))
 
 	// Apply to Caddy
-	if err := m.client.Load(ctx, generatedConfig); err != nil {
+	if err := m.load(ctx, generatedConfig); err != nil {
 		// Remove the failed snapshot so rollback uses the previous one
 		_ = removeFileFunc(snapshotPath)
 
@@ -686,7 +702,11 @@ func (m *Manager) rollback(ctx context.Context) error {
 	}
 
 	// Apply the snapshot
-	if err := m.client.Load(ctx, &conf); err != nil {
+	if err := m.load(ctx, &conf); err != nil {
+		if errors.Is(err, ErrUpstreamResolverUnusable) {
+			logger.Log().Warn("Rollback skipped: the last snapshot routes a name through a transport that cannot use the upstream name checks")
+			return errSnapshotRefusedTarget
+		}
 		return fmt.Errorf("load snapshot: %w", err)
 	}
 
@@ -883,4 +903,72 @@ func droppedHostUUIDs(all, kept []models.ProxyHost) map[string]struct{} {
 		}
 	}
 	return dropped
+}
+
+// rawLoader is implemented by *Client. It posts a config that is already encoded.
+type rawLoader interface {
+	LoadJSON(ctx context.Context, body []byte) error
+}
+
+// load posts a config to Caddy. Validation, snapshots and the audit hash run on conf
+// ahead of this call, so none of them carry the resolver. Without a resolver the
+// config is passed to the client unchanged. With one, a copy gets the resolver and the
+// encoded copy is sent; conf is never modified.
+func (m *Manager) load(ctx context.Context, conf *Config) error {
+	resolver := m.upstreamResolver.Load()
+	if resolver == nil {
+		return m.client.Load(ctx, conf)
+	}
+	reserved, err := m.reservedPorts()
+	if err != nil {
+		return fmt.Errorf("read reserved ports: %w", err)
+	}
+	body, err := injectUpstreamResolver(conf, *resolver, reserved)
+	if err != nil {
+		if errors.Is(err, ErrUpstreamResolverUnusable) {
+			logger.Log().Error("Config not loaded: a forward target uses a transport that cannot use the upstream name checks")
+		}
+		return err
+	}
+	if raw, ok := m.client.(rawLoader); ok {
+		return raw.LoadJSON(ctx, body)
+	}
+	// Clients without a raw load (test doubles) receive the injected document as a Config.
+	var injected Config
+	if err := json.Unmarshal(body, &injected); err != nil {
+		return fmt.Errorf("decode injected config: %w", err)
+	}
+	return m.client.Load(ctx, &injected)
+}
+
+// reservedPorts returns the reserved listener ports read now, or none when the guard does not report them.
+func (m *Manager) reservedPorts() (map[int]struct{}, error) {
+	source, ok := m.forwardGuard.(ReservedPortSource)
+	if !ok {
+		return map[int]struct{}{}, nil
+	}
+	return source.ReservedPorts()
+}
+
+// injectUpstreamResolver returns the encoded copy of conf with the resolver set on
+// every reverse_proxy object. Numbers are kept exact by decoding with UseNumber.
+func injectUpstreamResolver(conf *Config, resolver UpstreamResolver, reserved map[int]struct{}) ([]byte, error) {
+	raw, marshalErr := json.Marshal(conf)
+	if marshalErr != nil {
+		return nil, fmt.Errorf("marshal config: %w", marshalErr)
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var doc any
+	if err := dec.Decode(&doc); err != nil {
+		return nil, fmt.Errorf("decode config copy: %w", err)
+	}
+	if err := ApplyUpstreamResolver(doc, resolver, reserved); err != nil {
+		return nil, err
+	}
+	body, err := json.Marshal(doc)
+	if err != nil {
+		return nil, fmt.Errorf("marshal injected config: %w", err)
+	}
+	return body, nil
 }

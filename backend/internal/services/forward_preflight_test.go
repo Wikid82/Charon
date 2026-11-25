@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net"
 	"net/netip"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -360,4 +361,62 @@ func strconvQuote(raw string) string {
 		}
 	}
 	return string(out)
+}
+
+func TestAdvancedConfigTargets_TransportAndHealthCheckRules(t *testing.T) {
+	setHostSideAddrs(t)
+	isolateGatewayAddrs(t, nil)
+	useListenerSource(t, fakeListenerSource{})
+	resetEmergency(t)
+	stubLookup(t, func(_ context.Context, name string) ([]net.IPAddr, error) {
+		if name == "app.lan.test" {
+			return []net.IPAddr{{IP: net.ParseIP("10.0.0.7")}}, nil
+		}
+		return nil, errors.New("no such host")
+	})
+	tests := map[string]struct {
+		raw     string
+		refused bool
+	}{
+		"name behind fastcgi": {
+			`{"handler":"reverse_proxy","transport":{"protocol":"fastcgi"},"upstreams":[{"dial":"app.lan.test:9000"}]}`, true,
+		},
+		"literal upstream behind fastcgi with a name health check": {
+			`{"handler":"reverse_proxy","transport":{"protocol":"fastcgi"},"upstreams":[{"dial":"10.0.0.9:9000"}],"health_checks":{"active":{"upstream":"app.lan.test:9000"}}}`, true,
+		},
+		"literal upstream behind fastcgi with a literal health check": {
+			`{"handler":"reverse_proxy","transport":{"protocol":"fastcgi"},"upstreams":[{"dial":"10.0.0.9:9000"}],"health_checks":{"active":{"upstream":"10.0.0.9:9001"}}}`, false,
+		},
+		"health check upstream on link-local": {
+			`{"handler":"reverse_proxy","upstreams":[{"dial":"10.0.0.9:8080"}],"health_checks":{"active":{"upstream":"169.254.169.254:80"}}}`, true,
+		},
+		"health check upstream placeholder": {
+			`{"handler":"reverse_proxy","upstreams":[{"dial":"10.0.0.9:8080"}],"health_checks":{"active":{"upstream":"{http.request.header.X}:80"}}}`, true,
+		},
+		"health check upstream on a reserved port": {
+			`{"handler":"reverse_proxy","upstreams":[{"dial":"10.0.0.9:8080"}],"health_checks":{"active":{"upstream":"127.0.0.1:8085"}}}`, true,
+		},
+		"health check port reserved for localhost": {
+			`{"handler":"reverse_proxy","upstreams":[{"dial":"localhost:8080"}],"health_checks":{"active":{"port":8085}}}`, true,
+		},
+		"health check port on a free port": {
+			`{"handler":"reverse_proxy","upstreams":[{"dial":"localhost:8080"}],"health_checks":{"active":{"port":9000}}}`, false,
+		},
+		"health check port reserved for a name on a lan address": {
+			`{"handler":"reverse_proxy","upstreams":[{"dial":"app.lan.test:8080"}],"health_checks":{"active":{"port":8085}}}`, false,
+		},
+	}
+	for name, tc := range tests {
+		t.Run(name, func(t *testing.T) {
+			db := setupProxyHostTestDB(t)
+			svc := NewProxyHostService(db)
+			host := &models.ProxyHost{DomainNames: strings.ReplaceAll(name, " ", "-") + ".example.com", ForwardHost: "10.0.0.5", ForwardPort: 8080, AdvancedConfig: tc.raw}
+			err := svc.CreateAs(host, true)
+			if tc.refused {
+				assert.Error(t, err)
+				return
+			}
+			assert.NoError(t, err)
+		})
+	}
 }

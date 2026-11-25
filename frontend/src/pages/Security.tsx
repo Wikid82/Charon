@@ -346,6 +346,11 @@ export default function Security() {
                 ? t('security.cerberusReadyMessage')
                 : t('security.cerberusDisabledMessage')}
             </p>
+            {status.upstream_name_checks?.available === false && (
+              <p className="text-sm text-content-muted mt-1" data-testid="upstream-name-checks-note">
+                {t('security.upstreamNameChecks.unavailable')}
+              </p>
+            )}
           </div>
         </Card>
 

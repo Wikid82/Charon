@@ -625,6 +625,9 @@
     },
     "settingUpdated": "Security setting updated",
     "settingUpdateFailed": "Failed to update setting: {{error}}",
+    "upstreamNameChecks": {
+      "unavailable": "Upstream name checks are not running. Forward target names are checked when a host is saved."
+    },
     "enforcement": {
       "acl": {
         "geoip_unavailable": "Landlistor tillämpas inte: GeoIP-databasen saknas i den här installationen. Alla kan nå dessa värdar tills den tillhandahålls. Se dokumentationen."

@@ -156,27 +156,49 @@ func validateHandler(handler Handler) error {
 	}
 }
 
+// validateReverseProxy accepts upstreams in the generated form ([]map[string]any)
+// and in the decoded JSON form ([]any of objects), which is what a handler
+// from advanced configuration holds after a JSON round trip.
 func validateReverseProxy(handler Handler) error {
-	upstreams, ok := handler["upstreams"].([]map[string]any)
-	if !ok {
+	switch upstreams := handler["upstreams"].(type) {
+	case []map[string]any:
+		if len(upstreams) == 0 {
+			return fmt.Errorf("reverse_proxy has no upstreams")
+		}
+		for i, upstream := range upstreams {
+			if err := validateUpstreamDial(i, upstream); err != nil {
+				return err
+			}
+		}
+		return nil
+	case []any:
+		if len(upstreams) == 0 {
+			return fmt.Errorf("reverse_proxy has no upstreams")
+		}
+		for i, raw := range upstreams {
+			upstream, ok := raw.(map[string]any)
+			if !ok {
+				return fmt.Errorf("upstream %d is not an object", i)
+			}
+			if err := validateUpstreamDial(i, upstream); err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
 		return fmt.Errorf("reverse_proxy missing upstreams")
 	}
+}
 
-	if len(upstreams) == 0 {
-		return fmt.Errorf("reverse_proxy has no upstreams")
+func validateUpstreamDial(i int, upstream map[string]any) error {
+	dial, ok := upstream["dial"].(string)
+	if !ok || dial == "" {
+		return fmt.Errorf("upstream %d missing dial address", i)
 	}
 
-	for i, upstream := range upstreams {
-		dial, ok := upstream["dial"].(string)
-		if !ok || dial == "" {
-			return fmt.Errorf("upstream %d missing dial address", i)
-		}
-
-		// Validate dial address format (host:port)
-		if _, _, err := net.SplitHostPort(dial); err != nil {
-			return fmt.Errorf("upstream %d has invalid dial address %s: %w", i, dial, err)
-		}
+	// Validate dial address format (host:port)
+	if _, _, err := net.SplitHostPort(dial); err != nil {
+		return fmt.Errorf("upstream %d has invalid dial address %s: %w", i, dial, err)
 	}
-
 	return nil
 }

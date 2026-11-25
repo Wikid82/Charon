@@ -7,6 +7,7 @@ import (
 	"net/netip"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -209,7 +210,7 @@ func TestGatewayCarveOut_FromHostsFileOnlyForExactAddresses(t *testing.T) {
 	hosts := filepath.Join(dir, "hosts")
 	content := "# comment line\n" +
 		"169.254.1.2 host.containers.internal # Podman pasta\n" +
-		"0.250.250.254 host.docker.internal gateway.docker.internal\n" +
+		"0.250.250.254 host.docker.internal gateway.docker.internal host.orb.internal\n" +
 		"169.254.169.254 gateway.docker.internal\n" +
 		"10.9.9.9 unrelated.example\n" +
 		"not-an-ip host.containers.internal\n"
@@ -284,11 +285,69 @@ func TestAddrCache_KeepsLastNonEmptySnapshot(t *testing.T) {
 	}}
 	assert.Equal(t, []netip.Addr{netip.MustParseAddr("10.0.0.1")}, c.get())
 	now = now.Add(2 * time.Second)
+	assert.Equal(t, []netip.Addr{netip.MustParseAddr("10.0.0.1")}, c.get(), "an expired snapshot is served while it refreshes")
+	waitAddrCacheRefresh(c)
 	assert.Equal(t, []netip.Addr{netip.MustParseAddr("10.0.0.1")}, c.get(), "an empty reload keeps the previous snapshot")
 	now = now.Add(2 * time.Second)
+	assert.Equal(t, []netip.Addr{netip.MustParseAddr("10.0.0.1")}, c.get())
+	waitAddrCacheRefresh(c)
 	assert.Equal(t, []netip.Addr{netip.MustParseAddr("10.0.0.2")}, c.get())
 	c.reset()
 	assert.False(t, c.loaded)
+}
+
+// waitAddrCacheRefresh blocks until no background refresh is running.
+func waitAddrCacheRefresh(c *addrCache) {
+	for {
+		c.mu.Lock()
+		busy := c.refreshing
+		c.mu.Unlock()
+		if !busy {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+func TestAddrCache_ExpiredSnapshotDoesNotBlockCallers(t *testing.T) {
+	t.Parallel()
+	now := time.Unix(0, 0)
+	release := make(chan struct{})
+	var mu sync.Mutex
+	loads := 0
+	c := &addrCache{ttl: time.Second, now: func() time.Time { return now }, load: func() []netip.Addr {
+		mu.Lock()
+		loads++
+		n := loads
+		mu.Unlock()
+		if n == 1 {
+			return []netip.Addr{netip.MustParseAddr("10.0.0.1")}
+		}
+		<-release // the reload stays slow until the test releases it
+		return []netip.Addr{netip.MustParseAddr("10.0.0.2")}
+	}}
+	require.Equal(t, []netip.Addr{netip.MustParseAddr("10.0.0.1")}, c.get())
+
+	now = now.Add(2 * time.Second)
+	done := make(chan []netip.Addr, 5)
+	for range 5 {
+		go func() { done <- c.get() }()
+	}
+	for range 5 {
+		select {
+		case got := <-done:
+			assert.Equal(t, []netip.Addr{netip.MustParseAddr("10.0.0.1")}, got, "callers get the stale snapshot at once")
+		case <-time.After(2 * time.Second):
+			t.Fatal("a caller waited on the background reload")
+		}
+	}
+
+	close(release)
+	waitAddrCacheRefresh(c)
+	mu.Lock()
+	assert.Equal(t, 2, loads, "concurrent expired reads share one background reload")
+	mu.Unlock()
+	assert.Equal(t, []netip.Addr{netip.MustParseAddr("10.0.0.2")}, c.get())
 }
 
 func TestDedupeAndContainsAddr(t *testing.T) {
