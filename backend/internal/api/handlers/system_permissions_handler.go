@@ -78,10 +78,19 @@ func repairError(path, code, msg string) permissionsRepairResult {
 	}
 }
 
+// sanitizedErrorText returns the error message with control characters removed so
+// it is safe to place in a log field. A nil error yields an empty string.
+func sanitizedErrorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	return util.SanitizeForLog(err.Error())
+}
+
 // repairFailure builds a failed repair result for an unexpected system error.
 // The admin sees only the fixed message; the underlying error is logged.
 func repairFailure(path, code, msg string, err error) permissionsRepairResult {
-	logger.Log().WithError(err).WithField("error_code", code).Warn("permission repair failed")
+	logger.Log().WithField("error", sanitizedErrorText(err)).WithField("error_code", code).Warn("permission repair failed")
 	return repairError(path, code, msg)
 }
 
@@ -274,7 +283,7 @@ func repairOpenedLeaf(path string, leaf *os.File, st *unix.Stat_t, groupMode boo
 	}
 
 	fd := int(leaf.Fd())
-	if err := unix.Fchownat(fd, "", uid, gid, unix.AT_EMPTY_PATH); err != nil {
+	if err := changeOwnerOfDescriptor(fd, uid, gid); err != nil {
 		return repairFailure(path, mapRepairErrorCode(err), "could not change ownership", err)
 	}
 
@@ -305,6 +314,11 @@ func allowRootFromPrefix(prefix string) string {
 		return string(os.PathSeparator)
 	}
 	return root
+}
+
+// changeOwnerOfDescriptor sets the owner of the open descriptor fd. It is a variable so tests can simulate a refused change.
+var changeOwnerOfDescriptor = func(fd, uid, gid int) error {
+	return unix.Fchownat(fd, "", uid, gid, unix.AT_EMPTY_PATH)
 }
 
 // procSelfFDDir is where /proc exposes this process's descriptors. It is a
@@ -419,7 +433,7 @@ func normalizeAllowlist(allowlist []string) []string {
 }
 
 // pathHasSymlink walks path component-by-component from the filesystem
-// root, Lstat-ing every successive prefix, to TOCTOU-safely detect a
+// root, Lstat-ing every successive prefix, to reliably detect a
 // symlink anywhere in the chain (not just at the leaf). allowlist is the
 // normalized set of admin-configured safe roots. clean (path, normalized)
 // is guarded once against allowlist immediately below via a direct

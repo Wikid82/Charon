@@ -18,6 +18,10 @@ import (
 	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
 )
 
+// effectiveUID returns the user id this process expects to own the cache folder. It is a variable so tests can
+// simulate another owner.
+var effectiveUID = os.Geteuid
+
 // maxPluginFileBytes caps the size of a plugin file that is read, hashed and copied.
 const maxPluginFileBytes = 256 << 20
 
@@ -103,10 +107,10 @@ func (s *PluginLoaderService) prepareCacheDir() error {
 	if !info.IsDir() {
 		return fmt.Errorf("the plugin cache folder %s is not a real folder: set CHARON_PLUGIN_CACHE_DIR to a real folder", abs)
 	}
-	if !ownedBy(info, os.Geteuid()) {
+	if !ownedBy(info, effectiveUID()) {
 		return fmt.Errorf("the plugin cache folder %s is not owned by the Charon user: set CHARON_PLUGIN_CACHE_DIR to a folder that user owns", abs)
 	}
-	if err = os.Chmod(abs, 0o700); err != nil {
+	if err = os.Chmod(abs, 0o700); err != nil { // #nosec G302 -- directory mode 0700 is required; execute bit is needed to traverse the plugin cache folder
 		return fmt.Errorf("set plugin cache folder mode: %w", err)
 	}
 

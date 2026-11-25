@@ -42,7 +42,7 @@ func newPluginWiringFixture(t *testing.T, cfg config.Config) *pluginWiringFixtur
 
 	pluginDir := t.TempDir()
 	// t.TempDir can be group-writable under the umask; the loader refuses such a plugin folder.
-	require.NoError(t, os.Chmod(pluginDir, 0o755))
+	require.NoError(t, os.Chmod(pluginDir, 0o755)) // #nosec G302 -- test fixture: the plugin folder must be 0755
 	pluginPath := filepath.Join(pluginDir, "unlisted.so")
 	require.NoError(t, os.WriteFile(pluginPath, []byte("not a real plugin"), 0o600))
 

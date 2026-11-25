@@ -45,9 +45,9 @@ func TestRepairPath_RepairsRegularFileDirectoryAndRoot(t *testing.T) {
 	allowRoot := t.TempDir()
 	file := filepath.Join(allowRoot, "file.txt")
 	dir := filepath.Join(allowRoot, "sub")
-	require.NoError(t, os.WriteFile(file, []byte("ok"), 0o644))
-	require.NoError(t, os.Mkdir(dir, 0o755))
-	require.NoError(t, os.Chmod(allowRoot, 0o755))
+	require.NoError(t, os.WriteFile(file, []byte("ok"), 0o644)) // #nosec G306 -- test fixture: the repair needs these exact modes
+	require.NoError(t, os.Mkdir(dir, 0o755))                    // #nosec G301 -- test fixture: the repair needs these exact modes
+	require.NoError(t, os.Chmod(allowRoot, 0o755))              // #nosec G302 -- test fixture: the repair needs these exact modes
 	allowlist := []string{allowRoot}
 
 	result := h.repairPath(file, false, allowlist)
@@ -74,9 +74,9 @@ func TestRepairPath_RepairsZeroModeFileAndSearchOnlyDirectoryAsNonRoot(t *testin
 	require.NoError(t, os.WriteFile(file, []byte("ok"), 0o600))
 	require.NoError(t, os.Chmod(file, 0o000))
 	require.NoError(t, os.Mkdir(dir, 0o700))
-	require.NoError(t, os.Chmod(dir, 0o300))
+	require.NoError(t, os.Chmod(dir, 0o300)) // #nosec G302 -- test fixture: the repair needs these exact modes
 	t.Cleanup(func() {
-		_ = os.Chmod(dir, 0o700)
+		_ = os.Chmod(dir, 0o700) // #nosec G302 -- test fixture: the repair needs these exact modes
 		_ = os.Chmod(file, 0o600)
 	})
 	allowlist := []string{allowRoot}
@@ -95,9 +95,9 @@ func TestRepairPath_SymlinkLeafIsRejectedAndTargetUntouched(t *testing.T) {
 	allowRoot := t.TempDir()
 	outside := t.TempDir()
 	target := filepath.Join(outside, "target.txt")
-	require.NoError(t, os.WriteFile(target, []byte("keep"), 0o644))
+	require.NoError(t, os.WriteFile(target, []byte("keep"), 0o644)) // #nosec G306 -- test fixture: the repair needs these exact modes
 	inRootTarget := filepath.Join(allowRoot, "real.txt")
-	require.NoError(t, os.WriteFile(inRootTarget, []byte("keep"), 0o644))
+	require.NoError(t, os.WriteFile(inRootTarget, []byte("keep"), 0o644)) // #nosec G306 -- test fixture: the repair needs these exact modes
 	inLink := filepath.Join(allowRoot, "in-link")
 	outLink := filepath.Join(allowRoot, "out-link")
 	require.NoError(t, os.Symlink(inRootTarget, inLink))
@@ -118,9 +118,9 @@ func TestRepairPath_PathChangedDuringRepair(t *testing.T) {
 	allowRoot := t.TempDir()
 	outside := t.TempDir()
 	target := filepath.Join(outside, "target.txt")
-	require.NoError(t, os.WriteFile(target, []byte("keep"), 0o644))
+	require.NoError(t, os.WriteFile(target, []byte("keep"), 0o644)) // #nosec G306 -- test fixture: the repair needs these exact modes
 	file := filepath.Join(allowRoot, "replaced.txt")
-	require.NoError(t, os.WriteFile(file, []byte("ok"), 0o644))
+	require.NoError(t, os.WriteFile(file, []byte("ok"), 0o644)) // #nosec G306 -- test fixture: the repair needs these exact modes
 
 	beforeOpenHook = func(path string) {
 		if path != file {
@@ -158,7 +158,7 @@ func TestRepairPath_HardLinkedFileIsRejectedUnchanged(t *testing.T) {
 	allowRoot := t.TempDir()
 	file := filepath.Join(allowRoot, "original.txt")
 	other := filepath.Join(allowRoot, "second-name.txt")
-	require.NoError(t, os.WriteFile(file, []byte("ok"), 0o644))
+	require.NoError(t, os.WriteFile(file, []byte("ok"), 0o644)) // #nosec G306 -- test fixture: the repair needs these exact modes
 	require.NoError(t, os.Link(file, other))
 
 	result := h.repairPath(file, false, []string{allowRoot})
@@ -171,7 +171,7 @@ func TestRepairPath_RefusesWhenProcFDUnavailable(t *testing.T) {
 	h := newRepairTestHandler()
 	allowRoot := t.TempDir()
 	file := filepath.Join(allowRoot, "file.txt")
-	require.NoError(t, os.WriteFile(file, []byte("ok"), 0o644))
+	require.NoError(t, os.WriteFile(file, []byte("ok"), 0o644)) // #nosec G306 -- test fixture: the repair needs these exact modes
 
 	original := procSelfFDDir
 	procSelfFDDir = filepath.Join(t.TempDir(), "missing-fd-dir")

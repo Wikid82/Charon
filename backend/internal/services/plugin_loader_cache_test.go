@@ -189,7 +189,7 @@ func TestLoadPluginOpensOnlyTheVerifiedCopy(t *testing.T) {
 	if info.Mode().Perm() != 0o500 {
 		t.Fatalf("copy mode = %o, want 0500", info.Mode().Perm())
 	}
-	if got, _ := os.ReadFile(wantCopy); !bytes.Equal(got, data) {
+	if got, _ := os.ReadFile(wantCopy); !bytes.Equal(got, data) { // #nosec G304 -- test-controlled path in t.TempDir
 		t.Fatal("copy bytes differ from the verified bytes")
 	}
 }
@@ -250,7 +250,7 @@ func TestLoadPluginReplacesInvalidCachedCopy(t *testing.T) {
 	s, _ := newCacheTestLoader(t, pluginDir, cacheDir, nil)
 	_ = s.LoadPlugin(path)
 
-	if got, _ := os.ReadFile(copyPath); !bytes.Equal(got, data) {
+	if got, _ := os.ReadFile(copyPath); !bytes.Equal(got, data) { // #nosec G304 -- test-controlled path in t.TempDir
 		t.Fatal("a cached copy that does not hash to its name was reused")
 	}
 }
@@ -272,7 +272,7 @@ func TestLoadPluginCopiesVerifiedBytesWhenOriginalChangesAfterRead(t *testing.T)
 	_ = s.LoadPlugin(path)
 
 	copyPath := filepath.Join(cacheDir, strings.TrimPrefix(hashPluginBytes(verified), "sha256:")+".so")
-	if got, _ := os.ReadFile(copyPath); !bytes.Equal(got, verified) {
+	if got, _ := os.ReadFile(copyPath); !bytes.Equal(got, verified) { // #nosec G304 -- test-controlled path in t.TempDir
 		t.Fatalf("cached copy = %q, want the verified bytes", got)
 	}
 }
@@ -305,10 +305,10 @@ func TestLoadPluginCacheFolderRules(t *testing.T) {
 	t.Run("loose mode is fixed to 0700", func(t *testing.T) {
 		pluginDir := t.TempDir()
 		cacheDir := filepath.Join(t.TempDir(), "cache")
-		if err := os.Mkdir(cacheDir, 0o755); err != nil {
+		if err := os.Mkdir(cacheDir, 0o755); err != nil { // #nosec G301 -- test fixture: the loader must change this mode
 			t.Fatal(err)
 		}
-		if err := os.Chmod(cacheDir, 0o755); err != nil {
+		if err := os.Chmod(cacheDir, 0o755); err != nil { // #nosec G302 -- test fixture: the loader must change this mode
 			t.Fatal(err)
 		}
 		path := filepath.Join(pluginDir, "mode.so")
@@ -381,7 +381,7 @@ func TestLoadPluginWithoutCacheFolderFailsClosed(t *testing.T) {
 // so it can be group-writable, and the loader refuses such a folder.
 func setPluginFolderMode(t *testing.T, dir string) {
 	t.Helper()
-	if err := os.Chmod(dir, 0o755); err != nil {
+	if err := os.Chmod(dir, 0o755); err != nil { // #nosec G302 -- test fixture: the loader must change this mode
 		t.Fatalf("chmod plugin folder: %v", err)
 	}
 }

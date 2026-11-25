@@ -38,7 +38,7 @@ func TestRepairPath_LstatFailureReturnsFixedMessage(t *testing.T) {
 	locked := filepath.Join(allowRoot, "locked")
 	require.NoError(t, os.MkdirAll(filepath.Join(locked, "child"), 0o700))
 	require.NoError(t, os.Chmod(locked, 0o000))
-	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) })
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o700) }) // #nosec G302 -- test fixture: restores the locked test folder
 
 	result := h.repairPath(filepath.Join(locked, "child", "file"), false, []string{allowRoot})
 	require.Equal(t, "error", result.Status)
