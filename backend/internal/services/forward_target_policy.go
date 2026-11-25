@@ -439,3 +439,12 @@ func (g *ListenerTargetGuard) RefusesAdvancedDial(dial string) (bool, error) {
 	}
 	return false, nil
 }
+
+// ReservedPorts implements caddy.ReservedPortSource. The ports are read from the
+// database at each call, so a port reserved since the last load is included.
+func (g *ListenerTargetGuard) ReservedPorts() (map[int]struct{}, error) {
+	if g == nil || g.db == nil {
+		return map[int]struct{}{}, nil
+	}
+	return reservedListenerPorts(g.db)
+}

@@ -39,7 +39,9 @@ func HasDynamicUpstreams(node any) bool {
 }
 
 // HasTransportResolver reports whether a decoded config sets a custom resolver
-// anywhere. A resolver decides which addresses a name reaches, so it is refused.
+// anywhere. A resolver decides which addresses a name reaches, so it is refused. It applies to
+// raw advanced configuration only: the resolver Charon injects at load (ApplyUpstreamResolver)
+// must never reach this check.
 func HasTransportResolver(node any) bool {
 	return hasKey(node, "resolver")
 }
