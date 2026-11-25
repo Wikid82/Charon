@@ -1,7 +1,9 @@
 import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { AxiosError, type AxiosResponse } from 'axios'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 
+import { missingLocaleKeys } from '../../../__tests__/utils/localeKeys'
 import { RemoteTargetFormDialog } from '../RemoteTargetFormDialog'
 
 import type * as useRemoteTargetsModule from '../../../hooks/useRemoteTargets'
@@ -357,6 +359,7 @@ describe('RemoteTargetFormDialog', () => {
       username: 'charon',
       base_path: '/charon-backups',
       insecure_skip_verify: true,
+      allow_insecure_http: false,
     })
     expect(payload.secrets).toEqual({ password: 'webdav-secret' })
   })
@@ -488,5 +491,114 @@ describe('RemoteTargetFormDialog re-seeding', () => {
     rerender(<RemoteTargetFormDialog open={false} target={b2} onClose={vi.fn()} />)
     rerender(<RemoteTargetFormDialog open target={b2} onClose={vi.fn()} />)
     expect(screen.getByLabelText(/^name/i)).toHaveValue('Backblaze B2')
+  })
+})
+
+describe('RemoteTargetFormDialog WebDAV unencrypted HTTP option', () => {
+  const HTTP_WARNING = 'Backups and the password for this destination are sent without encryption. Use this only on a network you trust.'
+  const SERVER_REFUSAL = 'Use an https:// address, or turn on "Allow unencrypted HTTP" for this destination.'
+
+  const plainHttpWebDAV: RemoteTarget = {
+    uuid: 'w1',
+    name: 'Office WebDAV',
+    type: 'webdav',
+    enabled: true,
+    config: { webdav: { url: 'http://nas.lan/dav/', username: 'charon', allow_insecure_http: true } },
+    secrets_set: true,
+    last_test_at: null,
+    last_test_status: 'never',
+    last_error: '',
+    oauth_status: '',
+    oauth_connected_at: null,
+    created_at: '2026-07-01T00:00:00Z',
+    updated_at: '2026-07-01T00:00:00Z',
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    createPending = false
+    updatePending = false
+  })
+
+  it('leaves the option unticked and shows no warning by default', async () => {
+    const user = userEvent.setup()
+    render(<RemoteTargetFormDialog open target={null} onClose={vi.fn()} />)
+    const dialog = screen.getByRole('dialog')
+    await user.click(within(dialog).getByRole('radio', { name: /webdav/i }))
+
+    expect(within(dialog).getByLabelText(/allow unencrypted http/i)).not.toBeChecked()
+    expect(within(dialog).queryByText(HTTP_WARNING)).not.toBeInTheDocument()
+  })
+
+  it('shows the warning only while ticked and sends the flag on create', async () => {
+    const user = userEvent.setup()
+    render(<RemoteTargetFormDialog open target={null} onClose={vi.fn()} />)
+    const dialog = screen.getByRole('dialog')
+    await user.click(within(dialog).getByRole('radio', { name: /webdav/i }))
+    await user.type(within(dialog).getByLabelText(/webdav url/i), 'http://nas.lan/dav/')
+
+    await user.click(within(dialog).getByLabelText(/allow unencrypted http/i))
+    expect(within(dialog).getByText(HTTP_WARNING)).toBeInTheDocument()
+
+    await user.click(within(dialog).getByRole('button', { name: /create/i }))
+    const [payload] = mockCreateMutate.mock.calls[0]
+    expect(payload.config.webdav).toMatchObject({ url: 'http://nas.lan/dav/', allow_insecure_http: true })
+
+    await user.click(within(dialog).getByLabelText(/allow unencrypted http/i))
+    expect(within(dialog).queryByText(HTTP_WARNING)).not.toBeInTheDocument()
+  })
+
+  it('shows the saved choice when editing an existing WebDAV target', () => {
+    render(<RemoteTargetFormDialog open target={plainHttpWebDAV} onClose={vi.fn()} />)
+    const dialog = screen.getByRole('dialog')
+
+    expect(within(dialog).getByLabelText(/allow unencrypted http/i)).toBeChecked()
+  })
+
+  it('shows the server text when a save is refused for an http address', async () => {
+    const { toast } = await import('../../../utils/toast')
+    const refusal = new AxiosError(
+      'Request failed with status code 400',
+      'ERR_BAD_REQUEST',
+      undefined,
+      undefined,
+      {
+        status: 400,
+        statusText: 'Bad Request',
+        headers: {},
+        config: { headers: {} },
+        data: { error: SERVER_REFUSAL, error_code: 'webdav_https_required' },
+      } as unknown as AxiosResponse
+    )
+    mockCreateMutate.mockImplementationOnce((_payload, { onError }) => onError(refusal))
+    const user = userEvent.setup()
+    render(<RemoteTargetFormDialog open target={null} onClose={vi.fn()} />)
+    const dialog = screen.getByRole('dialog')
+    await user.click(within(dialog).getByRole('radio', { name: /webdav/i }))
+    await user.click(within(dialog).getByRole('button', { name: /create/i }))
+
+    expect(toast.error).toHaveBeenCalledWith(SERVER_REFUSAL)
+  })
+
+  it('keeps the request error text when a refusal has no server text', async () => {
+    const { toast } = await import('../../../utils/toast')
+    mockCreateMutate.mockImplementationOnce((_payload, { onError }) => onError(new Error('network down')))
+    const user = userEvent.setup()
+    render(<RemoteTargetFormDialog open target={null} onClose={vi.fn()} />)
+    const dialog = screen.getByRole('dialog')
+    await user.click(within(dialog).getByRole('radio', { name: /webdav/i }))
+    await user.click(within(dialog).getByRole('button', { name: /create/i }))
+
+    expect(toast.error).toHaveBeenCalledWith('network down')
+  })
+
+  it('has the option labels and warning in every bundled locale', () => {
+    expect(
+      missingLocaleKeys([
+        'backups.remoteTargets.allowInsecureHttp',
+        'backups.remoteTargets.allowInsecureHttpWarning',
+        'backups.remoteTargets.unencryptedConnection',
+      ])
+    ).toEqual([])
   })
 })

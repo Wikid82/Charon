@@ -256,6 +256,8 @@ export interface WebDAVConfig {
   username?: string
   base_path?: string
   insecure_skip_verify?: boolean
+  /** Permits an http:// address. Stored with the target; https:// needs no flag. */
+  allow_insecure_http?: boolean
 }
 
 /** Non-secret Dropbox configuration, mirrors backend `services.DropboxConfig` exactly. */

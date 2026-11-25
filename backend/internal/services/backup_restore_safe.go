@@ -445,6 +445,17 @@ func (s *BackupService) restoreBackupSafeLockedWithProgress(filename, passphrase
 		cancel()
 	}
 
+	// R1c: re-apply the remote backup target fixes (WebDAV HTTPS flag backfill, D-36-17) to the restored rows. The restore
+	// stands when this fails; the warning points the admin at the backups page.
+	if s.remoteTargetRehydrator != nil && rehydrated {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		if rtErr := s.remoteTargetRehydrator.Rehydrate(ctx); rtErr != nil {
+			logger.Log().WithError(rtErr).Warn("Backup destinations could not be re-checked after the live restore")
+			result.Warnings = append(result.Warnings, "backup destinations could not be re-checked after restore; check the backups page")
+		}
+		cancel()
+	}
+
 	// C1 fix: never return (result, nil) for the double-failure condition.
 	if unrecoverableErr != nil {
 		return nil, unrecoverableErr

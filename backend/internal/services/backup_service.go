@@ -223,6 +223,10 @@ type BackupService struct {
 	// *services.UptimeScheduler, wired from routes.go.
 	uptimeRehydrator UptimeRehydrator
 
+	// remoteTargetRehydrator re-applies the remote backup target fixes to the rows of a live-restored database.
+	// Nilable; wired from routes.go.
+	remoteTargetRehydrator RemoteTargetRehydrator
+
 	// browserOriginRefresher rebuilds the cross-origin check after a live DB restore, because the check reads the public
 	// address only when it is refreshed. Nilable — satisfied by *middleware.BrowserOriginGuard, wired from routes.go.
 	browserOriginRefresher BrowserOriginRefresher
@@ -287,6 +291,17 @@ type UptimeRehydrator interface {
 // SetUptimeRehydrator wires the post-restore uptime-schedule rehydrate hook.
 func (s *BackupService) SetUptimeRehydrator(r UptimeRehydrator) {
 	s.uptimeRehydrator = r
+}
+
+// RemoteTargetRehydrator is the minimal interface RestoreBackupSafe needs from the remote backup targets: re-apply
+// the start-up fixes to the restored target rows (the WebDAV HTTPS flag backfill, D-36-17).
+type RemoteTargetRehydrator interface {
+	Rehydrate(ctx context.Context) error
+}
+
+// SetRemoteTargetRehydrator wires the post-restore remote-target hook. Satisfied by *BackupRemoteService.
+func (s *BackupService) SetRemoteTargetRehydrator(r RemoteTargetRehydrator) {
+	s.remoteTargetRehydrator = r
 }
 
 // RequestAuditInfo carries the request-scoped values a Start*Job goroutine

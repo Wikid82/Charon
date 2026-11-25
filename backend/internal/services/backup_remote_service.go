@@ -31,7 +31,16 @@ type WebDAVConfig struct {
 	Username           string `json:"username,omitempty"`
 	BasePath           string `json:"base_path,omitempty"`
 	InsecureSkipVerify bool   `json:"insecure_skip_verify,omitempty"`
+	// AllowInsecureHTTP lets an http:// address be used. Without it only https:// is accepted.
+	AllowInsecureHTTP bool `json:"allow_insecure_http,omitempty"`
 }
+
+// ErrWebDAVHTTPSRequired is returned when a WebDAV address uses http:// and the target does not allow unencrypted HTTP.
+// Its text is shown to the user verbatim, so it is fixed and keeps its capitals and punctuation (ST1005 does not apply).
+var ErrWebDAVHTTPSRequired = errors.New(`Use an https:// address, or turn on "Allow unencrypted HTTP" for this destination.`) //nolint:staticcheck // ST1005: user-facing text shown verbatim
+
+// ErrWebDAVScheme is returned when a WebDAV address uses a scheme other than http or https.
+var ErrWebDAVScheme = errors.New("WebDAV addresses must start with https:// or http://.") //nolint:staticcheck // ST1005: user-facing text shown verbatim
 
 // DropboxConfig is the non-secret configuration for a dropbox-type
 // RemoteStorageTarget (spec §3.2). The uploader that consumes this config
@@ -514,6 +523,7 @@ func validateRemoteTargetConfig(targetType string, config RemoteTargetConfig) er
 		if err := remotestorage.ValidateHostSSRF(host); err != nil {
 			return fmt.Errorf("webdav url failed SSRF validation: %w", err)
 		}
+		return checkWebDAVScheme(parsedURL.Scheme, config.WebDAV.AllowInsecureHTTP)
 	case "dropbox":
 		// No SSRF check — Dropbox's uploader only ever dials fixed vendor
 		// hosts (content.dropboxapi.com/api.dropboxapi.com), never a
@@ -529,6 +539,96 @@ func validateRemoteTargetConfig(targetType string, config RemoteTargetConfig) er
 		}
 	default:
 		return fmt.Errorf("unknown remote storage target type %q", targetType)
+	}
+	return nil
+}
+
+// checkWebDAVScheme enforces the WebDAV address rule: https is always accepted, http only when the target allows
+// unencrypted HTTP, and any other scheme is refused.
+func checkWebDAVScheme(scheme string, allowInsecureHTTP bool) error {
+	switch scheme {
+	case "https":
+		return nil
+	case "http":
+		if allowInsecureHTTP {
+			return nil
+		}
+		return ErrWebDAVHTTPSRequired
+	default:
+		return ErrWebDAVScheme
+	}
+}
+
+// MarkExistingInsecureWebDAV sets webdav.allow_insecure_http on targets saved with an http:// address before the HTTPS
+// rule existed, so they keep working and the form shows the flag. Only config_json changes: keys this build does not
+// know are kept, and updated_at and the secret columns are not touched. Targets that are already flagged, use https,
+// or hold unreadable JSON are skipped. It returns how many targets were flagged. Running it again changes nothing.
+func (s *BackupRemoteService) MarkExistingInsecureWebDAV(ctx context.Context) (int, error) {
+	var targets []models.RemoteStorageTarget
+	if err := s.db.WithContext(ctx).Where("type = ?", "webdav").Find(&targets).Error; err != nil {
+		return 0, fmt.Errorf("list webdav remote targets: %w", err)
+	}
+
+	flagged := 0
+	for i := range targets {
+		updatedJSON, changed, err := flagInsecureWebDAVConfig(targets[i].ConfigJSON)
+		if err != nil {
+			logger.Log().WithError(err).WithField("target", util.SanitizeForLog(targets[i].Name)).
+				Warn("skipped WebDAV target whose stored config could not be read")
+			continue
+		}
+		if !changed {
+			continue
+		}
+		if err := s.db.WithContext(ctx).Model(&models.RemoteStorageTarget{}).
+			Where("id = ?", targets[i].ID).
+			UpdateColumn("config_json", updatedJSON).Error; err != nil {
+			return flagged, fmt.Errorf("flag webdav remote target %q: %w", targets[i].Name, err)
+		}
+		flagged++
+	}
+
+	if flagged > 0 {
+		logger.Log().WithField("count", flagged).Info("Marked existing WebDAV backup targets as allowing unencrypted HTTP")
+	}
+	return flagged, nil
+}
+
+// flagInsecureWebDAVConfig returns raw with webdav.allow_insecure_http set when the target is a WebDAV target on an
+// http:// address that does not yet have the flag. The bool reports whether the JSON changed. Numbers are decoded as
+// json.Number so unknown numeric keys round-trip unchanged.
+func flagInsecureWebDAVConfig(raw string) (updated string, changed bool, err error) {
+	decoder := json.NewDecoder(strings.NewReader(raw))
+	decoder.UseNumber()
+	var doc map[string]any
+	if decodeErr := decoder.Decode(&doc); decodeErr != nil {
+		return "", false, fmt.Errorf("decode remote target config: %w", decodeErr)
+	}
+	dav, ok := doc["webdav"].(map[string]any)
+	if !ok {
+		return raw, false, nil
+	}
+	rawURL, _ := dav["url"].(string)
+	parsed, err := url.Parse(rawURL)
+	if err != nil || parsed.Scheme != "http" {
+		return raw, false, nil
+	}
+	if allowed, _ := dav["allow_insecure_http"].(bool); allowed {
+		return raw, false, nil
+	}
+	dav["allow_insecure_http"] = true
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return "", false, fmt.Errorf("encode remote target config: %w", err)
+	}
+	return string(out), true, nil
+}
+
+// Rehydrate repeats the WebDAV backfill after a live restore replaced the database, because the restored rows can
+// predate the flag. It satisfies the remote-target hook that BackupService calls after a live restore.
+func (s *BackupRemoteService) Rehydrate(ctx context.Context) error {
+	if _, err := s.MarkExistingInsecureWebDAV(ctx); err != nil {
+		return fmt.Errorf("backfill webdav remote targets after restore: %w", err)
 	}
 	return nil
 }

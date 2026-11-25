@@ -237,6 +237,8 @@ func (h *BackupRemoteHandler) respondRemoteTargetError(c *gin.Context, err error
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "error_code": "oauth_not_connected"})
 	case errors.Is(err, remotestorage.ErrOAuthRevoked):
 		c.JSON(http.StatusConflict, gin.H{"error": err.Error(), "error_code": "oauth_revoked"})
+	case errors.Is(err, services.ErrWebDAVHTTPSRequired):
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error(), "error_code": "webdav_https_required"})
 	default:
 		code := http.StatusBadRequest
 		if errors.Is(err, gorm.ErrRecordNotFound) {

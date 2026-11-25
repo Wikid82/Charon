@@ -1322,6 +1322,9 @@
       "body": "La base de données de Charon a échoué à une vérification d'intégrité. Les sauvegardes échoueront tant que la base de données n'aura pas été réparée ou restaurée à partir d'une sauvegarde antérieure."
     },
     "remoteTargets": {
+      "allowInsecureHttp": "Allow unencrypted HTTP",
+      "allowInsecureHttpWarning": "Backups and the password for this destination are sent without encryption. Use this only on a network you trust.",
+      "unencryptedConnection": "Unencrypted connection",
       "title": "Cibles de stockage distant",
       "add": "Ajouter une cible distante",
       "editTitle": "Modifier la cible distante",

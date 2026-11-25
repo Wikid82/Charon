@@ -388,6 +388,12 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		backupService.SetEncryptionRehydrator(rotation)
 	}
 	backupRemoteService := services.NewBackupRemoteService(db, secrets, backupService.BackupDir)
+	// Targets saved over http:// before the HTTPS rule are flagged at start-up so they keep working (D-36-17). A failure
+	// only means the flag is missing until the next start or live restore; uploads still work.
+	if _, err := backupRemoteService.MarkExistingInsecureWebDAV(ctx); err != nil {
+		logger.Log().WithError(err).Warn("Could not mark existing WebDAV backup targets as allowing unencrypted HTTP")
+	}
+	backupService.SetRemoteTargetRehydrator(backupRemoteService)         // re-applies the same backfill after a live restore
 	backupService.SetRemoteUploadHook(backupRemoteService.TriggerUpload) // spec §3.7
 	if gate != nil {
 		// Scheduled backups wait (not dropped) while an optimization is pending.

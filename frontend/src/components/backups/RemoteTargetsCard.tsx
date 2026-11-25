@@ -41,6 +41,11 @@ const STATUS_VARIANT: Record<RemoteTarget['last_test_status'], 'success' | 'dest
 /** Provider types that carry an OAuth connection lifecycle (spec §3.3/§3.4). */
 const OAUTH_TYPES = new Set<RemoteTarget['type']>(['dropbox', 'google_drive'])
 
+/** True for a WebDAV target whose address is plain http://, so its traffic is not encrypted. */
+function isUnencryptedWebDAV(target: RemoteTarget): boolean {
+  return target.type === 'webdav' && (target.config.webdav?.url ?? '').toLowerCase().startsWith('http://')
+}
+
 const OAUTH_STATUS_VARIANT: Record<Exclude<RemoteTargetOAuthStatus, ''>, 'success' | 'destructive' | 'outline'> = {
   connected: 'success',
   revoked: 'destructive',
@@ -175,6 +180,11 @@ export function RemoteTargetsCard() {
                 <div>
                   <p className="font-medium text-content-primary">{target.name}</p>
                   <p className="text-sm text-content-secondary">{target.type.toUpperCase()}</p>
+                  {isUnencryptedWebDAV(target) && (
+                    <p data-testid="backup-remote-target-unencrypted-note" className="text-xs text-content-muted">
+                      {t('backups.remoteTargets.unencryptedConnection')}
+                    </p>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge data-testid="backup-remote-target-status-badge" variant={STATUS_VARIANT[target.last_test_status]}>

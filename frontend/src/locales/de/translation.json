@@ -1322,6 +1322,9 @@
       "body": "Die Datenbank von Charon hat eine Integritätsprüfung nicht bestanden. Backups schlagen fehl, bis die Datenbank repariert oder aus einem früheren Backup wiederhergestellt wurde."
     },
     "remoteTargets": {
+      "allowInsecureHttp": "Allow unencrypted HTTP",
+      "allowInsecureHttpWarning": "Backups and the password for this destination are sent without encryption. Use this only on a network you trust.",
+      "unencryptedConnection": "Unencrypted connection",
       "title": "Remote-Speicherziele",
       "add": "Remote-Ziel hinzufügen",
       "editTitle": "Remote-Ziel bearbeiten",

@@ -1322,6 +1322,9 @@
       "body": "Charon's database failed an integrity check. Backups will fail until the database is repaired or restored from an earlier backup."
     },
     "remoteTargets": {
+      "allowInsecureHttp": "Allow unencrypted HTTP",
+      "allowInsecureHttpWarning": "Backups and the password for this destination are sent without encryption. Use this only on a network you trust.",
+      "unencryptedConnection": "Unencrypted connection",
       "title": "Remote Storage Targets",
       "add": "Add Remote Target",
       "editTitle": "Edit Remote Target",

@@ -1322,6 +1322,9 @@
       "body": "Charon 的数据库未通过完整性检查。在数据库修复或从早期备份恢复之前，备份操作将会失败。"
     },
     "remoteTargets": {
+      "allowInsecureHttp": "Allow unencrypted HTTP",
+      "allowInsecureHttpWarning": "Backups and the password for this destination are sent without encryption. Use this only on a network you trust.",
+      "unencryptedConnection": "Unencrypted connection",
       "title": "远程存储目标",
       "add": "添加远程目标",
       "editTitle": "编辑远程目标",
