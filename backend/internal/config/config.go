@@ -4,6 +4,7 @@ package config
 import (
 	crand "crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -11,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/Wikid82/charon/backend/internal/crowdsec/bouncerkey"
+	"github.com/Wikid82/charon/backend/internal/logger"
 )
 
 // Accepted values of CHARON_DB_COMPACT_ON_START.
@@ -44,10 +46,15 @@ type Config struct {
 	// It is kept for callers that only need the current key.
 	EncryptionKey string
 	// EncryptionKeys holds every configured encryption key (current, next and legacy slots).
-	EncryptionKeys        EncryptionKeys
-	ACMEStaging           bool
-	SingleContainer       bool
-	PluginsDir            string
+	EncryptionKeys  EncryptionKeys
+	ACMEStaging     bool
+	SingleContainer bool
+	PluginsDir      string
+	// PluginSignatures is the CHARON_PLUGIN_SIGNATURES allowlist (plugin file
+	// name -> "sha256:<hex>"). nil means permissive (variable unset); a non-nil
+	// map is strict, and an empty map allows no external plugin. Start-up,
+	// reload and enable all use this one list.
+	PluginSignatures      map[string]string
 	CaddyLogDir           string
 	CrowdSecLogDir        string
 	Debug                 bool
@@ -194,6 +201,8 @@ func Load() (Config, error) {
 	dbCompact, dbCompactWarnings := loadDBCompactOnStart()
 	cfg.DBCompactOnStart = dbCompact
 	cfg.StartupWarnings = append(cfg.StartupWarnings, dbCompactWarnings...)
+
+	cfg.PluginSignatures = loadPluginSignatures()
 
 	cfg.CertExpiryWarningDays = 30
 	if days := getEnvAny("", "CHARON_CERT_EXPIRY_WARNING_DAYS"); days != "" {
@@ -367,6 +376,49 @@ func getEnvAny(fallback string, keys ...string) string {
 		}
 	}
 	return fallback
+}
+
+// loadPluginSignatures reads CHARON_PLUGIN_SIGNATURES and logs the resulting mode.
+// A malformed value fails closed: it returns an empty, non-nil allowlist, so no
+// external plugin loads until the value is fixed.
+func loadPluginSignatures() map[string]string {
+	raw := os.Getenv("CHARON_PLUGIN_SIGNATURES")
+	signatures, err := parsePluginSignatures(raw)
+	if err != nil {
+		logger.Log().WithError(err).Error("CHARON_PLUGIN_SIGNATURES is not valid; no external plugins are loaded until it is fixed")
+		return map[string]string{}
+	}
+	switch {
+	case signatures == nil:
+		logger.Log().Info("Plugin signature verification: PERMISSIVE mode (CHARON_PLUGIN_SIGNATURES not set)")
+	case len(signatures) == 0:
+		logger.Log().Info("Plugin signature verification: STRICT mode (empty allowlist — no external plugins permitted)")
+	default:
+		logger.Log().Infof("Plugin signature verification: STRICT mode (%d plugin(s) in allowlist)", len(signatures))
+	}
+	return signatures
+}
+
+// parsePluginSignatures parses the CHARON_PLUGIN_SIGNATURES JSON object.
+// An empty raw value returns nil (permissive). Any other valid JSON, including
+// null, returns a non-nil map so that the list can never fall back to permissive.
+func parsePluginSignatures(raw string) (map[string]string, error) {
+	if raw == "" {
+		return nil, nil
+	}
+	var signatures map[string]string
+	if err := json.Unmarshal([]byte(raw), &signatures); err != nil {
+		return nil, fmt.Errorf("parse plugin signatures JSON: %w", err)
+	}
+	if signatures == nil {
+		signatures = map[string]string{}
+	}
+	for name, sig := range signatures {
+		if !strings.HasPrefix(sig, "sha256:") {
+			return nil, fmt.Errorf("signature for plugin %q must begin with \"sha256:\"", name)
+		}
+	}
+	return signatures, nil
 }
 
 // getEnvIntAny checks a list of environment variable names, attempts to parse as int.

@@ -33,7 +33,7 @@ func TestRegisterWithDeps_ReturnsWiredCrowdsecLifecycle(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	registered, err := RegisterWithDeps(ctx, router, db, cfg, caddyManager, cerb, dbmaint.NewGate())
+	registered, err := RegisterWithDeps(ctx, router, db, cfg, caddyManager, cerb, dbmaint.NewGate(), nil)
 
 	require.NoError(t, err)
 	require.NotNil(t, registered.UptimeShutdown)
@@ -56,7 +56,7 @@ func TestRegisterWithDeps_ShutdownStopsWaitingForResetStopAtGrace(t *testing.T) 
 	cerb := cerberus.New(cfg.Security, db)
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	registered, err := RegisterWithDeps(ctx, router, db, cfg, caddyManager, cerb, dbmaint.NewGate())
+	registered, err := RegisterWithDeps(ctx, router, db, cfg, caddyManager, cerb, dbmaint.NewGate(), nil)
 	require.NoError(t, err)
 	h, ok := registered.CrowdSec.(*handlers.CrowdsecHandler)
 	require.True(t, ok)
