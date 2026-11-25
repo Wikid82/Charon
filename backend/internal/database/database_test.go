@@ -1,9 +1,12 @@
 package database
 
 import (
+	"context"
 	"database/sql"
+	"database/sql/driver"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/glebarez/sqlite"
@@ -435,4 +438,68 @@ func TestEnableIncrementalVacuumIfEmpty_ClosedDatabaseFails(t *testing.T) {
 
 	require.Error(t, err)
 	assert.Contains(t, err.Error(), "page_count")
+}
+
+func TestBuildDSN(t *testing.T) {
+	pragmas := []string{"busy_timeout(5000)", "synchronous(NORMAL)"}
+	tests := []struct {
+		name    string
+		path    string
+		want    string
+		wantErr bool
+	}{
+		{name: "plain path", path: "/data/charon.db", want: "file:/data/charon.db?_pragma=busy_timeout%285000%29&_pragma=synchronous%28NORMAL%29"},
+		{name: "plain path with percent and hash", path: "/d/a%b#c.db", want: "file:/d/a%25b%23c.db?_pragma=busy_timeout%285000%29&_pragma=synchronous%28NORMAL%29"},
+		{name: "file URI without query", path: "file:/data/charon.db", want: "file:/data/charon.db?_pragma=busy_timeout%285000%29&_pragma=synchronous%28NORMAL%29"},
+		{name: "file URI with query", path: "file::memory:?cache=shared", want: "file::memory:?cache=shared&_pragma=busy_timeout%285000%29&_pragma=synchronous%28NORMAL%29"},
+		{name: "plain path containing a question mark", path: "/data/a?b.db", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := buildDSN(tt.path, pragmas)
+			if tt.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "must not contain '?'")
+				return
+			}
+			require.NoError(t, err)
+			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+// discardPooledConnection drops the connection the pool currently holds so the
+// next query opens a fresh one from the DSN.
+func discardPooledConnection(t *testing.T, sqlDB *sql.DB) {
+	t.Helper()
+	conn, err := sqlDB.Conn(context.Background())
+	require.NoError(t, err)
+	rawErr := conn.Raw(func(any) error { return driver.ErrBadConn })
+	require.ErrorIs(t, rawErr, driver.ErrBadConn)
+	// Raw already released the connection after ErrBadConn, so Close reports it as closed.
+	_ = conn.Close()
+}
+
+func TestConnect_SettingsApplyToReplacementConnection(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "replacement.db")
+	db, err := Connect(dbPath)
+	require.NoError(t, err)
+	sqlDB, err := db.DB()
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = sqlDB.Close() })
+
+	discardPooledConnection(t, sqlDB)
+
+	var busy, synchronous, cacheSize int64
+	require.NoError(t, sqlDB.QueryRow("PRAGMA busy_timeout").Scan(&busy))
+	require.NoError(t, sqlDB.QueryRow("PRAGMA synchronous").Scan(&synchronous))
+	require.NoError(t, sqlDB.QueryRow("PRAGMA cache_size").Scan(&cacheSize))
+	assert.Equal(t, int64(5000), busy)
+	assert.Equal(t, int64(1), synchronous, "synchronous NORMAL")
+	assert.Equal(t, int64(-64000), cacheSize)
+
+	var journalSizeLimit int64
+	require.NoError(t, sqlDB.QueryRow("PRAGMA journal_size_limit").Scan(&journalSizeLimit))
+	assert.Equal(t, int64(journalSizeLimitBytes), journalSizeLimit)
+	assert.False(t, strings.Contains(dbPath, "?"))
 }
