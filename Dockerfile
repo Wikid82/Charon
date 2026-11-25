@@ -46,7 +46,7 @@ ARG ZLIB_VERSION=1.4-r0
 
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
-ARG CROWDSEC_VERSION=1.8.2
+ARG CROWDSEC_VERSION=1.8.3-rc1
 
 # ---- Shared Go Security Patches ----
 # renovate: datasource=github-tags depName=expr-lang/expr extractVersion=^v(?<version>.+)$
