@@ -218,14 +218,14 @@ func (s *BackupService) UpdateSettings(update BackupSettingsUpdate) error {
 	if update.RemoteRetentionCount != nil && *update.RemoteRetentionCount < 1 {
 		return ErrInvalidRetentionCount
 	}
-	if update.EncryptionEnabled != nil && *update.EncryptionEnabled && s.encryption == nil {
+	if update.EncryptionEnabled != nil && *update.EncryptionEnabled && s.secrets == nil {
 		existing, hasExisting := readBackupSettingString(s.db, SettingKeyBackupEncryptionPassphraseEnc)
 		settingNow := update.EncryptionPassphrase != nil && *update.EncryptionPassphrase != ""
 		if (!hasExisting || existing == "") && !settingNow {
 			return ErrEncryptionKeyMissingForOps
 		}
 	}
-	if update.EncryptionPassphrase != nil && *update.EncryptionPassphrase != "" && s.encryption == nil {
+	if update.EncryptionPassphrase != nil && *update.EncryptionPassphrase != "" && s.secrets == nil {
 		return ErrEncryptionKeyMissingForOps
 	}
 
@@ -258,7 +258,7 @@ func (s *BackupService) UpdateSettings(update BackupSettingsUpdate) error {
 		if update.EncryptionPassphrase != nil {
 			value := ""
 			if *update.EncryptionPassphrase != "" {
-				encrypted, encErr := s.encryption.Encrypt([]byte(*update.EncryptionPassphrase))
+				encrypted, _, encErr := s.secrets.EncryptWithCurrentKey([]byte(*update.EncryptionPassphrase))
 				if encErr != nil {
 					return fmt.Errorf("encrypt backup passphrase: %w", encErr)
 				}

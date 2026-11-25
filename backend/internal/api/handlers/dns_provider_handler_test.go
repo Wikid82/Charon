@@ -15,6 +15,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/testutil"
@@ -1195,7 +1196,7 @@ func TestDNSProviderHandler_TestCredentials_EndpointPolicyAndRoleGate(t *testing
 	require.NoError(t, dnsprovider.Global().Register(endpointPolicyFakeProvider{ProviderPlugin: base}))
 	t.Cleanup(func() { dnsprovider.Global().Unregister("endpoint_policy_handler_fake") })
 
-	handler := NewDNSProviderHandler(services.NewDNSProviderService(db, encryptor))
+	handler := NewDNSProviderHandler(services.NewDNSProviderService(db, cryptotest.SingleKey(encryptor)))
 
 	var role atomic.Value
 	router := gin.New()

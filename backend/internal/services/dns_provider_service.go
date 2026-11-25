@@ -138,24 +138,16 @@ type DNSProviderService interface {
 // dnsProviderService implements the DNSProviderService interface.
 type dnsProviderService struct {
 	db              *gorm.DB
-	encryptor       *crypto.EncryptionService
-	rotationService *crypto.RotationService
+	secrets         crypto.VersionedCipher
 	securityService *SecurityService
 }
 
-// NewDNSProviderService creates a new DNS provider service.
-func NewDNSProviderService(db *gorm.DB, encryptor *crypto.EncryptionService) DNSProviderService {
-	// Attempt to create rotation service (optional for backward compatibility)
-	rotationService, err := crypto.NewRotationService(db)
-	if err != nil {
-		// Fallback to non-rotation mode
-		fmt.Printf("Warning: RotationService initialization failed, using basic encryption: %v\n", err)
-	}
-
+// NewDNSProviderService creates a new DNS provider service. secrets is nil when
+// no encryption key is configured.
+func NewDNSProviderService(db *gorm.DB, secrets crypto.VersionedCipher) DNSProviderService {
 	return &dnsProviderService{
 		db:              db,
-		encryptor:       encryptor,
-		rotationService: rotationService,
+		secrets:         secrets,
 		securityService: NewSecurityService(db),
 	}
 }
@@ -240,19 +232,9 @@ func (s *dnsProviderService) Create(ctx context.Context, req CreateDNSProviderRe
 		return nil, fmt.Errorf("%w: %v", ErrEncryptionFailed, err)
 	}
 
-	if s.rotationService != nil {
-		// Use rotation service for version tracking
-		encryptedCreds, keyVersion, err = s.rotationService.EncryptWithCurrentKey(credentialsJSON)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrEncryptionFailed, err)
-		}
-	} else {
-		// Fallback to basic encryption
-		encryptedCreds, err = s.encryptor.Encrypt(credentialsJSON)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrEncryptionFailed, err)
-		}
-		keyVersion = 1
+	encryptedCreds, keyVersion, err = encryptSecret(s.secrets, credentialsJSON)
+	if err != nil {
+		return nil, err
 	}
 
 	// Set defaults
@@ -356,6 +338,7 @@ func (s *dnsProviderService) Update(ctx context.Context, id uint, req UpdateDNSP
 	}
 
 	// Handle credentials update
+	reencrypted := false
 	if len(req.Credentials) > 0 {
 		// Validate credentials
 		if err := validateCredentials(provider.ProviderType, req.Credentials); err != nil {
@@ -370,22 +353,15 @@ func (s *dnsProviderService) Update(ctx context.Context, id uint, req UpdateDNSP
 
 		var encryptedCreds string
 		var keyVersion int
-		if s.rotationService != nil {
-			encryptedCreds, keyVersion, err = s.rotationService.EncryptWithCurrentKey(credentialsJSON)
-			if err != nil {
-				return nil, fmt.Errorf("%w: %v", ErrEncryptionFailed, err)
-			}
-		} else {
-			encryptedCreds, err = s.encryptor.Encrypt(credentialsJSON)
-			if err != nil {
-				return nil, fmt.Errorf("%w: %v", ErrEncryptionFailed, err)
-			}
-			keyVersion = 1
+		encryptedCreds, keyVersion, err = encryptSecret(s.secrets, credentialsJSON)
+		if err != nil {
+			return nil, err
 		}
 
 		changedFields["credentials"] = true
 		provider.CredentialsEncrypted = encryptedCreds
 		provider.KeyVersion = keyVersion
+		reencrypted = true
 	}
 
 	// Handle default provider logic
@@ -406,7 +382,7 @@ func (s *dnsProviderService) Update(ctx context.Context, id uint, req UpdateDNSP
 	}
 
 	// Save updates
-	if err := s.db.WithContext(ctx).Save(provider).Error; err != nil {
+	if err := saveFields(s.db.WithContext(ctx), provider, writeColumns(dnsProviderStore, reencrypted, "Name", "PropagationTimeout", "PollingInterval", "Enabled", "IsDefault")...); err != nil {
 		return nil, err
 	}
 
@@ -489,7 +465,7 @@ func (s *dnsProviderService) Test(ctx context.Context, id uint) (*TestResult, er
 		provider.LastUsedAt = &now
 		provider.FailureCount++
 		provider.LastError = "Failed to decrypt credentials"
-		_ = s.db.WithContext(ctx).Save(provider)
+		_ = saveFields(s.db.WithContext(ctx), provider, "LastUsedAt", "FailureCount", "LastError")
 
 		return &TestResult{
 			Success: false,
@@ -514,7 +490,7 @@ func (s *dnsProviderService) Test(ctx context.Context, id uint) (*TestResult, er
 	}
 
 	// Save statistics (ignore errors to avoid failing the test operation)
-	_ = s.db.WithContext(ctx).Save(provider)
+	_ = saveFields(s.db.WithContext(ctx), provider, "LastUsedAt", "SuccessCount", "FailureCount", "LastError")
 
 	// Log audit event
 	detailsJSON, _ := json.Marshal(map[string]interface{}{
@@ -569,19 +545,11 @@ func (s *dnsProviderService) GetDecryptedCredentials(ctx context.Context, id uin
 		return nil, err
 	}
 
-	// Decrypt credentials using rotation service if available (with version fallback)
+	// Decrypt credentials with the cipher and the row's key version.
 	var decryptedData []byte
-	if s.rotationService != nil {
-		decryptedData, err = s.rotationService.DecryptWithVersion(provider.CredentialsEncrypted, provider.KeyVersion)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrDecryptionFailed, err)
-		}
-	} else {
-		// Fallback to basic decryption
-		decryptedData, err = s.encryptor.Decrypt(provider.CredentialsEncrypted)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrDecryptionFailed, err)
-		}
+	decryptedData, err = decryptSecret(s.secrets, provider.CredentialsEncrypted, provider.KeyVersion)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrDecryptionFailed, err)
 	}
 
 	// Parse JSON
@@ -593,7 +561,7 @@ func (s *dnsProviderService) GetDecryptedCredentials(ctx context.Context, id uin
 	// Update last used timestamp
 	now := time.Now()
 	provider.LastUsedAt = &now
-	_ = s.db.WithContext(ctx).Save(provider)
+	_ = saveFields(s.db.WithContext(ctx), provider, "LastUsedAt")
 
 	// Log audit event
 	detailsJSON, _ := json.Marshal(map[string]interface{}{

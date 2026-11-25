@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/hecate"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
@@ -35,7 +36,7 @@ func setupHecateTestDB(t *testing.T) (*gorm.DB, *crypto.EncryptionService, *heca
 	encSvc, err := crypto.NewEncryptionService(hecateTestKey)
 	require.NoError(t, err)
 
-	mgr := hecate.NewTunnelManager(db, encSvc)
+	mgr := hecate.NewTunnelManager(db, cryptotest.SingleKey(encSvc))
 	t.Cleanup(func() { _ = mgr.Stop() })
 
 	return db, encSvc, mgr
@@ -43,7 +44,7 @@ func setupHecateTestDB(t *testing.T) (*gorm.DB, *crypto.EncryptionService, *heca
 
 func TestHecateService_Create_And_Get(t *testing.T) {
 	db, encSvc, mgr := setupHecateTestDB(t)
-	svc := services.NewHecateService(db, encSvc, mgr)
+	svc := services.NewHecateService(db, cryptotest.SingleKey(encSvc), mgr)
 
 	cfg := &models.TunnelConfig{
 		Name:     "test-tunnel",
@@ -63,7 +64,7 @@ func TestHecateService_Create_And_Get(t *testing.T) {
 
 func TestHecateService_List(t *testing.T) {
 	db, encSvc, mgr := setupHecateTestDB(t)
-	svc := services.NewHecateService(db, encSvc, mgr)
+	svc := services.NewHecateService(db, cryptotest.SingleKey(encSvc), mgr)
 
 	for i := 0; i < 3; i++ {
 		cfg := &models.TunnelConfig{
@@ -80,7 +81,7 @@ func TestHecateService_List(t *testing.T) {
 
 func TestHecateService_Delete(t *testing.T) {
 	db, encSvc, mgr := setupHecateTestDB(t)
-	svc := services.NewHecateService(db, encSvc, mgr)
+	svc := services.NewHecateService(db, cryptotest.SingleKey(encSvc), mgr)
 
 	cfg := &models.TunnelConfig{Name: "del-test", Provider: models.ProviderCloudflare}
 	require.NoError(t, svc.Create(cfg, "{}"))
@@ -93,7 +94,7 @@ func TestHecateService_Delete(t *testing.T) {
 
 func TestHecateService_RotateCredentials(t *testing.T) {
 	db, encSvc, mgr := setupHecateTestDB(t)
-	svc := services.NewHecateService(db, encSvc, mgr)
+	svc := services.NewHecateService(db, cryptotest.SingleKey(encSvc), mgr)
 
 	cfg := &models.TunnelConfig{Name: "rotate-test", Provider: models.ProviderCloudflare}
 	require.NoError(t, svc.Create(cfg, `{"token":"old"}`))
@@ -115,7 +116,7 @@ func TestHecateService_RotateCredentials(t *testing.T) {
 
 func TestHecateService_GetStatus_Empty(t *testing.T) {
 	db, encSvc, mgr := setupHecateTestDB(t)
-	svc := services.NewHecateService(db, encSvc, mgr)
+	svc := services.NewHecateService(db, cryptotest.SingleKey(encSvc), mgr)
 
 	statuses := svc.GetStatus()
 	assert.Empty(t, statuses)
@@ -123,7 +124,7 @@ func TestHecateService_GetStatus_Empty(t *testing.T) {
 
 func TestHecateService_Get_NotFound(t *testing.T) {
 	db, encSvc, mgr := setupHecateTestDB(t)
-	svc := services.NewHecateService(db, encSvc, mgr)
+	svc := services.NewHecateService(db, cryptotest.SingleKey(encSvc), mgr)
 
 	_, err := svc.Get("nonexistent-uuid")
 	assert.Error(t, err)
@@ -131,7 +132,7 @@ func TestHecateService_Get_NotFound(t *testing.T) {
 
 func TestHecateService_Update(t *testing.T) {
 	db, encSvc, mgr := setupHecateTestDB(t)
-	svc := services.NewHecateService(db, encSvc, mgr)
+	svc := services.NewHecateService(db, cryptotest.SingleKey(encSvc), mgr)
 
 	cfg := &models.TunnelConfig{Name: "update-test", Provider: models.ProviderCloudflare}
 	require.NoError(t, svc.Create(cfg, `{"token":"original"}`))
@@ -181,7 +182,7 @@ func startSvcTunnel(t *testing.T, svc *services.HecateService, mgr *hecate.Tunne
 
 func TestHecateService_GetManager(t *testing.T) {
 	db, encSvc, mgr := setupHecateTestDB(t)
-	svc := services.NewHecateService(db, encSvc, mgr)
+	svc := services.NewHecateService(db, cryptotest.SingleKey(encSvc), mgr)
 
 	got := svc.GetManager()
 	require.NotNil(t, got)
@@ -189,7 +190,7 @@ func TestHecateService_GetManager(t *testing.T) {
 
 func TestHecateService_Create_ActiveTunnel_StartSuccess(t *testing.T) {
 	db, encSvc, mgr := setupHecateTestDB(t)
-	svc := services.NewHecateService(db, encSvc, mgr)
+	svc := services.NewHecateService(db, cryptotest.SingleKey(encSvc), mgr)
 
 	mgr.RegisterFactory(models.ProviderCloudflare, func(_ *models.TunnelConfig, _ string) (hecate.TunnelProvider, error) {
 		return &svcNopProvider{}, nil
@@ -207,7 +208,7 @@ func TestHecateService_Create_ActiveTunnel_StartSuccess(t *testing.T) {
 
 func TestHecateService_Create_ActiveTunnel_StartError(t *testing.T) {
 	db, encSvc, mgr := setupHecateTestDB(t)
-	svc := services.NewHecateService(db, encSvc, mgr)
+	svc := services.NewHecateService(db, cryptotest.SingleKey(encSvc), mgr)
 
 	mgr.RegisterFactory(models.ProviderCloudflare, func(_ *models.TunnelConfig, _ string) (hecate.TunnelProvider, error) {
 		return nil, fmt.Errorf("factory error")
@@ -224,7 +225,7 @@ func TestHecateService_Create_ActiveTunnel_StartError(t *testing.T) {
 
 func TestHecateService_List_DBError(t *testing.T) {
 	db, encSvc, mgr := setupHecateTestDB(t)
-	svc := services.NewHecateService(db, encSvc, mgr)
+	svc := services.NewHecateService(db, cryptotest.SingleKey(encSvc), mgr)
 
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
@@ -236,7 +237,7 @@ func TestHecateService_List_DBError(t *testing.T) {
 
 func TestHecateService_Delete_StopError(t *testing.T) {
 	db, encSvc, mgr := setupHecateTestDB(t)
-	svc := services.NewHecateService(db, encSvc, mgr)
+	svc := services.NewHecateService(db, cryptotest.SingleKey(encSvc), mgr)
 
 	errFactory := hecate.ProviderFactory(func(_ *models.TunnelConfig, _ string) (hecate.TunnelProvider, error) {
 		return &svcErrStopProvider{}, nil
@@ -249,7 +250,7 @@ func TestHecateService_Delete_StopError(t *testing.T) {
 
 func TestHecateService_Delete_DBError(t *testing.T) {
 	db, encSvc, mgr := setupHecateTestDB(t)
-	svc := services.NewHecateService(db, encSvc, mgr)
+	svc := services.NewHecateService(db, cryptotest.SingleKey(encSvc), mgr)
 
 	cfg := &models.TunnelConfig{Name: "del-db-err", Provider: models.ProviderCloudflare}
 	require.NoError(t, svc.Create(cfg, `{}`))
@@ -264,7 +265,7 @@ func TestHecateService_Delete_DBError(t *testing.T) {
 
 func TestHecateService_RotateCredentials_StopError(t *testing.T) {
 	db, encSvc, mgr := setupHecateTestDB(t)
-	svc := services.NewHecateService(db, encSvc, mgr)
+	svc := services.NewHecateService(db, cryptotest.SingleKey(encSvc), mgr)
 
 	errFactory := hecate.ProviderFactory(func(_ *models.TunnelConfig, _ string) (hecate.TunnelProvider, error) {
 		return &svcErrStopProvider{}, nil
@@ -277,7 +278,7 @@ func TestHecateService_RotateCredentials_StopError(t *testing.T) {
 
 func TestHecateService_Update_GetError(t *testing.T) {
 	db, encSvc, mgr := setupHecateTestDB(t)
-	svc := services.NewHecateService(db, encSvc, mgr)
+	svc := services.NewHecateService(db, cryptotest.SingleKey(encSvc), mgr)
 
 	err := svc.Update("nonexistent-uuid", &models.TunnelConfig{
 		Name:     "x",
@@ -288,7 +289,7 @@ func TestHecateService_Update_GetError(t *testing.T) {
 
 func TestHecateService_Create_DBError(t *testing.T) {
 	db, encSvc, mgr := setupHecateTestDB(t)
-	svc := services.NewHecateService(db, encSvc, mgr)
+	svc := services.NewHecateService(db, cryptotest.SingleKey(encSvc), mgr)
 
 	sqlDB, err := db.DB()
 	require.NoError(t, err)
@@ -301,7 +302,7 @@ func TestHecateService_Create_DBError(t *testing.T) {
 
 func TestHecateService_RotateCredentials_NotFound(t *testing.T) {
 	db, encSvc, mgr := setupHecateTestDB(t)
-	svc := services.NewHecateService(db, encSvc, mgr)
+	svc := services.NewHecateService(db, cryptotest.SingleKey(encSvc), mgr)
 
 	err := svc.RotateCredentials("nonexistent-uuid", `{"token":"new"}`)
 	assert.Error(t, err)
@@ -309,7 +310,7 @@ func TestHecateService_RotateCredentials_NotFound(t *testing.T) {
 
 func TestHecateService_RotateCredentials_StartError(t *testing.T) {
 	db, encSvc, mgr := setupHecateTestDB(t)
-	svc := services.NewHecateService(db, encSvc, mgr)
+	svc := services.NewHecateService(db, cryptotest.SingleKey(encSvc), mgr)
 
 	errStartFactory := hecate.ProviderFactory(func(_ *models.TunnelConfig, _ string) (hecate.TunnelProvider, error) {
 		return nil, fmt.Errorf("intentional start factory error")

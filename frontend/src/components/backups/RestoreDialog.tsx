@@ -51,6 +51,8 @@ function RestoreDialogBody({ backup, onClose }: RestoreDialogProps) {
               ? t('backups.restoreWarnings.restartRequired')
               : t('backups.restoreSuccess')
           )
+          // The dialog closes on success, so non-fatal warnings are surfaced as plain-text toasts
+          result.warnings?.forEach((warning) => toast.warning(warning))
           onClose()
         },
         onError: (error: Error) => toast.error(t('backups.restoreFailed', { error: error.message })),

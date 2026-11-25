@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -22,11 +23,11 @@ func (e *errorStopProvider) Stop() error {
 
 func TestTunnelManager_NewTunnelManager_Initialized(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, cryptotest.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	assert.NotNil(t, mgr.db)
-	assert.NotNil(t, mgr.encSvc)
+	assert.NotNil(t, mgr.secrets)
 	assert.NotNil(t, mgr.factories)
 	assert.NotNil(t, mgr.state)
 	assert.NotNil(t, mgr.ctx)
@@ -34,7 +35,7 @@ func TestTunnelManager_NewTunnelManager_Initialized(t *testing.T) {
 
 func TestTunnelManager_RegisterProvider_UpdatesExistingInstance(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, cryptotest.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	p1 := newMockProvider("first")
@@ -53,7 +54,7 @@ func TestTunnelManager_RegisterProvider_UpdatesExistingInstance(t *testing.T) {
 
 func TestTunnelManager_Stop_WithProviderStopError_ReturnsError(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, cryptotest.SingleKey(encSvc))
 
 	p := &errorStopProvider{mockProvider: newMockProvider("err-stop")}
 	mgr.RegisterProvider("uuid-err", p)
@@ -64,7 +65,7 @@ func TestTunnelManager_Stop_WithProviderStopError_ReturnsError(t *testing.T) {
 
 func TestTunnelManager_Start_EmptyDB_ReturnsNil(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, cryptotest.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	err := mgr.Start(context.Background())
@@ -74,7 +75,7 @@ func TestTunnelManager_Start_EmptyDB_ReturnsNil(t *testing.T) {
 
 func TestTunnelManager_Start_DBClosed_ReturnsError(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, cryptotest.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	sqlDB, err := db.DB()
@@ -87,7 +88,7 @@ func TestTunnelManager_Start_DBClosed_ReturnsError(t *testing.T) {
 
 func TestTunnelManager_Start_ActiveConfig_FactoryFails_LogsWarning(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, cryptotest.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	mgr.RegisterFactory(models.ProviderCloudflare, func(_ *models.TunnelConfig, _ string) (TunnelProvider, error) {
@@ -112,7 +113,7 @@ func TestTunnelManager_Start_ActiveConfig_FactoryFails_LogsWarning(t *testing.T)
 
 func TestTunnelManager_StartTunnel_UUIDNotInDB_ReturnsError(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, cryptotest.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	err := mgr.StartTunnel("nonexistent-uuid")
@@ -121,7 +122,7 @@ func TestTunnelManager_StartTunnel_UUIDNotInDB_ReturnsError(t *testing.T) {
 
 func TestTunnelManager_StartTunnel_AlreadyConnected_ReturnsNil(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, cryptotest.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	creds, err := encSvc.Encrypt([]byte(`{"api_token":"test"}`))
@@ -157,7 +158,7 @@ func TestTunnelManager_StartTunnel_AlreadyConnected_ReturnsNil(t *testing.T) {
 
 func TestTunnelManager_StartTunnel_AlreadyConnecting_ReturnsNil(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, cryptotest.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	creds, err := encSvc.Encrypt([]byte(`{"api_token":"test"}`))
@@ -193,7 +194,7 @@ func TestTunnelManager_StartTunnel_AlreadyConnecting_ReturnsNil(t *testing.T) {
 
 func TestTunnelManager_StartTunnel_FactoryReturnsError(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, cryptotest.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	mgr.RegisterFactory(models.ProviderCloudflare, func(_ *models.TunnelConfig, _ string) (TunnelProvider, error) {
@@ -217,7 +218,7 @@ func TestTunnelManager_StartTunnel_FactoryReturnsError(t *testing.T) {
 
 func TestTunnelManager_StartTunnel_ProviderStartError(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, cryptotest.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	p := newMockProvider("start-err")
@@ -244,7 +245,7 @@ func TestTunnelManager_StartTunnel_ProviderStartError(t *testing.T) {
 
 func TestTunnelManager_StopTunnel_ProviderStopError_ReturnsError(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, cryptotest.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	p := &errorStopProvider{mockProvider: newMockProvider("err-stop-tunnel")}
@@ -256,7 +257,7 @@ func TestTunnelManager_StopTunnel_ProviderStopError_ReturnsError(t *testing.T) {
 
 func TestTunnelManager_GetStatus_EmptyWhenNoTunnels(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, cryptotest.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	statuses := mgr.GetStatus()
@@ -265,7 +266,7 @@ func TestTunnelManager_GetStatus_EmptyWhenNoTunnels(t *testing.T) {
 
 func TestTunnelManager_StartTunnel_DecryptError_ReturnsError(t *testing.T) {
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, cryptotest.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	// Create a config with corrupted (non-decryptable) credentials directly in DB.
@@ -289,7 +290,7 @@ func TestTunnelManager_RunWatcher_TickerFires_StateGone(t *testing.T) {
 	t.Parallel()
 
 	db, encSvc := setupManagerTestDB(t)
-	mgr := NewTunnelManager(db, encSvc)
+	mgr := NewTunnelManager(db, cryptotest.SingleKey(encSvc))
 	defer func() { _ = mgr.Stop() }()
 
 	watchCtx, cancelFn := context.WithCancel(mgr.ctx)

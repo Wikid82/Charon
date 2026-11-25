@@ -17,7 +17,8 @@ test.describe('Remote server custom connection test', () => {
     await loginUser(page, adminUser);
     await page.goto('/hecate/remote-servers');
     await waitForLoadingComplete(page);
-    await page.getByRole('button', { name: /add source/i }).click();
+    // The header button renders before the empty-state button in DOM order, so .first() is the header button.
+    await page.getByRole('button', { name: /add source/i }).first().click();
     await expect(page.getByRole('heading', { name: /add source/i })).toBeVisible();
   });
 

@@ -10,6 +10,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"gorm.io/driver/sqlite"
@@ -54,7 +55,7 @@ func TestCreateBackup_V2Format_IncludesManifestAndCrowdsec(t *testing.T) {
 	cfg := &config.Config{DatabasePath: dbPath}
 	cfg.Security.CrowdSecConfigDir = crowdsecDir
 
-	svc := NewBackupService(cfg, settingsDB, encSvc)
+	svc := NewBackupService(cfg, settingsDB, cryptotest.SingleKey(encSvc))
 	defer svc.Stop()
 
 	filename, err := svc.CreateBackup()

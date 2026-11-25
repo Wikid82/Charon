@@ -23,6 +23,7 @@ import (
 	"gorm.io/driver/sqlite"
 	"gorm.io/gorm"
 
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/testutil"
@@ -474,7 +475,7 @@ func TestCertificateHandler_Upload_Success(t *testing.T) {
 	// Create a mock CertificateService that returns a created certificate
 	// Create a temporary services.CertificateService with a temp dir and DB
 	tmpDir := t.TempDir()
-	svc := services.NewCertificateService(tmpDir, db, nil)
+	svc := services.NewCertificateService(tmpDir, db, cryptotest.SingleKey(newTestEncSvc(t)))
 	h := NewCertificateHandler(svc, nil, nil)
 	r.POST("/api/certificates", h.Upload)
 
@@ -546,7 +547,7 @@ func TestCertificateHandler_Upload_WithNotificationService(t *testing.T) {
 	r.Use(mockAuthMiddleware())
 
 	tmpDir := t.TempDir()
-	svc := services.NewCertificateService(tmpDir, db, nil)
+	svc := services.NewCertificateService(tmpDir, db, cryptotest.SingleKey(newTestEncSvc(t)))
 	ns := services.NewNotificationService(db, nil)
 	h := NewCertificateHandler(svc, nil, ns)
 	r.POST("/api/certificates", h.Upload)

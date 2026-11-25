@@ -296,12 +296,26 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	// Stored hosts whose forward target reaches an agent listener are left out of every apply.
 	caddyManager.SetForwardTargetGuard(services.NewListenerTargetGuard(db))
 
-	// Wire encryption service to Caddy manager for decrypting certificate private keys
-	if cfg.EncryptionKey != "" {
-		if svc, err := crypto.NewEncryptionService(cfg.EncryptionKey); err == nil {
-			caddyManager.SetEncryptionService(svc)
+	// One key service is built from the loaded key set and shared by every store
+	// that holds secrets. secrets stays a nil interface when no usable current key
+	// is configured: a typed nil would look configured to the consumers.
+	// cfg.EncryptionKey is the alias of EncryptionKeys.Current; a config built
+	// without the structured key set (tests, embedded callers) still gets its key.
+	encryptionKeys := cfg.EncryptionKeys
+	if encryptionKeys.Current == "" {
+		encryptionKeys.Current = cfg.EncryptionKey
+	}
+	rotation, rotationErr := crypto.NewRotationService(db, encryptionKeys)
+	var secrets crypto.VersionedCipher
+	if rotationErr != nil {
+		logRotationServiceFailure(rotationErr, cfg.EncryptionKey != "")
+	} else {
+		secrets = rotation
+		if _, err := rotation.Reconcile(ctx); err != nil {
+			logger.Log().WithError(err).Warn("Encryption key reconcile failed")
 		}
 	}
+	caddyManager.SetSecretCipher(secrets)
 
 	if cerb == nil {
 		cerb = cerberus.New(cfg.Security, db)
@@ -364,17 +378,13 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	api.Use(cerb.Middleware())
 
 	// Backup routes
-	var backupEncryptionService *crypto.EncryptionService
-	if cfg.EncryptionKey != "" {
-		if svc, err := crypto.NewEncryptionService(cfg.EncryptionKey); err == nil {
-			backupEncryptionService = svc
-		} else {
-			logger.Log().WithError(err).Warn("Failed to initialize backup encryption service")
-		}
-	}
-	backupService := services.NewBackupService(&cfg, db, backupEncryptionService)
+	backupService := services.NewBackupService(&cfg, db, secrets)
 	backupService.SetCaddyReloader(caddyManager) // spec §3.5 R1 post-restore reload
-	backupRemoteService := services.NewBackupRemoteService(db, backupEncryptionService, backupService.BackupDir)
+	if rotationErr == nil {
+		// After a live restore the key registry is replaced; the rehydrator re-registers keys before Caddy reloads.
+		backupService.SetEncryptionRehydrator(rotation)
+	}
+	backupRemoteService := services.NewBackupRemoteService(db, secrets, backupService.BackupDir)
 	backupService.SetRemoteUploadHook(backupRemoteService.TriggerUpload) // spec §3.7
 	if gate != nil {
 		// Scheduled backups wait (not dropped) while an optimization is pending.
@@ -696,135 +706,127 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 		// DNS Providers - only available if encryption key is configured
 		var orthrusServer *orthrus.OrthrusServer
-		if cfg.EncryptionKey != "" {
-			encryptionService, err := crypto.NewEncryptionService(cfg.EncryptionKey)
-			if err != nil {
-				logger.Log().WithError(err).Error("Failed to initialize encryption service - DNS provider features will be unavailable")
-			} else {
-				dnsProviderService := services.NewDNSProviderService(db, encryptionService)
-				dnsProviderHandler := handlers.NewDNSProviderHandler(dnsProviderService)
-				// DNS provider reads back the role=user-reachable DNSProviders
-				// page; every mutation and the credential-test endpoints
-				// (DNS API credentials + ACME control) are admin-only.
-				adminRole := middleware.RequireRole(models.RoleAdmin)
-				management.GET("/dns-providers", dnsProviderHandler.List)
-				management.POST("/dns-providers", adminRole, dnsProviderHandler.Create)
-				management.GET("/dns-providers/types", dnsProviderHandler.GetTypes)
-				management.GET("/dns-providers/:id", dnsProviderHandler.Get)
-				management.PUT("/dns-providers/:id", adminRole, dnsProviderHandler.Update)
-				management.DELETE("/dns-providers/:id", adminRole, dnsProviderHandler.Delete)
-				management.POST("/dns-providers/:id/test", adminRole, dnsProviderHandler.Test)
-				management.POST("/dns-providers/test", adminRole, dnsProviderHandler.TestCredentials)
-				// Audit logs for DNS providers — actor PII, admin-only.
-				managementAdmin.GET("/dns-providers/:id/audit-logs", auditLogHandler.ListByProvider)
+		if secrets != nil {
+			dnsProviderService := services.NewDNSProviderService(db, secrets)
+			dnsProviderHandler := handlers.NewDNSProviderHandler(dnsProviderService)
+			// DNS provider reads back the role=user-reachable DNSProviders
+			// page; every mutation and the credential-test endpoints
+			// (DNS API credentials + ACME control) are admin-only.
+			adminRole := middleware.RequireRole(models.RoleAdmin)
+			management.GET("/dns-providers", dnsProviderHandler.List)
+			management.POST("/dns-providers", adminRole, dnsProviderHandler.Create)
+			management.GET("/dns-providers/types", dnsProviderHandler.GetTypes)
+			management.GET("/dns-providers/:id", dnsProviderHandler.Get)
+			management.PUT("/dns-providers/:id", adminRole, dnsProviderHandler.Update)
+			management.DELETE("/dns-providers/:id", adminRole, dnsProviderHandler.Delete)
+			management.POST("/dns-providers/:id/test", adminRole, dnsProviderHandler.Test)
+			management.POST("/dns-providers/test", adminRole, dnsProviderHandler.TestCredentials)
+			// Audit logs for DNS providers — actor PII, admin-only.
+			managementAdmin.GET("/dns-providers/:id/audit-logs", auditLogHandler.ListByProvider)
 
-				// DNS Provider Auto-Detection (Phase 4)
-				dnsDetectionService := services.NewDNSDetectionService(db)
-				dnsDetectionHandler := handlers.NewDNSDetectionHandler(dnsDetectionService)
-				management.POST("/dns-providers/detect", adminRole, dnsDetectionHandler.Detect)
-				management.GET("/dns-providers/detection-patterns", dnsDetectionHandler.GetPatterns)
+			// DNS Provider Auto-Detection (Phase 4)
+			dnsDetectionService := services.NewDNSDetectionService(db)
+			dnsDetectionHandler := handlers.NewDNSDetectionHandler(dnsDetectionService)
+			management.POST("/dns-providers/detect", adminRole, dnsDetectionHandler.Detect)
+			management.GET("/dns-providers/detection-patterns", dnsDetectionHandler.GetPatterns)
 
-				// Multi-Credential Management (Phase 3)
-				credentialService := services.NewCredentialService(db, encryptionService)
-				credentialHandler := handlers.NewCredentialHandler(credentialService, dnsProviderService)
-				management.GET("/dns-providers/:id/credentials", credentialHandler.List)
-				management.POST("/dns-providers/:id/credentials", adminRole, credentialHandler.Create)
-				management.GET("/dns-providers/:id/credentials/:cred_id", credentialHandler.Get)
-				management.PUT("/dns-providers/:id/credentials/:cred_id", adminRole, credentialHandler.Update)
-				management.DELETE("/dns-providers/:id/credentials/:cred_id", adminRole, credentialHandler.Delete)
-				management.POST("/dns-providers/:id/credentials/:cred_id/test", adminRole, credentialHandler.Test)
-				management.POST("/dns-providers/:id/enable-multi-credentials", adminRole, credentialHandler.EnableMultiCredentials)
+			// Multi-Credential Management (Phase 3)
+			credentialService := services.NewCredentialService(db, secrets)
+			credentialHandler := handlers.NewCredentialHandler(credentialService, dnsProviderService)
+			management.GET("/dns-providers/:id/credentials", credentialHandler.List)
+			management.POST("/dns-providers/:id/credentials", adminRole, credentialHandler.Create)
+			management.GET("/dns-providers/:id/credentials/:cred_id", credentialHandler.Get)
+			management.PUT("/dns-providers/:id/credentials/:cred_id", adminRole, credentialHandler.Update)
+			management.DELETE("/dns-providers/:id/credentials/:cred_id", adminRole, credentialHandler.Delete)
+			management.POST("/dns-providers/:id/credentials/:cred_id/test", adminRole, credentialHandler.Test)
+			management.POST("/dns-providers/:id/enable-multi-credentials", adminRole, credentialHandler.EnableMultiCredentials)
 
-				// Encryption Management - Admin only endpoints
-				rotationService, rotErr := crypto.NewRotationService(db)
-				if rotErr != nil {
-					logger.Log().WithError(rotErr).Warn("Failed to initialize rotation service - key rotation features will be unavailable")
-				} else {
-					encryptionHandler := handlers.NewEncryptionHandler(rotationService, securityService)
-					// Derive from managementAdmin for defense-in-depth: the
-					// handlers already call isAdmin(c), but the subgroup guard
-					// removes the "silent 200 if that check is ever dropped" risk.
-					adminEncryption := managementAdmin.Group("/admin/encryption")
-					adminEncryption.GET("/status", encryptionHandler.GetStatus)
-					adminEncryption.POST("/rotate", encryptionHandler.Rotate)
-					adminEncryption.GET("/history", encryptionHandler.GetHistory)
-					adminEncryption.POST("/validate", encryptionHandler.Validate)
-				}
+			// Encryption Management - Admin only endpoints
+			// Derive from managementAdmin for defense-in-depth: the
+			// handlers already call isAdmin(c), but the subgroup guard
+			// removes the "silent 200 if that check is ever dropped" risk.
+			encryptionHandler := handlers.NewEncryptionHandler(rotation, securityService)
+			adminEncryption := managementAdmin.Group("/admin/encryption")
+			adminEncryption.GET("/status", encryptionHandler.GetStatus)
+			adminEncryption.POST("/rotate", encryptionHandler.Rotate)
+			adminEncryption.GET("/history", encryptionHandler.GetHistory)
+			adminEncryption.POST("/validate", encryptionHandler.Validate)
 
-				// Plugin Management (Phase 5) - Admin only endpoints
-				pluginDir := os.Getenv("CHARON_PLUGINS_DIR")
-				if pluginDir == "" {
-					pluginDir = "/app/plugins"
-				}
-				pluginLoader := services.NewPluginLoaderService(db, pluginDir, nil)
-				pluginHandler := handlers.NewPluginHandler(db, pluginLoader)
-				adminPlugins := management.Group("/admin/plugins")
-				adminPlugins.GET("", pluginHandler.ListPlugins)
-				adminPlugins.GET("/:id", pluginHandler.GetPlugin)
-				// Mutations are admin-only (deny-by-default). Listing stays on
-				// management so the role=user-reachable /dns/plugins page loads.
-				adminPlugins.POST("/:id/enable", middleware.RequireRole(models.RoleAdmin), pluginHandler.EnablePlugin)
-				adminPlugins.POST("/:id/disable", middleware.RequireRole(models.RoleAdmin), pluginHandler.DisablePlugin)
-				adminPlugins.POST("/reload", middleware.RequireRole(models.RoleAdmin), pluginHandler.ReloadPlugins)
-
-				// Manual DNS Challenges (Phase 1) - For users without automated DNS API access
-				manualChallengeService := services.NewManualChallengeService(db)
-				manualChallengeHandler := handlers.NewManualChallengeHandler(manualChallengeService, dnsProviderService)
-				// All manual-challenge routes are provider-mutation-adjacent
-				// (ACME control) with no role=user read need — admin-only.
-				manualChallengeHandler.RegisterRoutes(managementAdmin)
-
-				// Hecate Tunnel & Pathway Manager
-				tunnelMgr := hecate.NewTunnelManager(db, encryptionService)
-				tunnelMgr.RegisterFactory(models.ProviderCloudflare, cfprovider.Factory)
-				tunnelMgr.RegisterFactory(models.ProviderTailscale, tsprovider.Factory)
-				tunnelMgr.RegisterFactory(models.ProviderZeroTier, ztprovider.Factory)
-				tunnelMgr.RegisterFactory(models.ProviderNetBird, nbprovider.Factory)
-				if startErr := tunnelMgr.Start(ctx); startErr != nil {
-					logger.Log().WithError(startErr).Warn("Hecate TunnelManager failed to start")
-				}
-
-				orthrusCA, caErr := orthrus.NewInternalCA(dataRoot)
-				if caErr == nil {
-					var serverErr error
-					orthrusServer, serverErr = orthrus.NewOrthrusServer(db, orthrusCA)
-					if serverErr != nil {
-						logger.Log().WithError(serverErr).Warn("Orthrus server initialization failed — agent tunnel feature unavailable")
-					}
-				} else {
-					logger.Log().WithError(caErr).Warn("Orthrus CA initialization failed — agent tunnel feature unavailable")
-				}
-
-				hecateSvc := services.NewHecateService(db, encryptionService, tunnelMgr)
-				orthrsuSvc := services.NewOrthrusService(db, orthrusServer)
-
-				hecateHandler := handlers.NewHecateHandler(hecateSvc)
-				hecateHandler.RegisterRoutes(management, managementAdmin)
-
-				orthrusHandler := handlers.NewOrthrusHandler(orthrsuSvc, securityService)
-				orthrusHandler.RegisterRoutes(management, managementAdmin)
-				orthrusHandler.SetConfigApplier(caddyManager)
-
-				if orthrusServer != nil {
-					orthrusHandler.SetProxyResolver(orthrusServer)
-					// Wires write-path audit logging (Section 3.3.7 of the
-					// Orthrus write-mode spec) — securityService satisfies
-					// orthrus.AuditLogger structurally; orthrus never imports
-					// services directly (see AuditLogger's doc comment in
-					// muzzle.go for why that import direction is a cycle).
-					orthrusServer.SetAuditLogger(securityService)
-				}
-
-				hecateWSHandler := handlers.NewHecateWSHandler(hecateSvc, wsTracker).WithOriginPolicy(browserOrigin, apiTrustedProxies).WithStreamQuota(streamQuota)
-				management.GET("/ws/hecate/logs/:uuid", hecateWSHandler.StreamLogs)
-
-				if orthrusServer != nil {
-					api.GET("/ws/orthrus/connect", orthrusServer.HandleWebSocket)
-					// The live agent ports take part in the forward target checks. A newly connected agent may own a port that a stored host already targets, so the config is re-applied in the background.
-					services.SetOrthrusListenerSource(orthrusServer)
-					orthrusServer.SetListenerStartedHook(backgroundReapply(caddyManager))
-				}
+			// Plugin Management (Phase 5) - Admin only endpoints
+			pluginDir := os.Getenv("CHARON_PLUGINS_DIR")
+			if pluginDir == "" {
+				pluginDir = "/app/plugins"
 			}
+			pluginLoader := services.NewPluginLoaderService(db, pluginDir, nil)
+			pluginHandler := handlers.NewPluginHandler(db, pluginLoader)
+			adminPlugins := management.Group("/admin/plugins")
+			adminPlugins.GET("", pluginHandler.ListPlugins)
+			adminPlugins.GET("/:id", pluginHandler.GetPlugin)
+			// Mutations are admin-only (deny-by-default). Listing stays on
+			// management so the role=user-reachable /dns/plugins page loads.
+			adminPlugins.POST("/:id/enable", middleware.RequireRole(models.RoleAdmin), pluginHandler.EnablePlugin)
+			adminPlugins.POST("/:id/disable", middleware.RequireRole(models.RoleAdmin), pluginHandler.DisablePlugin)
+			adminPlugins.POST("/reload", middleware.RequireRole(models.RoleAdmin), pluginHandler.ReloadPlugins)
+
+			// Manual DNS Challenges (Phase 1) - For users without automated DNS API access
+			manualChallengeService := services.NewManualChallengeService(db)
+			manualChallengeHandler := handlers.NewManualChallengeHandler(manualChallengeService, dnsProviderService)
+			// All manual-challenge routes are provider-mutation-adjacent
+			// (ACME control) with no role=user read need — admin-only.
+			manualChallengeHandler.RegisterRoutes(managementAdmin)
+
+			// Hecate Tunnel & Pathway Manager
+			tunnelMgr := hecate.NewTunnelManager(db, secrets)
+			tunnelMgr.RegisterFactory(models.ProviderCloudflare, cfprovider.Factory)
+			tunnelMgr.RegisterFactory(models.ProviderTailscale, tsprovider.Factory)
+			tunnelMgr.RegisterFactory(models.ProviderZeroTier, ztprovider.Factory)
+			tunnelMgr.RegisterFactory(models.ProviderNetBird, nbprovider.Factory)
+			if startErr := tunnelMgr.Start(ctx); startErr != nil {
+				logger.Log().WithError(startErr).Warn("Hecate TunnelManager failed to start")
+			}
+
+			orthrusCA, caErr := orthrus.NewInternalCA(dataRoot)
+			if caErr == nil {
+				var serverErr error
+				orthrusServer, serverErr = orthrus.NewOrthrusServer(db, orthrusCA)
+				if serverErr != nil {
+					logger.Log().WithError(serverErr).Warn("Orthrus server initialization failed — agent tunnel feature unavailable")
+				}
+			} else {
+				logger.Log().WithError(caErr).Warn("Orthrus CA initialization failed — agent tunnel feature unavailable")
+			}
+
+			hecateSvc := services.NewHecateService(db, secrets, tunnelMgr)
+			orthrsuSvc := services.NewOrthrusService(db, orthrusServer)
+
+			hecateHandler := handlers.NewHecateHandler(hecateSvc)
+			hecateHandler.RegisterRoutes(management, managementAdmin)
+
+			orthrusHandler := handlers.NewOrthrusHandler(orthrsuSvc, securityService)
+			orthrusHandler.RegisterRoutes(management, managementAdmin)
+			orthrusHandler.SetConfigApplier(caddyManager)
+
+			if orthrusServer != nil {
+				orthrusHandler.SetProxyResolver(orthrusServer)
+				// Wires write-path audit logging (Section 3.3.7 of the
+				// Orthrus write-mode spec) — securityService satisfies
+				// orthrus.AuditLogger structurally; orthrus never imports
+				// services directly (see AuditLogger's doc comment in
+				// muzzle.go for why that import direction is a cycle).
+				orthrusServer.SetAuditLogger(securityService)
+			}
+
+			hecateWSHandler := handlers.NewHecateWSHandler(hecateSvc, wsTracker).WithOriginPolicy(browserOrigin, apiTrustedProxies).WithStreamQuota(streamQuota)
+			management.GET("/ws/hecate/logs/:uuid", hecateWSHandler.StreamLogs)
+
+			if orthrusServer != nil {
+				api.GET("/ws/orthrus/connect", orthrusServer.HandleWebSocket)
+				// The live agent ports take part in the forward target checks. A newly connected agent may own a port that a stored host already targets, so the config is re-applied in the background.
+				services.SetOrthrusListenerSource(orthrusServer)
+				orthrusServer.SetListenerStartedHook(backgroundReapply(caddyManager))
+			}
+		} else if cfg.EncryptionKey != "" {
+			logger.Log().Warn("CHARON_ENCRYPTION_KEY is set but could not be loaded - DNS provider and plugin features will be unavailable")
 		} else {
 			logger.Log().Warn("CHARON_ENCRYPTION_KEY not set - DNS provider and plugin features will be unavailable")
 		}
@@ -1181,23 +1183,15 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		// where ACME and certificates are stored (e.g. <CaddyConfigDir>/data).
 		caddyDataDir := cfg.CaddyConfigDir + "/data"
 		logger.Log().WithField("caddy_data_dir", caddyDataDir).Info("Using Caddy data directory for certificates scan")
-		var certEncSvc *crypto.EncryptionService
-		if cfg.EncryptionKey != "" {
-			svc, err := crypto.NewEncryptionService(cfg.EncryptionKey)
-			if err != nil {
-				logger.Log().WithError(err).Warn("Failed to initialize encryption service for certificate key storage")
-			} else {
-				certEncSvc = svc
-			}
-		}
-		certService := services.NewCertificateService(caddyDataDir, db, certEncSvc)
+		certService := services.NewCertificateService(caddyDataDir, db, secrets)
 		certHandler := handlers.NewCertificateHandler(certService, backupService, notificationService)
 		certHandler.SetDB(db)
 		certHandler.SetPasswordAttemptGuard(authRateLimiter)
 
-		// Migrate unencrypted private keys
+		// Encrypt legacy plaintext private keys. A failed run is rolled back
+		// as a whole and retried on the next start.
 		if err := certService.MigratePrivateKeys(); err != nil {
-			logger.Log().WithError(err).Warn("Failed to migrate certificate private keys")
+			logger.Log().WithError(err).Warn("Failed to migrate certificate private keys; retrying on next start")
 		}
 
 		// Certificate reads back the role=user-reachable Certificates page;

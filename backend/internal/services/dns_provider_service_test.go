@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/pkg/dnsprovider"
 	"github.com/Wikid82/charon/backend/pkg/safehttp"
@@ -89,7 +90,7 @@ func setupDNSProviderTestDB(t *testing.T) (*gorm.DB, *crypto.EncryptionService) 
 
 func TestDNSProviderService_Create(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	tests := []struct {
@@ -186,7 +187,7 @@ func TestDNSProviderService_Create(t *testing.T) {
 
 func TestDNSProviderService_DefaultProviderLogic(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create first default provider
@@ -223,7 +224,7 @@ func TestDNSProviderService_DefaultProviderLogic(t *testing.T) {
 
 func TestDNSProviderService_List(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create multiple providers
@@ -257,7 +258,7 @@ func TestDNSProviderService_List(t *testing.T) {
 
 func TestDNSProviderService_Get(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create a provider
@@ -281,7 +282,7 @@ func TestDNSProviderService_Get(t *testing.T) {
 
 func TestDNSProviderService_Update(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create a provider
@@ -344,7 +345,7 @@ func TestDNSProviderService_Update(t *testing.T) {
 
 func TestDNSProviderService_Delete(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create a provider
@@ -370,7 +371,7 @@ func TestDNSProviderService_Delete(t *testing.T) {
 
 func TestDNSProviderService_GetDecryptedCredentials(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create a provider
@@ -398,7 +399,7 @@ func TestDNSProviderService_GetDecryptedCredentials(t *testing.T) {
 
 func TestDNSProviderService_TestCredentials(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	t.Run("valid credentials", func(t *testing.T) {
@@ -437,7 +438,7 @@ func TestDNSProviderService_TestCredentials(t *testing.T) {
 
 func TestDNSProviderService_Test(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create a provider
@@ -542,7 +543,7 @@ func TestIsValidProviderType(t *testing.T) {
 
 func TestCredentialEncryptionRoundtrip(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	originalCreds := map[string]string{
@@ -574,7 +575,7 @@ func TestCredentialEncryptionRoundtrip(t *testing.T) {
 
 func TestUpdatePreservesCredentials(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	originalCreds := map[string]string{"api_token": "original-token"}
@@ -642,7 +643,7 @@ func TestEncryptionServiceIntegration(t *testing.T) {
 
 func TestDNSProviderService_TestFailure(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create provider with invalid credentials structure (will fail decryption in real scenario)
@@ -664,7 +665,7 @@ func TestDNSProviderService_TestFailure(t *testing.T) {
 
 func TestDNSProviderService_GetDecryptedCredentialsError(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create provider with invalid encrypted data
@@ -686,7 +687,7 @@ func TestDNSProviderService_GetDecryptedCredentialsError(t *testing.T) {
 
 func TestDNSProviderService_GetDecryptedCredentials_InvalidJSON_ReturnsErrDecryptionFailed(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	ciphertext, err := encryptor.Encrypt([]byte("not-json"))
@@ -708,7 +709,7 @@ func TestDNSProviderService_GetDecryptedCredentials_InvalidJSON_ReturnsErrDecryp
 
 func TestDNSProviderService_UpdateDefaultLogic(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create two providers, first is default
@@ -762,7 +763,7 @@ func TestDNSProviderService_UpdateDefaultLogic(t *testing.T) {
 
 func TestAllProviderTypes(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Test all supported provider types
@@ -805,7 +806,7 @@ func TestAllProviderTypes(t *testing.T) {
 
 func TestDNSProviderService_UpdateInvalidCredentials(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create a provider
@@ -827,7 +828,7 @@ func TestDNSProviderService_UpdateInvalidCredentials(t *testing.T) {
 
 func TestDNSProviderService_CreateEncryptionError(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create with credentials that would marshal to invalid JSON
@@ -844,7 +845,7 @@ func TestDNSProviderService_CreateEncryptionError(t *testing.T) {
 
 func TestDNSProviderService_Update_PropagationTimeoutAndPollingInterval(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create a provider with default values
@@ -890,7 +891,7 @@ func TestDNSProviderService_Update_PropagationTimeoutAndPollingInterval(t *testi
 
 func TestDNSProviderService_Test_NonExistentProvider(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Test with non-existent provider
@@ -900,7 +901,7 @@ func TestDNSProviderService_Test_NonExistentProvider(t *testing.T) {
 
 func TestDNSProviderService_GetDecryptedCredentials_NonExistentProvider(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Get credentials for non-existent provider
@@ -910,7 +911,7 @@ func TestDNSProviderService_GetDecryptedCredentials_NonExistentProvider(t *testi
 
 func TestDNSProviderService_TestWithFailedCredentials(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create provider with valid encrypted credentials
@@ -936,7 +937,7 @@ func TestDNSProviderService_TestWithFailedCredentials(t *testing.T) {
 
 func TestDNSProviderService_CreateWithEmptyCredentialValue(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create with empty string value in required field
@@ -951,7 +952,7 @@ func TestDNSProviderService_CreateWithEmptyCredentialValue(t *testing.T) {
 
 func TestDNSProviderService_Update_EmptyCredentials(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create a provider
@@ -979,7 +980,7 @@ func TestDNSProviderService_Update_EmptyCredentials(t *testing.T) {
 
 func TestDNSProviderService_Update_NilCredentials(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create a provider
@@ -1007,7 +1008,7 @@ func TestDNSProviderService_Update_NilCredentials(t *testing.T) {
 
 func TestDNSProviderService_Create_WithExistingDefault(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create first provider as non-default
@@ -1042,7 +1043,7 @@ func TestDNSProviderService_Create_WithExistingDefault(t *testing.T) {
 
 func TestDNSProviderService_Delete_AlreadyDeleted(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create a provider
@@ -1107,7 +1108,7 @@ func TestTestDNSProviderCredentials_Validation(t *testing.T) {
 
 func TestDNSProviderService_Update_CredentialValidationError(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create a route53 provider
@@ -1135,7 +1136,7 @@ func TestDNSProviderService_Update_CredentialValidationError(t *testing.T) {
 
 func TestDNSProviderService_TestCredentials_AllProviders(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Test credentials for all supported provider types without saving
@@ -1175,7 +1176,7 @@ func TestDNSProviderService_TestCredentials_AllProviders(t *testing.T) {
 
 func TestDNSProviderService_List_Empty(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// List on empty database
@@ -1186,7 +1187,7 @@ func TestDNSProviderService_List_Empty(t *testing.T) {
 
 func TestDNSProviderService_Create_DefaultsApplied(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create provider without specifying defaults
@@ -1206,7 +1207,7 @@ func TestDNSProviderService_Create_DefaultsApplied(t *testing.T) {
 
 func TestDNSProviderService_Create_CustomTimeouts(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create provider with custom timeouts
@@ -1226,7 +1227,7 @@ func TestDNSProviderService_Create_CustomTimeouts(t *testing.T) {
 
 func TestDNSProviderService_List_OrderByDefault(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create multiple providers
@@ -1264,7 +1265,7 @@ func TestDNSProviderService_List_OrderByDefault(t *testing.T) {
 
 func TestDNSProviderService_Update_MultipleFields(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create a provider
@@ -1306,7 +1307,7 @@ func TestDNSProviderService_Update_MultipleFields(t *testing.T) {
 
 func TestDNSProviderService_GetDecryptedCredentials_UpdatesLastUsed(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create a provider
@@ -1334,7 +1335,7 @@ func TestDNSProviderService_GetDecryptedCredentials_UpdatesLastUsed(t *testing.T
 
 func TestDNSProviderService_Test_UpdatesStatistics(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create a provider
@@ -1369,7 +1370,7 @@ func TestDNSProviderService_Test_UpdatesStatistics(t *testing.T) {
 
 func TestDNSProviderService_Test_FailureUpdatesStatistics(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create a cloudflare provider with valid credentials
@@ -1410,7 +1411,7 @@ func TestDNSProviderService_Test_FailureUpdatesStatistics(t *testing.T) {
 
 func TestDNSProviderService_List_DBError(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Close the DB connection to trigger error
@@ -1425,7 +1426,7 @@ func TestDNSProviderService_List_DBError(t *testing.T) {
 
 func TestDNSProviderService_Get_DBError(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Close the DB connection to trigger error
@@ -1444,7 +1445,7 @@ func TestDNSProviderService_Create_DBErrorOnDefaultUnset(t *testing.T) {
 	ctx := context.Background()
 
 	// First, create a default provider with a working DB
-	workingService := NewDNSProviderService(db, encryptor)
+	workingService := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	_, err := workingService.Create(ctx, CreateDNSProviderRequest{
 		Name:         "First Default",
 		ProviderType: "cloudflare",
@@ -1470,7 +1471,7 @@ func TestDNSProviderService_Create_DBErrorOnDefaultUnset(t *testing.T) {
 
 func TestDNSProviderService_Create_DBErrorOnCreate(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Close the DB connection to trigger error
@@ -1489,7 +1490,7 @@ func TestDNSProviderService_Create_DBErrorOnCreate(t *testing.T) {
 
 func TestDNSProviderService_Update_DBErrorOnSave(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create a provider first
@@ -1515,7 +1516,7 @@ func TestDNSProviderService_Update_DBErrorOnSave(t *testing.T) {
 
 func TestDNSProviderService_Update_DBErrorOnDefaultUnset(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Create two providers, first is default
@@ -1553,7 +1554,7 @@ func TestDNSProviderService_Update_DBErrorOnDefaultUnset(t *testing.T) {
 
 func TestDNSProviderService_Delete_DBError(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	// Close the DB connection to trigger error
@@ -1573,7 +1574,7 @@ func TestDNSProviderService_AuditLogging_Create(t *testing.T) {
 	err := db.AutoMigrate(&models.SecurityAudit{})
 	require.NoError(t, err)
 
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.WithValue(context.Background(), contextKeyUserID, "test-user")
 	ctx = context.WithValue(ctx, contextKeyClientIP, "192.168.1.1")
 	ctx = context.WithValue(ctx, contextKeyUserAgent, "TestAgent/1.0")
@@ -1617,7 +1618,7 @@ func TestDNSProviderService_AuditLogging_Create(t *testing.T) {
 
 func TestDNSProviderService_AuditLogging_Update(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.WithValue(context.Background(), contextKeyUserID, "test-user")
 	ctx = context.WithValue(ctx, contextKeyClientIP, "192.168.1.2")
 	ctx = context.WithValue(ctx, contextKeyUserAgent, "TestAgent/1.0")
@@ -1674,7 +1675,7 @@ func TestDNSProviderService_AuditLogging_Update(t *testing.T) {
 
 func TestDNSProviderService_AuditLogging_Delete(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.WithValue(context.Background(), contextKeyUserID, "admin-user")
 	ctx = context.WithValue(ctx, contextKeyClientIP, "10.0.0.1")
 	ctx = context.WithValue(ctx, contextKeyUserAgent, "TestAgent/1.0")
@@ -1720,7 +1721,7 @@ func TestDNSProviderService_AuditLogging_Delete(t *testing.T) {
 
 func TestDNSProviderService_AuditLogging_Test(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.WithValue(context.Background(), contextKeyUserID, "test-user")
 	ctx = context.WithValue(ctx, contextKeyClientIP, "192.168.1.1")
 	ctx = context.WithValue(ctx, contextKeyUserAgent, "TestAgent/1.0")
@@ -1757,7 +1758,7 @@ func TestDNSProviderService_AuditLogging_Test(t *testing.T) {
 
 func TestDNSProviderService_AuditLogging_GetDecryptedCredentials(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.WithValue(context.Background(), contextKeyUserID, "admin")
 	ctx = context.WithValue(ctx, contextKeyClientIP, "192.168.1.1")
 	ctx = context.WithValue(ctx, contextKeyUserAgent, "TestAgent/1.0")
@@ -1831,7 +1832,7 @@ func TestDNSProviderService_AuditLogging_ContextHelpers(t *testing.T) {
 // have a path-param string and need the provider's internal numeric ID.
 func TestDNSProviderService_ResolveID(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	created, err := service.Create(ctx, CreateDNSProviderRequest{
@@ -1934,7 +1935,7 @@ func registerEndpointPolicyProvider(t *testing.T, name string, strict bool) *end
 
 func TestDNSProviderService_TestCredentials_BlockedEndpointDoesNotConnectOrEcho(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 
 	const marker = "RESPONSE-BODY-MARKER"
 	var hits atomic.Int32
@@ -1962,7 +1963,7 @@ func TestDNSProviderService_TestCredentials_BlockedEndpointDoesNotConnectOrEcho(
 
 func TestDNSProviderService_TestCredentials_StrictValidationRejectsBeforeAnyRequest(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 
 	var hits atomic.Int32
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { hits.Add(1) }))
@@ -1984,7 +1985,7 @@ func TestDNSProviderService_TestCredentials_StrictValidationRejectsBeforeAnyRequ
 
 func TestDNSProviderService_StoredLoopbackEndpointIsNotRevalidatedOnRead(t *testing.T) {
 	db, encryptor := setupDNSProviderTestDB(t)
-	service := NewDNSProviderService(db, encryptor)
+	service := NewDNSProviderService(db, cryptotest.SingleKey(encryptor))
 	ctx := context.Background()
 
 	fake := registerEndpointPolicyProvider(t, "endpoint_policy_stored", true)

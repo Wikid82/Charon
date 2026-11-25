@@ -113,6 +113,8 @@ export interface RestoreResult {
   caddy_reloaded: boolean
   pre_restore_backup?: string
   legacy_format: boolean
+  /** Non-fatal notes from the restore pipeline, omitted when there are none */
+  warnings?: string[]
 }
 
 /**

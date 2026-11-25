@@ -40,7 +40,7 @@ var backoffDelays = []time.Duration{
 // TunnelManager supervises the lifecycle of all active tunnel providers.
 type TunnelManager struct {
 	db        *gorm.DB
-	encSvc    *crypto.EncryptionService
+	secrets   crypto.VersionedCipher
 	factories map[models.TunnelProviderType]ProviderFactory
 	state     map[string]*tunnelState
 	mu        sync.RWMutex
@@ -49,11 +49,11 @@ type TunnelManager struct {
 }
 
 // NewTunnelManager creates a TunnelManager ready to accept factory registrations and tunnel operations.
-func NewTunnelManager(db *gorm.DB, encSvc *crypto.EncryptionService) *TunnelManager {
+func NewTunnelManager(db *gorm.DB, secrets crypto.VersionedCipher) *TunnelManager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &TunnelManager{
 		db:        db,
-		encSvc:    encSvc,
+		secrets:   secrets,
 		factories: make(map[models.TunnelProviderType]ProviderFactory),
 		state:     make(map[string]*tunnelState),
 		ctx:       ctx,
@@ -142,7 +142,7 @@ func (m *TunnelManager) StartTunnel(uuid string) error {
 		return fmt.Errorf("hecate: tunnel %s not found: %w", uuid, err)
 	}
 
-	credBytes, err := m.encSvc.Decrypt(cfg.EncryptedCredentials)
+	credBytes, err := m.secrets.DecryptWithVersion(cfg.EncryptedCredentials, cfg.KeyVersion)
 	if err != nil {
 		return fmt.Errorf("hecate: decrypt credentials for %s: %w", uuid, err)
 	}

@@ -16,6 +16,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/config"
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/services"
 	"github.com/Wikid82/charon/backend/internal/testutil"
@@ -41,7 +42,7 @@ func newExportHarness(t *testing.T, guard PasswordAttemptGuard, preMiddleware ..
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.SSLCertificate{}, &models.ProxyHost{}, &models.User{}, &models.Setting{}))
 
-	certSvc := services.NewCertificateService(t.TempDir(), db, newTestEncSvc(t))
+	certSvc := services.NewCertificateService(t.TempDir(), db, cryptotest.SingleKey(newTestEncSvc(t)))
 	certPEM, keyPEM, err := generateSelfSignedCertPEM()
 	require.NoError(t, err)
 	info, err := certSvc.UploadCertificate("export-cert", certPEM, keyPEM, "")

@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -245,7 +246,7 @@ func TestUpdateSettings_EachFieldUpsertFailure_PropagatesFromTransaction(t *test
 			sqlDB.SetMaxOpenConns(1)
 			require.NoError(t, db.Exec("PRAGMA query_only = ON").Error)
 
-			svc := &BackupService{db: db, encryption: enc}
+			svc := &BackupService{db: db, secrets: cryptotest.SingleKey(enc)}
 			err := svc.UpdateSettings(tc.update)
 			require.Error(t, err)
 			assert.Contains(t, err.Error(), "update backup setting")

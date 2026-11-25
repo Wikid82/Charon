@@ -15,17 +15,17 @@ import (
 // docs/plans/archive/2026-09-23_redirection-hosts-1367_spec.md §4.2.
 //
 // This replaces GenerateConfig's previous trailing variadic
-// (encSvc ...*crypto.EncryptionService). Every call site that omitted that
+// (secrets ...crypto.VersionedCipher). Every call site that omitted that
 // variadic keeps compiling unchanged, since a variadic parameter's type
 // change doesn't affect callers that pass zero values for it; only the
 // handful of call sites that supplied an explicit *crypto.EncryptionService
-// value need to switch to WithEncryptionService(...).
+// value need to switch to WithSecretCipher(...).
 type GenerateConfigOption func(*generateConfigOptions)
 
 // generateConfigOptions holds the resolved values of every GenerateConfigOption
 // passed to GenerateConfig.
 type generateConfigOptions struct {
-	encSvc        *crypto.EncryptionService
+	secrets       crypto.VersionedCipher
 	redirectHosts []models.RedirectionHost
 	// adminListen is the admin.listen value of the generated config. It is set to the default socket when no option supplies it.
 	adminListen string
@@ -62,11 +62,11 @@ func WithAdminListen(listen string) GenerateConfigOption {
 	return func(o *generateConfigOptions) { o.adminListen = listen }
 }
 
-// WithEncryptionService supplies the optional encryption service GenerateConfig
+// WithSecretCipher supplies the optional secret cipher GenerateConfig
 // previously received via its bare *crypto.EncryptionService variadic parameter.
 // Used to decrypt custom certificates' private keys during config generation.
-func WithEncryptionService(svc *crypto.EncryptionService) GenerateConfigOption {
-	return func(o *generateConfigOptions) { o.encSvc = svc }
+func WithSecretCipher(secrets crypto.VersionedCipher) GenerateConfigOption {
+	return func(o *generateConfigOptions) { o.secrets = secrets }
 }
 
 // WithRedirectionHosts supplies enabled RedirectionHost rows for

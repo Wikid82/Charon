@@ -20,6 +20,7 @@ import (
 	"gorm.io/gorm"
 
 	"github.com/Wikid82/charon/backend/internal/crypto"
+	"github.com/Wikid82/charon/backend/internal/crypto/cryptotest"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/Wikid82/charon/backend/internal/services"
@@ -32,7 +33,7 @@ func setupBackupRemoteHandlerTest(t *testing.T, enc *crypto.EncryptionService) (
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&models.RemoteStorageTarget{}, &models.BackupRecord{}, &models.BackupRemoteCopy{}, &models.Setting{}))
 
-	svc := services.NewBackupRemoteService(db, enc, t.TempDir())
+	svc := services.NewBackupRemoteService(db, cryptotest.SingleKey(enc), t.TempDir())
 	h := NewBackupRemoteHandler(svc)
 
 	router := gin.New()

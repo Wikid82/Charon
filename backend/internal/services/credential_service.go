@@ -67,23 +67,16 @@ type CredentialService interface {
 // credentialService implements the CredentialService interface.
 type credentialService struct {
 	db              *gorm.DB
-	encryptor       *crypto.EncryptionService
-	rotationService *crypto.RotationService
+	secrets         crypto.VersionedCipher
 	securityService *SecurityService
 }
 
-// NewCredentialService creates a new credential service.
-func NewCredentialService(db *gorm.DB, encryptor *crypto.EncryptionService) CredentialService {
-	// Attempt to create rotation service (optional for backward compatibility)
-	rotationService, err := crypto.NewRotationService(db)
-	if err != nil {
-		fmt.Printf("Warning: RotationService initialization failed, using basic encryption: %v\n", err)
-	}
-
+// NewCredentialService creates a new credential service. secrets is nil when
+// no encryption key is configured.
+func NewCredentialService(db *gorm.DB, secrets crypto.VersionedCipher) CredentialService {
 	return &credentialService{
 		db:              db,
-		encryptor:       encryptor,
-		rotationService: rotationService,
+		secrets:         secrets,
 		securityService: NewSecurityService(db),
 	}
 }
@@ -191,17 +184,9 @@ func (s *credentialService) Create(ctx context.Context, providerID uint, req Cre
 		return nil, fmt.Errorf("%w: %v", ErrEncryptionFailed, err)
 	}
 
-	if s.rotationService != nil {
-		encryptedCreds, keyVersion, err = s.rotationService.EncryptWithCurrentKey(credentialsJSON)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrEncryptionFailed, err)
-		}
-	} else {
-		encryptedCreds, err = s.encryptor.Encrypt(credentialsJSON)
-		if err != nil {
-			return nil, fmt.Errorf("%w: %v", ErrEncryptionFailed, err)
-		}
-		keyVersion = 1
+	encryptedCreds, keyVersion, err = encryptSecret(s.secrets, credentialsJSON)
+	if err != nil {
+		return nil, err
 	}
 
 	// Set defaults
@@ -318,6 +303,7 @@ func (s *credentialService) Update(ctx context.Context, providerID, credentialID
 	}
 
 	// Handle credentials update
+	reencrypted := false
 	if len(req.Credentials) > 0 {
 		// Validate credentials
 		if err := validateCredentials(provider.ProviderType, req.Credentials); err != nil {
@@ -332,26 +318,19 @@ func (s *credentialService) Update(ctx context.Context, providerID, credentialID
 
 		var encryptedCreds string
 		var keyVersion int
-		if s.rotationService != nil {
-			encryptedCreds, keyVersion, err = s.rotationService.EncryptWithCurrentKey(credentialsJSON)
-			if err != nil {
-				return nil, fmt.Errorf("%w: %v", ErrEncryptionFailed, err)
-			}
-		} else {
-			encryptedCreds, err = s.encryptor.Encrypt(credentialsJSON)
-			if err != nil {
-				return nil, fmt.Errorf("%w: %v", ErrEncryptionFailed, err)
-			}
-			keyVersion = 1
+		encryptedCreds, keyVersion, err = encryptSecret(s.secrets, credentialsJSON)
+		if err != nil {
+			return nil, err
 		}
 
 		changedFields["credentials"] = true
 		credential.CredentialsEncrypted = encryptedCreds
 		credential.KeyVersion = keyVersion
+		reencrypted = true
 	}
 
 	// Save updates
-	if err := s.db.WithContext(ctx).Save(credential).Error; err != nil {
+	if err := saveFields(s.db.WithContext(ctx), credential, writeColumns(dnsCredentialStore, reencrypted, "Label", "ZoneFilter", "PropagationTimeout", "PollingInterval", "Enabled")...); err != nil {
 		return nil, err
 	}
 
@@ -450,24 +429,13 @@ func (s *credentialService) Test(ctx context.Context, providerID, credentialID u
 
 	// Decrypt credentials
 	var decryptedData []byte
-	if s.rotationService != nil {
-		decryptedData, err = s.rotationService.DecryptWithVersion(credential.CredentialsEncrypted, credential.KeyVersion)
-		if err != nil {
-			return &TestResult{
-				Success: false,
-				Error:   "Failed to decrypt credentials",
-				Code:    "DECRYPTION_ERROR",
-			}, nil
-		}
-	} else {
-		decryptedData, err = s.encryptor.Decrypt(credential.CredentialsEncrypted)
-		if err != nil {
-			return &TestResult{
-				Success: false,
-				Error:   "Failed to decrypt credentials",
-				Code:    "DECRYPTION_ERROR",
-			}, nil
-		}
+	decryptedData, err = decryptSecret(s.secrets, credential.CredentialsEncrypted, credential.KeyVersion)
+	if err != nil {
+		return &TestResult{
+			Success: false,
+			Error:   "Failed to decrypt credentials",
+			Code:    "DECRYPTION_ERROR",
+		}, nil
 	}
 
 	var credentials map[string]string
@@ -490,7 +458,7 @@ func (s *credentialService) Test(ctx context.Context, providerID, credentialID u
 		credential.FailureCount++
 		credential.LastError = result.Error
 	}
-	_ = s.db.WithContext(ctx).Save(credential)
+	_ = saveFields(s.db.WithContext(ctx), credential, "SuccessCount", "FailureCount", "LastError")
 
 	// Log audit event
 	detailsJSON, _ := json.Marshal(map[string]interface{}{

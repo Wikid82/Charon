@@ -77,6 +77,20 @@ If a certificate is still attached to a proxy host, the delete button is disable
 
 A confirmation dialog appears before anything is removed. Charon creates a backup before deleting, so you have a safety net.
 
+## Uploading Your Own Certificate
+
+You can upload your own certificate file, including its private key. Charon locks the private key with your encryption key, so uploads that include a private key need a working key first:
+
+1. Set `CHARON_ENCRYPTION_KEY` in your Docker Compose file or container settings.
+2. Restart Charon.
+3. Upload the certificate.
+
+If no key is set, Charon refuses the upload and saves nothing. Set the key and try again.
+
+**Older certificates**: Some private keys saved by an earlier version of Charon may not be locked yet. Once you set `CHARON_ENCRYPTION_KEY` and restart Charon, those keys are locked automatically. Until then, Charon writes a warning to its log at each start with the number of unlocked keys.
+
+**Backups made before the lock**: Charon's backups copy its database as it was at that time. A backup made before these keys were locked still contains them unlocked, even after you set `CHARON_ENCRYPTION_KEY`. Keep those backups private, and delete them once you no longer need them.
+
 ## Exporting a Certificate
 
 You can download a certificate from the Certificates list. Exports that contain a private key, including PFX/P12, always ask for your password. The private key is the secret half that must never be shared, so Charon asks you to confirm it's really you first. Only admins can do this, and the emergency access token cannot be used for it.

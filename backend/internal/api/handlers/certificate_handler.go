@@ -20,6 +20,13 @@ import (
 	"github.com/Wikid82/charon/backend/internal/util"
 )
 
+const (
+	// encryptionKeyRequiredMessage is the fixed client text for a key-bearing
+	// upload refused because no encryption key is configured.
+	encryptionKeyRequiredMessage = "Set a valid encryption key (CHARON_ENCRYPTION_KEY) before uploading a certificate with a private key."
+	encryptionKeyRequiredCode    = "encryption_key_required"
+)
+
 // BackupServiceInterface defines the contract for backup service operations
 type BackupServiceInterface interface {
 	CreateAutomaticBackup(kind string) (*models.BackupRecord, error)
@@ -194,6 +201,13 @@ func (h *CertificateHandler) Upload(c *gin.Context) {
 
 	cert, err := h.service.UploadCertificate(name, certPEM, keyPEM, chainPEM)
 	if err != nil {
+		if errors.Is(err, services.ErrPrivateKeyStorageUnavailable) {
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error":      encryptionKeyRequiredMessage,
+				"error_code": encryptionKeyRequiredCode,
+			})
+			return
+		}
 		logger.Log().WithError(err).Error("failed to upload certificate")
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
