@@ -30,7 +30,7 @@ func TestRespondHostWriteError_ReferenceViolationIsConflict(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	rec := httptest.NewRecorder()
 	c, _ := gin.CreateTestContext(rec)
-	c.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+	c.Request = httptest.NewRequest(http.MethodPost, "/", http.NoBody)
 
 	respondHostWriteError(c, fmt.Errorf("save host: %w", referenceViolationError{}))
 

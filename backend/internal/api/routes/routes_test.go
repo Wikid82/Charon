@@ -110,9 +110,10 @@ func TestRegister_AutoMigrateFailure(t *testing.T) {
 		JWTSecret: "test-secret",
 	}
 
+	// The closed pool now fails when the migration pins its connection, before AutoMigrate runs.
 	err = Register(context.Background(), router, db, cfg)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "auto migrate")
+	assert.Contains(t, err.Error(), "database is closed")
 }
 
 // TestRegister_WebPushSingletonIndexFailure covers the error branch of the

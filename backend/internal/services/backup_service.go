@@ -1556,20 +1556,36 @@ func (s *BackupService) RehydrateLiveDatabase(db *gorm.DB) error {
 		return fmt.Errorf("sync temporary restore database file: %w", err)
 	}
 
-	if err := db.Exec("PRAGMA foreign_keys = OFF").Error; err != nil {
+	// Enforcement is paused on one pinned connection for the whole swap, so the repair and the check see the same
+	// session that copied the rows (see rehydrateOnConnection).
+	return db.Connection(func(conn *gorm.DB) error {
+		return s.rehydrateOnConnection(conn, tempRestorePath)
+	})
+}
+
+// rehydrateOnConnection copies the restored tables into the live database on conn. It must run on the pinned
+// connection: enforcement is paused there, the copy and the repair share its transaction, and enforcement is resumed
+// on the same connection on every return path.
+func (s *BackupService) rehydrateOnConnection(conn *gorm.DB, tempRestorePath string) error {
+	if err := conn.Exec("PRAGMA foreign_keys = OFF").Error; err != nil {
 		return fmt.Errorf("disable foreign keys: %w", err)
 	}
+	// Enforcement goes back on through this connection on every return path, after the detach below.
+	defer func() {
+		if err := database.ResumeForeignKeys(conn); err != nil {
+			logger.Log().WithError(err).Error("Could not turn database reference checks back on after the restore; the connection is replaced")
+		}
+	}()
 
-	if err := db.Exec("ATTACH DATABASE ? AS restore_src", tempRestorePath).Error; err != nil {
+	if err := conn.Exec("ATTACH DATABASE ? AS restore_src", tempRestorePath).Error; err != nil {
 		logger.Log().WithError(err).Warn("failed to checkpoint restored sqlite wal before live rehydrate")
-		_ = db.Exec("PRAGMA foreign_keys = ON")
 		return fmt.Errorf("attach restored database: %w", err)
 	}
 
 	detached := false
 	defer func() {
 		if !detached {
-			err := db.Exec("DETACH DATABASE restore_src").Error
+			err := conn.Exec("DETACH DATABASE restore_src").Error
 			if err != nil {
 				errMsg := strings.ToLower(err.Error())
 				if !strings.Contains(errMsg, "locked") && !strings.Contains(errMsg, "busy") {
@@ -1577,7 +1593,6 @@ func (s *BackupService) RehydrateLiveDatabase(db *gorm.DB) error {
 				}
 			}
 		}
-		_ = db.Exec("PRAGMA foreign_keys = ON")
 	}()
 
 	var currentTables []string
@@ -1596,13 +1611,13 @@ func (s *BackupService) RehydrateLiveDatabase(db *gorm.DB) error {
 	// so the terminal status update after this function returns would
 	// silently affect zero rows and the frontend's poll for this exact
 	// job_id would 404 right as the job finishes successfully.
-	if err := db.Raw(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != 'backup_jobs'`).Scan(&currentTables).Error; err != nil {
+	if err := conn.Raw(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != 'backup_jobs'`).Scan(&currentTables).Error; err != nil {
 		return fmt.Errorf("list current tables: %w", err)
 	}
 
 	restoredTableSet := map[string]struct{}{}
 	var restoredTables []string
-	if err := db.Raw(`SELECT name FROM restore_src.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`).Scan(&restoredTables).Error; err != nil {
+	if err := conn.Raw(`SELECT name FROM restore_src.sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`).Scan(&restoredTables).Error; err != nil {
 		return fmt.Errorf("list restored tables: %w", err)
 	}
 	for _, tableName := range restoredTables {
@@ -1620,7 +1635,8 @@ func (s *BackupService) RehydrateLiveDatabase(db *gorm.DB) error {
 	// to its exact pre-rehydrate state. ATTACH/DETACH DATABASE must stay
 	// outside this transaction — SQLite disallows ATTACH/DETACH inside an
 	// open transaction.
-	if txErr := db.Transaction(func(tx *gorm.DB) error {
+	var repairs []database.RepairResult
+	if txErr := conn.Transaction(func(tx *gorm.DB) error {
 		for _, tableName := range currentTables {
 			quotedTable, err := quoteSQLiteIdentifier(tableName)
 			if err != nil {
@@ -1653,12 +1669,20 @@ func (s *BackupService) RehydrateLiveDatabase(db *gorm.DB) error {
 				return fmt.Errorf("copy sqlite_sequence: %w", err)
 			}
 		}
+
+		// Rows from the archive may break references the live schema declares; they are repaired inside the same
+		// transaction, so a failed repair rolls the whole restore back.
+		repaired, err := database.RepairReferences(tx)
+		if err != nil {
+			return fmt.Errorf("repair references after restore: %w", err)
+		}
+		repairs = repaired
 		return nil
 	}); txErr != nil {
 		return txErr // rolled back atomically; live db is byte-for-byte its pre-rehydrate state
 	}
 
-	if err := db.Exec("DETACH DATABASE restore_src").Error; err != nil {
+	if err := conn.Exec("DETACH DATABASE restore_src").Error; err != nil {
 		errMsg := strings.ToLower(err.Error())
 		if !strings.Contains(errMsg, "locked") && !strings.Contains(errMsg, "busy") {
 			return fmt.Errorf("detach restored database: %w", err)
@@ -1667,7 +1691,11 @@ func (s *BackupService) RehydrateLiveDatabase(db *gorm.DB) error {
 		detached = true
 	}
 
-	if err := db.Exec("PRAGMA wal_checkpoint(TRUNCATE)").Error; err != nil {
+	// The restored file is detached and the rows are repaired and committed: check what remains, then enforcement is
+	// resumed by the deferred call above.
+	database.ReportReferenceCheck(conn, repairs)
+
+	if err := conn.Exec("PRAGMA wal_checkpoint(TRUNCATE)").Error; err != nil {
 		errMsg := strings.ToLower(err.Error())
 		if !strings.Contains(errMsg, "locked") && !strings.Contains(errMsg, "busy") {
 			return fmt.Errorf("checkpoint wal after rehydrate: %w", err)

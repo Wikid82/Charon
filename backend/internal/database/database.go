@@ -27,6 +27,7 @@ const journalSizeLimitBytes = 64 << 20
 // passed in the DSN, so SQLite applies them each time the pool opens a
 // connection, not only to the first one.
 var connectionPragmas = []string{
+	"foreign_keys(1)",     // Reference enforcement; the migration pauses it on its own connection
 	"busy_timeout(5000)",  // Wait up to 5s instead of failing immediately on lock
 	"synchronous(NORMAL)", // Good balance of safety and speed
 	"cache_size(-64000)",  // 64MB cache for better performance
