@@ -17,6 +17,14 @@
 # The auth.setup.ts fixture will create a test admin user automatically.
 
 services:
+  # Upstream for tests/core/proxy-host-upstream-names.spec.ts. A proxy host forwards to this container by name
+  # (upstream-echo:8080) over the compose network. Nothing is published to the host.
+  upstream-echo:
+    image: busybox:1.37@sha256:a7dbc319b1438115a207e11930dc4bb3e643dcb3ec0bdd694bb36cd8fad289ec
+    container_name: charon-e2e-upstream-echo
+    restart: "no"
+    command: ["sh", "-c", "mkdir -p /www && printf 'upstream-echo ok' > /www/index.html && exec httpd -f -p 8080 -h /www"]
+
   charon-e2e:
     image: charon:local
     container_name: charon-e2e
