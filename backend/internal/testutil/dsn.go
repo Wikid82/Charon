@@ -32,28 +32,23 @@ func MemoryDSN(t testing.TB, params ...string) string {
 	return dsn
 }
 
-// OpenMemoryDB opens a unique in-memory SQLite database with a silent logger
-// and a busy timeout. The connection pool is closed when the test finishes.
+// OpenMemoryDB opens a unique in-memory SQLite database with a silent logger, a busy timeout and reference enforcement
+// on every connection, as production runs. The connection pool is closed when the test finishes.
 func OpenMemoryDB(t testing.TB) *gorm.DB {
 	t.Helper()
-	db, err := gorm.Open(sqlite.Open(MemoryDSN(t, "_busy_timeout=5000")), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Silent),
-	})
-	if err != nil {
-		t.Fatalf("failed to open in-memory db: %v", err)
-	}
-	t.Cleanup(func() {
-		if sqlDB, err := db.DB(); err == nil {
-			_ = sqlDB.Close()
-		}
-	})
-	return db
+	return openMemoryDBWithForeignKeys(t)
 }
 
-// OpenMemoryDBWithForeignKeys opens like OpenMemoryDB with SQLite reference enforcement on for every connection.
-// The driver applies the parameter silently when it does not know it, so the pragma is read back and the test fails
-// unless it reads 1.
+// OpenMemoryDBWithForeignKeys is OpenMemoryDB; it is kept for call sites that state the enforcement explicitly.
 func OpenMemoryDBWithForeignKeys(t testing.TB) *gorm.DB {
+	t.Helper()
+	return openMemoryDBWithForeignKeys(t)
+}
+
+// openMemoryDBWithForeignKeys opens the database with reference enforcement on for every connection. The driver
+// applies the parameter silently when it does not know it, so the pragma is read back and the open fails unless it
+// reads 1.
+func openMemoryDBWithForeignKeys(t testing.TB) *gorm.DB {
 	t.Helper()
 	db, err := gorm.Open(sqlite.Open(MemoryDSN(t, "_busy_timeout=5000", "_foreign_keys=1")), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
