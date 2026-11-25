@@ -7,10 +7,12 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/sys/unix"
 
 	"github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/logger"
@@ -191,46 +193,70 @@ func (h *SystemPermissionsHandler) repairPath(rawPath string, groupMode bool, al
 		return outsideAllowlistResult(cleanPath)
 	}
 
-	info, err := os.Lstat(cleanPath)
-	if err != nil {
-		return lstatRepairError(cleanPath, err)
-	}
-
-	if info.Mode()&os.ModeSymlink != 0 {
-		return symlinkRejectedResult(cleanPath)
-	}
-
 	hasSymlinkComponent, symlinkErr := pathHasSymlink(cleanPath, normalizedAllowlist)
 	if symlinkErr != nil {
-		return lstatRepairError(cleanPath, symlinkErr)
+		return pathReadError(cleanPath, symlinkErr)
 	}
 	if hasSymlinkComponent {
 		return symlinkRejectedResult(cleanPath)
 	}
 
-	resolved, err := filepath.EvalSymlinks(cleanPath)
+	// The leaf is opened relative to the allowlist root that requiredPrefix
+	// matched. O_PATH needs no read permission and never blocks on a FIFO, and
+	// a symlink leaf opens as the link itself, so the descriptor below is the
+	// only thing that is checked and changed.
+	allowRoot := allowRootFromPrefix(requiredPrefix)
+	root, err := os.OpenRoot(allowRoot)
 	if err != nil {
 		return repairFailure(cleanPath, "permissions_repair_failed", "could not read the path", err)
 	}
+	defer func() { _ = root.Close() }()
 
-	if !isWithinAllowlist(resolved, normalizedAllowlist) {
+	rel, err := filepath.Rel(allowRoot, cleanPath)
+	if err != nil {
 		return outsideAllowlistResult(cleanPath)
 	}
 
-	if !info.IsDir() && !info.Mode().IsRegular() {
-		return repairError(cleanPath, "permissions_unsupported_type", "unsupported path type")
+	if beforeOpenHook != nil {
+		beforeOpenHook(cleanPath)
+	}
+	leaf, err := root.OpenFile(rel, unix.O_PATH|unix.O_CLOEXEC, 0)
+	if err != nil {
+		return pathReadError(cleanPath, err)
+	}
+	defer func() { _ = leaf.Close() }()
+
+	var st unix.Stat_t
+	if err := unix.Fstat(int(leaf.Fd()), &st); err != nil {
+		return repairFailure(cleanPath, "permissions_repair_failed", "could not read the path", err)
+	}
+	return repairOpenedLeaf(cleanPath, leaf, &st, groupMode)
+}
+
+// repairOpenedLeaf checks the opened descriptor and, when the owner or mode
+// differ, changes them through that descriptor only.
+func repairOpenedLeaf(path string, leaf *os.File, st *unix.Stat_t, groupMode bool) permissionsRepairResult {
+	switch st.Mode & unix.S_IFMT {
+	case unix.S_IFLNK:
+		return symlinkRejectedResult(path)
+	case unix.S_IFREG:
+		if st.Nlink > 1 {
+			return repairError(path, "permissions_hardlink_rejected", "files with more than one link are not changed")
+		}
+	case unix.S_IFDIR:
+	default:
+		return repairError(path, "permissions_unsupported_type", "unsupported path type")
 	}
 
 	uid := os.Geteuid()
 	gid := os.Getegid()
-	modeBefore := fmt.Sprintf("%04o", info.Mode().Perm())
-	modeAfter := targetMode(info.IsDir(), groupMode)
+	isDir := st.Mode&unix.S_IFMT == unix.S_IFDIR
+	modeBefore := fmt.Sprintf("%04o", st.Mode&0o777)
+	modeAfter := targetMode(isDir, groupMode)
 
-	alreadyOwned := isOwnedBy(info, uid, gid)
-	alreadyMode := modeBefore == modeAfter
-	if alreadyOwned && alreadyMode {
+	if isOwnedByStat(st, uid, gid) && modeBefore == modeAfter {
 		return permissionsRepairResult{
-			Path:       cleanPath,
+			Path:       path,
 			Status:     "skipped",
 			OwnerUID:   uid,
 			OwnerGID:   gid,
@@ -241,21 +267,27 @@ func (h *SystemPermissionsHandler) repairPath(rawPath string, groupMode bool, al
 		}
 	}
 
-	if err := os.Chown(cleanPath, uid, gid); err != nil {
-		return repairFailure(cleanPath, mapRepairErrorCode(err), "could not change ownership", err)
+	// The mode is changed through /proc. Without it nothing is changed, so
+	// the check runs before the owner changes to avoid a half-applied repair.
+	if _, err := os.Stat(procSelfFDDir); err != nil {
+		return repairFailure(path, "permissions_repair_unavailable", "this system does not allow changing the mode safely", err)
+	}
+
+	fd := int(leaf.Fd())
+	if err := unix.Fchownat(fd, "", uid, gid, unix.AT_EMPTY_PATH); err != nil {
+		return repairFailure(path, mapRepairErrorCode(err), "could not change ownership", err)
 	}
 
 	parsedMode, parseErr := parseMode(modeAfter)
 	if parseErr != nil {
-		return repairFailure(cleanPath, "permissions_repair_failed", "could not change the mode", parseErr)
+		return repairFailure(path, "permissions_repair_failed", "could not change the mode", parseErr)
 	}
-
-	if err := os.Chmod(cleanPath, parsedMode); err != nil {
-		return repairFailure(cleanPath, mapRepairErrorCode(err), "could not change the mode", err)
+	if err := os.Chmod(filepath.Join(procSelfFDDir, strconv.Itoa(fd)), parsedMode); err != nil {
+		return repairFailure(path, mapRepairErrorCode(err), "could not change the mode", err)
 	}
 
 	return permissionsRepairResult{
-		Path:       cleanPath,
+		Path:       path,
 		Status:     "repaired",
 		OwnerUID:   uid,
 		OwnerGID:   gid,
@@ -265,13 +297,31 @@ func (h *SystemPermissionsHandler) repairPath(rawPath string, groupMode bool, al
 	}
 }
 
+// allowRootFromPrefix turns a prefix from firstAllowlistPrefix back into the
+// allowlist root it was built from ("/" for the filesystem root).
+func allowRootFromPrefix(prefix string) string {
+	root := strings.TrimSuffix(prefix, string(os.PathSeparator))
+	if root == "" {
+		return string(os.PathSeparator)
+	}
+	return root
+}
+
+// procSelfFDDir is where /proc exposes this process's descriptors. It is a
+// variable so tests can simulate a system without /proc.
+var procSelfFDDir = "/proc/self/fd"
+
+// beforeOpenHook, when set by a test, runs after the path checks and before
+// the leaf is opened, so a test can change the leaf at that point.
+var beforeOpenHook func(path string)
+
 func symlinkRejectedResult(path string) permissionsRepairResult {
 	return repairError(path, "permissions_symlink_rejected", "symlink not allowed")
 }
 
-// lstatRepairError maps a failed Lstat (or the symlink walk that uses it) to a
-// result: a missing path gets its own code, anything else is a read failure.
-func lstatRepairError(path string, err error) permissionsRepairResult {
+// pathReadError maps a failed path lookup to a result: a missing path gets its
+// own code, anything else is a read failure with a fixed message.
+func pathReadError(path string, err error) permissionsRepairResult {
 	if os.IsNotExist(err) {
 		return repairError(path, "permissions_missing_path", "path does not exist")
 	}
@@ -485,12 +535,8 @@ func parseMode(mode string) (os.FileMode, error) {
 	return os.FileMode(parsed), nil
 }
 
-func isOwnedBy(info os.FileInfo, uid, gid int) bool {
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok {
-		return false
-	}
-	return int(stat.Uid) == uid && int(stat.Gid) == gid
+func isOwnedByStat(st *unix.Stat_t, uid, gid int) bool {
+	return int(st.Uid) == uid && int(st.Gid) == gid
 }
 
 func mapRepairErrorCode(err error) string {
