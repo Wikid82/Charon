@@ -1,6 +1,7 @@
 package caddy
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -215,4 +216,62 @@ func TestValidateReverseProxy(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestValidateReverseProxy_DecodedUpstreams(t *testing.T) {
+	tests := []struct {
+		name      string
+		upstreams []any
+		wantErr   bool
+	}{
+		{
+			name:      "DecodedObjectsAccepted",
+			upstreams: []any{map[string]any{"dial": "localhost:8080"}},
+		},
+		{
+			name:      "DecodedEmptyRefused",
+			upstreams: []any{},
+			wantErr:   true,
+		},
+		{
+			name:      "DecodedNonObjectRefused",
+			upstreams: []any{"localhost:8080"},
+			wantErr:   true,
+		},
+		{
+			name:      "DecodedMissingDialRefused",
+			upstreams: []any{map[string]any{"foo": "bar"}},
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := validateReverseProxy(Handler{"handler": "reverse_proxy", "upstreams": tt.upstreams})
+			if tt.wantErr {
+				require.Error(t, err)
+			} else {
+				require.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestValidate_DecodedTopLevelReverseProxy(t *testing.T) {
+	// A host whose advanced configuration is a top-level reverse_proxy is decoded
+	// from JSON, so its upstreams arrive as []any rather than []map[string]any.
+	raw := `{"apps":{"http":{"servers":{"srv0":{"listen":[":443"],"routes":[` +
+		`{"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":"app:8080"}]}]}` +
+		`]}}}}}`
+
+	var cfg Config
+	require.NoError(t, json.Unmarshal([]byte(raw), &cfg))
+	require.NoError(t, Validate(&cfg))
+
+	bad := `{"apps":{"http":{"servers":{"srv0":{"listen":[":443"],"routes":[` +
+		`{"handle":[{"handler":"reverse_proxy","upstreams":[{"dial":"no-port"}]}]}` +
+		`]}}}}}`
+	var badCfg Config
+	require.NoError(t, json.Unmarshal([]byte(bad), &badCfg))
+	require.Error(t, Validate(&badCfg))
 }
