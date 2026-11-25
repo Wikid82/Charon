@@ -79,6 +79,18 @@ export interface ManagedResource {
 }
 
 /**
+ * Cleanup order: lower ranks are deleted first. A host must go before the
+ * DNS provider, certificate, access list or user it references.
+ */
+const CLEANUP_RANK: Record<ManagedResource['type'], number> = {
+  'proxy-host': 0,
+  certificate: 1,
+  'access-list': 2,
+  'dns-provider': 3,
+  user: 4,
+};
+
+/**
  * Data required to create a proxy host
  */
 export interface ProxyHostData {
@@ -687,9 +699,13 @@ export class TestDataManager {
    * Resources are deleted newest-first to handle dependencies
    */
   async cleanup(): Promise<void> {
-    // Sort by creation time (newest first) to respect dependencies
+    // Referencing rows go first: hosts hold DNS provider, certificate, access
+    // list and user references, so they must be deleted before those parents.
+    // Creation time (newest first) breaks ties within a type.
     const sortedResources = [...this.resources].sort(
-      (a, b) => b.createdAt.getTime() - a.createdAt.getTime()
+      (a, b) =>
+        CLEANUP_RANK[a.type] - CLEANUP_RANK[b.type] ||
+        b.createdAt.getTime() - a.createdAt.getTime()
     );
 
     const errors: Error[] = [];
@@ -804,12 +820,14 @@ export class TestDataManager {
    */
   static async forceCleanupAll(request: APIRequestContext): Promise<{
     proxyHosts: number;
+    redirectionHosts: number;
     accessLists: number;
     dnsProviders: number;
     certificates: number;
   }> {
     const results = {
       proxyHosts: 0,
+      redirectionHosts: 0,
       accessLists: 0,
       dnsProviders: 0,
       certificates: 0,
@@ -819,16 +837,24 @@ export class TestDataManager {
     const testPattern = /^test-/;
 
     try {
-      // Clean up proxy hosts
-      const hostsResponse = await request.get('/api/v1/proxy-hosts');
-      if (hostsResponse.ok()) {
+      // Clean up proxy and redirection hosts first: both reference DNS
+      // providers, which are deleted further down. The API field is
+      // `domain_names` (comma-separated), not `domain`.
+      const hostEndpoints: Array<{ list: string; delete: string; counter: 'proxyHosts' | 'redirectionHosts' }> = [
+        { list: '/api/v1/proxy-hosts', delete: '/api/v1/proxy-hosts', counter: 'proxyHosts' },
+        { list: '/api/v1/redirection-hosts', delete: '/api/v1/redirection-hosts', counter: 'redirectionHosts' },
+      ];
+      for (const endpoint of hostEndpoints) {
+        const hostsResponse = await request.get(endpoint.list);
+        if (!hostsResponse.ok()) {
+          continue;
+        }
         const hosts = await hostsResponse.json();
         for (const host of hosts) {
-          // Match domains that contain test namespace pattern
-          if (host.domain && testPattern.test(host.domain)) {
-            const deleteResponse = await request.delete(`/api/v1/proxy-hosts/${host.uuid || host.id}`);
+          if (typeof host.domain_names === 'string' && testPattern.test(host.domain_names)) {
+            const deleteResponse = await request.delete(`${endpoint.delete}/${host.uuid || host.id}`);
             if (deleteResponse.ok() || deleteResponse.status() === 404) {
-              results.proxyHosts++;
+              results[endpoint.counter]++;
             }
           }
         }

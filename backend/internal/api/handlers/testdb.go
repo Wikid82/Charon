@@ -72,12 +72,17 @@ func GetTemplateDB() (*gorm.DB, error) {
 // a busy timeout and WAL journal mode to reduce SQLITE locking during parallel tests.
 func OpenTestDB(t *testing.T) *gorm.DB {
 	t.Helper()
-	dsn := testutil.MemoryDSN(t, "_journal_mode=WAL", "_busy_timeout=5000")
+	dsn := testutil.MemoryDSN(t, "_journal_mode=WAL", "_busy_timeout=5000", "_foreign_keys=1")
 	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
 		t.Fatalf("failed to open test db: %v", err)
+	}
+	// The driver ignores unknown parameters silently: fail unless reference enforcement is really on.
+	var enforced int
+	if err := db.Raw("PRAGMA foreign_keys").Scan(&enforced).Error; err != nil || enforced != 1 {
+		t.Fatalf("reference enforcement is not on for the test db (pragma reads %d, err %v)", enforced, err)
 	}
 	// Register cleanup to close database connection
 	t.Cleanup(func() {

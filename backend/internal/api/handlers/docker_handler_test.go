@@ -132,6 +132,29 @@ func TestDockerHandler_ListContainers_ServerIDResolvesToTCPHost(t *testing.T) {
 	assert.Equal(t, http.StatusOK, w.Code)
 }
 
+// A direct remote server is always reached over plain tcp://host:port. The
+// connection has no TLS option, so no TLS scheme or parameter may appear.
+func TestDockerHandler_ListContainers_DirectConnectionIsPlainTCP(t *testing.T) {
+	router := gin.New()
+
+	dockerSvc := &fakeDockerService{ret: []services.DockerContainer{}}
+	remoteSvc := &fakeRemoteServerService{server: &models.RemoteServer{Host: "10.0.0.5", Port: 2376, Enabled: true}}
+	h := NewDockerHandler(dockerSvc, remoteSvc)
+
+	api := router.Group("/api/v1")
+	h.RegisterRoutes(api)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/docker/containers?server_id=direct-1", http.NoBody)
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, req)
+
+	require.Equal(t, http.StatusOK, w.Code)
+	require.True(t, dockerSvc.called)
+	assert.Equal(t, "tcp://10.0.0.5:2376", dockerSvc.host)
+	assert.NotContains(t, dockerSvc.host, "https")
+	assert.NotContains(t, dockerSvc.host, "tls")
+}
+
 func TestDockerHandler_ListContainers_ServerIDNotFoundReturns404(t *testing.T) {
 	router := gin.New()
 
@@ -252,7 +275,7 @@ func TestDockerHandler_ListContainers_RemoteServerNotFound(t *testing.T) {
 }
 
 func TestDockerHandler_ListContainers_InvalidHost(t *testing.T) {
-	// Test SSRF protection: reject arbitrary host values
+	// Test host validation: reject arbitrary host values
 	router := gin.New()
 
 	dockerSvc := &fakeDockerService{}

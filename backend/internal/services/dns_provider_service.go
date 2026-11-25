@@ -42,7 +42,22 @@ var (
 	// Distinct from ErrDNSProviderNotFound (well-formed but nonexistent) so
 	// callers can map the two to different HTTP status codes.
 	ErrInvalidDNSProviderIdentifier = errors.New("invalid id: must be a numeric ID or a UUID")
+	// ErrDNSProviderInUse is returned when proxy or redirection hosts still use a DNS provider. Use errors.As with
+	// *DNSProviderInUseError to read the number of hosts.
+	ErrDNSProviderInUse = errors.New("dns provider in use")
 )
+
+// DNSProviderInUseError reports how many proxy and redirection hosts still use a DNS provider.
+type DNSProviderInUseError struct {
+	HostCount int64
+}
+
+func (e *DNSProviderInUseError) Error() string {
+	return fmt.Sprintf("%s: %d host(s)", ErrDNSProviderInUse, e.HostCount)
+}
+
+// Unwrap lets errors.Is match ErrDNSProviderInUse.
+func (e *DNSProviderInUseError) Unwrap() error { return ErrDNSProviderInUse }
 
 // Registry-based provider management replaces hardcoded provider types.
 // Provider types and credential fields are now queried from dnsprovider.Global().
@@ -410,7 +425,43 @@ func (s *dnsProviderService) Update(ctx context.Context, id uint, req UpdateDNSP
 	return provider, nil
 }
 
-// Delete deletes a DNS provider.
+// deleteDNSProviderRows refuses while hosts use the provider, then removes its stored credentials and the provider.
+func deleteDNSProviderRows(tx *gorm.DB, id uint) error {
+	// The host and credential tables are checked only when present: a database without them holds no references.
+	var inUse int64
+	if tx.Migrator().HasTable(&models.ProxyHost{}) {
+		var proxyHosts int64
+		if err := tx.Model(&models.ProxyHost{}).Where("dns_provider_id = ?", id).Count(&proxyHosts).Error; err != nil {
+			return fmt.Errorf("count proxy hosts using dns provider %d: %w", id, err)
+		}
+		inUse += proxyHosts
+	}
+	if tx.Migrator().HasTable(&models.RedirectionHost{}) {
+		var redirectionHosts int64
+		if err := tx.Model(&models.RedirectionHost{}).Where("dns_provider_id = ?", id).Count(&redirectionHosts).Error; err != nil {
+			return fmt.Errorf("count redirection hosts using dns provider %d: %w", id, err)
+		}
+		inUse += redirectionHosts
+	}
+	if inUse > 0 {
+		return &DNSProviderInUseError{HostCount: inUse}
+	}
+	if tx.Migrator().HasTable(&models.DNSProviderCredential{}) {
+		if err := tx.Where("dns_provider_id = ?", id).Delete(&models.DNSProviderCredential{}).Error; err != nil {
+			return fmt.Errorf("delete credentials of dns provider %d: %w", id, err)
+		}
+	}
+	result := tx.Delete(&models.DNSProvider{}, id)
+	if result.Error != nil {
+		return fmt.Errorf("delete dns provider %d: %w", id, result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return ErrDNSProviderNotFound
+	}
+	return nil
+}
+
+// Delete deletes a DNS provider. It is refused while proxy or redirection hosts use it.
 func (s *dnsProviderService) Delete(ctx context.Context, id uint) error {
 	// Fetch provider details for audit log before deletion
 	provider, err := s.Get(ctx, id)
@@ -420,12 +471,12 @@ func (s *dnsProviderService) Delete(ctx context.Context, id uint) error {
 
 	hadCredentials := provider.CredentialsEncrypted != ""
 
-	result := s.db.WithContext(ctx).Delete(&models.DNSProvider{}, id)
-	if result.Error != nil {
-		return result.Error
-	}
-	if result.RowsAffected == 0 {
-		return ErrDNSProviderNotFound
+	// The in-use check, the credential rows and the provider row change together, under one write lock.
+	err = WithWriteLock(s.db.WithContext(ctx), &models.DNSProvider{}, func(tx *gorm.DB) error {
+		return deleteDNSProviderRows(tx, id)
+	})
+	if err != nil {
+		return err
 	}
 
 	// Log audit event

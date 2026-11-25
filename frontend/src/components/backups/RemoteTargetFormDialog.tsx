@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { remoteTargetSaveErrorMessage } from '../../api/errorBody'
 import {
   useCreateRemoteTarget,
   useUpdateRemoteTarget,
@@ -99,6 +100,9 @@ export function RemoteTargetFormDialog({ open, target, onClose }: RemoteTargetFo
   const [webdavInsecureSkipVerify, setWebdavInsecureSkipVerify] = useState(
     target?.config.webdav?.insecure_skip_verify ?? false
   )
+  const [webdavAllowInsecureHttp, setWebdavAllowInsecureHttp] = useState(
+    target?.config.webdav?.allow_insecure_http ?? false
+  )
   const [webdavPassword, setWebdavPassword] = useState('')
 
   const [dropboxAppKey, setDropboxAppKey] = useState(target?.config.dropbox?.app_key ?? '')
@@ -136,6 +140,7 @@ export function RemoteTargetFormDialog({ open, target, onClose }: RemoteTargetFo
       setWebdavUsername(target?.config.webdav?.username ?? '')
       setWebdavBasePath(target?.config.webdav?.base_path ?? '')
       setWebdavInsecureSkipVerify(target?.config.webdav?.insecure_skip_verify ?? false)
+      setWebdavAllowInsecureHttp(target?.config.webdav?.allow_insecure_http ?? false)
       setWebdavPassword('')
       setDropboxAppKey(target?.config.dropbox?.app_key ?? '')
       setDropboxFolderPath(target?.config.dropbox?.folder_path ?? '')
@@ -164,6 +169,7 @@ export function RemoteTargetFormDialog({ open, target, onClose }: RemoteTargetFo
             username: webdavUsername,
             base_path: webdavBasePath,
             insecure_skip_verify: webdavInsecureSkipVerify,
+            allow_insecure_http: webdavAllowInsecureHttp,
           },
         }
       case 'dropbox':
@@ -226,17 +232,17 @@ export function RemoteTargetFormDialog({ open, target, onClose }: RemoteTargetFo
     if (isEdit && target) {
       updateMutation.mutate(
         { uuid: target.uuid, payload },
-        { onSuccess: onClose, onError: (error: Error) => toast.error(error.message) }
+        { onSuccess: onClose, onError: (error: Error) => toast.error(remoteTargetSaveErrorMessage(error)) }
       )
     } else if (OAUTH_TYPES.has(type)) {
       createMutation.mutate(payload, {
         onSuccess: startOAuthForNewTarget,
-        onError: (error: Error) => toast.error(error.message),
+        onError: (error: Error) => toast.error(remoteTargetSaveErrorMessage(error)),
       })
     } else {
       createMutation.mutate(payload, {
         onSuccess: onClose,
-        onError: (error: Error) => toast.error(error.message),
+        onError: (error: Error) => toast.error(remoteTargetSaveErrorMessage(error)),
       })
     }
   }
@@ -514,6 +520,23 @@ export function RemoteTargetFormDialog({ open, target, onClose }: RemoteTargetFo
                 <Label htmlFor="backup-remote-target-webdav-insecure-skip-verify">
                   {t('backups.remoteTargets.insecureSkipVerify')}
                 </Label>
+              </div>
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    id="backup-remote-target-webdav-allow-insecure-http"
+                    checked={webdavAllowInsecureHttp}
+                    onCheckedChange={(checked) => setWebdavAllowInsecureHttp(checked === true)}
+                  />
+                  <Label htmlFor="backup-remote-target-webdav-allow-insecure-http">
+                    {t('backups.remoteTargets.allowInsecureHttp')}
+                  </Label>
+                </div>
+                {webdavAllowInsecureHttp && (
+                  <p className="text-xs text-content-secondary">
+                    {t('backups.remoteTargets.allowInsecureHttpWarning')}
+                  </p>
+                )}
               </div>
               <Input
                 id="backup-remote-target-webdav-password"

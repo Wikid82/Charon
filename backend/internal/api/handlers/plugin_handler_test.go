@@ -22,7 +22,7 @@ import (
 
 func TestPluginHandler_NewPluginHandler(t *testing.T) {
 	db := OpenTestDB(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	handler := NewPluginHandler(db, pluginLoader)
 
@@ -33,7 +33,7 @@ func TestPluginHandler_NewPluginHandler(t *testing.T) {
 
 func TestPluginHandler_ListPlugins(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	// Create a failed plugin in DB
 	failedPlugin := models.Plugin{
@@ -82,7 +82,7 @@ func TestPluginHandler_ListPlugins(t *testing.T) {
 
 func TestPluginHandler_GetPlugin_InvalidID(t *testing.T) {
 	db := OpenTestDB(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 	handler := NewPluginHandler(db, pluginLoader)
 
 	router := gin.New()
@@ -98,7 +98,7 @@ func TestPluginHandler_GetPlugin_InvalidID(t *testing.T) {
 
 func TestPluginHandler_GetPlugin_NotFound(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 	handler := NewPluginHandler(db, pluginLoader)
 
 	router := gin.New()
@@ -114,7 +114,7 @@ func TestPluginHandler_GetPlugin_NotFound(t *testing.T) {
 
 func TestPluginHandler_GetPlugin_Success(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	// Create a plugin
 	plugin := models.Plugin{
@@ -149,7 +149,7 @@ func TestPluginHandler_GetPlugin_Success(t *testing.T) {
 
 func TestPluginHandler_EnablePlugin_InvalidID(t *testing.T) {
 	db := OpenTestDB(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 	handler := NewPluginHandler(db, pluginLoader)
 
 	router := gin.New()
@@ -164,7 +164,7 @@ func TestPluginHandler_EnablePlugin_InvalidID(t *testing.T) {
 
 func TestPluginHandler_EnablePlugin_NotFound(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 	handler := NewPluginHandler(db, pluginLoader)
 
 	router := gin.New()
@@ -179,7 +179,7 @@ func TestPluginHandler_EnablePlugin_NotFound(t *testing.T) {
 
 func TestPluginHandler_EnablePlugin_AlreadyEnabled(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	plugin := models.Plugin{
 		UUID:     "plugin-enabled",
@@ -206,7 +206,7 @@ func TestPluginHandler_EnablePlugin_AlreadyEnabled(t *testing.T) {
 
 func TestPluginHandler_EnablePlugin_Success(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	plugin := models.Plugin{
 		UUID:     "plugin-disabled",
@@ -238,7 +238,7 @@ func TestPluginHandler_EnablePlugin_Success(t *testing.T) {
 
 func TestPluginHandler_DisablePlugin_InvalidID(t *testing.T) {
 	db := OpenTestDB(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 	handler := NewPluginHandler(db, pluginLoader)
 
 	router := gin.New()
@@ -253,7 +253,7 @@ func TestPluginHandler_DisablePlugin_InvalidID(t *testing.T) {
 
 func TestPluginHandler_DisablePlugin_NotFound(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 	handler := NewPluginHandler(db, pluginLoader)
 
 	router := gin.New()
@@ -268,7 +268,7 @@ func TestPluginHandler_DisablePlugin_NotFound(t *testing.T) {
 
 func TestPluginHandler_DisablePlugin_AlreadyDisabled(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	plugin := models.Plugin{
 		UUID:     "plugin-already-disabled",
@@ -299,7 +299,7 @@ func TestPluginHandler_DisablePlugin_AlreadyDisabled(t *testing.T) {
 
 func TestPluginHandler_DisablePlugin_InUse(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	plugin := models.Plugin{
 		UUID:     "plugin-in-use",
@@ -335,7 +335,7 @@ func TestPluginHandler_DisablePlugin_InUse(t *testing.T) {
 
 func TestPluginHandler_DisablePlugin_Success(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	plugin := models.Plugin{
 		UUID:     "plugin-to-disable",
@@ -366,7 +366,7 @@ func TestPluginHandler_DisablePlugin_Success(t *testing.T) {
 
 func TestPluginHandler_ReloadPlugins_Success(t *testing.T) {
 	db := OpenTestDB(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/nonexistent/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/nonexistent/plugins", "", nil)
 	handler := NewPluginHandler(db, pluginLoader)
 
 	router := gin.New()
@@ -384,7 +384,7 @@ func TestPluginHandler_ReloadPlugins_Success(t *testing.T) {
 // TestPluginHandler_ListPlugins_WithBuiltInProviders tests listing when built-in providers are registered
 func TestPluginHandler_ListPlugins_WithBuiltInProviders(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	// Note: Built-in providers are already registered via blank import.
 	// Just verify cloudflare (a built-in provider) is listed.
@@ -488,7 +488,7 @@ func (m *mockDNSProvider) PollingInterval() time.Duration {
 
 func TestPluginHandler_ListPlugins_ExternalLoadedPlugin(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	// Create an external plugin in DB that's loaded
 	loadedTime := time.Now()
@@ -555,7 +555,7 @@ func TestPluginHandler_ListPlugins_ExternalLoadedPlugin(t *testing.T) {
 
 func TestPluginHandler_GetPlugin_WithProvider(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	// Create plugin
 	plugin := models.Plugin{
@@ -603,7 +603,7 @@ func TestPluginHandler_GetPlugin_WithProvider(t *testing.T) {
 
 func TestPluginHandler_EnablePlugin_WithLoadError(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/nonexistent/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/nonexistent/plugins", "", nil)
 
 	// Create disabled plugin with invalid path
 	plugin := models.Plugin{
@@ -646,7 +646,7 @@ func TestPluginHandler_EnablePlugin_WithLoadError(t *testing.T) {
 
 func TestPluginHandler_DisablePlugin_WithUnloadError(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	// Create enabled plugin
 	plugin := models.Plugin{
@@ -680,7 +680,7 @@ func TestPluginHandler_DisablePlugin_WithUnloadError(t *testing.T) {
 
 func TestPluginHandler_DisablePlugin_MultipleProviders(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	// Create enabled plugin
 	plugin := models.Plugin{
@@ -726,7 +726,7 @@ func TestPluginHandler_ReloadPlugins_WithErrors(t *testing.T) {
 	// Create a regular file and use it as pluginDir to force os.ReadDir error deterministically.
 	pluginDirPath := filepath.Join(t.TempDir(), "plugins-as-file")
 	require.NoError(t, os.WriteFile(pluginDirPath, []byte("not-a-directory"), 0o600))
-	pluginLoader := services.NewPluginLoaderService(db, pluginDirPath, nil)
+	pluginLoader := services.NewPluginLoaderService(db, pluginDirPath, "", nil)
 
 	handler := NewPluginHandler(db, pluginLoader)
 
@@ -743,7 +743,7 @@ func TestPluginHandler_ReloadPlugins_WithErrors(t *testing.T) {
 
 func TestPluginHandler_ListPlugins_FailedPluginWithLoadedAt(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	// Create failed plugin WITH LoadedAt timestamp
 	loadedTime := time.Now().Add(-1 * time.Hour)
@@ -792,7 +792,7 @@ func TestPluginHandler_ListPlugins_FailedPluginWithLoadedAt(t *testing.T) {
 
 func TestPluginHandler_GetPlugin_WithLoadedAt(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	// Create plugin with LoadedAt
 	loadedTime := time.Now()
@@ -846,7 +846,7 @@ func TestPluginHandler_Count(t *testing.T) {
 // TestPluginHandler_EnablePlugin_DBUpdateError tests DB error when updating plugin enabled status
 func TestPluginHandler_EnablePlugin_DBUpdateError(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	plugin := models.Plugin{
 		UUID:     "plugin-db-error",
@@ -878,7 +878,7 @@ func TestPluginHandler_EnablePlugin_DBUpdateError(t *testing.T) {
 // TestPluginHandler_DisablePlugin_DBUpdateError tests DB error when updating plugin disabled status
 func TestPluginHandler_DisablePlugin_DBUpdateError(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	plugin := models.Plugin{
 		UUID:     "plugin-disable-error",
@@ -910,7 +910,7 @@ func TestPluginHandler_DisablePlugin_DBUpdateError(t *testing.T) {
 // TestPluginHandler_GetPlugin_DBInternalError tests DB internal error when getting a plugin
 func TestPluginHandler_GetPlugin_DBInternalError(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	// Create a plugin first
 	plugin := models.Plugin{
@@ -943,7 +943,7 @@ func TestPluginHandler_GetPlugin_DBInternalError(t *testing.T) {
 // TestPluginHandler_EnablePlugin_FirstDBLookupError tests DB error in first plugin lookup
 func TestPluginHandler_EnablePlugin_FirstDBLookupError(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	// Create a plugin
 	plugin := models.Plugin{
@@ -976,7 +976,7 @@ func TestPluginHandler_EnablePlugin_FirstDBLookupError(t *testing.T) {
 // TestPluginHandler_DisablePlugin_FirstDBLookupError tests DB error in first plugin lookup during disable
 func TestPluginHandler_DisablePlugin_FirstDBLookupError(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	// Create a plugin
 	plugin := models.Plugin{

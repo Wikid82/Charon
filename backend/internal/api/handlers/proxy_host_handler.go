@@ -17,6 +17,7 @@ import (
 
 	"github.com/Wikid82/charon/backend/internal/api/middleware"
 	"github.com/Wikid82/charon/backend/internal/caddy"
+	"github.com/Wikid82/charon/backend/internal/database"
 	"github.com/Wikid82/charon/backend/internal/models"
 	"github.com/Wikid82/charon/backend/internal/network"
 	"github.com/Wikid82/charon/backend/internal/services"
@@ -948,6 +949,15 @@ func (h *ProxyHostHandler) TestConnection(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{"message": "Connection successful"})
 }
 
+// bulkFailureText is the message a bulk host failure reports. A reference violation means an item the request named
+// was deleted meanwhile, so the message does not echo the database error.
+func bulkFailureText(err error) string {
+	if database.IsForeignKeyViolation(err) {
+		return "a selected item was deleted"
+	}
+	return err.Error()
+}
+
 // uniqueHostUUIDs returns the uuids with repeats removed, keeping the first occurrence. A bulk write changes each host
 // once: a repeated uuid would record two changes for one row, and restoring the first would make the second look
 // superseded.
@@ -980,6 +990,19 @@ func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 		return
 	}
 
+	// The write itself does not check that the list exists, so a missing list is refused up front.
+	if req.AccessListID != nil {
+		var list models.AccessList
+		if err := h.service.DB().First(&list, *req.AccessListID).Error; err != nil {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
+				c.JSON(http.StatusBadRequest, gin.H{"error": "access list not found"})
+				return
+			}
+			respondInternalError(c, "Could not check the access list.", err)
+			return
+		}
+	}
+
 	updated := 0
 	failures := []map[string]string{}
 	var changes []services.ColumnChange
@@ -999,7 +1022,7 @@ func (h *ProxyHostHandler) BulkUpdateACL(c *gin.Context) {
 		if err != nil {
 			failures = append(failures, map[string]string{
 				"uuid":  hostUUID,
-				"error": err.Error(),
+				"error": bulkFailureText(err),
 			})
 			continue
 		}
@@ -1067,7 +1090,7 @@ func (h *ProxyHostHandler) BulkUpdateGroup(c *gin.Context) {
 		if err != nil {
 			failures = append(failures, map[string]string{
 				"uuid":  hostUUID,
-				"error": err.Error(),
+				"error": bulkFailureText(err),
 			})
 			continue
 		}
@@ -1150,7 +1173,7 @@ func (h *ProxyHostHandler) BulkUpdateSecurityHeaders(c *gin.Context) {
 		if err := tx.Model(&host).Where("id = ?", host.ID).Select("SecurityHeaderProfileID", "UpdatedAt").Updates(&host).Error; err != nil {
 			failures = append(failures, map[string]string{
 				"uuid":  hostUUID,
-				"error": err.Error(),
+				"error": bulkFailureText(err),
 			})
 			continue
 		}

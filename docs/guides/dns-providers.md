@@ -98,6 +98,13 @@ If you manage multiple domains across different DNS providers, you can designate
 
 Charon will automatically use DNS-01 challenge for certificate issuance.
 
+### 6. Deleting a Provider (Optional)
+
+1. Navigate to **DNS Providers** in the Charon UI
+2. Use the delete action on the provider's card
+
+Charon will not delete a provider that a proxy host or redirect host still uses. The message tells you how many hosts use it, for example "This DNS provider is used by 2 host(s). Choose another provider for those hosts first." Change those hosts to another provider first, then delete the provider again. When a provider is deleted, its saved credentials are removed too.
+
 ## Security Best Practices
 
 ### Credential Management

@@ -144,6 +144,8 @@ Charon now proxies traffic through the Orthrus tunnel to reach that container. F
 3. Set a port (any number from 1024 to 65535) and click **Save**. Leave **Listen on** set to **Automatic** unless your tool runs on a different Docker network. In that case, choose the network your tool can reach.
 4. In your third-party tool, use the connection string `tcp://<host>:<port>` — Charon fills in `<host>` for you automatically, so just plug in the port you chose
 
+> **Heads up**: This connection is not encrypted, and Charon cannot use a TLS-protected Docker port yet (tracked in #1923). Keep the port on a private network or inside a tunnel.
+
 **Full detail:** [Orthrus guide → External Docker Proxy](../features/orthrus.md#external-docker-proxy-advanced).
 
 ---

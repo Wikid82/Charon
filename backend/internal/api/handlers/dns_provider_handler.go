@@ -2,6 +2,8 @@ package handlers
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"net/http"
 	"sort"
 	"strconv"
@@ -178,6 +180,14 @@ func (h *DNSProviderHandler) Delete(c *gin.Context) {
 	if err != nil {
 		if err == services.ErrDNSProviderNotFound {
 			c.JSON(http.StatusNotFound, gin.H{"error": "DNS provider not found"})
+			return
+		}
+		var inUse *services.DNSProviderInUseError
+		if errors.As(err, &inUse) {
+			c.JSON(http.StatusConflict, gin.H{
+				"error":      fmt.Sprintf("This DNS provider is used by %d host(s). Choose another provider for those hosts first.", inUse.HostCount),
+				"error_code": "dns_provider_in_use",
+			})
 			return
 		}
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to delete DNS provider"})

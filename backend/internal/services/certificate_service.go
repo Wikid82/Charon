@@ -301,11 +301,17 @@ func (s *CertificateService) SyncFromDisk() error {
 	if err := s.db.Where("provider LIKE ?", "letsencrypt%").Find(&acmeCerts).Error; err == nil {
 		for _, c := range acmeCerts {
 			if _, ok := foundDomains[c.Domains]; !ok {
-				// remove stale record
-				if err := s.db.Delete(&models.SSLCertificate{}, "id = ?", c.ID).Error; err != nil {
-					logger.Log().WithField("domain", util.SanitizeForLog(c.Domains)).WithError(err).Error("CertificateService: failed to delete stale cert")
-				} else {
+				// Remove the stale record unless a host still uses it; the host keeps its reference.
+				err := s.deleteIfUnreferenced(c.ID)
+				switch {
+				case err == nil:
 					logger.Log().WithField("domain", util.SanitizeForLog(c.Domains)).Info("CertificateService: removed stale DB cert")
+				case errors.Is(err, ErrCertInUse):
+					logger.Log().WithField("domain", util.SanitizeForLog(c.Domains)).Debug("CertificateService: kept stale DB cert that a host still uses")
+				case errors.Is(err, ErrCertNotFound):
+					// Already removed by another request.
+				default:
+					logger.Log().WithField("domain", util.SanitizeForLog(c.Domains)).WithError(err).Error("CertificateService: failed to delete stale cert")
 				}
 			}
 		}

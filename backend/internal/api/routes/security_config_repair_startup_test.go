@@ -45,7 +45,7 @@ func TestRegisterWithDeps_RepairFailureDoesNotStopStartup(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 
-	_, err = RegisterWithDeps(ctx, router, db, cfg, caddyManager, cerb, dbmaint.NewGate())
+	_, err = RegisterWithDeps(ctx, router, db, cfg, caddyManager, cerb, dbmaint.NewGate(), nil)
 
 	require.NoError(t, err, "a repair failure must not stop registration")
 	assert.Contains(t, logs.String(), "Failed to repair default SecurityConfig name")

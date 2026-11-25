@@ -14,117 +14,6 @@ import (
 )
 
 // =============================================================================
-// computeSignature Tests
-// =============================================================================
-
-func TestComputeSignature(t *testing.T) {
-	t.Parallel()
-
-	tests := []struct {
-		name        string
-		fileContent []byte
-		wantPrefix  string
-		wantErr     bool
-	}{
-		{
-			name:        "empty file",
-			fileContent: []byte{},
-			wantPrefix:  "sha256:",
-			wantErr:     false,
-		},
-		{
-			name:        "simple content",
-			fileContent: []byte("test plugin content"),
-			wantPrefix:  "sha256:",
-			wantErr:     false,
-		},
-		{
-			name:        "binary content",
-			fileContent: []byte{0x00, 0x01, 0x02, 0xFF, 0xFE, 0xFD},
-			wantPrefix:  "sha256:",
-			wantErr:     false,
-		},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			// Create temp file with known content
-			tmpDir := t.TempDir()
-			tmpFile := filepath.Join(tmpDir, "test.so")
-			if err := os.WriteFile(tmpFile, tc.fileContent, 0o600); err != nil {
-				t.Fatalf("failed to write temp file: %v", err)
-			}
-
-			service := NewPluginLoaderService(nil, tmpDir, nil)
-			sig, err := service.computeSignature(tmpFile)
-
-			if tc.wantErr {
-				if err == nil {
-					t.Error("expected error, got nil")
-				}
-				return
-			}
-
-			if err != nil {
-				t.Errorf("unexpected error: %v", err)
-				return
-			}
-
-			// Verify prefix
-			if len(sig) < len(tc.wantPrefix) || sig[:len(tc.wantPrefix)] != tc.wantPrefix {
-				t.Errorf("signature doesn't have expected prefix %q, got %q", tc.wantPrefix, sig)
-			}
-
-			// Verify the signature matches what we expect
-			hash := sha256.Sum256(tc.fileContent)
-			expected := "sha256:" + hex.EncodeToString(hash[:])
-			if sig != expected {
-				t.Errorf("signature mismatch: got %q, want %q", sig, expected)
-			}
-		})
-	}
-}
-
-func TestComputeSignatureNonExistentFile(t *testing.T) {
-	t.Parallel()
-
-	service := NewPluginLoaderService(nil, t.TempDir(), nil)
-	_, err := service.computeSignature("/nonexistent/path/plugin.so")
-
-	if err == nil {
-		t.Error("expected error for non-existent file, got nil")
-	}
-}
-
-func TestComputeSignatureConsistency(t *testing.T) {
-	t.Parallel()
-
-	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "consistent.so")
-	content := []byte("plugin binary content for consistency test")
-	if err := os.WriteFile(tmpFile, content, 0o600); err != nil { // #nosec G306 -- test fixture
-		t.Fatalf("failed to write temp file: %v", err)
-	}
-
-	service := NewPluginLoaderService(nil, tmpDir, nil)
-
-	// Compute signature multiple times
-	sig1, err1 := service.computeSignature(tmpFile)
-	sig2, err2 := service.computeSignature(tmpFile)
-	sig3, err3 := service.computeSignature(tmpFile)
-
-	if err1 != nil || err2 != nil || err3 != nil {
-		t.Fatalf("unexpected errors: %v, %v, %v", err1, err2, err3)
-	}
-
-	if sig1 != sig2 || sig2 != sig3 {
-		t.Errorf("signature not consistent across calls: %q, %q, %q", sig1, sig2, sig3)
-	}
-}
-
-// =============================================================================
 // verifyDirectoryPermissions Tests
 // =============================================================================
 
@@ -140,6 +29,16 @@ func TestVerifyDirectoryPermissions(t *testing.T) {
 		mode    os.FileMode
 		wantErr bool
 	}{
+		{
+			name:    "group writable 0775",
+			mode:    0o775,
+			wantErr: true,
+		},
+		{
+			name:    "group writable 0770",
+			mode:    0o770,
+			wantErr: true,
+		},
 		{
 			name:    "secure permissions 0755",
 			mode:    0o755,
@@ -192,7 +91,7 @@ func TestVerifyDirectoryPermissions(t *testing.T) {
 				t.Fatalf("failed to chmod: %v", err)
 			}
 
-			service := NewPluginLoaderService(nil, testDir, nil)
+			service := NewPluginLoaderService(nil, testDir, "", nil)
 			err := service.verifyDirectoryPermissions(testDir)
 
 			if tc.wantErr && err == nil {
@@ -208,7 +107,7 @@ func TestVerifyDirectoryPermissions(t *testing.T) {
 func TestVerifyDirectoryPermissionsNonExistent(t *testing.T) {
 	t.Parallel()
 
-	service := NewPluginLoaderService(nil, "/nonexistent", nil)
+	service := NewPluginLoaderService(nil, "/nonexistent", "", nil)
 	err := service.verifyDirectoryPermissions("/nonexistent/path/to/dir")
 
 	if err == nil {
@@ -223,7 +122,7 @@ func TestVerifyDirectoryPermissionsNonExistent(t *testing.T) {
 func TestNewPluginLoaderServicePermissiveMode(t *testing.T) {
 	t.Parallel()
 
-	service := NewPluginLoaderService(nil, "/plugins", nil)
+	service := NewPluginLoaderService(nil, "/plugins", "", nil)
 
 	if service.allowedSigs != nil {
 		t.Errorf("expected nil allowlist for permissive mode, got %v", service.allowedSigs)
@@ -240,7 +139,7 @@ func TestNewPluginLoaderServiceStrictModeEmpty(t *testing.T) {
 	t.Parallel()
 
 	emptyAllowlist := make(map[string]string)
-	service := NewPluginLoaderService(nil, "/plugins", emptyAllowlist)
+	service := NewPluginLoaderService(nil, "/plugins", "", emptyAllowlist)
 
 	if service.allowedSigs == nil {
 		t.Error("expected non-nil allowlist for strict mode")
@@ -257,7 +156,7 @@ func TestNewPluginLoaderServiceStrictModePopulated(t *testing.T) {
 		"cloudflare": "sha256:abc123",
 		"route53":    "sha256:def456",
 	}
-	service := NewPluginLoaderService(nil, "/plugins", allowlist)
+	service := NewPluginLoaderService(nil, "/plugins", "", allowlist)
 
 	if service.allowedSigs == nil {
 		t.Error("expected non-nil allowlist")
@@ -287,7 +186,7 @@ func TestLoadPluginNotInAllowlist(t *testing.T) {
 	allowlist := map[string]string{
 		"known-provider": "sha256:some-hash",
 	}
-	service := NewPluginLoaderService(nil, tmpDir, allowlist)
+	service := NewPluginLoaderService(nil, tmpDir, "", allowlist)
 
 	err := service.LoadPlugin(pluginFile)
 
@@ -314,7 +213,7 @@ func TestLoadPluginSignatureMismatch(t *testing.T) {
 	allowlist := map[string]string{
 		"cloudflare": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
 	}
-	service := NewPluginLoaderService(nil, tmpDir, allowlist)
+	service := NewPluginLoaderService(nil, tmpDir, "", allowlist)
 
 	err := service.LoadPlugin(pluginFile)
 
@@ -344,7 +243,7 @@ func TestLoadPluginSignatureMatch(t *testing.T) {
 	allowlist := map[string]string{
 		"cloudflare": correctSig,
 	}
-	service := NewPluginLoaderService(nil, tmpDir, allowlist)
+	service := NewPluginLoaderService(nil, tmpDir, "", allowlist)
 
 	// This will fail at plugin.Open() but that's expected
 	// The important part is it gets past the signature check
@@ -379,7 +278,7 @@ func TestLoadPluginPermissiveMode(t *testing.T) {
 	}
 
 	// Permissive mode - nil allowlist
-	service := NewPluginLoaderService(nil, tmpDir, nil)
+	service := NewPluginLoaderService(nil, tmpDir, "", nil)
 
 	err := service.LoadPlugin(pluginFile)
 
@@ -401,7 +300,8 @@ func TestLoadAllPluginsEmptyDirectory(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
-	service := NewPluginLoaderService(nil, tmpDir, nil)
+	setPluginFolderMode(t, tmpDir)
+	service := NewPluginLoaderService(nil, tmpDir, "", nil)
 
 	err := service.LoadAllPlugins()
 
@@ -413,7 +313,7 @@ func TestLoadAllPluginsEmptyDirectory(t *testing.T) {
 func TestLoadAllPluginsNonExistentDirectory(t *testing.T) {
 	t.Parallel()
 
-	service := NewPluginLoaderService(nil, "/nonexistent/plugin/dir", nil)
+	service := NewPluginLoaderService(nil, "/nonexistent/plugin/dir", "", nil)
 
 	err := service.LoadAllPlugins()
 
@@ -425,7 +325,7 @@ func TestLoadAllPluginsNonExistentDirectory(t *testing.T) {
 func TestLoadAllPluginsEmptyPluginDir(t *testing.T) {
 	t.Parallel()
 
-	service := NewPluginLoaderService(nil, "", nil)
+	service := NewPluginLoaderService(nil, "", "", nil)
 
 	err := service.LoadAllPlugins()
 
@@ -438,13 +338,14 @@ func TestLoadAllPluginsSkipsDirectories(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
+	setPluginFolderMode(t, tmpDir)
 	// Create a subdirectory
 	subDir := filepath.Join(tmpDir, "subdir")
 	if err := os.Mkdir(subDir, 0o750); err != nil { // #nosec G301 -- test directory
 		t.Fatalf("failed to create subdir: %v", err)
 	}
 
-	service := NewPluginLoaderService(nil, tmpDir, nil)
+	service := NewPluginLoaderService(nil, tmpDir, "", nil)
 
 	err := service.LoadAllPlugins()
 
@@ -458,6 +359,7 @@ func TestLoadAllPluginsSkipsNonSoFiles(t *testing.T) {
 	t.Parallel()
 
 	tmpDir := t.TempDir()
+	setPluginFolderMode(t, tmpDir)
 	// Create non-.so files
 	if err := os.WriteFile(filepath.Join(tmpDir, "readme.txt"), []byte("readme"), 0o600); err != nil { // #nosec G306 -- test fixture
 		t.Fatalf("failed to create txt file: %v", err)
@@ -466,7 +368,7 @@ func TestLoadAllPluginsSkipsNonSoFiles(t *testing.T) {
 		t.Fatalf("failed to create dll file: %v", err)
 	}
 
-	service := NewPluginLoaderService(nil, tmpDir, nil)
+	service := NewPluginLoaderService(nil, tmpDir, "", nil)
 
 	err := service.LoadAllPlugins()
 
@@ -499,7 +401,7 @@ func TestLoadAllPluginsWorldWritableDirectory(t *testing.T) {
 		t.Fatalf("failed to create so file: %v", err)
 	}
 
-	service := NewPluginLoaderService(nil, pluginDir, nil)
+	service := NewPluginLoaderService(nil, pluginDir, "", nil)
 
 	err := service.LoadAllPlugins()
 
@@ -515,7 +417,7 @@ func TestLoadAllPluginsWorldWritableDirectory(t *testing.T) {
 func TestListLoadedPluginsEmpty(t *testing.T) {
 	t.Parallel()
 
-	service := NewPluginLoaderService(nil, "/plugins", nil)
+	service := NewPluginLoaderService(nil, "/plugins", "", nil)
 
 	plugins := service.ListLoadedPlugins()
 
@@ -527,7 +429,7 @@ func TestListLoadedPluginsEmpty(t *testing.T) {
 func TestIsPluginLoadedFalse(t *testing.T) {
 	t.Parallel()
 
-	service := NewPluginLoaderService(nil, "/plugins", nil)
+	service := NewPluginLoaderService(nil, "/plugins", "", nil)
 
 	if service.IsPluginLoaded("nonexistent") {
 		t.Error("expected false for non-loaded plugin")
@@ -537,7 +439,7 @@ func TestIsPluginLoadedFalse(t *testing.T) {
 func TestUnloadNonExistentPlugin(t *testing.T) {
 	t.Parallel()
 
-	service := NewPluginLoaderService(nil, "/plugins", nil)
+	service := NewPluginLoaderService(nil, "/plugins", "", nil)
 
 	err := service.UnloadPlugin("nonexistent")
 
@@ -550,7 +452,7 @@ func TestUnloadNonExistentPlugin(t *testing.T) {
 func TestCleanupEmpty(t *testing.T) {
 	t.Parallel()
 
-	service := NewPluginLoaderService(nil, "/plugins", nil)
+	service := NewPluginLoaderService(nil, "/plugins", "", nil)
 
 	err := service.Cleanup()
 
@@ -676,20 +578,16 @@ func TestSignatureWorkflowEndToEnd(t *testing.T) {
 	}
 
 	// Step 1: Compute signature (simulating admin workflow)
-	service := NewPluginLoaderService(nil, tmpDir, nil)
-	sig, err := service.computeSignature(pluginFile)
-	if err != nil {
-		t.Fatalf("failed to compute signature: %v", err)
-	}
+	sig := hashPluginBytes(content)
 
 	// Step 2: Create service with this signature in allowlist
 	allowlist := map[string]string{
 		"myplugin": sig,
 	}
-	strictService := NewPluginLoaderService(nil, tmpDir, allowlist)
+	strictService := NewPluginLoaderService(nil, tmpDir, t.TempDir(), allowlist)
 
 	// Step 3: Try to load - should pass signature check
-	err = strictService.LoadPlugin(pluginFile)
+	err := strictService.LoadPlugin(pluginFile)
 
 	// Will fail at plugin.Open() but should NOT fail at signature check
 	if errors.Is(err, dnsprovider.ErrPluginNotInAllowlist) {
@@ -761,7 +659,7 @@ func TestLoadAllPluginsWindowsSkipped(t *testing.T) {
 		t.Skip("this test only runs on Windows")
 	}
 
-	service := NewPluginLoaderService(nil, "C:\\plugins", nil)
+	service := NewPluginLoaderService(nil, "C:\\plugins", "", nil)
 
 	err := service.LoadAllPlugins()
 
@@ -778,7 +676,7 @@ func TestLoadAllPluginsWindowsSkipped(t *testing.T) {
 func TestConcurrentPluginMapAccess(t *testing.T) {
 	t.Parallel()
 
-	service := NewPluginLoaderService(nil, "/plugins", nil)
+	service := NewPluginLoaderService(nil, "/plugins", "", nil)
 
 	// Simulate concurrent reads and writes
 	done := make(chan bool)
@@ -797,65 +695,5 @@ func TestConcurrentPluginMapAccess(t *testing.T) {
 	// Wait for all goroutines
 	for i := 0; i < 10; i++ {
 		<-done
-	}
-}
-
-// =============================================================================
-// Edge Cases for computeSignature with various file contents
-// =============================================================================
-
-func TestComputeSignatureLargeFile(t *testing.T) {
-	t.Parallel()
-
-	tmpDir := t.TempDir()
-	tmpFile := filepath.Join(tmpDir, "large.so")
-
-	// Create a 1MB file
-	content := make([]byte, 1024*1024)
-	for i := range content {
-		content[i] = byte(i % 256)
-	}
-
-	if err := os.WriteFile(tmpFile, content, 0o600); err != nil { // #nosec G306 -- test fixture
-		t.Fatalf("failed to write large file: %v", err)
-	}
-
-	service := NewPluginLoaderService(nil, tmpDir, nil)
-	sig, err := service.computeSignature(tmpFile)
-
-	if err != nil {
-		t.Errorf("unexpected error: %v", err)
-	}
-
-	// Verify it's a valid sha256 signature
-	expectedLen := len("sha256:") + 64 // sha256 produces 64 hex chars
-	if len(sig) != expectedLen {
-		t.Errorf("expected signature length %d, got %d", expectedLen, len(sig))
-	}
-}
-
-func TestComputeSignatureSpecialCharactersInPath(t *testing.T) {
-	t.Parallel()
-
-	tmpDir := t.TempDir()
-	// Create path with spaces (common edge case)
-	pluginDir := filepath.Join(tmpDir, "my plugins")
-	if err := os.MkdirAll(pluginDir, 0o750); err != nil { // #nosec G301 -- test directory
-		t.Fatalf("failed to create directory: %v", err)
-	}
-
-	pluginFile := filepath.Join(pluginDir, "my plugin.so")
-	if err := os.WriteFile(pluginFile, []byte("test content"), 0o600); err != nil { // #nosec G306 -- test fixture
-		t.Fatalf("failed to write file: %v", err)
-	}
-
-	service := NewPluginLoaderService(nil, pluginDir, nil)
-	sig, err := service.computeSignature(pluginFile)
-
-	if err != nil {
-		t.Errorf("unexpected error with spaces in path: %v", err)
-	}
-	if sig == "" {
-		t.Error("expected non-empty signature")
 	}
 }

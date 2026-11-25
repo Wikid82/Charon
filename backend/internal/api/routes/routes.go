@@ -159,7 +159,7 @@ func Register(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg config.C
 	// Cerberus middleware applies the optional security suite checks (WAF, ACL, CrowdSec)
 	cerb := cerberus.New(cfg.Security, db)
 
-	_, err := RegisterWithDeps(ctx, router, db, cfg, caddyManager, cerb, nil)
+	_, err := RegisterWithDeps(ctx, router, db, cfg, caddyManager, cerb, nil, nil)
 	return err
 }
 
@@ -219,7 +219,10 @@ type Registered struct {
 // gate is the database maintenance gate (GH #1422); nil behaves as a gate that
 // is permanently idle. The caller installs gate.Middleware itself so it runs
 // before every middleware registered here.
-func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg config.Config, caddyManager *caddy.Manager, cerb *cerberus.Cerberus, gate *dbmaint.Gate) (Registered, error) {
+//
+// pluginLoader is the DNS provider plugin loader shared with the caller's start-up load. nil builds one from cfg,
+// so the signature list always comes from the configuration.
+func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg config.Config, caddyManager *caddy.Manager, cerb *cerberus.Cerberus, gate *dbmaint.Gate, pluginLoader *services.PluginLoaderService) (Registered, error) {
 	services.SetEmergencyListener(cfg.Emergency)
 	uptimeShutdown := UptimeShutdownFunc(func(context.Context) error { return nil })
 	// Emergency bypass must be registered FIRST.
@@ -385,6 +388,12 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 		backupService.SetEncryptionRehydrator(rotation)
 	}
 	backupRemoteService := services.NewBackupRemoteService(db, secrets, backupService.BackupDir)
+	// Targets saved over http:// before the HTTPS rule are flagged at start-up so they keep working (D-36-17). A failure
+	// only means the flag is missing until the next start or live restore; uploads still work.
+	if _, err := backupRemoteService.MarkExistingInsecureWebDAV(ctx); err != nil {
+		logger.Log().WithError(err).Warn("Could not mark existing WebDAV backup targets as allowing unencrypted HTTP")
+	}
+	backupService.SetRemoteTargetRehydrator(backupRemoteService)         // re-applies the same backfill after a live restore
 	backupService.SetRemoteUploadHook(backupRemoteService.TriggerUpload) // spec §3.7
 	if gate != nil {
 		// Scheduled backups wait (not dropped) while an optimization is pending.
@@ -753,11 +762,9 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 			adminEncryption.POST("/validate", encryptionHandler.Validate)
 
 			// Plugin Management (Phase 5) - Admin only endpoints
-			pluginDir := os.Getenv("CHARON_PLUGINS_DIR")
-			if pluginDir == "" {
-				pluginDir = "/app/plugins"
+			if pluginLoader == nil {
+				pluginLoader = services.NewPluginLoaderService(db, cfg.PluginsDir, cfg.PluginCacheDir, cfg.PluginSignatures)
 			}
-			pluginLoader := services.NewPluginLoaderService(db, pluginDir, nil)
 			pluginHandler := handlers.NewPluginHandler(db, pluginLoader)
 			adminPlugins := management.Group("/admin/plugins")
 			adminPlugins.GET("", pluginHandler.ListPlugins)

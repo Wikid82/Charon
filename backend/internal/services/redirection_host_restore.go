@@ -9,6 +9,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/Wikid82/charon/backend/internal/database"
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
@@ -141,9 +142,34 @@ func (s *RedirectionHostService) ReinsertDeleted(snap models.RedirectionHost) er
 		if err := checkCrossTableDomainConflict(tx, snap.DomainNames, &models.ProxyHost{}); err != nil {
 			return fmt.Errorf("%w: %w", ErrRestoreSuperseded, err)
 		}
+		if err := clearMissingRedirectionReferences(tx, &snap); err != nil {
+			return fmt.Errorf("clear references of redirection host %d: %w", snap.ID, err)
+		}
 		if err := insertKeepingValues(tx, &snap); err != nil {
 			return fmt.Errorf("re-insert redirection host %d: %w", snap.ID, err)
 		}
 		return nil
 	})
+}
+
+// clearMissingRedirectionReferences clears the certificate and DNS provider references of host whose parent row is
+// gone, so the restored host can be saved.
+func clearMissingRedirectionReferences(tx *gorm.DB, host *models.RedirectionHost) error {
+	refs := map[string]any{
+		"certificate_id":    host.CertificateID,
+		"dns_provider_id":   host.DNSProviderID,
+		"use_dns_challenge": host.UseDNSChallenge,
+	}
+	cleared, err := database.ClearMissingReferences(tx, database.TableRedirectionHosts, refs)
+	if err != nil {
+		return err
+	}
+	if len(cleared) == 0 {
+		return nil
+	}
+	host.CertificateID = optionalID(refs["certificate_id"])
+	host.DNSProviderID = optionalID(refs["dns_provider_id"])
+	host.UseDNSChallenge, _ = refs["use_dns_challenge"].(bool)
+	logClearedReferences(host.UUID, cleared)
+	return nil
 }

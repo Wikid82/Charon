@@ -37,6 +37,9 @@ var (
 	// ErrPluginDisabled is returned when attempting to use a disabled plugin.
 	ErrPluginDisabled = errors.New("plugin is disabled")
 
+	// ErrPluginOutsideDirectory is returned when a plugin path is not a .so file directly inside the plugin folder.
+	ErrPluginOutsideDirectory = errors.New("plugin file is not inside the plugin folder")
+
 	// ErrCredentialsInvalid is returned when credential validation fails.
 	ErrCredentialsInvalid = errors.New("invalid credentials")
 

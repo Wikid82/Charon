@@ -9,6 +9,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	"github.com/Wikid82/charon/backend/internal/database"
+	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
 )
 
@@ -136,6 +138,10 @@ func (s *ProxyHostService) RemoveCreated(written ProxyHostSnapshot) error {
 		if err := tx.Where("proxy_host_id = ?", written.Host.ID).Delete(&models.Location{}).Error; err != nil {
 			return fmt.Errorf("remove locations of proxy host %d: %w", written.Host.ID, err)
 		}
+		// The periodic check may have created a monitor for the host after the create; it goes with the host.
+		if err := deleteHostMonitors(tx, written.Host.ID); err != nil {
+			return err
+		}
 		if err := tx.Delete(&models.ProxyHost{}, written.Host.ID).Error; err != nil {
 			return fmt.Errorf("remove proxy host %d: %w", written.Host.ID, err)
 		}
@@ -169,6 +175,9 @@ func (s *ProxyHostService) ReinsertDeleted(snap ProxyHostSnapshot) error {
 		}
 		host := snap.Host
 		host.Locations = nil
+		if err := clearMissingProxyHostReferences(tx, &host); err != nil {
+			return fmt.Errorf("clear references of proxy host %d: %w", snap.Host.ID, err)
+		}
 		// A delete leaves the location rows behind; they are replaced by the snapshot copies.
 		if err := tx.Where("proxy_host_id = ?", snap.Host.ID).Delete(&models.Location{}).Error; err != nil {
 			return fmt.Errorf("clear locations of proxy host %d: %w", snap.Host.ID, err)
@@ -239,4 +248,72 @@ func (s *ProxyHostService) RestoreColumn(column string, changes []ColumnChange) 
 		return fmt.Errorf("%d host(s) changed since the write: %w", kept, ErrRestoreSuperseded)
 	}
 	return nil
+}
+
+// deleteHostMonitors removes the uptime monitors of a proxy host and their heartbeats. A monitor row points at its
+// host, so it must be gone before the host row is deleted.
+func deleteHostMonitors(tx *gorm.DB, hostID uint) error {
+	if !tx.Migrator().HasTable(&models.UptimeMonitor{}) {
+		return nil
+	}
+	var monitorIDs []string
+	if err := tx.Model(&models.UptimeMonitor{}).Where("proxy_host_id = ?", hostID).Pluck("id", &monitorIDs).Error; err != nil {
+		return fmt.Errorf("list monitors of proxy host %d: %w", hostID, err)
+	}
+	if len(monitorIDs) == 0 {
+		return nil
+	}
+	if err := tx.Where("monitor_id IN ?", monitorIDs).Delete(&models.UptimeHeartbeat{}).Error; err != nil {
+		return fmt.Errorf("delete heartbeats of proxy host %d: %w", hostID, err)
+	}
+	if err := tx.Where("id IN ?", monitorIDs).Delete(&models.UptimeMonitor{}).Error; err != nil {
+		return fmt.Errorf("delete monitors of proxy host %d: %w", hostID, err)
+	}
+	return nil
+}
+
+// clearMissingProxyHostReferences clears the references of host whose parent row is gone, so the restored host can be
+// saved. Each cleared reference is logged by column name and host id only.
+func clearMissingProxyHostReferences(tx *gorm.DB, host *models.ProxyHost) error {
+	refs := map[string]any{
+		"certificate_id":             host.CertificateID,
+		"access_list_id":             host.AccessListID,
+		"security_header_profile_id": host.SecurityHeaderProfileID,
+		"dns_provider_id":            host.DNSProviderID,
+		"proxy_group_id":             host.ProxyGroupID,
+		"use_dns_challenge":          host.UseDNSChallenge,
+	}
+	cleared, err := database.ClearMissingReferences(tx, database.TableProxyHosts, refs)
+	if err != nil {
+		return err
+	}
+	if len(cleared) == 0 {
+		return nil
+	}
+	host.CertificateID = optionalID(refs["certificate_id"])
+	host.AccessListID = optionalID(refs["access_list_id"])
+	host.SecurityHeaderProfileID = optionalID(refs["security_header_profile_id"])
+	host.DNSProviderID = optionalID(refs["dns_provider_id"])
+	host.ProxyGroupID = optionalID(refs["proxy_group_id"])
+	host.UseDNSChallenge, _ = refs["use_dns_challenge"].(bool)
+	logClearedReferences(host.UUID, cleared)
+	return nil
+}
+
+// optionalID returns the id held by v, or nil when v is not a set id.
+func optionalID(v any) *uint {
+	id, _ := v.(*uint)
+	return id
+}
+
+// logClearedReferences writes one Warn per cleared column. Only the column names and the item UUID are logged.
+func logClearedReferences(hostUUID string, cleared []string) {
+	for _, column := range cleared {
+		entry := logger.Log().WithField("host_uuid", hostUUID).WithField("column", column)
+		if column == "dns_provider_id" {
+			entry.Warn("DNS challenge turned off because its DNS provider no longer exists")
+			continue
+		}
+		entry.Warn("Cleared a reference to an item that no longer exists before restoring the host")
+	}
 }

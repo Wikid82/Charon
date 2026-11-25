@@ -3,7 +3,6 @@ package main
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"log"
@@ -11,7 +10,6 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
-	"strings"
 	"syscall"
 	"time"
 
@@ -36,43 +34,6 @@ import (
 	"gopkg.in/natefinch/lumberjack.v2"
 	"gorm.io/gorm"
 )
-
-// parsePluginSignatures reads the CHARON_PLUGIN_SIGNATURES environment variable
-// and returns the parsed signature allowlist for plugin verification.
-//
-// Modes:
-//   - nil return (permissive): Env var unset/empty — all plugins allowed
-//   - empty map (strict): Env var set to "{}" — no external plugins allowed
-//   - populated map: Only plugins with matching signatures are allowed
-func parsePluginSignatures() map[string]string {
-	envVal := os.Getenv("CHARON_PLUGIN_SIGNATURES")
-	if envVal == "" {
-		logger.Log().Info("Plugin signature verification: PERMISSIVE mode (CHARON_PLUGIN_SIGNATURES not set)")
-		return nil
-	}
-
-	var signatures map[string]string
-	if err := json.Unmarshal([]byte(envVal), &signatures); err != nil {
-		logger.Log().WithError(err).Error("Failed to parse CHARON_PLUGIN_SIGNATURES JSON — falling back to permissive mode")
-		return nil
-	}
-
-	// Validate all signatures have sha256: prefix
-	for name, sig := range signatures {
-		if !strings.HasPrefix(sig, "sha256:") {
-			logger.Log().Errorf("Invalid signature for plugin %q: must have sha256: prefix — falling back to permissive mode", name)
-			return nil
-		}
-	}
-
-	if len(signatures) == 0 {
-		logger.Log().Info("Plugin signature verification: STRICT mode (empty allowlist — no external plugins permitted)")
-	} else {
-		logger.Log().Infof("Plugin signature verification: STRICT mode (%d plugin(s) in allowlist)", len(signatures))
-	}
-
-	return signatures
-}
 
 // loadConfigForDatabase loads the configuration and points SQLite's temp
 // directory at the data volume. SQLite only reads SQLITE_TMPDIR before the
@@ -243,11 +204,7 @@ func main() {
 
 	// Initialize plugin loader and load external DNS provider plugins (Phase 5)
 	logger.Log().Info("Initializing DNS provider plugin system...")
-	pluginDir := os.Getenv("CHARON_PLUGINS_DIR")
-	if pluginDir == "" {
-		pluginDir = "/app/plugins"
-	}
-	pluginLoader := services.NewPluginLoaderService(db, pluginDir, parsePluginSignatures())
+	pluginLoader := services.NewPluginLoaderService(db, cfg.PluginsDir, cfg.PluginCacheDir, cfg.PluginSignatures)
 	if pluginErr := pluginLoader.LoadAllPlugins(); pluginErr != nil {
 		logger.Log().WithError(pluginErr).Warn("Failed to load external DNS provider plugins")
 	}
@@ -283,7 +240,7 @@ func main() {
 	appCtx, appCancel := context.WithCancel(context.Background())
 	defer appCancel()
 
-	registered, err := routes.RegisterWithDeps(appCtx, router, db, cfg, caddyManager, cerb, gate)
+	registered, err := routes.RegisterWithDeps(appCtx, router, db, cfg, caddyManager, cerb, gate, pluginLoader)
 	if err != nil {
 		appCancel()
 		log.Fatalf("register routes: %v", err) //nolint:gocritic // exitAfterDefer: appCancel called explicitly above
