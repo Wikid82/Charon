@@ -204,7 +204,7 @@ func main() {
 
 	// Initialize plugin loader and load external DNS provider plugins (Phase 5)
 	logger.Log().Info("Initializing DNS provider plugin system...")
-	pluginLoader := services.NewPluginLoaderService(db, cfg.PluginsDir, cfg.PluginSignatures)
+	pluginLoader := services.NewPluginLoaderService(db, cfg.PluginsDir, cfg.PluginCacheDir, cfg.PluginSignatures)
 	if pluginErr := pluginLoader.LoadAllPlugins(); pluginErr != nil {
 		logger.Log().WithError(pluginErr).Warn("Failed to load external DNS provider plugins")
 	}

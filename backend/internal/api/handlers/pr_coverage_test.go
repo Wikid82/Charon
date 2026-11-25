@@ -29,7 +29,7 @@ import (
 
 func TestPluginHandler_EnablePlugin_DatabaseUpdateError(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	// Create plugin
 	plugin := models.Plugin{
@@ -60,7 +60,7 @@ func TestPluginHandler_EnablePlugin_DatabaseUpdateError(t *testing.T) {
 
 func TestPluginHandler_DisablePlugin_DatabaseUpdateError(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	// Create plugin
 	plugin := models.Plugin{
@@ -91,7 +91,7 @@ func TestPluginHandler_DisablePlugin_DatabaseUpdateError(t *testing.T) {
 
 func TestPluginHandler_GetPlugin_DatabaseError(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	// Create plugin first
 	plugin := models.Plugin{
@@ -122,7 +122,7 @@ func TestPluginHandler_GetPlugin_DatabaseError(t *testing.T) {
 
 func TestPluginHandler_EnablePlugin_DatabaseFirstError(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	handler := NewPluginHandler(db, pluginLoader)
 
@@ -143,7 +143,7 @@ func TestPluginHandler_EnablePlugin_DatabaseFirstError(t *testing.T) {
 
 func TestPluginHandler_DisablePlugin_DatabaseFirstError(t *testing.T) {
 	db := OpenTestDBWithMigrations(t)
-	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", nil)
+	pluginLoader := services.NewPluginLoaderService(db, "/tmp/plugins", "", nil)
 
 	handler := NewPluginHandler(db, pluginLoader)
 

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"path/filepath"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -77,4 +78,26 @@ func TestLoadConfigSetsPluginSignatures(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, cfg.PluginSignatures)
 	assert.Empty(t, cfg.PluginSignatures)
+}
+
+func TestLoadPluginCacheDir(t *testing.T) {
+	t.Run("defaults to plugin-cache inside the data folder", func(t *testing.T) {
+		dataDir := t.TempDir()
+		t.Setenv("CHARON_DB_PATH", filepath.Join(dataDir, "charon.db"))
+		t.Setenv("CHARON_PLUGIN_CACHE_DIR", "")
+
+		cfg, err := Load()
+		require.NoError(t, err)
+		assert.Equal(t, filepath.Join(dataDir, "plugin-cache"), cfg.PluginCacheDir)
+	})
+
+	t.Run("CHARON_PLUGIN_CACHE_DIR overrides the default", func(t *testing.T) {
+		t.Setenv("CHARON_DB_PATH", filepath.Join(t.TempDir(), "charon.db"))
+		override := filepath.Join(t.TempDir(), "exec-ok")
+		t.Setenv("CHARON_PLUGIN_CACHE_DIR", override)
+
+		cfg, err := Load()
+		require.NoError(t, err)
+		assert.Equal(t, override, cfg.PluginCacheDir)
+	})
 }

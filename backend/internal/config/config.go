@@ -54,7 +54,11 @@ type Config struct {
 	// name -> "sha256:<hex>"). nil means permissive (variable unset); a non-nil
 	// map is strict, and an empty map allows no external plugin. Start-up,
 	// reload and enable all use this one list.
-	PluginSignatures      map[string]string
+	PluginSignatures map[string]string
+	// PluginCacheDir is CHARON_PLUGIN_CACHE_DIR: the private folder that holds verified copies of plugins that are
+	// loaded. It defaults to plugin-cache inside the data folder. Set it to a folder that allows running program files
+	// when the data folder is mounted noexec.
+	PluginCacheDir        string
 	CaddyLogDir           string
 	CrowdSecLogDir        string
 	Debug                 bool
@@ -203,6 +207,7 @@ func Load() (Config, error) {
 	cfg.StartupWarnings = append(cfg.StartupWarnings, dbCompactWarnings...)
 
 	cfg.PluginSignatures = loadPluginSignatures()
+	cfg.PluginCacheDir = getEnvAny(filepath.Join(filepath.Dir(cfg.DatabasePath), "plugin-cache"), "CHARON_PLUGIN_CACHE_DIR")
 
 	cfg.CertExpiryWarningDays = 30
 	if days := getEnvAny("", "CHARON_CERT_EXPIRY_WARNING_DAYS"); days != "" {

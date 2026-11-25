@@ -757,7 +757,7 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 
 			// Plugin Management (Phase 5) - Admin only endpoints
 			if pluginLoader == nil {
-				pluginLoader = services.NewPluginLoaderService(db, cfg.PluginsDir, cfg.PluginSignatures)
+				pluginLoader = services.NewPluginLoaderService(db, cfg.PluginsDir, cfg.PluginCacheDir, cfg.PluginSignatures)
 			}
 			pluginHandler := handlers.NewPluginHandler(db, pluginLoader)
 			adminPlugins := management.Group("/admin/plugins")

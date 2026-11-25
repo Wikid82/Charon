@@ -41,6 +41,8 @@ func newPluginWiringFixture(t *testing.T, cfg config.Config) *pluginWiringFixtur
 	require.NoError(t, err)
 
 	pluginDir := t.TempDir()
+	// t.TempDir can be group-writable under the umask; the loader refuses such a plugin folder.
+	require.NoError(t, os.Chmod(pluginDir, 0o755))
 	pluginPath := filepath.Join(pluginDir, "unlisted.so")
 	require.NoError(t, os.WriteFile(pluginPath, []byte("not a real plugin"), 0o600))
 
@@ -69,7 +71,7 @@ func (f *pluginWiringFixture) seedAdmin(t *testing.T) {
 // reload posts to the admin reload endpoint and returns the status code and the recorded plugin row.
 func (f *pluginWiringFixture) reload(t *testing.T, router *gin.Engine) (int, models.Plugin) {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodPost, pluginReloadPath, nil)
+	req := httptest.NewRequest(http.MethodPost, pluginReloadPath, http.NoBody)
 	req.AddCookie(&http.Cookie{Name: "auth_token", Value: f.adminToken, HttpOnly: true, Secure: true, SameSite: http.SameSiteStrictMode})
 	w := httptest.NewRecorder()
 	router.ServeHTTP(w, req)
@@ -104,7 +106,7 @@ func TestRegisterWithDeps_PluginReloadUsesPassedLoader(t *testing.T) {
 	router := gin.New()
 	caddyManager := caddy.NewManager(caddy.NewClient(fixture.cfg.CaddyAdminAPI), fixture.db, fixture.cfg.CaddyConfigDir, fixture.cfg.FrontendDir, fixture.cfg.ACMEStaging, fixture.cfg.Security)
 	cerb := cerberus.New(fixture.cfg.Security, fixture.db)
-	loader := services.NewPluginLoaderService(fixture.db, fixture.cfg.PluginsDir, map[string]string{})
+	loader := services.NewPluginLoaderService(fixture.db, fixture.cfg.PluginsDir, t.TempDir(), map[string]string{})
 
 	_, err := RegisterWithDeps(context.Background(), router, fixture.db, fixture.cfg, caddyManager, cerb, dbmaint.NewGate(), loader)
 	require.NoError(t, err)
