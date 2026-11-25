@@ -1,3 +1,4 @@
+import type { APIRequestContext } from '@playwright/test';
 import { test, expect } from './fixtures/test';
 import { waitForAPIHealth } from './utils/api-helpers';
 import { getToastLocator, refreshListAndWait } from './utils/ui-helpers';
@@ -6,6 +7,7 @@ import {
   waitForConfigReload,
   waitForDialog,
   waitForLoadingComplete,
+  waitForToast,
 } from './utils/wait-helpers';
 
 async function getAuthToken(page: import('@playwright/test').Page): Promise<string> {
@@ -42,6 +44,50 @@ async function getAuthToken(page: import('@playwright/test').Page): Promise<stri
 
 function buildAuthHeaders(token: string): Record<string, string> | undefined {
   return token ? { Authorization: `Bearer ${token}` } : undefined;
+}
+
+interface ProviderRef {
+  id: number;
+  name: string;
+}
+
+/** Creates a manual DNS provider through the API for a delete-guard test. */
+async function createManualProviderViaAPI(
+  request: APIRequestContext,
+  headers: Record<string, string> | undefined,
+  name: string
+): Promise<ProviderRef> {
+  const response = await request.post('/api/v1/dns-providers', {
+    data: { name, provider_type: 'manual' },
+    headers,
+  });
+  expect(response.ok()).toBeTruthy();
+  const provider = (await response.json()) as ProviderRef;
+  return { id: provider.id, name };
+}
+
+/** Creates a proxy host that references the given DNS provider; returns its uuid. */
+async function createHostUsingProviderViaAPI(
+  request: APIRequestContext,
+  headers: Record<string, string> | undefined,
+  providerId: number
+): Promise<string> {
+  const response = await request.post('/api/v1/proxy-hosts', {
+    data: {
+      name: `DNS in use ${Date.now()}`,
+      domain_names: `dns-in-use-${Date.now()}.example.test`,
+      forward_host: '127.0.0.1',
+      forward_port: 8080,
+      forward_scheme: 'http',
+      enabled: true,
+      use_dns_challenge: true,
+      dns_provider_id: providerId,
+    },
+    headers,
+  });
+  expect(response.ok()).toBeTruthy();
+  const host = (await response.json()) as { uuid: string };
+  return host.uuid;
 }
 
 /**
@@ -486,6 +532,80 @@ test.describe('DNS Provider CRUD Operations', () => {
         });
       }
     });
+  });
+
+  // In-use delete guard (E16). Encodes the target behavior before the backend
+  // returns 409 `dns_provider_in_use` and the UI shows it. Enabled in a later commit.
+  test.describe('Delete Provider in use', () => {
+    test.fixme(
+      'should refuse to delete a provider used by a proxy host and name the host count',
+      async ({ page }) => {
+        const token = await getAuthToken(page);
+        const headers = buildAuthHeaders(token);
+        const provider = await createManualProviderViaAPI(page.request, headers, 'DNS Provider In Use');
+        const hostUuid = await createHostUsingProviderViaAPI(page.request, headers, provider.id);
+
+        try {
+          await test.step('Request deletion of the provider in use', async () => {
+            await page.goto('/dns/providers');
+            await waitForLoadingComplete(page);
+
+            const card = page.locator('.grid > div').filter({ hasText: provider.name });
+            await card.getByRole('button', { name: /delete/i }).click();
+            await page.getByRole('dialog').getByRole('button', { name: /delete|confirm/i }).click();
+          });
+
+          await test.step('Show an error that names the number of hosts using it', async () => {
+            await waitForToast(page, /1 (proxy |redirection )?host/i, { type: 'error' });
+          });
+
+          await test.step('Keep the provider in the API', async () => {
+            const response = await page.request.get(`/api/v1/dns-providers/${provider.id}`, { headers });
+            expect(response.status()).toBe(200);
+          });
+        } finally {
+          await page.request.delete(`/api/v1/proxy-hosts/${hostUuid}`, { headers });
+          await page.request.delete(`/api/v1/dns-providers/${provider.id}`, { headers });
+        }
+      }
+    );
+
+    test.fixme(
+      'should delete the provider once no host uses it',
+      async ({ page }) => {
+        const token = await getAuthToken(page);
+        const headers = buildAuthHeaders(token);
+        const provider = await createManualProviderViaAPI(page.request, headers, 'DNS Provider Unassigned');
+        const hostUuid = await createHostUsingProviderViaAPI(page.request, headers, provider.id);
+
+        await test.step('Unassign the provider from the host', async () => {
+          const hostResponse = await page.request.get(`/api/v1/proxy-hosts/${hostUuid}`, { headers });
+          const host = (await hostResponse.json()) as Record<string, unknown>;
+          const updateResponse = await page.request.put(`/api/v1/proxy-hosts/${hostUuid}`, {
+            data: { ...host, dns_provider_id: null, use_dns_challenge: false },
+            headers,
+          });
+          expect(updateResponse.ok()).toBeTruthy();
+        });
+
+        await test.step('Delete the provider from the list', async () => {
+          await page.goto('/dns/providers');
+          await waitForLoadingComplete(page);
+
+          const card = page.locator('.grid > div').filter({ hasText: provider.name });
+          await card.getByRole('button', { name: /delete/i }).click();
+          await page.getByRole('dialog').getByRole('button', { name: /delete|confirm/i }).click();
+          await waitForToast(page, /deleted/i, { type: 'success' });
+        });
+
+        await test.step('Confirm the provider is gone from the API', async () => {
+          const response = await page.request.get(`/api/v1/dns-providers/${provider.id}`, { headers });
+          expect(response.status()).toBe(404);
+        });
+
+        await page.request.delete(`/api/v1/proxy-hosts/${hostUuid}`, { headers });
+      }
+    );
   });
 
   test.describe('API Operations', () => {

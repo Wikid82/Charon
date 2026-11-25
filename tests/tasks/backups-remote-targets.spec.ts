@@ -866,4 +866,105 @@ test.describe('Backups Page - Remote Targets', () => {
       }
     );
   });
+
+  // WebDAV addresses must be https unless the operator opts in (plan E46).
+  // Mocked API: the server decides, the form only forwards the opt-in flag.
+  // Enabled in a later commit once the backend rule and the form option exist.
+  test.describe('Creating a WebDAV target with an http:// address', () => {
+    const httpUrl = 'http://nas.lan/remote.php/dav/files/charon/';
+    const serverMessage = 'WebDAV addresses must use https:// unless plain HTTP is allowed';
+
+    async function fillHttpWebDAVForm(page: import('@playwright/test').Page) {
+      await page.getByRole('button', { name: /add remote target/i }).first().click();
+      const dialog = page.getByRole('dialog');
+      await dialog.getByRole('radio', { name: /webdav/i }).check();
+      await dialog.getByLabel(/^name/i).fill('Plain HTTP NAS');
+      await dialog.getByLabel(/webdav url/i).fill(httpUrl);
+      await dialog.getByLabel(/username/i).fill('charon');
+      await dialog.getByLabel(/^password/i).fill('super-secret-password');
+      return dialog;
+    }
+
+    test.fixme(
+      'should show the server message when an http:// address is saved without the option ticked',
+      async ({ page, adminUser }) => {
+        await loginUser(page, adminUser);
+        await setupRemoteTargets(page, []);
+
+        await page.route('**/api/v1/backups/remote-targets', async (route) => {
+          if (route.request().method() === 'POST') {
+            await route.fulfill({ status: 400, json: { error: serverMessage } });
+          } else {
+            await route.continue();
+          }
+        });
+
+        await page.goto('/tasks/backups');
+        await waitForLoadingComplete(page);
+
+        await test.step('Fill the form with an http:// address and leave the option unticked', async () => {
+          const dialog = await fillHttpWebDAVForm(page);
+          await expect(dialog.getByLabel(/plain http|allow insecure http/i)).not.toBeChecked();
+          await dialog.getByRole('button', { name: /save|create/i }).click();
+        });
+
+        await test.step('Show the server message in an error toast', async () => {
+          await waitForToast(page, /must use https/i, { type: 'error' });
+        });
+      }
+    );
+
+    test.fixme(
+      'should show the warning and send allow_insecure_http when the option is ticked',
+      async ({ page, adminUser }) => {
+        await loginUser(page, adminUser);
+        await setupRemoteTargets(page, []);
+
+        let createBody: Record<string, unknown> | undefined;
+        await page.route('**/api/v1/backups/remote-targets', async (route) => {
+          if (route.request().method() === 'POST') {
+            createBody = route.request().postDataJSON();
+            await route.fulfill({
+              status: 201,
+              json: buildWebDAVTargetFixture({
+                name: 'Plain HTTP NAS',
+                config: {
+                  url: httpUrl,
+                  username: 'charon',
+                  base_path: '',
+                  insecure_skip_verify: false,
+                  allow_insecure_http: true,
+                },
+              }),
+            });
+          } else {
+            await route.continue();
+          }
+        });
+
+        await page.goto('/tasks/backups');
+        await waitForLoadingComplete(page);
+
+        await test.step('Tick the option and see the warning', async () => {
+          const dialog = await fillHttpWebDAVForm(page);
+          await dialog.getByLabel(/plain http|allow insecure http/i).check();
+          await expect(dialog.getByText(/unencrypted|not encrypted/i)).toBeVisible();
+        });
+
+        await test.step('Submit and send the flag with the http:// address', async () => {
+          const dialog = page.getByRole('dialog');
+          await Promise.all([
+            page.waitForResponse(
+              (r) => r.url().includes('/api/v1/backups/remote-targets') && r.request().method() === 'POST'
+            ),
+            dialog.getByRole('button', { name: /save|create/i }).click(),
+          ]);
+
+          const config = createBody?.config as { webdav?: Record<string, unknown> };
+          expect(config?.webdav?.url).toBe(httpUrl);
+          expect(config?.webdav?.allow_insecure_http).toBe(true);
+        });
+      }
+    );
+  });
 });
