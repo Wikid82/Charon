@@ -625,6 +625,9 @@
     },
     "settingUpdated": "Security setting updated",
     "settingUpdateFailed": "Failed to update setting: {{error}}",
+    "upstreamNameChecks": {
+      "unavailable": "Upstream name checks are not running. Forward target names are checked when a host is saved."
+    },
     "enforcement": {
       "acl": {
         "geoip_unavailable": "Seznamy zemí nejsou vynucovány: databáze GeoIP v této instalaci chybí. Ke všem těmto hostitelům se mohou dostat všichni, dokud nebude databáze k dispozici. Viz dokumentace."
