@@ -227,10 +227,6 @@ func (c *loadCapturingCaddyClient) Load(_ context.Context, cfg *caddy.Config) er
 
 func (c *loadCapturingCaddyClient) Ping(context.Context) error { return nil }
 
-func (c *loadCapturingCaddyClient) GetConfig(context.Context) (*caddy.Config, error) {
-	return c.last(), nil
-}
-
 func (c *loadCapturingCaddyClient) last() *caddy.Config {
 	c.mu.Lock()
 	defer c.mu.Unlock()

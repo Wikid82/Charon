@@ -23,6 +23,7 @@ import (
 	"github.com/Wikid82/charon/backend/internal/crypto"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/models"
+	"github.com/Wikid82/charon/backend/internal/redact"
 	"github.com/Wikid82/charon/backend/internal/security"
 	"github.com/Wikid82/charon/backend/internal/security/selfhop"
 )
@@ -73,7 +74,6 @@ type DNSProviderConfig struct {
 type CaddyClient interface {
 	Load(ctx context.Context, config *Config) error
 	Ping(ctx context.Context) error
-	GetConfig(ctx context.Context) (*Config, error)
 }
 
 // Manager orchestrates Caddy configuration lifecycle: generate, validate, apply, rollback.
@@ -760,13 +760,17 @@ func (m *Manager) rotateSnapshots(keep int) error {
 	return nil
 }
 
+// maxStoredApplyErrorBytes bounds the apply message kept in the history. An apply and its rollback can both fail,
+// so the joined message can be longer than one admin error.
+const maxStoredApplyErrorBytes = 4 << 10
+
 // recordConfigChange stores an audit record in the database.
 func (m *Manager) recordConfigChange(configHash string, success bool, errorMsg string) {
 	record := models.CaddyConfig{
 		ConfigHash: configHash,
 		AppliedAt:  time.Now(),
 		Success:    success,
-		ErrorMsg:   errorMsg,
+		ErrorMsg:   redact.Truncate(errorMsg, maxStoredApplyErrorBytes),
 	}
 
 	// Best effort - don't fail if audit logging fails
@@ -776,11 +780,6 @@ func (m *Manager) recordConfigChange(configHash string, success bool, errorMsg s
 // Ping checks if Caddy is reachable.
 func (m *Manager) Ping(ctx context.Context) error {
 	return m.client.Ping(ctx)
-}
-
-// GetCurrentConfig retrieves the running config from Caddy.
-func (m *Manager) GetCurrentConfig(ctx context.Context) (*Config, error) {
-	return m.client.GetConfig(ctx)
 }
 
 // computeEffectiveFlags reads runtime settings to determine whether Cerberus

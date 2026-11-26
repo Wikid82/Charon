@@ -2,7 +2,6 @@ package caddy
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -55,32 +54,6 @@ func TestClient_Load_Failure(t *testing.T) {
 	require.Contains(t, err.Error(), "400")
 }
 
-func TestClient_GetConfig_Success(t *testing.T) {
-	testConfig := &Config{
-		Apps: Apps{
-			HTTP: &HTTPApp{
-				Servers: map[string]*Server{
-					"test": {Listen: []string{":80"}},
-				},
-			},
-		},
-	}
-
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(t, "/config/", r.URL.Path)
-		require.Equal(t, http.MethodGet, r.Method)
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(testConfig)
-	}))
-	defer server.Close()
-
-	client := NewClientWithExpectedPort(server.URL, expectedPortFromURL(t, server.URL))
-	config, err := client.GetConfig(context.Background())
-	require.NoError(t, err)
-	require.NotNil(t, config)
-	require.NotNil(t, config.Apps.HTTP)
-}
-
 func TestClient_Ping_Success(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -111,32 +84,6 @@ func TestClient_Ping_CreateRequestFailure(t *testing.T) {
 	require.Error(t, err)
 }
 
-func TestClient_GetConfig_Failure(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusInternalServerError)
-		_, _ = w.Write([]byte("internal error"))
-	}))
-	defer server.Close()
-
-	client := NewClientWithExpectedPort(server.URL, expectedPortFromURL(t, server.URL))
-	_, err := client.GetConfig(context.Background())
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "500")
-}
-
-func TestClient_GetConfig_InvalidJSON(t *testing.T) {
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte("invalid json"))
-	}))
-	defer server.Close()
-
-	client := NewClientWithExpectedPort(server.URL, expectedPortFromURL(t, server.URL))
-	_, err := client.GetConfig(context.Background())
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "decode response")
-}
-
 func TestClient_Ping_Failure(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
@@ -163,10 +110,6 @@ func TestClient_NetworkErrors(t *testing.T) {
 	client := NewClientWithExpectedPort("http://127.0.0.1:1", 1)
 
 	err := client.Load(context.Background(), &Config{})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "execute request")
-
-	_, err = client.GetConfig(context.Background())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "execute request")
 }
@@ -197,18 +140,6 @@ func TestClient_Ping_TransportError(t *testing.T) {
 	require.Contains(t, err.Error(), "caddy unreachable")
 }
 
-func TestClient_GetConfig_BaseURLNil_ReturnsError(t *testing.T) {
-	client := &Client{
-		baseURL:    nil,
-		httpClient: http.DefaultClient,
-		initErr:    nil,
-	}
-
-	_, err := client.GetConfig(context.Background())
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "base URL is not configured")
-}
-
 func TestClient_RequestCreationErrors_FromInvalidResolvedURL(t *testing.T) {
 	client := &Client{
 		baseURL: &url.URL{Scheme: "http", Host: "example.com\n"},
@@ -216,10 +147,6 @@ func TestClient_RequestCreationErrors_FromInvalidResolvedURL(t *testing.T) {
 	}
 
 	err := client.Load(context.Background(), &Config{})
-	require.Error(t, err)
-	require.Contains(t, err.Error(), "create request")
-
-	_, err = client.GetConfig(context.Background())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "create request")
 

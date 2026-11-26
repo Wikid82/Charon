@@ -198,9 +198,6 @@ type switchableLoadClient struct {
 
 func (c *switchableLoadClient) Load(context.Context, *caddy.Config) error { return c.loadErr }
 func (c *switchableLoadClient) Ping(context.Context) error                { return nil }
-func (c *switchableLoadClient) GetConfig(context.Context) (*caddy.Config, error) {
-	return &caddy.Config{}, nil
-}
 
 // ruleSetUUID is the uuid of the ruleset the status fixture creates; DELETE accepts it in place of the numeric id.
 const ruleSetUUID = "9b2f7c1e-5d3a-4f6b-8c2d-1a0b9e8f7d6c"

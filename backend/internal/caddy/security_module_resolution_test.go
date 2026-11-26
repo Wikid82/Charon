@@ -304,10 +304,6 @@ func (c *recordingCaddyClient) Load(_ context.Context, cfg *Config) error {
 
 func (c *recordingCaddyClient) Ping(context.Context) error { return nil }
 
-func (c *recordingCaddyClient) GetConfig(context.Context) (*Config, error) {
-	return &Config{}, nil
-}
-
 // TestBuildRateLimitHandler_UnsetThresholdsReportsReason describes an enabled rate limit with zero thresholds:
 // no handler is built and the enforcement report carries reason thresholds_unset.
 func TestBuildRateLimitHandler_UnsetThresholdsReportsReason(t *testing.T) {
