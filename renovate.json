@@ -117,12 +117,12 @@
     },
     {
       "customType": "regex",
-      "description": "Track Alpine apk package floors (libxml2, ca-certificates, openssl) via Repology in Dockerfile. depName is <alpine repo>/<package> (e.g. alpine_3_24/libxml2) and must follow the ALPINE_IMAGE branch.",
+      "description": "Track Alpine apk package floors (libxml2, ca-certificates, openssl, musl) via Repology in Dockerfile. depName is <alpine repo>/<package> (e.g. alpine_3_24/libxml2) and must follow the ALPINE_IMAGE branch.",
       "managerFilePatterns": [
         "/^Dockerfile$/"
       ],
       "matchStrings": [
-        "#\\s*renovate:\\s*datasource=(?<datasource>repology)\\s+depName=(?<depName>[^\\s]+)\\s+versioning=(?<versioning>[^\\s]+)\\s*\\nARG (?:LIBXML2|CA_CERTIFICATES|OPENSSL)_VERSION=(?<currentValue>[^\\s]+)"
+        "#\\s*renovate:\\s*datasource=(?<datasource>repology)\\s+depName=(?<depName>[^\\s]+)\\s+versioning=(?<versioning>[^\\s]+)\\s*\\nARG (?:LIBXML2|CA_CERTIFICATES|OPENSSL|MUSL)_VERSION=(?<currentValue>[^\\s]+)"
       ]
     },
     {
@@ -1085,6 +1085,30 @@
         "alpine",
         "node",
         "tonistiigi/xx"
+      ],
+      "matchUpdateTypes": [
+        "minor",
+        "patch",
+        "pin",
+        "digest"
+      ],
+      "groupName": "toolchain",
+      "groupSlug": "toolchain",
+      "prPriority": 10,
+      "addLabels": [
+        "toolchain"
+      ]
+    },
+    {
+      "description": "TOOLCHAIN group (C): the shared musl floor (MUSL_VERSION) is the one Alpine apk floor that feeds scripts/toolchain-key.sh (CrowdSec is CGO-linked against it and the toolchain-runtime image installs it), so it joins the toolchain PR instead of dockerfile-non-major. Placed after rule A so it overrides that rule's alpine_*/ exclusion.",
+      "matchManagers": [
+        "custom.regex"
+      ],
+      "matchFileNames": [
+        "Dockerfile"
+      ],
+      "matchDepNames": [
+        "/^alpine_[^/]+\\/musl$/"
       ],
       "matchUpdateTypes": [
         "minor",

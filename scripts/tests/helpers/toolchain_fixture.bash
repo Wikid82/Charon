@@ -46,6 +46,7 @@ tf_write_dockerfile() {
   local golang_digest="${TF_GOLANG_DIGEST:-sha256:cf6fca6641884b8433441b2b0652976f975e1d0fdd26d177eaaf8596087f3125}"
   local alpine_image="${TF_ALPINE_IMAGE:-alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b}"
   local xx_pin="${TF_XX_PIN:-tonistiigi/xx:1.9.0@sha256:c64defb9ed5a91eacb37f96ccc3d4cd72521c4bd18d5442905b95e2226b0e707}"
+  local musl_version="${TF_MUSL_VERSION:-1.2.6-r3}"
 
   cat > "$TF_DF" <<EOF
 # syntax=docker/dockerfile:1
@@ -57,6 +58,7 @@ ARG XNET_VERSION=0.58.0
 ARG XCRYPTO_VERSION=0.56.0
 ARG KLAUSPOST_COMPRESS_VERSION=1.20.0
 ARG GRPC_VERSION=1.83.1
+ARG MUSL_VERSION=${musl_version}
 ARG CADDY_VERSION=${caddy_version}
 ARG CADDY_PATCH_SCENARIO=B
 ARG CADDY_SECURITY_VERSION=1.1.64

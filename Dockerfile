@@ -44,6 +44,18 @@ ARG ALPINE_IMAGE=alpine:3.24.4@sha256:f59abe656b692d901e184be3445e08478660210859
 # renovate: datasource=apk depName=zlib versioning=loose
 ARG ZLIB_VERSION=1.4-r0
 
+# ---- Shared musl Floor ----
+# musl (libc), musl-dev (headers) and musl-utils all come from the same Alpine `musl` aport,
+# so ONE version floor covers every place they are installed: the cross-compile linker sysroots
+# of gosu-builder / backend-builder / crowdsec-inline (CrowdSec and the backend are CGO-linked
+# against it), the toolchain-runtime image, and the final runtime image. It is a minimum-version
+# floor (`>=`): the build always pulls the newest package Alpine publishes and can never install
+# an older one. Renovate (repology, Alpine v3.24 repo) raises the floor once a patched release
+# reaches the branch. The `alpine_3_24` repo in depName must follow the ALPINE_IMAGE branch.
+# MUSL_VERSION feeds scripts/toolchain-key.sh, so a bump rebuilds the prebuilt toolchain image.
+# renovate: datasource=repology depName=alpine_3_24/musl versioning=loose
+ARG MUSL_VERSION=1.2.6-r3
+
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
 ARG CROWDSEC_VERSION=1.8.3-rc1
@@ -236,13 +248,14 @@ ARG TARGETOS
 ARG TARGETARCH
 # renovate: datasource=github-releases depName=tianon/gosu
 ARG GOSU_VERSION=1.17
+ARG MUSL_VERSION
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache git clang lld
 # hadolint ignore=DL3059
 # hadolint ignore=DL3018
 # Install both musl-dev (headers) and musl (runtime library) for cross-compilation linker
-RUN xx-apk add --no-cache gcc musl-dev musl
+RUN xx-apk add --no-cache gcc "musl-dev>=${MUSL_VERSION}" "musl>=${MUSL_VERSION}"
 
 # Clone and build gosu from source with modern Go
 # Retry: survive transient network failures during clone.
@@ -343,13 +356,14 @@ SHELL ["/bin/ash", "-o", "pipefail", "-c"]
 ARG TARGETPLATFORM
 ARG TARGETARCH
 ARG SQLITE_VERSION
+ARG MUSL_VERSION
 # hadolint ignore=DL3018
 RUN apk add --no-cache git clang lld
 # hadolint ignore=DL3059
 # hadolint ignore=DL3018
 # Install musl (headers + runtime) and gcc for cross-compilation linker
 # The musl runtime library and gcc crt/libgcc are required by the linker
-RUN xx-apk add --no-cache gcc musl-dev musl sqlite-dev
+RUN xx-apk add --no-cache gcc "musl-dev>=${MUSL_VERSION}" "musl>=${MUSL_VERSION}" sqlite-dev
 
 # Ensure the ARM64 musl loader exists for qemu-aarch64 cross-linking
 # Without this, the linker fails with: qemu-aarch64: Could not open '/lib/ld-musl-aarch64.so.1'
@@ -826,13 +840,14 @@ ARG XCRYPTO_VERSION
 ARG XMOD_VERSION
 ARG KLAUSPOST_COMPRESS_VERSION
 ARG GRPC_VERSION
+ARG MUSL_VERSION
 
 # hadolint ignore=DL3018
 RUN apk add --no-cache git clang lld
 # hadolint ignore=DL3059
 # hadolint ignore=DL3018
 # Install both musl-dev (headers) and musl (runtime library) for cross-compilation linker
-RUN xx-apk add --no-cache gcc musl-dev musl
+RUN xx-apk add --no-cache gcc "musl-dev>=${MUSL_VERSION}" "musl>=${MUSL_VERSION}"
 
 # Clone CrowdSec source
 # Retry: survive transient network failures during clone.
@@ -958,8 +973,10 @@ RUN mkdir -p /crowdsec-out/config && \
 FROM ${ALPINE_IMAGE} AS toolchain-runtime
 ARG CHARON_TOOLCHAIN_TAG
 ARG ZLIB_VERSION
-# Pin zlib so the published toolchain image does not carry the stale base-layer build.
-RUN apk add --no-cache "zlib=${ZLIB_VERSION}"
+ARG MUSL_VERSION
+# Pin zlib and floor musl so the published toolchain image does not carry stale base-layer builds.
+# hadolint ignore=DL3018
+RUN apk add --no-cache --upgrade "zlib=${ZLIB_VERSION}" "musl>=${MUSL_VERSION}" "musl-utils>=${MUSL_VERSION}"
 COPY --from=caddy-inline    /usr/bin/caddy          /usr/bin/caddy
 COPY --from=crowdsec-inline /crowdsec-out/crowdsec  /crowdsec-out/crowdsec
 COPY --from=crowdsec-inline /crowdsec-out/cscli     /crowdsec-out/cscli
@@ -1006,6 +1023,10 @@ ARG LIBXML2_VERSION=2.13.9-r3
 # the toolchain-runtime stage.
 ARG ZLIB_VERSION
 #
+# musl: minimum-version floor is declared globally (MUSL_VERSION, top of file) and shared with
+# every stage that installs musl.
+ARG MUSL_VERSION
+#
 # ca-certificates is a minimum-version floor so the image always carries a Mozilla bundle that
 # distrusts the compromised eMudhra intermediates' roots (Oct 2026) even when the base image
 # layer is stale; Renovate (repology, Alpine v3.24 repo) raises the floor as newer bundles ship.
@@ -1027,7 +1048,7 @@ RUN apk add --no-cache \
     bash "ca-certificates>=${CA_CERTIFICATES_VERSION}" "ca-certificates-bundle>=${CA_CERTIFICATES_VERSION}" sqlite-libs sqlite tzdata gettext libcap libcap-utils \
     c-ares busybox-extras "libxml2>=${LIBXML2_VERSION}" "zlib=${ZLIB_VERSION}" \
     && apk add --no-cache "libcrypto3>=${OPENSSL_VERSION}" "libssl3>=${OPENSSL_VERSION}" \
-    && apk upgrade --no-cache musl musl-utils \
+    && apk add --no-cache --upgrade "musl>=${MUSL_VERSION}" "musl-utils>=${MUSL_VERSION}" \
     # CVE-2026-34743: xz-libs DoS via buffer overflow in index decoding (fixed in 5.8.3-r0)
     xz-libs
 

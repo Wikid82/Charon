@@ -8,6 +8,7 @@
 #   * changes when the digest-pinned golang base moves
 #   * changes when the tonistiigi/xx pin moves
 #   * changes when the ALPINE_IMAGE pin moves
+#   * changes when the shared MUSL_VERSION floor moves
 #   * does NOT change when .trivyignore changes (scan-time filter, not an input)
 #   * works when no .trivyignore file exists (it is not a required input)
 #   * fails loudly if stage extraction breaks
@@ -84,6 +85,14 @@ key_of() { bash "$TF_ROOT/scripts/toolchain-key.sh" "$TF_DF"; }
 @test "changes when the ALPINE_IMAGE pin moves" {
   before="$(key_of)"
   export TF_ALPINE_IMAGE='alpine:3.25.0@sha256:2222222222222222222222222222222222222222222222222222222222222222'
+  tf_write_dockerfile
+  after="$(key_of)"
+  [ "$before" != "$after" ]
+}
+
+@test "changes when the shared MUSL_VERSION floor is bumped" {
+  before="$(key_of)"
+  export TF_MUSL_VERSION=1.2.6-r6
   tf_write_dockerfile
   after="$(key_of)"
   [ "$before" != "$after" ]
