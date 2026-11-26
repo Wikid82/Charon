@@ -19,8 +19,8 @@ ARG CHARON_TOOLCHAIN_IMAGE=ghcr.io/wikid82/charon-toolchain
 # NOT Renovate-tracked (a content-hash tag has no series to follow, N7) — the
 # toolchain-image.yml bot owns these two lines. DIGEST is the arch-independent
 # manifest-list (OCI index) digest, so one pin covers linux/amd64 + linux/arm64.
-ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-815e6c997cad11e8
-ARG CHARON_TOOLCHAIN_DIGEST=sha256:a68f02b0fbae5bb93f8fbe0d94d0287f78a1b3b03c846368385360e922128fe5
+ARG CHARON_TOOLCHAIN_TAG=caddy-crowdsec-feee60ba50328447
+ARG CHARON_TOOLCHAIN_DIGEST=sha256:5bbc38dcb62c1f48f7b6cb76fa49630e8e5c6d88afae3fb971cdaf0ee6bff1fd
 
 # Stage selector — default consumes the prebuilt toolchain image (no compile).
 # Fork PRs / bootstrap / offline builds pass
@@ -46,7 +46,7 @@ ARG ZLIB_VERSION=1.4-r0
 
 # ---- Shared CrowdSec Version ----
 # renovate: datasource=github-releases depName=crowdsecurity/crowdsec
-ARG CROWDSEC_VERSION=1.8.2
+ARG CROWDSEC_VERSION=1.8.3-rc1
 
 # ---- Shared Go Security Patches ----
 # renovate: datasource=github-tags depName=expr-lang/expr extractVersion=^v(?<version>.+)$

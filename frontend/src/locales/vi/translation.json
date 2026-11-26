@@ -625,6 +625,9 @@
     },
     "settingUpdated": "Security setting updated",
     "settingUpdateFailed": "Failed to update setting: {{error}}",
+    "upstreamNameChecks": {
+      "unavailable": "Upstream name checks are not running. Forward target names are checked when a host is saved."
+    },
     "enforcement": {
       "acl": {
         "geoip_unavailable": "Danh sách quốc gia không được áp dụng: cơ sở dữ liệu GeoIP không có trong bản cài đặt này. Mọi người đều có thể truy cập các máy chủ đó cho đến khi cơ sở dữ liệu được cung cấp. Xem tài liệu."

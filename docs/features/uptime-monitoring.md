@@ -162,7 +162,7 @@ Monitors can check addresses on your own network:
 - Tailscale and other overlay networks (`100.64.0.0/10`)
 - IPv6 private addresses (`fc00::/7`)
 - Fake-IP addresses used by some VPN and proxy tools (`198.18.0.0/15`)
-- The names Docker Desktop, OrbStack and Podman use for the host machine: `host.docker.internal`, `host.containers.internal` and `gateway.docker.internal`
+- The names Docker Desktop, OrbStack and Podman use for the host machine: `host.docker.internal`, `host.containers.internal`, `gateway.docker.internal` and `host.orb.internal`
 
 Charon will not check:
 

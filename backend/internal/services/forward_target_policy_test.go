@@ -681,3 +681,23 @@ func TestForwardTarget_BlockedRangesStayRefusedOnOrdinaryPort(t *testing.T) {
 		})
 	}
 }
+
+func TestRefusesListenerTarget_OrbStackHostNameIsThisMachine(t *testing.T) {
+	db := setupListenerPolicyDB(t)
+	seedAgentPort(t, db, "a", 2375)
+	useListenerSource(t, fakeListenerSource{})
+	// The name resolves to a remote address, so only the gateway list can refuse it.
+	stubLookup(t, func(_ context.Context, name string) ([]net.IPAddr, error) {
+		if name == "host.orb.internal" {
+			return []net.IPAddr{{IP: net.ParseIP("203.0.113.9")}}, nil
+		}
+		return nil, errors.New("no such host")
+	})
+
+	got, err := refusesListenerTarget(db, "host.orb.internal", 2375)
+	require.NoError(t, err)
+	assert.True(t, got, "gateway name on a listener port")
+	got, err = refusesListenerTarget(db, "host.orb.internal", 8080)
+	require.NoError(t, err)
+	assert.False(t, got, "gateway name on a port Charon does not use")
+}

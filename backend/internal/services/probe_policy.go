@@ -149,31 +149,53 @@ func logWarnReservedPorts(err error) {
 	logger.Log().WithError(err).Warn("destination check: reserved port set unavailable, refusing probe")
 }
 
-// addrCache holds an address snapshot for a fixed time. When a reload returns
-// nothing, the previous non-empty snapshot is kept.
+// addrCache holds an address snapshot for a fixed time. The first call loads
+// synchronously. After the snapshot expires, callers get the previous value at
+// once while one background refresh runs, so a query never waits on a reload.
+// When a reload returns nothing, the previous non-empty snapshot is kept.
 type addrCache struct {
-	mu      sync.Mutex
-	ttl     time.Duration
-	now     func() time.Time
-	load    func() []netip.Addr
-	value   []netip.Addr
-	fetched time.Time
-	loaded  bool
+	mu         sync.Mutex
+	ttl        time.Duration
+	now        func() time.Time
+	load       func() []netip.Addr
+	value      []netip.Addr
+	fetched    time.Time
+	loaded     bool
+	refreshing bool
 }
 
 func (c *addrCache) get() []netip.Addr {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	now := c.now()
-	if c.loaded && now.Sub(c.fetched) < c.ttl {
+	if !c.loaded {
+		c.store(c.load(), now)
 		return c.value
 	}
-	fresh := c.load()
+	if now.Sub(c.fetched) >= c.ttl && !c.refreshing {
+		c.refreshing = true
+		go c.refreshInBackground(c.load, now)
+	}
+	return c.value
+}
+
+// refreshInBackground runs one reload and stores it. It takes the load function
+// and the start time as arguments so it never reads fields the caller may change.
+func (c *addrCache) refreshInBackground(load func() []netip.Addr, started time.Time) {
+	fresh := load()
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.store(fresh, started)
+	c.refreshing = false
+}
+
+// store keeps fresh unless it is empty and a previous non-empty value exists.
+// The caller holds c.mu.
+func (c *addrCache) store(fresh []netip.Addr, fetchedAt time.Time) {
 	if len(fresh) > 0 || len(c.value) == 0 {
 		c.value = fresh
 	}
-	c.fetched, c.loaded = now, true
-	return c.value
+	c.fetched, c.loaded = fetchedAt, true
 }
 
 func (c *addrCache) reset() {

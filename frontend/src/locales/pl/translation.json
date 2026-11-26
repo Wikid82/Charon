@@ -625,6 +625,9 @@
     },
     "settingUpdated": "Security setting updated",
     "settingUpdateFailed": "Failed to update setting: {{error}}",
+    "upstreamNameChecks": {
+      "unavailable": "Upstream name checks are not running. Forward target names are checked when a host is saved."
+    },
     "enforcement": {
       "acl": {
         "geoip_unavailable": "Listy krajów nie są egzekwowane: w tej instalacji brakuje bazy danych GeoIP. Każdy może połączyć się z tymi hostami, dopóki baza nie zostanie dostarczona. Zobacz dokumentację."

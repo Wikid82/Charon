@@ -207,6 +207,8 @@ graph TB
 │   │   │   └── pending_restore.go      # Boot-time pending-restore swap consumer
 │   │   ├── changelog/          # "What's New" changelog service (embedded JSON, no runtime network calls)
 │   │   │   └── data/changelog.json     # Build-time generated changelog data (see "Release Workflow")
+│   │   ├── network/            # Outbound address rules: guarded dialers, safe HTTP clients, upstream name answerer
+│   │   │   └── upstreamdns/            # Loopback DNS answerer for forward target names (filters each answer)
 │   │   └── utils/              # Helper functions
 │   ├── pkg/                    # Public reusable packages
 │   │   └── safehttp/           # Validated outbound HTTP helpers for in-tree and community DNS provider plugins
@@ -606,6 +608,8 @@ Key behaviour:
 
 **Host writes and refused applies:** A proxy or redirection host write (create, update, delete, bulk edit) is applied to Caddy before it is kept. If Caddy refuses the config, `applyOrRestore` (`internal/api/handlers/proxy_apply.go`) puts the database back to its pre-write state through `internal/services/host_restore.go` (row, IDs and locations, guarded so a newer edit by another writer is not overwritten), then answers 500 `proxy_apply_failed`. When Caddy's own rollback also failed, Charon makes one best-effort re-apply after the restore.
 
+**Upstream name checks:** Caddy's `reverse_proxy` handlers resolve forward target names through a loopback UDP answerer (`internal/network/upstreamdns`, started in `cmd/api/main.go` after `SetSelfHop` and set with `SetUpstreamResolver`). The answerer applies the probe address policy and the reserved-port rule to each answer, and leaves out addresses that are refused. Advanced configuration can name a target only with the standard HTTP transport (`caddy/upstream_resolver.go`, `NameUpstreamWithoutResolver`). The resolver is added by `caddy.ApplyUpstreamResolver` inside `Manager.load`, the one function both the apply and rollback paths use, so validation, snapshots and the audit hash see the config without it. `Manager.UpstreamNameChecksAvailable` feeds the `upstream_name_checks` field of the security status. Shutdown order: `cmd/api/main.go` closes the answerer last, after the emergency server stops and "Server shutdown complete" is logged, so Caddy can keep resolving names while Charon drains.
+
 **RedirectionHost (peer resource to ProxyHost):** `internal/models/redirection_host.go`
 is a separate, sibling model (same pattern as `ProxyGroup`) — not a mode flag
 on `ProxyHost` — for domains that should receive an HTTP redirect
@@ -753,6 +757,8 @@ export const useProxyHosts = () => {
 4. JSON sent to Caddy via `/config/` API endpoint
 5. Caddy validates and applies new configuration
 6. Traffic flows through new proxy route
+
+When Caddy connects to a forward target by name, it looks the name up through Charon's loopback answerer, which leaves out refused addresses (see [Caddy Manager](#caddy-manager-internalcaddy)).
 
 **Route Pattern: Main Route (plus a recovery route for Charon's own host)**
 
@@ -1089,8 +1095,12 @@ pin (the stage already carries ~40 such pins).
 - **Outbound Destination Checks:** Block requests to private IP ranges in webhooks/URL
   validation. Charon's own probes (uptime monitors, connection tests, and
   forward target saves) use one address policy in `services/probe_policy.go`.
-  `network.NewGuardedDialer` checks each literal address at connect time, so a
-  name whose records change after it was saved cannot reach a refused address.
+  `network.NewGuardedDialer` checks each literal address at connect time.
+  Caddy's connections to forward target names are checked too: the loopback
+  answerer in `network/upstreamdns` (started and closed by `cmd/api/main.go`)
+  resolves each name through the same policy and returns only allowed addresses,
+  and `caddy.ApplyUpstreamResolver` points every `reverse_proxy` at it when a config
+  is loaded (`Manager.load`). Snapshots and the audit hash never carry that resolver.
   The always-blocked cloud instance list (`network/safeclient.go`) is checked
   before any allow rule. Probes dial through `services.NewProbeDialer`.
   DNS provider plugins, which cannot import `internal/`, use the

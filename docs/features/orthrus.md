@@ -398,16 +398,20 @@ The registry check needs a note. Read-only means the proxy can't change anything
 When you save a proxy host or a location, Charon checks its forward target. It refuses the save if the target is:
 
 - A link-local address (`169.254.0.0/16` or `fe80::/10`), a cloud instance service address such as `169.254.169.254`, or another reserved address such as multicast or broadcast
-- This machine on a port Charon uses for itself: the agent proxy ports and the internal ports opened for connected agents, the internal admin port (2019), the bundled CrowdSec port (8085), and the emergency server port while that server is turned on. This applies to `localhost`, `127.0.0.1`, the machine's own addresses, and the Docker and Podman host names (`host.docker.internal`, `host.containers.internal`, `gateway.docker.internal`).
+- This machine on a port Charon uses for itself: the agent proxy ports and the internal ports opened for connected agents, the internal admin port (2019), the bundled CrowdSec port (8085), and the emergency server port while that server is turned on. This applies to `localhost`, `127.0.0.1`, the machine's own addresses, and the Docker, OrbStack and Podman host names (`host.docker.internal`, `host.containers.internal`, `gateway.docker.internal`, `host.orb.internal`).
 - The agent-name form (`orthrus:<agent>`). It is not accepted as a forward target at all.
 
 Everything else is allowed, including private network addresses, loopback on ports Charon does not use, Tailscale-style addresses (`100.64.0.0/10`), IPv6 private addresses, and the fake-IP range `198.18.0.0/15`. The IPv4 address `0.0.0.0` counts as loopback: it is allowed on ports Charon does not use and refused on the ports above, like `127.0.0.1`.
 
 The refusal message is the same for every reason: "This forward target is not allowed." It does not say which rule applied, so compare the address with the list above.
 
-**Names:** Charon looks up a name when you save the host and refuses the save if any address the name points to is refused. If the lookup fails or takes too long, the host is saved anyway. Charon does not look the name up again after that, and the proxy resolves the name again on each visit. A name whose address changes later is therefore not caught.
+**Names:** When you save a host, Charon looks up the name and refuses the save if any address the name points to is refused. If the lookup fails or takes too long, the host is still saved.
 
-**Hosts saved before a rule applied:** A host whose target is now refused, or whose agent port has changed, is left out of the generated configuration, so its site is not served. Charon writes a warning to the log that names the host, and the host list shows **Not in the active configuration** next to it. Edit the forward target to bring the host back.
+Every time your proxy opens a connection to a name, Charon checks each address that the name points to, using the same rules as above. Addresses that are refused are never connected to. If every address of a name is refused, the site shows an error (502), and the log records that addresses were left out. A name that points to a port Charon keeps for itself is refused in the same way. The Security page shows whether these name checks are running (see [Security](security.md)).
+
+Names listed in the container's own hosts file are read from that file, and the rule for ports Charon keeps still applies to the addresses they point to.
+
+**Hosts saved before a rule applied:** A host whose target is refused, or whose agent port has changed, is left out of the generated configuration, so its site is not served. Charon writes a warning to the log that names the host, and the host list shows **Not in the active configuration** next to it. Edit the forward target to bring the host back.
 
 **Advanced configuration (administrators):** Upstreams in a host's advanced configuration get the same checks. Charon refuses these:
 
@@ -417,6 +421,8 @@ The refusal message is the same for every reason: "This forward target is not al
 - Addresses Charon cannot read
 - Dynamic upstreams
 - Custom DNS resolvers for the transport
+- Upstreams given by name that use a special connection type: FastCGI (a protocol many PHP apps use), HTTP/3, or a network proxy setting. Use the plain IP address for those.
+- Health-check targets that point to a refused address, or to a port Charon uses for itself. A health-check port gets the same check, paired with each upstream address of the same host.
 
 Use a plain address and port instead, such as `192.168.1.20:8080`.
 

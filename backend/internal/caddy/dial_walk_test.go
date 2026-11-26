@@ -3,6 +3,7 @@ package caddy
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -114,4 +115,77 @@ func TestHostHasRefusedTarget_ChecksAdvancedConfig(t *testing.T) {
 	})
 	require.NoError(t, err)
 	assert.True(t, refused)
+}
+
+func TestWalkHealthCheckDials_UpstreamAndPortPairs(t *testing.T) {
+	t.Parallel()
+	doc := decodeDoc(t, `{"handler":"reverse_proxy",
+		"upstreams":[{"dial":"10.0.0.1:8080"},{"dial":"app.lan:9000"}],
+		"health_checks":{"active":{"upstream":"probe.lan:8081","port":8085}}}`)
+	var seen []string
+	require.NoError(t, WalkHealthCheckDials(doc, func(dial string) error {
+		seen = append(seen, dial)
+		return nil
+	}))
+	assert.ElementsMatch(t, []string{"probe.lan:8081", "10.0.0.1:8085", "app.lan:8085"}, seen)
+}
+
+func TestWalkHealthCheckDials_PortForms(t *testing.T) {
+	t.Parallel()
+	cases := map[string]struct {
+		port string
+		want []string
+	}{
+		"integer":      {`9000`, []string{"10.0.0.1:9000"}},
+		"string":       {`"9000"`, []string{"10.0.0.1:9000"}},
+		"fractional":   {`9000.5`, nil},
+		"zero":         {`0`, nil},
+		"above range":  {`70000`, nil},
+		"not a number": {`true`, nil},
+		"unparsable":   {`"abc"`, nil},
+	}
+	for name, tc := range cases {
+		t.Run(name, func(t *testing.T) {
+			doc := decodeDoc(t, `{"upstreams":[{"dial":"10.0.0.1:8080"}],"health_checks":{"active":{"port":`+tc.port+`}}}`)
+			var seen []string
+			require.NoError(t, WalkHealthCheckDials(doc, func(dial string) error {
+				seen = append(seen, dial)
+				return nil
+			}))
+			assert.Equal(t, tc.want, seen)
+		})
+	}
+}
+
+func TestWalkHealthCheckDials_StopsOnError(t *testing.T) {
+	t.Parallel()
+	doc := decodeDoc(t, `{"health_checks":{"active":{"upstream":"a:1"}}}`)
+	stop := errors.New("stop")
+	assert.ErrorIs(t, WalkHealthCheckDials(doc, func(string) error { return stop }), stop)
+	assert.NoError(t, WalkHealthCheckDials("scalar", func(string) error { return stop }))
+}
+
+func TestWalkAdvancedDials_CoversDialsAndHealthChecks(t *testing.T) {
+	t.Parallel()
+	doc := decodeDoc(t, `{"upstreams":[{"dial":"10.0.0.1:8080"}],"health_checks":{"active":{"upstream":"probe.lan:8081"}}}`)
+	var seen []string
+	require.NoError(t, WalkAdvancedDials(doc, func(dial string) error {
+		seen = append(seen, dial)
+		return nil
+	}))
+	assert.ElementsMatch(t, []string{"10.0.0.1:8080", "probe.lan:8081"}, seen)
+}
+
+func TestWalkHealthCheckDials_DecodedNumbers(t *testing.T) {
+	t.Parallel()
+	dec := json.NewDecoder(strings.NewReader(`{"upstreams":[{"dial":"10.0.0.1:8080"}],"health_checks":{"active":{"port":8085}}}`))
+	dec.UseNumber()
+	var doc any
+	require.NoError(t, dec.Decode(&doc))
+	var seen []string
+	require.NoError(t, WalkHealthCheckDials(doc, func(dial string) error {
+		seen = append(seen, dial)
+		return nil
+	}))
+	assert.Equal(t, []string{"10.0.0.1:8085"}, seen)
 }

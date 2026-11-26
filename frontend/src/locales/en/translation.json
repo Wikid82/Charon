@@ -640,6 +640,9 @@
     },
     "settingUpdated": "Security setting updated",
     "settingUpdateFailed": "Failed to update setting: {{error}}",
+    "upstreamNameChecks": {
+      "unavailable": "Upstream name checks are not running. Forward target names are checked when a host is saved."
+    },
     "enforcement": {
       "waf": {
         "no_ruleset": "The WAF is on, but no rule set is available to inspect requests. Add a rule set on the WAF page.",

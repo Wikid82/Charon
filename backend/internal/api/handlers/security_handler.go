@@ -215,7 +215,7 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 	}
 	h.addACLGeoIPReason(aclStatus, aclEnabled)
 
-	c.JSON(http.StatusOK, gin.H{
+	response := gin.H{
 		"cerberus": gin.H{"enabled": enabled},
 		"crowdsec": gin.H{
 			"mode":    crowdSecMode,
@@ -226,7 +226,11 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		"rate_limit":   rateLimitStatus,
 		"acl":          aclStatus,
 		"config_apply": latestConfigApplyState(h.db),
-	})
+	}
+	if status, ok := h.upstreamNameChecksStatus(); ok {
+		response["upstream_name_checks"] = status
+	}
+	c.JSON(http.StatusOK, response)
 }
 
 // settingModeLabel is the mode shown for a module whose settings key decided its state.

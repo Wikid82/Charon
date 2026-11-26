@@ -4,11 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/Wikid82/charon/backend/internal/models"
@@ -224,4 +226,33 @@ func TestClient_RequestCreationErrors_FromInvalidResolvedURL(t *testing.T) {
 	err = client.Ping(context.Background())
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "create request")
+}
+
+func TestClient_LoadJSON_PostsTheEncodedBody(t *testing.T) {
+	const body = `{"apps":{"http":{"servers":{"s":{"listen":[":443"]}}}}}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assert.Equal(t, "/load", r.URL.Path)
+		assert.Equal(t, http.MethodPost, r.Method)
+		assert.Equal(t, "application/json", r.Header.Get("Content-Type"))
+		received, err := io.ReadAll(r.Body)
+		assert.NoError(t, err)
+		assert.Equal(t, body, string(received))
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client := NewClientWithExpectedPort(server.URL, expectedPortFromURL(t, server.URL))
+	require.NoError(t, client.LoadJSON(context.Background(), []byte(body)))
+}
+
+func TestClient_LoadJSON_ReportsCaddyRejection(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		_, _ = w.Write([]byte("unknown field"))
+	}))
+	defer server.Close()
+
+	client := NewClientWithExpectedPort(server.URL, expectedPortFromURL(t, server.URL))
+	err := client.LoadJSON(context.Background(), []byte(`{}`))
+	require.ErrorContains(t, err, "caddy returned status 400: unknown field")
 }

@@ -106,7 +106,7 @@ func advancedDialHosts(raw string) []string {
 		return nil
 	}
 	var hosts []string
-	_ = caddy.WalkDials(doc, func(dial string) error {
+	_ = caddy.WalkAdvancedDials(doc, func(dial string) error {
 		if addr, err := caddy.ParseDial(dial); err == nil {
 			hosts = append(hosts, addr.Host)
 		}
@@ -211,10 +211,10 @@ func refuseAdvancedConfigTargets(tx *gorm.DB, raw string, v forwardVerdicts) err
 	if err := json.Unmarshal([]byte(raw), &doc); err != nil {
 		return fmt.Errorf("invalid advanced_config JSON: %w", err)
 	}
-	if caddy.HasDynamicUpstreams(doc) || caddy.HasTransportResolver(doc) {
+	if caddy.HasDynamicUpstreams(doc) || caddy.HasTransportResolver(doc) || caddy.NameUpstreamWithoutResolver(doc) {
 		return ErrForwardTargetAddress
 	}
-	return caddy.WalkDials(doc, func(dial string) error {
+	return caddy.WalkAdvancedDials(doc, func(dial string) error {
 		target, err := caddy.ParseDial(dial)
 		if err != nil {
 			return ErrForwardTargetAddress

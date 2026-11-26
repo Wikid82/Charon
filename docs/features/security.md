@@ -50,6 +50,12 @@ Every official release of Charon is digitally signed and comes with a complete p
 
 Charon doesn't run with full administrator rights inside its container — it uses only the narrow permissions it actually needs. That way, even in the unlikely event something goes wrong, the damage it could do is limited from the start.
 
+### 🧭 Checking Where Your Sites Send Traffic (Forward Target Checks)
+
+When one of your sites sends visitors to an app, Charon checks the address of that app. It refuses addresses that should never be reached through your site, such as cloud service addresses and the ports Charon uses for itself. The check applies when you save the site and every time the site connects to a name, so a name that later points somewhere else is still checked. [Learn more](orthrus.md#forward-targets).
+
+The Security page shows one small line of muted text when these name checks are not running: "Upstream name checks are not running. Forward target names are checked when a host is saved." Your sites keep working, and addresses given as plain IP numbers are still checked. Restart Charon to try again. If the line stays, check the log for the reason.
+
 ## Reporting a Security Issue
 
 Found something that looks like a security problem? We want to know. See [SECURITY.md](https://github.com/Wikid82/Charon/blob/main/SECURITY.md) for how to report it privately and safely.
