@@ -10,6 +10,7 @@ This guide covers common issues with DNS-01 ACME challenges and how to resolve t
 - [Provider-Specific Errors](#provider-specific-errors)
 - [Network and Firewall Issues](#network-and-firewall-issues)
 - [Credential Problems](#credential-problems)
+- [When Saving a Host Is Refused](#when-saving-a-host-is-refused)
 - [Debugging Tips](#debugging-tips)
 
 ## Connection Test Failures
@@ -370,6 +371,27 @@ cat /etc/resolv.conf
 2. Add to systemd service file, docker-compose, or .env file
 3. Never change encryption key (all credentials will be unrecoverable)
 4. If key is lost, reconfigure all DNS providers
+
+## When Saving a Host Is Refused
+
+Charon checks new proxy settings with Caddy (the part of Charon that serves your websites) before it keeps them. If Caddy does not accept the settings, Charon puts your previous settings back and shows a message that says the proxy could not be applied.
+
+### What You See
+
+- A message such as "proxy could not be applied", followed by a sentence from Caddy that explains the problem
+- The host still shows its old settings
+
+### How to Fix It
+
+1. Read the sentence from Caddy. It names the part that was refused.
+2. Open the DNS provider you entered for this host and check the values you typed, such as the API token. Look for missing or extra spaces, and for a token that belongs to a different service.
+3. Copy the value again from your provider's website, then save the host.
+
+### What the Message Shows
+
+- Passwords and API tokens are replaced with `[redacted]`.
+- Long messages are shortened.
+- Charon's own log (run `docker logs charon`) records each attempt to apply settings. Caddy's admin request lines are not written there after Charon applies its settings.
 
 ## Debugging Tips
 

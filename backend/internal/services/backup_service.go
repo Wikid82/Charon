@@ -147,6 +147,9 @@ type BackupService struct {
 	createBackupOpts func(BackupOptions) (*models.BackupRecord, error)
 	cleanupOld       func(int) (int, error)
 
+	// restoreFixups are the data fix-ups that run after a live restore, in registration order (AddRestoreFixup).
+	restoreFixups []restoreFixup
+
 	// CrowdSecDir is the source directory backed up into the archive's
 	// crowdsec/** entries (spec §3.2). Wiring into CreateBackup happens in
 	// Commit 3; this commit only threads the field through the constructor.
@@ -2016,4 +2019,18 @@ func (s *BackupService) extractZip(src, dest string, skipEntries map[string]stru
 // GetAvailableSpace returns the available disk space in bytes for the backup directory
 func (s *BackupService) GetAvailableSpace() (int64, error) {
 	return dbmaint.AvailableBytes(s.BackupDir)
+}
+
+// restoreFixup is a named data fix-up that runs after a live restore.
+type restoreFixup struct {
+	name string
+	run  func(ctx context.Context, db *gorm.DB) error
+}
+
+// AddRestoreFixup registers a data fix-up for the restored tables. It runs after a live rehydrate, in registration
+// order, after the encryption keys are re-registered and before the Caddy reload. A backup taken before the fix was
+// written needs it again, so every fix-up must be idempotent. A failure is reported as a warning and the restore
+// stands; the fix-up runs again at the next start.
+func (s *BackupService) AddRestoreFixup(name string, fn func(ctx context.Context, db *gorm.DB) error) {
+	s.restoreFixups = append(s.restoreFixups, restoreFixup{name: name, run: fn})
 }

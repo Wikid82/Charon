@@ -27,10 +27,6 @@ func (c *switchableCaddyClient) Load(_ context.Context, _ *Config) error {
 
 func (c *switchableCaddyClient) Ping(context.Context) error { return nil }
 
-func (c *switchableCaddyClient) GetConfig(context.Context) (*Config, error) {
-	return &Config{}, nil
-}
-
 // openEnforcementApplyDB opens an in-memory database with the tables ApplyConfig reads, and one enabled host, a
 // default security row in block mode and one ruleset.
 func openEnforcementApplyDB(t *testing.T) *gorm.DB {

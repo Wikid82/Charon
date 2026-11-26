@@ -23,9 +23,8 @@ import (
 
 type noopCaddyClient struct{}
 
-func (noopCaddyClient) Load(context.Context, *caddy.Config) error        { return nil }
-func (noopCaddyClient) Ping(context.Context) error                       { return nil }
-func (noopCaddyClient) GetConfig(context.Context) (*caddy.Config, error) { return &caddy.Config{}, nil }
+func (noopCaddyClient) Load(context.Context, *caddy.Config) error { return nil }
+func (noopCaddyClient) Ping(context.Context) error                { return nil }
 
 func serveDisable(t *testing.T, h *SecurityHandler, remoteAddr, body string) *httptest.ResponseRecorder {
 	t.Helper()

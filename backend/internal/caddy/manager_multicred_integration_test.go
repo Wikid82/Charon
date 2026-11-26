@@ -410,8 +410,6 @@ type MockClient struct {
 	LastLoadedConfig *Config
 	PingError        error
 	LoadError        error
-	GetConfigResult  *Config
-	GetConfigError   error
 }
 
 func (m *MockClient) Load(ctx context.Context, cfg *Config) error {
@@ -422,8 +420,4 @@ func (m *MockClient) Load(ctx context.Context, cfg *Config) error {
 
 func (m *MockClient) Ping(ctx context.Context) error {
 	return m.PingError
-}
-
-func (m *MockClient) GetConfig(ctx context.Context) (*Config, error) {
-	return m.GetConfigResult, m.GetConfigError
 }

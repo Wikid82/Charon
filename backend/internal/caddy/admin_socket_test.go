@@ -64,10 +64,6 @@ func TestClientDialsAdminSocket(t *testing.T) {
 
 	require.NoError(t, client.Ping(ctx))
 
-	cfg, err := client.GetConfig(ctx)
-	require.NoError(t, err)
-	require.NotNil(t, cfg)
-
 	require.NoError(t, client.Load(ctx, &Config{Apps: Apps{}}))
 }
 

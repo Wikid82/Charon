@@ -207,8 +207,7 @@ func (c *captureClient) Load(_ context.Context, cfg *Config) error {
 	c.loaded = append(c.loaded, cfg)
 	return nil
 }
-func (c *captureClient) Ping(context.Context) error                 { return nil }
-func (c *captureClient) GetConfig(context.Context) (*Config, error) { return &Config{}, nil }
+func (c *captureClient) Ping(context.Context) error { return nil }
 
 func newHopManager(t *testing.T) (*Manager, *captureClient, *gorm.DB, string) {
 	t.Helper()

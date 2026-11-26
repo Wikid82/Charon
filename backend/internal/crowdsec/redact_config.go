@@ -2,9 +2,9 @@ package crowdsec
 
 import (
 	"bytes"
-	"regexp"
 	"strings"
 
+	"github.com/Wikid82/charon/backend/internal/redact"
 	"gopkg.in/yaml.v3"
 )
 
@@ -22,55 +22,6 @@ func isConfigFile(slash string) bool {
 	return false
 }
 
-// credentialKeyNames are the key names whose scalar value is a credential wherever they appear (compared
-// case-insensitively).
-var credentialKeyNames = map[string]struct{}{
-	"password": {}, "passwd": {}, "pwd": {}, "passphrase": {}, "secret": {}, "token": {}, "api_key": {}, "apikey": {}, "private_key": {},
-	"authorization": {}, "bearer": {}, "psk": {}, "dsn": {}, "connection_string": {},
-}
-
-// credentialKeySuffixes and credentialKeyParts widen the exact names to compound ones such as db_password,
-// webhook_token or client_secret_key: a lower-cased key that ends in a suffix or contains a part is a credential.
-var (
-	credentialKeySuffixes = []string{
-		"password", "passwd", "secret", "token", "secret_key", "apikey", "api_key", "private_key",
-		"passphrase", "access_key", "signing_key", "encryption_key", "_pwd", "_psk", "_dsn", "_connection_string",
-	}
-	credentialKeyParts = []string{"_password", "_token"}
-)
-
-// benignKeySuffixes and benignKeyNames exclude keys that look like credentials but hold something else: where a
-// credential lives (a path, file or folder), or a limit. Without them a rule such as "contains _token" would
-// blank settings like token_path or tokens_per_minute.
-var (
-	benignKeySuffixes = []string{"_path", "_file", "_dir", "_folder", "_url", "_uri", "_ttl", "_len", "_length", "_count", "_per_minute", "_per_second", "_enabled", "_expiry", "_seconds", "_interval", "_timeout"}
-	benignKeyNames    = map[string]struct{}{"tokens_per_minute": {}, "tokens_per_second": {}, "max_tokens": {}}
-)
-
-// isCredentialLikeName reports whether a lower-cased key name is a compound credential name that the exact
-// list does not cover and that is not a known benign setting.
-func isCredentialLikeName(name string) bool {
-	if _, ok := benignKeyNames[name]; ok {
-		return false
-	}
-	for _, suffix := range benignKeySuffixes {
-		if strings.HasSuffix(name, suffix) {
-			return false
-		}
-	}
-	for _, suffix := range credentialKeySuffixes {
-		if strings.HasSuffix(name, suffix) {
-			return true
-		}
-	}
-	for _, part := range credentialKeyParts {
-		if strings.Contains(name, part) {
-			return true
-		}
-	}
-	return false
-}
-
 // credentialPaths are the keys that are credentials only below one parent (the dotted lower-case path of
 // the parent): the database user and the registration token. The other credential names of the database
 // block are covered by credentialKeyNames.
@@ -79,23 +30,17 @@ var credentialPaths = map[string][]string{
 	"api.server.auto_registration": {"token"},
 }
 
-// urlSchemePattern is the scheme syntax of RFC 3986.
-var urlSchemePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9+.-]*$`)
-
 // aliasSensitiveKeys are the key names that make an alias or merge target unsafe to leave unread: the
 // database user is a credential only by its path, which a shared node would hide.
 var aliasSensitiveKeys = map[string]struct{}{"user": {}, "db_config": {}}
 
 func isCredentialKey(parentPath, name string) bool {
-	if _, ok := credentialKeyNames[name]; ok {
-		return true
-	}
 	for _, k := range credentialPaths[parentPath] {
 		if k == name {
 			return true
 		}
 	}
-	return isCredentialLikeName(name)
+	return redact.IsCredentialKeyName(name)
 }
 
 // configRedactor blanks credential values of a configuration tree in place and counts them. Nothing is
@@ -286,26 +231,10 @@ func (c *configRedactor) urlPassword(n *yaml.Node) {
 	}
 }
 
-// redactURLPassword replaces the password in the userinfo of "scheme://user:password@host/..." with the
-// placeholder. It reports the new text and the password it removed; ok is false when v is not such a URL
-// or its password is empty, already the placeholder or an environment reference.
+// redactURLPassword replaces the password in the userinfo of a URL with the placeholder. An environment
+// reference or the placeholder itself is kept.
 func redactURLPassword(v string) (redacted, password string, ok bool) {
-	scheme, rest, found := strings.Cut(v, "://")
-	if !found || !urlSchemePattern.MatchString(scheme) {
-		return v, "", false
-	}
-	end := strings.IndexAny(rest, "/?#")
-	if end < 0 {
-		end = len(rest)
-	}
-	authority := rest[:end]
-	at := strings.LastIndex(authority, "@")
-	if at < 0 {
-		return v, "", false
-	}
-	user, password, hasPassword := strings.Cut(authority[:at], ":")
-	if !hasPassword || password == "" || password == RedactedPlaceholder || IsEnvReference(password) {
-		return v, "", false
-	}
-	return scheme + "://" + user + ":" + RedactedPlaceholder + authority[at:] + rest[end:], password, true
+	return redact.URLPassword(v, RedactedPlaceholder, func(p string) bool {
+		return p == RedactedPlaceholder || IsEnvReference(p)
+	})
 }
