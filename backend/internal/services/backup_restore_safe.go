@@ -407,6 +407,12 @@ func (s *BackupService) restoreBackupSafeLockedWithProgress(filename, passphrase
 		cancel()
 	}
 
+	// R0a: data fix-ups of the restored tables. They run only after a live rehydrate, the one time the restored rows are
+	// read in-process.
+	if rehydrated {
+		s.runRestoreFixups(result)
+	}
+
 	// R1: reload Caddy — it has its own snapshot/rollback, so this runs
 	// regardless of A2/F3's outcome (A1 already wrote the new Caddy/CrowdSec
 	// files to DataDir by this point), even in the unrecoverable case below.
@@ -745,4 +751,18 @@ func isSQLiteTransientRestoreError(err error) bool {
 		strings.Contains(message, "database table is locked") ||
 		strings.Contains(message, "table is locked") ||
 		strings.Contains(message, "resource busy")
+}
+
+// runRestoreFixups runs the registered restore fix-ups in order. A failure is reported as a warning; the rest still
+// run and the restore stands.
+func (s *BackupService) runRestoreFixups(result *RestoreResult) {
+	for _, fixup := range s.restoreFixups {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		err := fixup.run(ctx, s.db)
+		cancel()
+		if err != nil {
+			logger.Log().WithError(err).WithField("fixup", fixup.name).Error("A data fix-up could not run after the live restore")
+			result.Warnings = append(result.Warnings, "a data fix-up could not run after restore; it runs again at the next start")
+		}
+	}
 }

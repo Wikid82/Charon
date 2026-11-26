@@ -119,6 +119,12 @@ func runInitialUptimeBootstrap(enabled bool, uptimeService uptimeBootstrapServic
 	// (spec §3.1.5).
 }
 
+// clearApplyErrorText is the one-time clearing of stored proxy apply messages, used at start-up and as a restore fix-up.
+func clearApplyErrorText(ctx context.Context, db *gorm.DB) error {
+	_, err := services.ClearStoredApplyErrorText(ctx, db)
+	return err
+}
+
 // migrateViewerToPassthrough renames any legacy "viewer" roles to "passthrough".
 func migrateViewerToPassthrough(db *gorm.DB) {
 	result := db.Model(&models.User{}).Where("role = ?", "viewer").Update("role", string(models.RolePassthrough))
@@ -244,6 +250,11 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	// Create or update the schema first (shared with the server boot and the migrate command).
 	if err := MigrateSchema(db); err != nil {
 		return Registered{UptimeShutdown: uptimeShutdown}, err
+	}
+	// One-time clean-up of the message text that earlier builds stored with proxy apply results. A failure is logged and
+	// retried on the next start.
+	if err := clearApplyErrorText(context.Background(), db); err != nil {
+		logger.Log().WithError(err).Warn("Failed to clear stored proxy apply messages; retrying on next start")
 	}
 	// main.go runs the same carry-over fatally before the reconciliation. This second pass is cleanup of anything an
 	// older build wrote since, so a failure here is logged and the mode row is retried on the next start.
@@ -393,8 +404,9 @@ func RegisterWithDeps(ctx context.Context, router *gin.Engine, db *gorm.DB, cfg 
 	if _, err := backupRemoteService.MarkExistingInsecureWebDAV(ctx); err != nil {
 		logger.Log().WithError(err).Warn("Could not mark existing WebDAV backup targets as allowing unencrypted HTTP")
 	}
-	backupService.SetRemoteTargetRehydrator(backupRemoteService)         // re-applies the same backfill after a live restore
-	backupService.SetRemoteUploadHook(backupRemoteService.TriggerUpload) // spec §3.7
+	backupService.SetRemoteTargetRehydrator(backupRemoteService)                 // re-applies the same backfill after a live restore
+	backupService.AddRestoreFixup("caddy_apply_error_text", clearApplyErrorText) // a backup taken before the clean-up has its text cleared on restore
+	backupService.SetRemoteUploadHook(backupRemoteService.TriggerUpload)         // spec §3.7
 	if gate != nil {
 		// Scheduled backups wait (not dropped) while an optimization is pending.
 		// Set before Start() so no cron tick can miss it.
