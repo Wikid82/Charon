@@ -389,9 +389,9 @@ Charon checks new proxy settings with Caddy (the part of Charon that serves your
 
 ### What the Message Shows
 
-- Passwords and API tokens are replaced with `[redacted]`, so the message never shows them in full.
+- Passwords and API tokens are replaced with `[redacted]`.
 - Long messages are shortened.
-- Charon's own log (run `docker logs charon`) records each attempt to apply settings. Caddy's request lines are not written there.
+- Charon's own log (run `docker logs charon`) records each attempt to apply settings. Caddy's admin request lines are not written there after Charon applies its settings.
 
 ## Debugging Tips
 

@@ -27,7 +27,7 @@ func newFakeAdmin(t *testing.T, answer adminAnswer) *Client {
 		received, _ := io.ReadAll(r.Body)
 		status, text := answer(received)
 		w.WriteHeader(status)
-		_, _ = w.Write([]byte(text))
+		_, _ = w.Write([]byte(text)) // nosemgrep: go.net.xss.no-direct-write-to-responsewriter-taint.no-direct-write-to-responsewriter-taint -- test-only fake Caddy admin server (httptest.Server) answering the client under test with a fixed JSON or text fixture; read by the client, never rendered in a browser.
 	}))
 	t.Cleanup(server.Close)
 	return newTestClient(t, server.URL)
@@ -70,7 +70,7 @@ func TestLoadJSONRedactsTheTokenInTheAdminAnswer(t *testing.T) {
 
 func TestLoadJSONRedactsJSONEscapedAndGoQuotedValues(t *testing.T) {
 	t.Parallel()
-	const token = `FAKE"tok\en-0002`
+	const token = `FAKE"tok\en-0002` // #nosec G101 -- test fixture with a non-functional credential
 	body := loadBody(t, `{"name":"cloudflare","api_token":`+strconv.Quote(token)+`}`)
 	jsonForm := `FAKE\"tok\\en-0002`
 	client := newFakeAdmin(t, func([]byte) (int, string) {
