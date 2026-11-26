@@ -34,8 +34,9 @@ func TestGenerateConfig_AccessLogEncoderFiltersQueryToken(t *testing.T) {
 }
 
 // TestGenerateConfig_DefaultLogSkipsAccessEntries verifies Caddy's default log, which the container captures on
-// stdout/stderr, excludes access entries so raw request URIs never reach it. Its level and writer are left at
-// Caddy's defaults so runtime logging is unchanged.
+// stdout/stderr, excludes access entries so raw request URIs never reach it. It also excludes the admin API logger:
+// Charon logs every apply outcome itself, redacted, and Caddy's admin request errors quote the posted configuration.
+// Its level and writer are left at Caddy's defaults so runtime logging is unchanged.
 func TestGenerateConfig_DefaultLogSkipsAccessEntries(t *testing.T) {
 	t.Parallel()
 
@@ -49,5 +50,5 @@ func TestGenerateConfig_DefaultLogSkipsAccessEntries(t *testing.T) {
 
 	raw, err := json.Marshal(defaultLog)
 	require.NoError(t, err)
-	require.JSONEq(t, `{"level": "INFO", "exclude": ["http.log.access.access_log"]}`, string(raw))
+	require.JSONEq(t, `{"level": "INFO", "exclude": ["http.log.access.access_log", "admin.api"]}`, string(raw))
 }
