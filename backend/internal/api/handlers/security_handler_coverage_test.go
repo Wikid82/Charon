@@ -973,17 +973,17 @@ func TestEnableSecurityFramework_Helper(t *testing.T) {
 }
 
 func TestLatestConfigApplyState_Helper(t *testing.T) {
-	state := latestConfigApplyState(nil)
+	state := latestConfigApplyState(nil, true)
 	require.Equal(t, false, state["available"])
 
 	db := setupTestDB(t)
 	require.NoError(t, db.AutoMigrate(&models.CaddyConfig{}))
 
-	state = latestConfigApplyState(db)
+	state = latestConfigApplyState(db, true)
 	require.Equal(t, false, state["available"])
 
 	require.NoError(t, db.Create(&models.CaddyConfig{Success: true}).Error)
-	state = latestConfigApplyState(db)
+	state = latestConfigApplyState(db, true)
 	require.Equal(t, true, state["available"])
 	require.Equal(t, "applied", state["status"])
 }

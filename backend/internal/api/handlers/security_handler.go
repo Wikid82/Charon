@@ -225,7 +225,7 @@ func (h *SecurityHandler) GetStatus(c *gin.Context) {
 		"waf":          wafStatus,
 		"rate_limit":   rateLimitStatus,
 		"acl":          aclStatus,
-		"config_apply": latestConfigApplyState(h.db),
+		"config_apply": latestConfigApplyState(h.db, isAdmin(c)),
 	}
 	if status, ok := h.upstreamNameChecksStatus(); ok {
 		response["upstream_name_checks"] = status
@@ -260,7 +260,9 @@ func logStatusReadError(module string, err error) {
 	logger.Log().WithError(err).WithField("module", module).Warn("Failed to read security module setting for status, using the default SecurityConfig row or static configuration")
 }
 
-func latestConfigApplyState(db *gorm.DB) gin.H {
+// latestConfigApplyState reports the most recent proxy apply. The stored message is returned to administrators only,
+// because it can quote configuration text. Other callers get the outcome without the message.
+func latestConfigApplyState(db *gorm.DB, admin bool) gin.H {
 	state := gin.H{
 		"available": false,
 		"status":    "unknown",
@@ -273,9 +275,6 @@ func latestConfigApplyState(db *gorm.DB) gin.H {
 	var latest models.CaddyConfig
 	err := db.Order("applied_at desc").First(&latest).Error
 	if err != nil {
-		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return state
-		}
 		return state
 	}
 
@@ -288,7 +287,9 @@ func latestConfigApplyState(db *gorm.DB) gin.H {
 	state["status"] = status
 	state["success"] = latest.Success
 	state["applied_at"] = latest.AppliedAt
-	state["error_msg"] = latest.ErrorMsg
+	if admin {
+		state["error_msg"] = latest.ErrorMsg
+	}
 
 	return state
 }

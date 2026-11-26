@@ -95,10 +95,12 @@ func GenerateConfig(hosts []models.ProxyHost, storageDir, acmeEmail, frontendDir
 				},
 				// Caddy's default log writes to stderr, which the container captures. Access entries
 				// carry the raw request URI, so they are kept out of it and reach logs only through the
-				// filtered "access" log above. Every other runtime message keeps Caddy's default behavior.
+				// filtered "access" log above. Admin API request errors quote the posted configuration, so the
+				// admin.api logger is kept out too: Charon logs every apply outcome itself, with the values redacted.
+				// Every other runtime message keeps Caddy's default behavior.
 				"default": {
 					Level:   "INFO",
-					Exclude: []string{"http.log.access.access_log"},
+					Exclude: []string{"http.log.access.access_log", "admin.api"},
 				},
 			},
 		},

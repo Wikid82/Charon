@@ -125,28 +125,6 @@ func TestManager_Ping(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-func TestManager_GetCurrentConfig(t *testing.T) {
-	// Mock Caddy Admin API
-	caddyServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/config/" && r.Method == "GET" {
-			w.Header().Set("Content-Type", "application/json")
-			_, _ = w.Write([]byte(`{"apps": {"http": {}}}`))
-			return
-		}
-		w.WriteHeader(http.StatusNotFound)
-	}))
-	defer caddyServer.Close()
-
-	client := newTestClient(t, caddyServer.URL)
-	manager := NewManager(client, nil, "", "", false, config.SecurityConfig{})
-
-	cfg, err := manager.GetCurrentConfig(context.Background())
-	assert.NoError(t, err)
-	assert.NotNil(t, cfg)
-	assert.NotNil(t, cfg.Apps)
-	assert.NotNil(t, cfg.Apps.HTTP)
-}
-
 func TestManager_RotateSnapshots(t *testing.T) {
 	// Setup Manager
 	tmpDir := t.TempDir()

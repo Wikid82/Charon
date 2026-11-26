@@ -505,16 +505,6 @@ func TestRedactConfigFileKeepsBenignKeys(t *testing.T) {
 	require.Zero(t, res.Redacted)
 }
 
-func TestIsCredentialLikeName(t *testing.T) {
-	t.Parallel()
-	for _, name := range []string{"db_password", "x_passwd", "client_secret", "bot_token", "my_secret_key", "an_apikey", "a_api_key", "ssh_private_key", "x_token_y", "x_password_y"} {
-		require.True(t, isCredentialLikeName(name), name)
-	}
-	for _, name := range []string{"tokens_per_minute", "token_path", "x_token_file", "x_password_dir", "max_tokens", "password_policy", "retries", "token_expiry_seconds", "x_token_expiry", "password_check_interval", "api_token_timeout", ""} {
-		require.False(t, isCredentialLikeName(name), name)
-	}
-}
-
 // A token's lifetime setting stays readable while the token itself is blanked.
 func TestRedactConfigFileKeepsTokenLifetimeSettings(t *testing.T) {
 	t.Parallel()

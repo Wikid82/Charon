@@ -16,6 +16,7 @@ import (
 	charonconfig "github.com/Wikid82/charon/backend/internal/config"
 	"github.com/Wikid82/charon/backend/internal/logger"
 	"github.com/Wikid82/charon/backend/internal/network"
+	"github.com/Wikid82/charon/backend/internal/redact"
 	"github.com/Wikid82/charon/backend/internal/security"
 )
 
@@ -125,13 +126,47 @@ func (c *Client) Fetch(ctx context.Context, path string) ([]byte, error) {
 		return nil, fmt.Errorf("read response: %w", err)
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("caddy returned status %d: %s", resp.StatusCode, string(body))
+		return nil, newAdminError(resp.StatusCode, body, nil)
 	}
 	return body, nil
 }
 
 // maxFetchBytes bounds the body Fetch reads. A generated Caddy config is far smaller.
 const maxFetchBytes = 64 << 20
+
+// maxAdminErrorRead bounds how much of an error answer from the admin API is read.
+const maxAdminErrorRead = 64 << 10
+
+// maxAdminErrorText bounds the message kept in an AdminError.
+const maxAdminErrorText = 2 << 10
+
+// AdminError is a non-200 answer from Caddy's admin API. Message is Caddy's own message with credential values
+// replaced and cut to maxAdminErrorText. Caddy quotes the configuration in its errors, so the message is never
+// the raw answer.
+type AdminError struct {
+	Status  int
+	Message string
+}
+
+func (e *AdminError) Error() string {
+	return fmt.Sprintf("caddy returned status %d: %s", e.Status, e.Message)
+}
+
+// newAdminError builds the error for a non-200 answer. answer is the part of the body already read (at most
+// maxAdminErrorRead bytes). sent is the JSON config the client posted, whose credential values are removed from
+// the message; it is nil for requests without a body. The message is the "error" field of a JSON object answer
+// when there is one, otherwise the raw text. Redaction runs before the cut, so a value is never shown partly.
+func newAdminError(status int, answer, sent []byte) *AdminError {
+	msg := string(answer)
+	var doc struct {
+		Error string `json:"error"`
+	}
+	if err := json.Unmarshal(answer, &doc); err == nil && doc.Error != "" {
+		msg = doc.Error
+	}
+	msg = redact.Text(msg, configSecretValues(sent))
+	return &AdminError{Status: status, Message: redact.Truncate(msg, maxAdminErrorText)}
+}
 
 func (c *Client) endpoint(path string) (string, error) {
 	if c.initErr != nil {
@@ -181,46 +216,11 @@ func (c *Client) LoadJSON(ctx context.Context, body []byte) error {
 	}()
 
 	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("caddy returned status %d: %s", resp.StatusCode, string(bodyBytes))
+		answer, _ := io.ReadAll(io.LimitReader(resp.Body, maxAdminErrorRead))
+		return newAdminError(resp.StatusCode, answer, body)
 	}
 
 	return nil
-}
-
-// GetConfig retrieves the current running configuration from Caddy.
-func (c *Client) GetConfig(ctx context.Context) (*Config, error) {
-	urlStr, err := c.endpoint("/config/")
-	if err != nil {
-		return nil, err
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, urlStr, http.NoBody)
-	if err != nil {
-		return nil, fmt.Errorf("create request: %w", err)
-	}
-
-	resp, err := c.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("execute request: %w", err)
-	}
-	defer func() {
-		if err := resp.Body.Close(); err != nil {
-			logger.Log().WithError(err).Warn("Failed to close response body")
-		}
-	}()
-
-	if resp.StatusCode != http.StatusOK {
-		bodyBytes, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("caddy returned status %d: %s", resp.StatusCode, string(bodyBytes))
-	}
-
-	var config Config
-	if err := json.NewDecoder(resp.Body).Decode(&config); err != nil {
-		return nil, fmt.Errorf("decode response: %w", err)
-	}
-
-	return &config, nil
 }
 
 // Ping checks if Caddy admin API is reachable.
