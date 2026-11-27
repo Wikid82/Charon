@@ -90,6 +90,7 @@
     "@vitest/ui": "^5.1.2",
     "audit-ci": "^7.1.0",
     "eslint": "^10.15.0",
+    "eslint-config-prettier": "^10.1.9",
     "eslint-formatter-compact": "^9.0.1",
     "eslint-import-resolver-typescript": "^4.4.5",
     "eslint-plugin-i18n-json": "^4.0.1",

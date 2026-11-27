@@ -41,5 +41,5 @@ for (( i=0; i<${#NPM_MODULES[@]}; i++ )); do
         npm pkg set "overrides.$PLUGIN.$PACKAGE=${PREFIX}${LATEST}"
     done
     rm -rf node_modules package-lock.json
-    npm install eslint --save-dev
+    npm install eslint eslint-config-prettier --save-dev
 done
