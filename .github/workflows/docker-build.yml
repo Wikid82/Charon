@@ -97,6 +97,9 @@ jobs:
     timeout-minutes: 5
     permissions:
       contents: read
+      # Needed by the early toolchain-pin gate (verify-toolchain-pin) to read the
+      # prebuilt toolchain image tag from GHCR. Read-only.
+      packages: read
     outputs:
       skip_build: ${{ steps.skip.outputs.skip_build }}
       is_feature_push: ${{ steps.skip.outputs.is_feature_push }}
@@ -124,6 +127,22 @@ jobs:
           persist-credentials: false
           ref: ${{ env.TRIGGER_HEAD_SHA }}
           fetch-depth: 0
+      # Fail-fast freshness gate for the prebuilt toolchain pin. Runs before any
+      # build job so a stale Dockerfile TAG/DIGEST fails in seconds instead of
+      # after the per-arch builds have finished. Same script and same pinned
+      # regctl as the quality-checks.yml `verify-toolchain-pin` required check.
+      - name: Install regctl
+        uses: iarekylew00t/regctl-installer@fc03facb7a858d44637c8823b7f0db3c26b0658e # v4.0.17
+        with:
+          # Explicit release (not the action's `latest` default), matching quality-checks.yml.
+          regctl-release: v0.11.6
+      - name: Verify pinned toolchain image matches the recipe
+        env:
+          GHCR_READ_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          GITHUB_EVENT_PULL_REQUEST_HEAD_REPO_FULL_NAME: ${{ github.event.pull_request.head.repo.full_name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: bash scripts/verify-toolchain-pin.sh
       - name: Normalize image name
         run: |
           IMAGE_NAME=$(echo "${{ env.IMAGE_NAME }}" | tr '[:upper:]' '[:lower:]')
@@ -531,7 +550,8 @@ jobs:
   # identical to docker/build-push-action's equivalent inputs). The Caddy/CrowdSec
   # compile lives in the digest-pinned, daily-rebuilt-and-scanned toolchain image
   # now, so normal type=gha layer caching is authoritative for every stage; pin
-  # freshness is enforced per-PR by scripts/verify-toolchain-pin.sh.
+  # freshness is enforced before any build starts by the `setup` job's
+  # "Verify pinned toolchain image" step (scripts/verify-toolchain-pin.sh).
   build-amd64:
     needs: setup
     # An explicit job-level `if:` REPLACES (does not append to) the implicit
@@ -1078,23 +1098,6 @@ jobs:
           name: ${{ env.TRIGGER_EVENT == 'pull_request' && format('pr-image-{0}', env.TRIGGER_PR_NUMBER) || 'push-image' }}
           path: /tmp/charon-pr-image.tar
           retention-days: 1  # Only needed for workflow duration
-
-      - name: Verify pinned toolchain image matches the recipe (N5)
-        run: |
-          set -euo pipefail
-          KEY="$(bash scripts/toolchain-key.sh)"
-          PIN_IMG="$(grep -E '^ARG CHARON_TOOLCHAIN_IMAGE=' Dockerfile | cut -d= -f2)"
-          PIN_DIGEST="$(grep -E '^ARG CHARON_TOOLCHAIN_DIGEST=' Dockerfile | cut -d= -f2)"
-          echo "recomputed recipe key : $KEY"
-          echo "pinned image          : ${PIN_IMG}@${PIN_DIGEST}"
-          docker pull "${PIN_IMG}@${PIN_DIGEST}"
-          LABEL_KEY="$(docker inspect --format '{{ index .Config.Labels "io.charon.toolchain.key" }}' "${PIN_IMG}@${PIN_DIGEST}")"
-          echo "toolchain image label : ${LABEL_KEY:-<none>}"
-          if [ "$LABEL_KEY" != "$KEY" ]; then
-            echo "::error::Pinned toolchain image label ('${LABEL_KEY}') != recomputed recipe key ('${KEY}') — the Dockerfile digest pin is stale or hand-edited."
-            exit 1
-          fi
-          echo "✅ Pinned toolchain image matches the current recipe."
 
       - name: Verify Caddy Security Patches (CVE-2025-68156)
         timeout-minutes: 2

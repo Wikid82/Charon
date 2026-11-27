@@ -1547,7 +1547,9 @@ image build. Instead:
   digest-pinned `golang`/`xx` bases + a `SCHEMA_VERSION`. Scan ignore lists
   (`.trivyignore`, `.grype.yaml`) are intentionally **not** inputs: they are
   scan-time filters that never change the image bytes. `scripts/verify-toolchain-pin.sh` runs on
-  every PR (required check) and is **failure-closed** on trusted same-repo runs:
+  every PR (required check in `quality-checks.yml`), on every `docker-build.yml`
+  run (the `setup` job, before any build starts, so a stale pin fails in seconds),
+  and is **failure-closed** on trusted same-repo runs:
   it fails if the Dockerfile's pinned tag/digest is stale for the current
   recipe. When the daily rebuild produces a new digest, a bot opens
   `bot/bump-toolchain-image` (base `development`).

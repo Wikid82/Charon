@@ -43,7 +43,8 @@ provenance/SBOM attestations (in `docker-build.yml`) are separate and unaffected
 
 Pull requests that change the toolchain recipe (the `pull_request` paths in
 `toolchain-image.yml`) publish the toolchain image. This is deliberate. Publishing from the PR lets the
-required pin check (`scripts/verify-toolchain-pin.sh`) confirm the digest, and
+required pin check (`scripts/verify-toolchain-pin.sh`, also run in the `setup`
+job of `docker-build.yml` right after checkout) confirm the digest, and
 lets `sync-pin-on-pr` commit the new digest back to the PR branch, so the pin
 change is reviewed with the recipe change.
 
