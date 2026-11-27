@@ -1013,12 +1013,8 @@ WORKDIR /app
 # Note: gosu is now built from source (see gosu-builder stage) to avoid CVEs from Debian's pre-compiled version
 # Explicitly upgrade packages to fix security vulnerabilities
 #
-# libxml2 carries open CVEs with no upstream fix as of 2.13.9-r2. It is declared as a
-# minimum-version floor (`>=`) so builds always pull the newest Alpine package, and the
-# floor itself is bumped by Renovate (repology, Alpine v3.24 repo) the moment a patched
-# release is published. The `alpine_3_24` repo in depName must follow the ALPINE_IMAGE branch.
 # renovate: datasource=repology depName=alpine_3_24/libxml2 versioning=loose
-ARG LIBXML2_VERSION=2.13.9-r3
+ARG LIBXML2_VERSION=2.13.9-r5
 #
 # zlib: exact-version pin is declared globally (ZLIB_VERSION, top of file) and shared with
 # the toolchain-runtime stage.
