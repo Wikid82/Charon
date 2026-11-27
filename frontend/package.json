@@ -89,7 +89,7 @@
     "@vitest/eslint-plugin": "^1.6.28",
     "@vitest/ui": "^5.1.2",
     "audit-ci": "^7.1.0",
-    "eslint": "^10.15.0",
+    "eslint": "^10.16.0",
     "eslint-config-prettier": "^10.1.9",
     "eslint-formatter-compact": "^9.0.1",
     "eslint-import-resolver-typescript": "^4.4.5",
@@ -121,13 +121,13 @@
   },
   "overrides": {
     "eslint-plugin-react-hooks": {
-      "eslint": "^10.15.0"
+      "eslint": "^10.16.0"
     },
     "eslint-plugin-jsx-a11y": {
-      "eslint": "^10.15.0"
+      "eslint": "^10.16.0"
     },
     "eslint-plugin-promise": {
-      "eslint": "^10.15.0"
+      "eslint": "^10.16.0"
     },
     "@vitejs/plugin-react": {
       "vite": "^8.4.0"

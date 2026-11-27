@@ -34,7 +34,7 @@
     "@typescript/native": "npm:typescript@^7.1.0-dev.20261127.1",
     "audit-ci": "^7.1.0",
     "dotenv": "^18.0.10",
-    "eslint": "^10.15.0",
+    "eslint": "^10.16.0",
     "eslint-config-prettier": "^10.1.9",
     "eslint-plugin-playwright": "^2.12.2",
     "knip": "^6.48.0",
