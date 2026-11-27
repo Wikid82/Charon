@@ -41,6 +41,7 @@ ARG ALPINE_IMAGE=alpine:3.24.4@sha256:f59abe656b692d901e184be3445e08478660210859
 # from the Alpine base layer (`apk upgrade` alone left Aikido flagging it). Consumed by BOTH
 # the final runtime stage and the toolchain-runtime stage (scanned separately as
 # ghcr.io/wikid82/charon-toolchain) so the two never drift.
+# ZLIB_VERSION feeds scripts/toolchain-key.sh, so a bump rebuilds the prebuilt toolchain image.
 # renovate: datasource=apk depName=zlib versioning=loose
 ARG ZLIB_VERSION=1.4-r0
 

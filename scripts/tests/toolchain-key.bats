@@ -9,6 +9,8 @@
 #   * changes when the tonistiigi/xx pin moves
 #   * changes when the ALPINE_IMAGE pin moves
 #   * changes when the shared MUSL_VERSION floor moves
+#   * changes when the shared ZLIB_VERSION pin moves (GitHub #2083)
+#   * changes when the toolchain-runtime stage body changes (GitHub #2083)
 #   * does NOT change when .trivyignore changes (scan-time filter, not an input)
 #   * works when no .trivyignore file exists (it is not a required input)
 #   * fails loudly if stage extraction breaks
@@ -98,6 +100,22 @@ key_of() { bash "$TF_ROOT/scripts/toolchain-key.sh" "$TF_DF"; }
   [ "$before" != "$after" ]
 }
 
+@test "changes when the shared ZLIB_VERSION pin is bumped" {
+  before="$(key_of)"
+  export TF_ZLIB_VERSION=1.4-r1
+  tf_write_dockerfile
+  after="$(key_of)"
+  [ "$before" != "$after" ]
+}
+
+@test "changes when the toolchain-runtime stage body changes" {
+  before="$(key_of)"
+  export TF_RUNTIME_APK_LINE='RUN apk add --no-cache --upgrade "zlib=${ZLIB_VERSION}" "musl>=${MUSL_VERSION}" "musl-utils>=${MUSL_VERSION}"'
+  tf_write_dockerfile
+  after="$(key_of)"
+  [ "$before" != "$after" ]
+}
+
 @test "stable when the tonistiigi/xx and ALPINE_IMAGE pins are re-emitted unchanged" {
   before="$(key_of)"
   # Re-write the fixture with the exact same (default) xx / alpine pins.
@@ -142,6 +160,13 @@ key_of() { bash "$TF_ROOT/scripts/toolchain-key.sh" "$TF_DF"; }
   run key_of
   [ "$status" -ne 0 ]
   [[ "$output" == *"caddy-inline"* ]]
+}
+
+@test "fails loudly when the toolchain-runtime stage is missing" {
+  sed -i 's/ AS toolchain-runtime/ AS toolchain-scratch/' "$TF_DF"
+  run key_of
+  [ "$status" -ne 0 ]
+  [[ "$output" == *"toolchain-runtime"* ]]
 }
 
 @test "fails loudly when stage extraction is truncated to a stub" {

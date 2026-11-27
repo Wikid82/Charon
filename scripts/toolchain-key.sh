@@ -9,18 +9,21 @@
 # The tag is a SHA-256 over every security-relevant toolchain input:
 #   1. the exact text of the `caddy-inline` Dockerfile stage
 #   2. the exact text of the `crowdsec-inline` Dockerfile stage
-#   3. the resolved default values of every version ARG the two stages consume
+#   3. the exact text of the `toolchain-runtime` stage (the image actually
+#      published as ghcr.io/wikid82/charon-toolchain)
+#   4. the resolved default values of every version ARG the stages consume
 #      (including the pinned xcaddy plugins, B4 — 2 security/observability
 #      plugins plus the 27 caddy-dns/* DNS-01 provider modules and 2 forced
-#      transitive libdns/* pins, GitHub #1361) and the shared musl floor
-#      (MUSL_VERSION)
-#   4. the `tonistiigi/xx` pin line (the digest-pinned golang builder base is
-#      the GOLANG_IMAGE ARG, covered by item 3) (N4)
-#   5. a SCHEMA_VERSION constant (bump to force a global rebuild if this
+#      transitive libdns/* pins, GitHub #1361), the shared musl floor
+#      (MUSL_VERSION) and the shared zlib pin (ZLIB_VERSION) that
+#      toolchain-runtime installs
+#   5. the `tonistiigi/xx` pin line (the digest-pinned golang builder base is
+#      the GOLANG_IMAGE ARG, covered by item 4) (N4)
+#   6. a SCHEMA_VERSION constant (bump to force a global rebuild if this
 #      extraction logic itself changes)
 #
 # Because the stage *bodies* only interpolate ${ARG}, a bump to e.g. CADDY_VERSION
-# would not change (1)/(2); (3) is what makes such a bump change the key.
+# would not change (1)-(3); (4) is what makes such a bump change the key.
 #
 # Scan ignore lists (.trivyignore, .grype.yaml) are intentionally NOT inputs:
 # they are scan-time filters applied by the Trivy/Grype gates to an already
@@ -41,7 +44,9 @@ set -euo pipefail
 # force a toolchain rebuild or a pin bump.
 # rev-5: added MUSL_VERSION (the shared musl floor CrowdSec is CGO-linked against)
 # to the hashed input set.
-SCHEMA_VERSION=5
+# rev-6: added the `toolchain-runtime` stage body and ZLIB_VERSION (the zlib pin
+# that stage installs) to the hashed input set (GitHub #2083).
+SCHEMA_VERSION=6
 
 df="${1:-Dockerfile}"
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -56,6 +61,9 @@ fi
 
 caddy_stage="$(extract_stage caddy-inline "$df")"
 crowdsec_stage="$(extract_stage crowdsec-inline "$df")"
+# toolchain-runtime has no build step, so it skips the sanity loop below;
+# extract_stage still fails loudly (exit 3) if the stage is missing.
+runtime_stage="$(extract_stage toolchain-runtime "$df")"
 
 # Sanity: each stage must be non-trivial and actually build a binary. Guards
 # against a future edit that removes a stage or breaks extraction (spec §3.10).
@@ -70,13 +78,14 @@ for pair in "caddy-inline:$caddy_stage" "crowdsec-inline:$crowdsec_stage"; do
 done
 
 # ARG names whose default values feed the key. Keep in sync with spec §2.2 / §3.4.2.
-arg_re='^ARG (GOLANG_IMAGE|ALPINE_IMAGE|CROWDSEC_VERSION|EXPR_LANG_VERSION|XNET_VERSION|XCRYPTO_VERSION|XMOD_VERSION|KLAUSPOST_COMPRESS_VERSION|GRPC_VERSION|CADDY_VERSION|CADDY_PATCH_SCENARIO|CADDY_SECURITY_VERSION|CORAZA_CADDY_VERSION|CADDY_GEOIP2_VERSION|CADDY_RATELIMIT_VERSION|CADDY_DNS_CLOUDFLARE_VERSION|CADDY_DNS_ROUTE53_VERSION|CADDY_DNS_DIGITALOCEAN_VERSION|CADDY_DNS_GOOGLECLOUDDNS_VERSION|CADDY_DNS_AZURE_VERSION|CADDY_DNS_NAMECHEAP_VERSION|CADDY_DNS_GODADDY_VERSION|CADDY_DNS_HETZNER_VERSION|CADDY_DNS_VULTR_VERSION|CADDY_DNS_DNSIMPLE_VERSION|CADDY_DNS_OVH_VERSION|CADDY_DNS_GANDI_VERSION|CADDY_DNS_LINODE_VERSION|CADDY_DNS_PORKBUN_VERSION|CADDY_DNS_NETLIFY_VERSION|CADDY_DNS_DESEC_VERSION|CADDY_DNS_SCALEWAY_VERSION|CADDY_DNS_DUCKDNS_VERSION|CADDY_DNS_DNSMADEEASY_VERSION|CADDY_DNS_NAMEDOTCOM_VERSION|CADDY_DNS_NAMESILO_VERSION|CADDY_DNS_RFC2136_VERSION|CADDY_DNS_POWERDNS_VERSION|CADDY_DNS_INWX_VERSION|CADDY_DNS_LOOPIA_VERSION|CADDY_DNS_BUNNY_VERSION|CADDY_DNS_VERCEL_VERSION|LIBDNS_NAMEDOTCOM_VERSION|LIBDNS_VERCEL_VERSION|CADDY_DNS_DNSIMPLE_GO_VERSION|MUSL_VERSION)='
+arg_re='^ARG (GOLANG_IMAGE|ALPINE_IMAGE|CROWDSEC_VERSION|EXPR_LANG_VERSION|XNET_VERSION|XCRYPTO_VERSION|XMOD_VERSION|KLAUSPOST_COMPRESS_VERSION|GRPC_VERSION|CADDY_VERSION|CADDY_PATCH_SCENARIO|CADDY_SECURITY_VERSION|CORAZA_CADDY_VERSION|CADDY_GEOIP2_VERSION|CADDY_RATELIMIT_VERSION|CADDY_DNS_CLOUDFLARE_VERSION|CADDY_DNS_ROUTE53_VERSION|CADDY_DNS_DIGITALOCEAN_VERSION|CADDY_DNS_GOOGLECLOUDDNS_VERSION|CADDY_DNS_AZURE_VERSION|CADDY_DNS_NAMECHEAP_VERSION|CADDY_DNS_GODADDY_VERSION|CADDY_DNS_HETZNER_VERSION|CADDY_DNS_VULTR_VERSION|CADDY_DNS_DNSIMPLE_VERSION|CADDY_DNS_OVH_VERSION|CADDY_DNS_GANDI_VERSION|CADDY_DNS_LINODE_VERSION|CADDY_DNS_PORKBUN_VERSION|CADDY_DNS_NETLIFY_VERSION|CADDY_DNS_DESEC_VERSION|CADDY_DNS_SCALEWAY_VERSION|CADDY_DNS_DUCKDNS_VERSION|CADDY_DNS_DNSMADEEASY_VERSION|CADDY_DNS_NAMEDOTCOM_VERSION|CADDY_DNS_NAMESILO_VERSION|CADDY_DNS_RFC2136_VERSION|CADDY_DNS_POWERDNS_VERSION|CADDY_DNS_INWX_VERSION|CADDY_DNS_LOOPIA_VERSION|CADDY_DNS_BUNNY_VERSION|CADDY_DNS_VERCEL_VERSION|LIBDNS_NAMEDOTCOM_VERSION|LIBDNS_VERCEL_VERSION|CADDY_DNS_DNSIMPLE_GO_VERSION|MUSL_VERSION|ZLIB_VERSION)='
 
 key="$(
   {
     echo "schema=$SCHEMA_VERSION"
     printf '%s\n' "$caddy_stage"
     printf '%s\n' "$crowdsec_stage"
+    printf '%s\n' "$runtime_stage"
     grep -E "$arg_re" "$df"
     grep -E 'tonistiigi/xx:' "$df"
   } | sha256sum | cut -c1-16

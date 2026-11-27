@@ -47,6 +47,8 @@ tf_write_dockerfile() {
   local alpine_image="${TF_ALPINE_IMAGE:-alpine:3.24.1@sha256:28bd5fe8b56d1bd048e5babf5b10710ebe0bae67db86916198a6eec434943f8b}"
   local xx_pin="${TF_XX_PIN:-tonistiigi/xx:1.9.0@sha256:c64defb9ed5a91eacb37f96ccc3d4cd72521c4bd18d5442905b95e2226b0e707}"
   local musl_version="${TF_MUSL_VERSION:-1.2.6-r3}"
+  local zlib_version="${TF_ZLIB_VERSION:-1.4-r0}"
+  local runtime_apk_line="${TF_RUNTIME_APK_LINE:-RUN apk add --no-cache --upgrade \"zlib=\${ZLIB_VERSION}\" \"musl>=\${MUSL_VERSION}\"}"
 
   cat > "$TF_DF" <<EOF
 # syntax=docker/dockerfile:1
@@ -59,6 +61,7 @@ ARG XCRYPTO_VERSION=0.56.0
 ARG KLAUSPOST_COMPRESS_VERSION=1.20.0
 ARG GRPC_VERSION=1.83.1
 ARG MUSL_VERSION=${musl_version}
+ARG ZLIB_VERSION=${zlib_version}
 ARG CADDY_VERSION=${caddy_version}
 ARG CADDY_PATCH_SCENARIO=B
 ARG CADDY_SECURITY_VERSION=1.1.64
@@ -129,6 +132,9 @@ RUN --mount=type=cache,target=/go/pkg/mod \\
 RUN mkdir -p /crowdsec-out/config && cp -r config/* /crowdsec-out/config/ || true
 
 FROM \${ALPINE_IMAGE} AS toolchain-runtime
+ARG ZLIB_VERSION
+ARG MUSL_VERSION
+${runtime_apk_line}
 COPY --from=caddy-inline    /usr/bin/caddy         /usr/bin/caddy
 COPY --from=crowdsec-inline /crowdsec-out/crowdsec /crowdsec-out/crowdsec
 
