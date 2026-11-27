@@ -145,7 +145,7 @@ ARG CADDY_DNS_DIGITALOCEAN_VERSION=0.0.0-20250606074528-04bde2867106
 # renovate: datasource=go depName=github.com/caddy-dns/googleclouddns
 ARG CADDY_DNS_GOOGLECLOUDDNS_VERSION=1.1.0
 # renovate: datasource=go depName=github.com/caddy-dns/azure
-ARG CADDY_DNS_AZURE_VERSION=0.6.0
+ARG CADDY_DNS_AZURE_VERSION=0.7.0
 # renovate: datasource=go depName=github.com/caddy-dns/namecheap
 ARG CADDY_DNS_NAMECHEAP_VERSION=1.0.0
 # renovate: datasource=go depName=github.com/caddy-dns/godaddy
